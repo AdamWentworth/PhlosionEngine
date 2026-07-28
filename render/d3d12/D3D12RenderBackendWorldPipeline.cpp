@@ -259,6 +259,19 @@ float4 sampleLgpeFieldTreeTexture(Texture2D tex, float2 uv) {
   // The shared sampler contributes -0.35; the source material requests zero.
   return tex.SampleBias(gSampRR, uv, 0.35f);
 }
+float4 sampleLgpeFieldGrassRepeat(
+    Texture2D tex,
+    float2 uv,
+    float sourceMipBias) {
+  // The shared sampler contributes -0.35; preserve the source material bias.
+  return tex.SampleBias(gSampRR, uv, sourceMipBias + 0.35f);
+}
+float4 sampleLgpeFieldGrassClamp(
+    Texture2D tex,
+    float2 uv,
+    float sourceMipBias) {
+  return tex.SampleBias(gSampCC, uv, sourceMipBias + 0.35f);
+}
 float3 evaluateLgpeFieldGroundSurface(PSIn i) {
   float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
   float2 blendUv = float2(i.uv.x * 0.3f, 1.0f - i.uv.y * 0.3f);
@@ -470,6 +483,95 @@ float4 evaluateLgpeFieldTree02Surface(PSIn i) {
   // source matrix/depth state is represented by the world renderer.
   float3 lighting = lerp(shadowColor, 1.0f.xxx, toon);
   return float4(lighting * tinted, texture01.a);
+}
+
+float4 evaluateLgpeFieldGrassSurface(PSIn i, bool withRim) {
+  float sourceMipBias = uMaterialFlipbook0Fps;
+  float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
+  float2 uv1 =
+      float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
+  float2 blendUv =
+      float2(i.uv.x * 0.3f, 1.0f - i.uv.y * 0.3f);
+  float4 textureMap01 =
+      sampleLgpeFieldGrassRepeat(gTex, uv1, sourceMipBias);
+  if (textureMap01.a <= saturate(uAlphaCutoff)) discard;
+  float3 textureMap02 =
+      sampleLgpeFieldGrassRepeat(
+          gNormalTex,
+          uv0,
+          sourceMipBias).rgb;
+  float3 greenHikari =
+      sampleLgpeFieldGrassRepeat(
+          gMetallicRoughnessTex,
+          uv0,
+          sourceMipBias).rgb;
+  float greenBlend = saturate(
+      sampleLgpeFieldGrassRepeat(
+          gOcclusionTex,
+          blendUv,
+          sourceMipBias).r);
+  float highlight = saturate(
+      sampleLgpeFieldGrassRepeat(
+          gEmissiveTex,
+          uv1,
+          sourceMipBias).r);
+  float3 normal = normalize(i.worldNormal);
+  const float3 sourceSunRay =
+      float3(0.5533391237f, 0.2078260481f, -0.8066127300f);
+  float normalDotLight = dot(normal, -sourceSunRay);
+  float toonCoordinate = normalDotLight * 0.5f + 0.5f;
+  float toon = saturate(
+      sampleLgpeFieldGrassClamp(
+          gEnvTex,
+          float2(toonCoordinate, 1.0f - toonCoordinate),
+          sourceMipBias).r);
+  float3 sourceColor =
+      float3(
+          uVertexColorMulR,
+          uVertexColorMulG,
+          uVertexColorMulB);
+  float3 decoration =
+      lerp(greenHikari, textureMap02, greenBlend);
+  float3 surface =
+      textureMap01.rgb * i.col.rgb *
+      (decoration + sourceColor * (1.0f - highlight));
+  if (withRim) {
+    float3 cameraPos =
+        float3(uMaterialRect1V, uMaterialRect1W, uMaterialRect1H);
+    float3 viewDirection = normalize(cameraPos - i.worldPos);
+    float edge = saturate(1.0f - dot(normal, viewDirection));
+    float rimMin = uMaterialTimeSec;
+    float rimMax = uMaterialFlags;
+    float rimSpan = max(rimMax, rimMin) - rimMin;
+    float rim = rimSpan > 0.0f
+        ? saturate((edge - rimMin) / rimSpan) *
+              uMaterialAtlasWidth
+        : 0.0f;
+    float3 rimColor =
+        float3(
+            uMaterialAtlasHeight,
+            uMaterialRect0U,
+            uMaterialRect0V);
+    surface += rimColor * rim;
+  }
+  float3 shadowColor =
+      float3(
+          uMaterialRect0W,
+          uMaterialRect0H,
+          uMaterialRect1U);
+  float3 result = lerp(shadowColor, 1.0f.xxx, toon) * surface;
+  float alpha = textureMap01.a;
+  if (!withRim) {
+    float3 onGameColor =
+        float3(
+            uMaterialTimeSec,
+            uMaterialFlags,
+            uMaterialAtlasWidth);
+    float onGameValue = saturate(uMaterialAtlasHeight);
+    result *= lerp(1.0f.xxx, onGameColor, onGameValue);
+    alpha *= saturate(uMaterialRect0U);
+  }
+  return float4(result, alpha);
 }
 
 float4 evaluateLgpeFieldObjectTreeMikiSurface(PSIn i) {
@@ -1111,6 +1213,26 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         1.0f,
         treeExposure);
     return float4(linearToSrgb(treeMapped), treeSurface.a);
+  }
+  if (uMaterialMode > 8.5f && uMaterialMode < 9.5f) {
+    const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+    float4 grassSurface =
+        evaluateLgpeFieldGrassSurface(i, false);
+    float3 grassMapped = applyViewerToneMapping(
+        max(grassSurface.rgb, float3(0.0f, 0.0f, 0.0f)),
+        1.0f,
+        grassExposure);
+    return float4(linearToSrgb(grassMapped), grassSurface.a);
+  }
+  if (uMaterialMode > 9.5f && uMaterialMode < 10.5f) {
+    const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+    float4 grassSurface =
+        evaluateLgpeFieldGrassSurface(i, true);
+    float3 grassMapped = applyViewerToneMapping(
+        max(grassSurface.rgb, float3(0.0f, 0.0f, 0.0f)),
+        1.0f,
+        grassExposure);
+    return float4(linearToSrgb(grassMapped), grassSurface.a);
   }
   float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
   float3 outLinear = saturate(i.col.rgb * float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB));

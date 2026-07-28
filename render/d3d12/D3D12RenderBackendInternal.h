@@ -291,6 +291,25 @@ inline WorldPsConstants makeWorldPsConstants(const IRenderBackend::WorldTextureD
             constants.materialFlipbook1Cols = textureData->cameraPosX;
             constants.materialFlipbook1Rows = textureData->cameraPosY;
             constants.materialFlipbook1Frames = textureData->cameraPosZ;
+        } else if (textureData->materialMode == 9u ||
+                   textureData->materialMode == 10u) {
+            // FieldGrassShader02/01 typed payload. The vertex color multiplier
+            // slots carry source Color; authored vertex/instance color is
+            // already present in the interpolated shader input.
+            constants.vertexColorMulR = textureData->normalScale;
+            constants.vertexColorMulG = textureData->metallicFactor;
+            constants.vertexColorMulB = textureData->roughnessFactor;
+            constants.vertexColorMulA = 1.0f;
+            constants.materialFlags = textureData->materialFlags;
+            constants.materialAtlasWidth = textureData->materialAtlasWidth;
+            constants.materialAtlasHeight = textureData->materialAtlasHeight;
+            constants.materialRect0U = textureData->materialRect0U;
+            constants.materialRect0V = textureData->materialRect0V;
+            constants.materialRect0W = textureData->emissiveFactorR;
+            constants.materialRect0H = textureData->emissiveFactorG;
+            constants.materialRect1U = textureData->emissiveFactorB;
+            constants.materialFlipbook0Fps =
+                textureData->materialFlipbook0Fps;
         }
     }
 

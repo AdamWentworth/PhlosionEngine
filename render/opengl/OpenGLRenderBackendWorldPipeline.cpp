@@ -707,6 +707,98 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 mix(shadowColor, vec3(1.0), toon);
             return vec4(lighting * tinted, texture01.a);
         }
+        vec4 evaluateLgpeFieldGrassSurface(bool withRim) {
+            float sourceMipBias = uMaterialFlipbook0.w;
+            vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
+            vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
+            vec2 blendUv =
+                vec2(vUv.x * 0.3, 1.0 - vUv.y * 0.3);
+            vec4 textureMap01 =
+                texture(uTexture, uv1, sourceMipBias);
+            if (textureMap01.a <= clamp(uAlphaCutoff, 0.0, 1.0)) {
+                discard;
+            }
+            vec3 textureMap02 =
+                texture(uNormalTexture, uv0, sourceMipBias).rgb;
+            vec3 greenHikari =
+                texture(
+                    uMetallicRoughnessTexture,
+                    uv0,
+                    sourceMipBias).rgb;
+            float greenBlend = clamp(
+                texture(
+                    uOcclusionTexture,
+                    blendUv,
+                    sourceMipBias).r,
+                0.0,
+                1.0);
+            float highlight = clamp(
+                texture(
+                    uEmissiveTexture,
+                    uv1,
+                    sourceMipBias).r,
+                0.0,
+                1.0);
+            vec3 normal = normalize(vWorldNormal);
+            const vec3 sourceSunRay =
+                vec3(0.5533391237, 0.2078260481, -0.8066127300);
+            float normalDotLight = dot(normal, -sourceSunRay);
+            float toonCoordinate = normalDotLight * 0.5 + 0.5;
+            float toon = clamp(
+                texture(
+                    uEnvTexture,
+                    vec2(toonCoordinate, 1.0 - toonCoordinate),
+                    sourceMipBias).r,
+                0.0,
+                1.0);
+            vec3 sourceColor =
+                vec3(uNormalScale, uMetallicFactor, uRoughnessFactor);
+            vec3 decoration =
+                mix(greenHikari, textureMap02, greenBlend);
+            vec3 surface =
+                textureMap01.rgb * vColor.rgb *
+                (decoration + sourceColor * (1.0 - highlight));
+            if (withRim) {
+                vec3 viewDirection = normalize(uCameraPos - vWorldPos);
+                float edge =
+                    clamp(
+                        1.0 - dot(normal, viewDirection),
+                        0.0,
+                        1.0);
+                float rimMin = uMaterialTimeSec;
+                float rimMax = uMaterialFlags;
+                float rimSpan = max(rimMax, rimMin) - rimMin;
+                float rim = rimSpan > 0.0
+                    ? clamp((edge - rimMin) / rimSpan, 0.0, 1.0) *
+                          uMaterialAtlasSize.x
+                    : 0.0;
+                vec3 rimColor =
+                    vec3(
+                        uMaterialAtlasSize.y,
+                        uMaterialRect0.x,
+                        uMaterialRect0.y);
+                surface += rimColor * rim;
+            }
+            // Source projected shadow and cloud terms are held at one until
+            // the shared matrices/frame state are represented.
+            vec3 lighting =
+                mix(uEmissiveFactor, vec3(1.0), toon);
+            vec3 result = lighting * surface;
+            float alpha = textureMap01.a;
+            if (!withRim) {
+                vec3 onGameColor =
+                    vec3(
+                        uMaterialTimeSec,
+                        uMaterialFlags,
+                        uMaterialAtlasSize.x);
+                float onGameValue =
+                    clamp(uMaterialAtlasSize.y, 0.0, 1.0);
+                result *=
+                    mix(vec3(1.0), onGameColor, onGameValue);
+                alpha *= clamp(uMaterialRect0.x, 0.0, 1.0);
+            }
+            return vec4(result, alpha);
+        }
         vec4 evaluateLgpeFieldObjectTreeMikiSurface() {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
             vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
@@ -1372,6 +1464,30 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                     treeExposure);
                 FragColor =
                     vec4(linearToSrgb(treeMapped), treeSurface.a);
+                return;
+            }
+            if (uMaterialMode > 8.5 && uMaterialMode < 9.5) {
+                const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+                vec4 grassSurface =
+                    evaluateLgpeFieldGrassSurface(false);
+                vec3 grassMapped = applyViewerToneMapping(
+                    max(grassSurface.rgb, vec3(0.0)),
+                    1.0,
+                    grassExposure);
+                FragColor =
+                    vec4(linearToSrgb(grassMapped), grassSurface.a);
+                return;
+            }
+            if (uMaterialMode > 9.5 && uMaterialMode < 10.5) {
+                const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+                vec4 grassSurface =
+                    evaluateLgpeFieldGrassSurface(true);
+                vec3 grassMapped = applyViewerToneMapping(
+                    max(grassSurface.rgb, vec3(0.0)),
+                    1.0,
+                    grassExposure);
+                FragColor =
+                    vec4(linearToSrgb(grassMapped), grassSurface.a);
                 return;
             }
             vec4 tex = vec4(1.0);
