@@ -28,6 +28,11 @@ public:
     using WorldSceneRenderInstanceHandle =
         IRenderBackendWorld::WorldSceneRenderInstanceHandle;
     using WorldSceneFastPathCaps = IRenderBackendWorld::WorldSceneFastPathCaps;
+    using WorldSceneSourceMaterialFamily =
+        IRenderBackendWorld::WorldSceneSourceMaterialFamily;
+    using WorldSceneSourceVertex = IRenderBackendWorld::WorldSceneSourceVertex;
+    using WorldSceneSourceTextureBinding =
+        IRenderBackendWorld::WorldSceneSourceTextureBinding;
     using WorldSceneGeometry = IRenderBackendWorld::WorldSceneGeometry;
     using WorldSceneMaterial = IRenderBackendWorld::WorldSceneMaterial;
     using WorldSceneSkeletonLayout = IRenderBackendWorld::WorldSceneSkeletonLayout;
@@ -38,6 +43,14 @@ public:
     using WorldSceneFrame = IRenderBackendWorld::WorldSceneFrame;
     using WorldSceneView = IRenderBackendWorld::WorldSceneView;
     using WorldTriangle = IRenderBackendWorld::WorldTriangle;
+    static constexpr std::uint32_t WorldSceneSourceVertexSemanticNone =
+        IRenderBackendWorld::WorldSceneSourceVertexSemanticNone;
+
+    static bool worldSceneGeometrySourceSemanticsValid(
+        const WorldSceneGeometry& geometry) noexcept {
+        return IRenderBackendWorld::worldSceneGeometrySourceSemanticsValid(
+            geometry);
+    }
 
     using DebugQuad = IRenderBackendDebug::DebugQuad;
     using DebugLine = IRenderBackendDebug::DebugLine;

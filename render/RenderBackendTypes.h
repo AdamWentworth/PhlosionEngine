@@ -5,6 +5,7 @@
 #include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -221,6 +222,78 @@ struct WorldSceneFastPathCaps {
     bool supportsExecuteIndirect = false;
 };
 
+enum class WorldSceneSourceMaterialFamily : std::uint8_t {
+    Unknown = 0u,
+    Ground,
+    Grass,
+    Cliff,
+    Object,
+    Rock,
+    Tree,
+    ShadowOnly,
+};
+
+enum WorldSceneSourceMaterialSwitch : std::uint32_t {
+    WorldSceneSourceMaterialSwitchNone = 0u,
+    WorldSceneSourceMaterialSwitchSkipMainRendering = 1u << 0u,
+    WorldSceneSourceMaterialSwitchDepthWrite = 1u << 1u,
+    WorldSceneSourceMaterialSwitchDepthTest = 1u << 2u,
+    WorldSceneSourceMaterialSwitchDiscardEnable = 1u << 3u,
+    WorldSceneSourceMaterialSwitchTextureAlphaTestEnable = 1u << 4u,
+    WorldSceneSourceMaterialSwitchCastShadow = 1u << 5u,
+    WorldSceneSourceMaterialSwitchReceiveShadow = 1u << 6u,
+};
+
+enum WorldSceneSourceVertexSemantic : std::uint32_t {
+    WorldSceneSourceVertexSemanticNone = 0u,
+    WorldSceneSourceVertexSemanticTexCoord1 = 1u << 0u,
+    WorldSceneSourceVertexSemanticTexCoord2 = 1u << 1u,
+    WorldSceneSourceVertexSemanticTexCoord3 = 1u << 2u,
+    WorldSceneSourceVertexSemanticColor1 = 1u << 3u,
+    WorldSceneSourceVertexSemanticColor2 = 1u << 4u,
+    WorldSceneSourceVertexSemanticColor3 = 1u << 5u,
+    WorldSceneSourceVertexSemanticNormalW = 1u << 6u,
+    WorldSceneSourceVertexSemanticBitangent = 1u << 7u,
+};
+
+// Source-only channels that are intentionally kept separate from
+// WorldMeshVertex. The compact WorldMeshVertex layout is shared by all three
+// renderer vertex formats; widening it would consume scarce OpenGL attribute
+// locations before a source shader family has established how a channel is
+// consumed.
+struct WorldSceneSourceVertex {
+    std::array<std::array<float, 2>, 3> texcoords{};
+    std::array<std::array<float, 4>, 3> colors{};
+    float normalW = 1.0f;
+    std::array<float, 4> bitangent{};
+};
+
+struct WorldSceneSourceTextureBinding {
+    std::uint32_t sourceTextureIndex =
+        std::numeric_limits<std::uint32_t>::max();
+    std::string textureName;
+    std::string samplerName;
+    std::string textureType;
+    std::int32_t textureUnit = 0;
+    std::string wrapS;
+    std::string wrapT;
+    std::string wrapW;
+    std::string minFilter;
+    std::string magFilter;
+    std::array<float, 2> scale{1.0f, 1.0f};
+    std::array<float, 2> translate{};
+    std::string sourceContainerRelativePath;
+    std::string sourceFormat;
+    bool sourceIsSrgb = false;
+    std::uint32_t sourceArrayCount = 0u;
+    std::uint32_t sourceMipCount = 0u;
+    const unsigned char* baseRgba = nullptr;
+    int baseWidth = 0;
+    int baseHeight = 0;
+    int resolvedWrapS = 10497;
+    int resolvedWrapT = 10497;
+};
+
 struct WorldSceneGeometry {
     WorldSceneGeometryHandle handle{};
     std::string geometryCacheKey;
@@ -228,7 +301,23 @@ struct WorldSceneGeometry {
     std::size_t vertexCount = 0u;
     const std::uint32_t* indices = nullptr;
     std::size_t indexCount = 0u;
+    const WorldSceneSourceVertex* sourceVertices = nullptr;
+    std::size_t sourceVertexCount = 0u;
+    std::uint32_t sourceVertexSemanticMask =
+        WorldSceneSourceVertexSemanticNone;
+    std::uint32_t sourceMeshIndex = 0u;
+    std::uint32_t sourcePolygonGroupIndex = 0u;
 };
+
+inline bool worldSceneGeometrySourceSemanticsValid(
+    const WorldSceneGeometry& geometry) noexcept {
+    if (!geometry.sourceVertices) {
+        return geometry.sourceVertexCount == 0u &&
+               geometry.sourceVertexSemanticMask ==
+                   WorldSceneSourceVertexSemanticNone;
+    }
+    return geometry.sourceVertexCount == geometry.vertexCount;
+}
 
 struct WorldSceneMaterial {
     WorldSceneMaterialHandle handle{};
@@ -300,6 +389,17 @@ struct WorldSceneMaterial {
     float materialFlipbook1Rows = 1.0f;
     float materialFlipbook1Frames = 1.0f;
     float materialFlipbook1Fps = 0.0f;
+    std::uint32_t sourceMaterialIndex = 0u;
+    WorldSceneSourceMaterialFamily sourceMaterialFamily =
+        WorldSceneSourceMaterialFamily::Unknown;
+    std::string sourceMaterialName;
+    std::string sourceShaderGroup;
+    std::string sourceMetadataJson;
+    std::uint32_t sourceSwitchMask = WorldSceneSourceMaterialSwitchNone;
+    std::uint32_t sourceEnabledSwitchMask =
+        WorldSceneSourceMaterialSwitchNone;
+    std::int32_t sourcePreviewBindingIndex = -1;
+    std::vector<WorldSceneSourceTextureBinding> sourceTextureBindings;
 };
 
 struct WorldSceneSkeletonLayout {

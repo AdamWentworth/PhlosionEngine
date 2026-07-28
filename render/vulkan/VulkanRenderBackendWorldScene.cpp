@@ -179,7 +179,8 @@ void VulkanRenderBackend::submitWorldScene(const WorldSceneFrame& frame,
         const WorldSceneGeometry& geometry = (*view.geometries)[geometryIndex];
         const WorldSceneMaterial& material = (*view.materials)[materialIndex];
         if (!geometry.vertices || !geometry.indices ||
-            geometry.vertexCount == 0u || geometry.indexCount < 3u) {
+            geometry.vertexCount == 0u || geometry.indexCount < 3u ||
+            !worldSceneGeometrySourceSemanticsValid(geometry)) {
             continue;
         }
 

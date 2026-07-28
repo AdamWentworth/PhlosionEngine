@@ -115,7 +115,8 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
         const IRenderBackend::WorldSceneMaterial& material =
             (*view.materials)[materialIndex];
         if (!geometry.vertices || !geometry.indices ||
-            geometry.vertexCount == 0u || geometry.indexCount < 3u) {
+            geometry.vertexCount == 0u || geometry.indexCount < 3u ||
+            !IRenderBackend::worldSceneGeometrySourceSemanticsValid(geometry)) {
             continue;
         }
         IRenderBackend::WorldTextureData texture =

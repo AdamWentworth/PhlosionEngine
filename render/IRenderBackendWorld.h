@@ -21,6 +21,12 @@ public:
     using WorldSceneRenderInstanceHandle =
         engine::render::backend::WorldSceneRenderInstanceHandle;
     using WorldSceneFastPathCaps = engine::render::backend::WorldSceneFastPathCaps;
+    using WorldSceneSourceMaterialFamily =
+        engine::render::backend::WorldSceneSourceMaterialFamily;
+    using WorldSceneSourceVertex =
+        engine::render::backend::WorldSceneSourceVertex;
+    using WorldSceneSourceTextureBinding =
+        engine::render::backend::WorldSceneSourceTextureBinding;
     using WorldSceneGeometry = engine::render::backend::WorldSceneGeometry;
     using WorldSceneMaterial = engine::render::backend::WorldSceneMaterial;
     using WorldSceneSkeletonLayout = engine::render::backend::WorldSceneSkeletonLayout;
@@ -31,6 +37,14 @@ public:
     using WorldSceneFrame = engine::render::backend::WorldSceneFrame;
     using WorldSceneView = engine::render::backend::WorldSceneView;
     using WorldTriangle = engine::render::backend::WorldTriangle;
+    static constexpr std::uint32_t WorldSceneSourceVertexSemanticNone =
+        engine::render::backend::WorldSceneSourceVertexSemanticNone;
+
+    static bool worldSceneGeometrySourceSemanticsValid(
+        const WorldSceneGeometry& geometry) noexcept {
+        return engine::render::backend::worldSceneGeometrySourceSemanticsValid(
+            geometry);
+    }
 
     virtual ~IRenderBackendWorld() = default;
 
