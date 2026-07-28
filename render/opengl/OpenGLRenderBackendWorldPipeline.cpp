@@ -646,6 +646,59 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             return vec4(mix(shadowColor, vec3(1.0), toon) * surface,
                         texture01.a);
         }
+        vec4 evaluateLgpeFieldObjectTreeMikiSurface() {
+            vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
+            vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
+            vec4 texture01 = texture(uTexture, uv0, 0.0);
+            float highlightAlpha =
+                texture(uNormalTexture, uv1, 0.0).a;
+            vec3 normal = normalize(vWorldNormal);
+            const vec3 sourceSunRay =
+                vec3(0.5533391237, 0.2078260481, -0.8066127300);
+            float normalDotLight = dot(normal, -sourceSunRay);
+            float toonCoordinate = normalDotLight * 0.5 + 0.5;
+            float toon = clamp(
+                texture(
+                    uOcclusionTexture,
+                    vec2(toonCoordinate, 1.0 - toonCoordinate),
+                    0.0).r,
+                0.0,
+                1.0);
+            vec3 viewDirection = normalize(uCameraPos - vWorldPos);
+            float rimMin = uMaterialTimeSec;
+            float rimMax = uMaterialFlags;
+            float rimStrength = uMaterialAtlasSize.x;
+            float rimSpan = max(rimMax, rimMin) - rimMin;
+            float rim = rimSpan > 0.0
+                ? clamp(
+                      (clamp(
+                           1.0 - dot(normal, viewDirection),
+                           0.0,
+                           1.0) -
+                       rimMin) /
+                          rimSpan,
+                      0.0,
+                      1.0) *
+                      rimStrength
+                : 0.0;
+            vec3 shadowColor =
+                max(vec3(uNormalScale, uMetallicFactor, uRoughnessFactor),
+                    vec3(0.0));
+            vec3 rimColor =
+                max(
+                    vec3(
+                        uMaterialAtlasSize.y,
+                        uMaterialRect0.x,
+                        uMaterialRect0.y),
+                    vec3(0.0));
+            vec3 lighting = mix(shadowColor, vec3(1.0), toon);
+            vec3 surface =
+                texture01.rgb + rimColor * rim * highlightAlpha;
+            vec4 authoredVertexColor = vColor * uVertexColorMul;
+            return vec4(
+                lighting * surface * authoredVertexColor.rgb,
+                texture01.a * authoredVertexColor.a);
+        }
 
         float hash11(float x) { return fract(sin(x * 12.9898) * 43758.5453); }
         float hash21(vec2 p) {
@@ -1235,6 +1288,18 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                     treeExposure);
                 FragColor =
                     vec4(linearToSrgb(treeMapped), treeSurface.a);
+                return;
+            }
+            if (uMaterialMode > 6.5 && uMaterialMode < 7.5) {
+                const float trunkExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+                vec4 trunkSurface =
+                    evaluateLgpeFieldObjectTreeMikiSurface();
+                vec3 trunkMapped = applyViewerToneMapping(
+                    max(trunkSurface.rgb, vec3(0.0)),
+                    1.0,
+                    trunkExposure);
+                FragColor =
+                    vec4(linearToSrgb(trunkMapped), trunkSurface.a);
                 return;
             }
             vec4 tex = vec4(1.0);

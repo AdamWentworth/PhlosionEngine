@@ -246,11 +246,12 @@ inline WorldPsConstants makeWorldPsConstants(const IRenderBackend::WorldTextureD
         constants.materialFlipbook1Cols = textureData->cameraTargetY;
         constants.materialFlipbook1Rows = textureData->cameraTargetZ;
 
-        // FieldTreeShader05 mode 6 uses a typed source-material payload, not
-        // the generic PBR interpretation above. Preserve its raw specialized
+        // The LGPE tree modes use typed source-material payloads, not the
+        // generic PBR interpretation above. Preserve their raw specialized
         // values and move Shadow_Color into otherwise-unused PS multiplier
         // constants without changing the vertex instance color.
-        if (textureData->materialMode == 6u) {
+        if (textureData->materialMode == 6u ||
+            textureData->materialMode == 7u) {
             constants.vertexColorMulR = textureData->normalScale;
             constants.vertexColorMulG = textureData->metallicFactor;
             constants.vertexColorMulB = textureData->roughnessFactor;

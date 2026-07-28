@@ -402,6 +402,55 @@ float4 evaluateLgpeFieldTree05Surface(PSIn i) {
                 texture01.a);
 }
 
+float4 evaluateLgpeFieldObjectTreeMikiSurface(PSIn i) {
+  float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
+  float2 uv1 = float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
+  float4 texture01 = sampleLgpeFieldTreeTexture(gTex, uv0);
+  float highlightAlpha =
+      sampleLgpeFieldTreeTexture(gNormalTex, uv1).a;
+  float3 normal = normalize(i.worldNormal);
+  const float3 sourceSunRay =
+      float3(0.5533391237f, 0.2078260481f, -0.8066127300f);
+  float normalDotLight = dot(normal, -sourceSunRay);
+  float toonCoordinate = normalDotLight * 0.5f + 0.5f;
+  float toon = saturate(
+      gOcclusionTex.SampleBias(
+          gSampCC,
+          float2(toonCoordinate, 1.0f - toonCoordinate),
+          0.35f).r);
+  float3 cameraPos =
+      float3(uMaterialRect1V, uMaterialRect1W, uMaterialRect1H);
+  float3 viewDirection = normalize(cameraPos - i.worldPos);
+  float rimMin = uMaterialTimeSec;
+  float rimMax = uMaterialFlags;
+  float rimStrength = uMaterialAtlasWidth;
+  float rimSpan = max(rimMax, rimMin) - rimMin;
+  float rim = rimSpan > 0.0f
+      ? saturate(
+            (saturate(1.0f - dot(normal, viewDirection)) - rimMin) /
+            rimSpan) *
+            rimStrength
+      : 0.0f;
+  float3 shadowColor =
+      max(float3(
+              uVertexColorMulR,
+              uVertexColorMulG,
+              uVertexColorMulB),
+          float3(0.0f, 0.0f, 0.0f));
+  float3 rimColor =
+      max(float3(
+              uMaterialAtlasHeight,
+              uMaterialRect0U,
+              uMaterialRect0V),
+          float3(0.0f, 0.0f, 0.0f));
+  float3 lighting = lerp(shadowColor, 1.0f.xxx, toon);
+  float3 surface =
+      texture01.rgb + rimColor * rim * highlightAlpha;
+  return float4(
+      lighting * surface * i.col.rgb,
+      texture01.a * i.col.a);
+}
+
 float hash11(float x) { return frac(sin(x * 12.9898f) * 43758.5453f); }
 float hash21(float2 p) {
   float n = dot(p, float2(127.1f, 311.7f));
@@ -973,6 +1022,16 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         1.0f,
         treeExposure);
     return float4(linearToSrgb(treeMapped), treeSurface.a);
+  }
+  if (uMaterialMode > 6.5f && uMaterialMode < 7.5f) {
+    const float trunkExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+    float4 trunkSurface =
+        evaluateLgpeFieldObjectTreeMikiSurface(i);
+    float3 trunkMapped = applyViewerToneMapping(
+        max(trunkSurface.rgb, float3(0.0f, 0.0f, 0.0f)),
+        1.0f,
+        trunkExposure);
+    return float4(linearToSrgb(trunkMapped), trunkSurface.a);
   }
   float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
   float3 outLinear = saturate(i.col.rgb * float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB));
