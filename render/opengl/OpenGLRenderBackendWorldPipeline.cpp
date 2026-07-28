@@ -1001,6 +1001,166 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 mix(uEmissiveFactor, vec3(1.0), toon);
             return vec4(lighting * surface * alpha, alpha);
         }
+    )GLSL"
+    R"GLSL(
+        float evaluateLgpeFieldRockLightToon(float toonCoordinate) {
+            const float sourceValues[54] = float[54](
+                1.0, 3.0, 5.0, 7.0, 10.0, 13.0, 16.0, 19.0,
+                22.0, 26.0, 30.0, 34.0, 38.0, 43.0, 47.0, 53.0,
+                58.0, 63.0, 68.0, 73.0, 80.0, 85.0, 91.0, 97.0,
+                103.0, 110.0, 116.0, 122.0, 129.0, 135.0, 142.0,
+                148.0, 155.0, 161.0, 168.0, 174.0, 181.0, 188.0,
+                193.0, 200.0, 207.0, 211.0, 218.0, 223.0, 227.0,
+                232.0, 236.0, 239.0, 243.0, 247.0, 249.0, 253.0,
+                255.0, 255.0);
+            float sourceTexel =
+                clamp(toonCoordinate, 0.0, 1.0) * 512.0 - 0.5;
+            int lower = int(floor(sourceTexel));
+            int upper = lower + 1;
+            float lowerValue = lower < 458
+                ? 0.0
+                : (lower >= 512
+                    ? 255.0
+                    : sourceValues[lower - 458]);
+            float upperValue = upper < 458
+                ? 0.0
+                : (upper >= 512
+                    ? 255.0
+                    : sourceValues[upper - 458]);
+            return mix(
+                       lowerValue,
+                       upperValue,
+                       fract(sourceTexel)) /
+                   255.0;
+        }
+        vec4 evaluateLgpeFieldFlowerSurface() {
+            float sourceMipBias = uMaterialFlipbook0.w;
+            vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
+            vec4 texture01 = texture(uTexture, uv0, sourceMipBias);
+            vec4 authoredVertexColor = vColor * uVertexColorMul;
+            float alpha =
+                texture01.a * authoredVertexColor.a *
+                clamp(uMaterialRect0.y, 0.0, 1.0) *
+                clamp(uMaterialRect0.x, 0.0, 1.0);
+            if (alpha <= clamp(uAlphaCutoff, 0.0, 1.0)) discard;
+
+            vec3 normal = normalize(vWorldNormal);
+            const vec3 sourceSunRay =
+                vec3(0.5533391237, 0.2078260481, -0.8066127300);
+            float normalDotLight = dot(normal, -sourceSunRay);
+            float toonCoordinate = normalDotLight * 0.5 + 0.5;
+            float toon = clamp(
+                texture(
+                    uOcclusionTexture,
+                    vec2(toonCoordinate, 1.0 - toonCoordinate),
+                    sourceMipBias).r,
+                0.0,
+                1.0);
+            vec3 onGameColor =
+                vec3(
+                    uMaterialTimeSec,
+                    uMaterialFlags,
+                    uMaterialAtlasSize.x);
+            vec3 surface =
+                texture01.rgb * authoredVertexColor.rgb *
+                mix(
+                    vec3(1.0),
+                    onGameColor,
+                    clamp(uMaterialAtlasSize.y, 0.0, 1.0));
+            vec3 lighting =
+                mix(uEmissiveFactor, vec3(1.0), toon);
+            return vec4(lighting * surface, alpha);
+        }
+        vec4 evaluateLgpeFieldRockSurface() {
+            float sourceMipBias = uMaterialFlipbook0.w;
+            vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
+            vec2 uv1 =
+                vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
+            vec2 uv2 =
+                vec2(vSourceUv2.x, 1.0 - vSourceUv2.y);
+            vec2 blendUv =
+                vec2(vUv.x * 0.3, 1.0 - vUv.y * 0.3);
+            vec4 rockTexture =
+                texture(uTexture, uv1, sourceMipBias);
+            vec3 groundTexture02 =
+                texture(uNormalTexture, uv0, sourceMipBias).rgb;
+            vec3 groundTexture01 =
+                texture(
+                    uMetallicRoughnessTexture,
+                    uv0,
+                    sourceMipBias).rgb;
+            float blend = clamp(
+                texture(
+                    uOcclusionTexture,
+                    blendUv,
+                    sourceMipBias).r,
+                0.0,
+                1.0);
+            vec4 borderTexture =
+                texture(uEmissiveTexture, uv2, sourceMipBias);
+
+            vec3 normal = normalize(vWorldNormal);
+            const vec3 sourceSunRay =
+                vec3(0.5533391237, 0.2078260481, -0.8066127300);
+            float normalDotLight = dot(normal, -sourceSunRay);
+            float toonCoordinate = normalDotLight * 0.5 + 0.5;
+            float shadowToon = clamp(
+                texture(
+                    uEnvTexture,
+                    vec2(toonCoordinate, 1.0 - toonCoordinate),
+                    sourceMipBias).r,
+                0.0,
+                1.0);
+            float lightToon =
+                evaluateLgpeFieldRockLightToon(toonCoordinate);
+            vec3 viewDirection =
+                normalize(uCameraPos - vWorldPos);
+            float rimMin = uOcclusionStrength;
+            float rimMax = uMaterialTimeSec;
+            float rimStrength = uMaterialFlags;
+            float rimSpan = max(rimMax, rimMin) - rimMin;
+            float rim = rimSpan > 0.0
+                ? clamp(
+                      ((1.0 - dot(normal, viewDirection)) - rimMin) /
+                          rimSpan,
+                      0.0,
+                      1.0) *
+                      rimStrength
+                : 0.0;
+            vec3 rock =
+                rockTexture.rgb +
+                uEmissiveFactor * lightToon +
+                vec3(
+                    uNormalScale,
+                    uMetallicFactor,
+                    uRoughnessFactor) *
+                    rim * rockTexture.a;
+            vec3 ground =
+                mix(groundTexture02, groundTexture01, blend);
+            vec3 surface =
+                mix(rock, ground, clamp(borderTexture.a, 0.0, 1.0));
+            vec3 shadowColor =
+                vec3(
+                    uMaterialAtlasSize.x,
+                    uMaterialAtlasSize.y,
+                    uMaterialRect0.x);
+            vec3 onGameColor =
+                vec3(
+                    uMaterialRect0.y,
+                    uMaterialRect0.z,
+                    uMaterialRect0.w);
+            vec3 lighting =
+                mix(shadowColor, vec3(1.0), shadowToon);
+            vec4 authoredVertexColor = vColor * uVertexColorMul;
+            return vec4(
+                lighting * borderTexture.rgb *
+                    authoredVertexColor.rgb * surface *
+                    mix(
+                        vec3(1.0),
+                        onGameColor,
+                        clamp(uMaterialRect1.x, 0.0, 1.0)),
+                clamp(uMaterialRect1.y, 0.0, 1.0));
+        }
         vec4 evaluateLgpeFieldObjectTreeMikiSurface() {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
             vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
@@ -1738,6 +1898,30 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                     overlayExposure);
                 FragColor =
                     vec4(linearToSrgb(overlayMapped), overlaySurface.a);
+                return;
+            }
+            if (uMaterialMode > 14.5 && uMaterialMode < 15.5) {
+                const float flowerExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+                vec4 flowerSurface =
+                    evaluateLgpeFieldFlowerSurface();
+                vec3 flowerMapped = applyViewerToneMapping(
+                    max(flowerSurface.rgb, vec3(0.0)),
+                    1.0,
+                    flowerExposure);
+                FragColor =
+                    vec4(linearToSrgb(flowerMapped), flowerSurface.a);
+                return;
+            }
+            if (uMaterialMode > 15.5 && uMaterialMode < 16.5) {
+                const float rockExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+                vec4 rockSurface =
+                    evaluateLgpeFieldRockSurface();
+                vec3 rockMapped = applyViewerToneMapping(
+                    max(rockSurface.rgb, vec3(0.0)),
+                    1.0,
+                    rockExposure);
+                FragColor =
+                    vec4(linearToSrgb(rockMapped), rockSurface.a);
                 return;
             }
             vec4 tex = vec4(1.0);

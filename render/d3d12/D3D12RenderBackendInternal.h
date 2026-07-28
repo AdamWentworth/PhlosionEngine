@@ -351,6 +351,40 @@ inline WorldPsConstants makeWorldPsConstants(const IRenderBackend::WorldTextureD
                 constants.materialFlipbook0Frames =
                     textureData->roughnessFactor;
             }
+        } else if (textureData->materialMode == 15u) {
+            // FieldObjectShader flower cutout retains source Shadow_Color,
+            // OnGame, transparency, and mip-bias values. Unlike the overlay
+            // modes its recovered fragment output is not premultiplied.
+            constants.materialTimeSec = textureData->materialTimeSec;
+            constants.materialFlags = textureData->materialFlags;
+            constants.materialAtlasWidth = textureData->materialAtlasWidth;
+            constants.materialAtlasHeight = textureData->materialAtlasHeight;
+            constants.materialRect0U = textureData->materialRect0U;
+            constants.materialRect0V = textureData->materialRect0V;
+            constants.materialRect0W = textureData->emissiveFactorR;
+            constants.materialRect0H = textureData->emissiveFactorG;
+            constants.materialRect1U = textureData->emissiveFactorB;
+            constants.materialFlipbook0Fps =
+                textureData->materialFlipbook0Fps;
+        } else if (textureData->materialMode == 16u) {
+            // FieldRockShader needs four independent source color triples.
+            // Repack them around the fixed 64-DWORD root-signature limit;
+            // rect1.yzw remain the camera position for the recovered rim.
+            constants.vertexColorMulR = textureData->normalScale;
+            constants.vertexColorMulG = textureData->metallicFactor;
+            constants.vertexColorMulB = textureData->roughnessFactor;
+            constants.vertexColorMulA = 1.0f;
+            constants.materialTimeSec = textureData->materialTimeSec;
+            constants.materialFlags = textureData->materialFlags;
+            constants.materialAtlasWidth = textureData->materialAtlasWidth;
+            constants.materialAtlasHeight = textureData->materialAtlasHeight;
+            constants.materialRect0U = textureData->materialRect0U;
+            constants.materialRect0V = textureData->occlusionStrength;
+            constants.materialRect0W = textureData->emissiveFactorR;
+            constants.materialRect0H = textureData->emissiveFactorG;
+            constants.materialRect1U = textureData->emissiveFactorB;
+            constants.materialFlipbook0Fps =
+                textureData->materialFlipbook0Fps;
         }
     }
 

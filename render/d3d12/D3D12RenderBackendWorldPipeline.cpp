@@ -781,6 +781,161 @@ float4 evaluateLgpeRockMaskOverlaySurface(PSIn i) {
   return float4(lighting * surface * alpha, alpha);
 }
 
+float evaluateLgpeFieldRockLightToon(float toonCoordinate) {
+  static const float sourceValues[54] = {
+      1.0f, 3.0f, 5.0f, 7.0f, 10.0f, 13.0f, 16.0f, 19.0f,
+      22.0f, 26.0f, 30.0f, 34.0f, 38.0f, 43.0f, 47.0f, 53.0f,
+      58.0f, 63.0f, 68.0f, 73.0f, 80.0f, 85.0f, 91.0f, 97.0f,
+      103.0f, 110.0f, 116.0f, 122.0f, 129.0f, 135.0f, 142.0f,
+      148.0f, 155.0f, 161.0f, 168.0f, 174.0f, 181.0f, 188.0f,
+      193.0f, 200.0f, 207.0f, 211.0f, 218.0f, 223.0f, 227.0f,
+      232.0f, 236.0f, 239.0f, 243.0f, 247.0f, 249.0f, 253.0f,
+      255.0f, 255.0f};
+  float sourceTexel = saturate(toonCoordinate) * 512.0f - 0.5f;
+  int lower = (int)floor(sourceTexel);
+  int upper = lower + 1;
+  float lowerValue = lower < 458
+      ? 0.0f
+      : (lower >= 512 ? 255.0f : sourceValues[lower - 458]);
+  float upperValue = upper < 458
+      ? 0.0f
+      : (upper >= 512 ? 255.0f : sourceValues[upper - 458]);
+  return lerp(lowerValue, upperValue, frac(sourceTexel)) / 255.0f;
+}
+
+float4 evaluateLgpeFieldFlowerSurface(PSIn i) {
+  float sourceMipBias = uMaterialFlipbook0Fps;
+  float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
+  float4 texture01 =
+      sampleLgpeFieldGrassRepeat(gTex, uv0, sourceMipBias);
+  float4 authoredVertexColor =
+      i.col *
+      float4(
+          uVertexColorMulR,
+          uVertexColorMulG,
+          uVertexColorMulB,
+          uVertexColorMulA);
+  float alpha =
+      texture01.a * authoredVertexColor.a *
+      saturate(uMaterialRect0V) *
+      saturate(uMaterialRect0U);
+  if (alpha <= saturate(uAlphaCutoff)) discard;
+
+  float3 normal = normalize(i.worldNormal);
+  const float3 sourceSunRay =
+      float3(0.5533391237f, 0.2078260481f, -0.8066127300f);
+  float normalDotLight = dot(normal, -sourceSunRay);
+  float toonCoordinate = normalDotLight * 0.5f + 0.5f;
+  float toon = saturate(
+      sampleLgpeFieldGrassClamp(
+          gOcclusionTex,
+          float2(toonCoordinate, 1.0f - toonCoordinate),
+          sourceMipBias).r);
+  float3 onGameColor =
+      float3(
+          uMaterialTimeSec,
+          uMaterialFlags,
+          uMaterialAtlasWidth);
+  float3 surface =
+      texture01.rgb * authoredVertexColor.rgb *
+      lerp(
+          1.0f.xxx,
+          onGameColor,
+          saturate(uMaterialAtlasHeight));
+  float3 shadowColor =
+      float3(
+          uMaterialRect0W,
+          uMaterialRect0H,
+          uMaterialRect1U);
+  float3 lighting = lerp(shadowColor, 1.0f.xxx, toon);
+  return float4(lighting * surface, alpha);
+}
+
+float4 evaluateLgpeFieldRockSurface(PSIn i) {
+  float sourceMipBias = uMaterialFlipbook0Fps;
+  float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
+  float2 uv1 =
+      float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
+  float2 uv2 =
+      float2(i.sourceUv2.x, 1.0f - i.sourceUv2.y);
+  float2 blendUv =
+      float2(i.uv.x * 0.3f, 1.0f - i.uv.y * 0.3f);
+  float4 rockTexture =
+      sampleLgpeFieldGrassRepeat(gTex, uv1, sourceMipBias);
+  float3 groundTexture02 =
+      sampleLgpeFieldGrassRepeat(
+          gNormalTex,
+          uv0,
+          sourceMipBias).rgb;
+  float3 groundTexture01 =
+      sampleLgpeFieldGrassRepeat(
+          gMetallicRoughnessTex,
+          uv0,
+          sourceMipBias).rgb;
+  float blend = saturate(
+      sampleLgpeFieldGrassRepeat(
+          gOcclusionTex,
+          blendUv,
+          sourceMipBias).r);
+  float4 borderTexture =
+      sampleLgpeFieldGrassRepeat(
+          gEmissiveTex,
+          uv2,
+          sourceMipBias);
+
+  float3 normal = normalize(i.worldNormal);
+  const float3 sourceSunRay =
+      float3(0.5533391237f, 0.2078260481f, -0.8066127300f);
+  float normalDotLight = dot(normal, -sourceSunRay);
+  float toonCoordinate = normalDotLight * 0.5f + 0.5f;
+  float shadowToon = saturate(
+      sampleLgpeFieldGrassClamp(
+          gEnvTex,
+          float2(toonCoordinate, 1.0f - toonCoordinate),
+          sourceMipBias).r);
+  float lightToon =
+      evaluateLgpeFieldRockLightToon(toonCoordinate);
+  float3 cameraPos =
+      float3(uMaterialRect1V, uMaterialRect1W, uMaterialRect1H);
+  float3 viewDirection = normalize(cameraPos - i.worldPos);
+  float rimMin = uMaterialRect0V;
+  float rimMax = uMaterialTimeSec;
+  float rimStrength = uMaterialFlags;
+  float rimSpan = max(rimMax, rimMin) - rimMin;
+  float rim = rimSpan > 0.0f
+      ? saturate(
+            ((1.0f - dot(normal, viewDirection)) - rimMin) /
+            rimSpan) *
+            rimStrength
+      : 0.0f;
+  float3 lightColor =
+      float3(
+          uMaterialRect0W,
+          uMaterialRect0H,
+          uMaterialRect1U);
+  float3 rimColor =
+      float3(
+          uVertexColorMulR,
+          uVertexColorMulG,
+          uVertexColorMulB);
+  float3 rock =
+      rockTexture.rgb + lightColor * lightToon +
+      rimColor * rim * rockTexture.a;
+  float3 ground =
+      lerp(groundTexture02, groundTexture01, blend);
+  float3 surface =
+      lerp(rock, ground, saturate(borderTexture.a));
+  float3 shadowColor =
+      float3(
+          uMaterialAtlasWidth,
+          uMaterialAtlasHeight,
+          uMaterialRect0U);
+  float3 lighting = lerp(shadowColor, 1.0f.xxx, shadowToon);
+  return float4(
+      lighting * borderTexture.rgb * i.col.rgb * surface,
+      1.0f);
+}
+
 float4 evaluateLgpeFieldObjectTreeMikiSurface(PSIn i) {
   float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
   float2 uv1 = float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
@@ -1480,6 +1635,24 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         1.0f,
         overlayExposure);
     return float4(linearToSrgb(overlayMapped), overlaySurface.a);
+  }
+  if (uMaterialMode > 14.5f && uMaterialMode < 15.5f) {
+    const float flowerExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+    float4 flowerSurface = evaluateLgpeFieldFlowerSurface(i);
+    float3 flowerMapped = applyViewerToneMapping(
+        max(flowerSurface.rgb, 0.0f.xxx),
+        1.0f,
+        flowerExposure);
+    return float4(linearToSrgb(flowerMapped), flowerSurface.a);
+  }
+  if (uMaterialMode > 15.5f && uMaterialMode < 16.5f) {
+    const float rockExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+    float4 rockSurface = evaluateLgpeFieldRockSurface(i);
+    float3 rockMapped = applyViewerToneMapping(
+        max(rockSurface.rgb, 0.0f.xxx),
+        1.0f,
+        rockExposure);
+    return float4(linearToSrgb(rockMapped), rockSurface.a);
   }
   float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
   float3 outLinear = saturate(i.col.rgb * float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB));
