@@ -77,8 +77,11 @@ struct WorldMeshVertex {
     float ty = 0.0f;
     float tz = 0.0f;
     float tw = 1.0f;
-    // Source TEXCOORD_2. This channel is part of the compact GPU stream
-    // because LGPE FieldGroundShader01 consumes it for GrassBlendTex.
+    // Source TEXCOORD_1 and TEXCOORD_2. These channels joined the compact GPU
+    // stream only after direct FieldCliffShader01 and FieldGroundShader01
+    // evidence established their authored use.
+    float sourceUv1U = 0.0f;
+    float sourceUv1V = 0.0f;
     float sourceUv2U = 0.0f;
     float sourceUv2V = 0.0f;
 };
@@ -292,8 +295,9 @@ enum WorldSceneSourceVertexSemantic : std::uint32_t {
 };
 
 // Remaining source-only channels that are intentionally kept separate from
-// WorldMeshVertex. TEXCOORD_2 was promoted to the compact stream only after
-// FieldGroundShader01 established its authored use.
+// WorldMeshVertex. TEXCOORD_1 and TEXCOORD_2 are duplicated in the compact
+// stream for source-backed material families while this side stream remains
+// the lossless canonical record.
 struct WorldSceneSourceVertex {
     std::array<std::array<float, 2>, 3> texcoords{};
     std::array<std::array<float, 4>, 3> colors{};

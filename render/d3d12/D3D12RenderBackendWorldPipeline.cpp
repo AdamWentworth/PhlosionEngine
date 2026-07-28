@@ -24,8 +24,8 @@ void D3D12RenderBackend::createWorldPipeline() {
         "StructuredBuffer<float4> gSkinMatrices : register(t7);"
         "struct InstanceData { float4 model0; float4 model1; float4 model2; float4 model3; float4 color; uint4 skinMeta; };"
         "StructuredBuffer<InstanceData> gInstances : register(t6);"
-        "struct VSIn { float3 pos : POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 nrm : NORMAL; float4 jnts : BLENDINDICES; float4 wgts : BLENDWEIGHT; float4 tan : TANGENT; float2 sourceUv2 : TEXCOORD1; };"
-        "struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 worldPos : TEXCOORD1; float3 worldNormal : TEXCOORD2; float4 worldTangent : TEXCOORD3; float3 generated : TEXCOORD4; float2 sourceUv2 : TEXCOORD5; };"
+        "struct VSIn { float3 pos : POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 nrm : NORMAL; float4 jnts : BLENDINDICES; float4 wgts : BLENDWEIGHT; float4 tan : TANGENT; float2 sourceUv1 : TEXCOORD1; float2 sourceUv2 : TEXCOORD2; };"
+        "struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 worldPos : TEXCOORD1; float3 worldNormal : TEXCOORD2; float4 worldTangent : TEXCOORD3; float3 generated : TEXCOORD4; float2 sourceUv1 : TEXCOORD5; float2 sourceUv2 : TEXCOORD6; };"
         "static const int kMaxSkinMatrices = 128;"
         "float4 resolveSkinMeta(InstanceData inst) {"
         "  if (inst.skinMeta.x != 0u) return float4(1.0f, (float)inst.skinMeta.y, (float)inst.skinMeta.z, (float)inst.skinMeta.w);"
@@ -129,6 +129,7 @@ void D3D12RenderBackend::createWorldPipeline() {
         "  clip.z -= uClipMeta.x * clip.w;"
         "  o.pos = clip;"
         "  o.uv = i.uv;"
+        "  o.sourceUv1 = i.sourceUv1;"
         "  o.sourceUv2 = i.sourceUv2;"
         "  o.col = i.col * inst.color;"
         "  float3 genDen = max(uGeneratedBoundsMax.xyz - uGeneratedBoundsMin.xyz, float3(1e-5f, 1e-5f, 1e-5f));"
@@ -196,7 +197,7 @@ SamplerState gSampRM : register(s5);
 SamplerState gSampMM : register(s6);
 SamplerState gSampCM : register(s7);
 SamplerState gSampMC : register(s8);
-struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 worldPos : TEXCOORD1; float3 worldNormal : TEXCOORD2; float4 worldTangent : TEXCOORD3; float3 generated : TEXCOORD4; float2 sourceUv2 : TEXCOORD5; };
+struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 worldPos : TEXCOORD1; float3 worldNormal : TEXCOORD2; float4 worldTangent : TEXCOORD3; float3 generated : TEXCOORD4; float2 sourceUv1 : TEXCOORD5; float2 sourceUv2 : TEXCOORD6; };
 
 float applyWrap(float coord, float mode) {
   if (abs(mode - 33071.0f) < 0.5f) return saturate(coord);
@@ -278,6 +279,45 @@ float3 evaluateLgpeFieldGroundSurface(PSIn i) {
           float3(0.0f, 0.0f, 0.0f));
   return grassBlend.rgb * authoredVertexColor.rgb * surface +
          alphaLight * (1.0f - saturate(authoredVertexColor.a));
+}
+float3 evaluateLgpeFieldCliffSurface(PSIn i) {
+  float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
+  float2 blendUv = float2(i.uv.x * 0.3f, 1.0f - i.uv.y * 0.3f);
+  float2 uv1 = float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
+  float2 uv2 = float2(i.sourceUv2.x, 1.0f - i.sourceUv2.y);
+  float4 cliffTex = sampleLgpeGroundTexture(gTex, uv1);
+  float4 ground02 = sampleLgpeGroundTexture(gNormalTex, uv0);
+  float4 ground01 = sampleLgpeGroundTexture(gMetallicRoughnessTex, uv0);
+  float blend =
+      saturate(sampleLgpeGroundTexture(gOcclusionTex, blendUv).r);
+  float4 borderTex = sampleLgpeGroundTexture(gEmissiveTex, uv2);
+  float3 normal = normalize(i.worldNormal);
+  float3 cameraPos =
+      float3(uMaterialRect1V, uMaterialRect1W, uMaterialRect1H);
+  float3 viewDirection = normalize(cameraPos - i.worldPos);
+  float rimMin = uMaterialAtlasWidth;
+  float rimMax = uMaterialAtlasHeight;
+  float rimStrength = uMaterialRect0U;
+  float rimSpan = max(rimMax, rimMin) - rimMin;
+  float rim = rimSpan > 0.0f
+      ? saturate(
+            ((1.0f - dot(normal, viewDirection)) - rimMin) /
+            rimSpan) *
+            rimStrength
+      : 0.0f;
+  float3 rimColor =
+      max(float3(uMaterialRect0W, uMaterialRect0H, uMaterialRect1U),
+          float3(0.0f, 0.0f, 0.0f));
+  float3 cliff = cliffTex.rgb + rimColor * rim * cliffTex.a;
+  float3 grass = lerp(ground02.rgb, ground01.rgb, blend);
+  float3 surface = lerp(cliff, grass, saturate(borderTex.a));
+  float4 authoredVertexColor =
+      i.col * float4(
+          uVertexColorMulR,
+          uVertexColorMulG,
+          uVertexColorMulB,
+          uVertexColorMulA);
+  return borderTex.rgb * authoredVertexColor.rgb * surface;
 }
 
 float hash11(float x) { return frac(sin(x * 12.9898f) * 43758.5453f); }
@@ -834,6 +874,15 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         groundExposure);
     return float4(linearToSrgb(groundMapped), 1.0f);
   }
+  if (uMaterialMode > 4.5f && uMaterialMode < 5.5f) {
+    const float cliffExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+    float3 cliffLinear = evaluateLgpeFieldCliffSurface(i);
+    float3 cliffMapped = applyViewerToneMapping(
+        max(cliffLinear, float3(0.0f, 0.0f, 0.0f)),
+        1.0f,
+        cliffExposure);
+    return float4(linearToSrgb(cliffMapped), 1.0f);
+  }
   float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
   float3 outLinear = saturate(i.col.rgb * float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB));
   float2 wrappedUv = float2(applyWrap(i.uv.x, uWrapS), applyWrap(i.uv.y, uWrapT));
@@ -1100,6 +1149,7 @@ DualSourcePSOut mainDualSource(PSIn i, bool isFrontFace : SV_IsFrontFace) {
         {"BLENDWEIGHT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 64, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 80, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 1, DXGI_FORMAT_R32G32_FLOAT, 0, 96, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 2, DXGI_FORMAT_R32G32_FLOAT, 0, 104, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
     };
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso{};

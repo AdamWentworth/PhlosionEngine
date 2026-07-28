@@ -1152,6 +1152,8 @@ void VulkanRenderBackendImpl::createPipelines() {
             {6u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
              offsetof(IRenderBackend::WorldMeshVertex, tx)},
             {7u, 0u, VK_FORMAT_R32G32_SFLOAT,
+             offsetof(IRenderBackend::WorldMeshVertex, sourceUv1U)},
+            {8u, 0u, VK_FORMAT_R32G32_SFLOAT,
              offsetof(IRenderBackend::WorldMeshVertex, sourceUv2U)},
         };
         worldPipelines[0] = createGraphicsPipeline(device, renderPass, texturedPipelineLayout,
