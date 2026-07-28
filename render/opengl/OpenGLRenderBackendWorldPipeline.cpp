@@ -799,6 +799,107 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             }
             return vec4(result, alpha);
         }
+        vec4 evaluateLgpeFieldGrassShader04Surface() {
+            vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
+            vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
+            float texture03 = clamp(texture(uTexture, uv0, 0.0).r, 0.0, 1.0);
+            vec4 texture02 = texture(uNormalTexture, uv1, 0.0);
+            vec4 texture01 =
+                texture(uMetallicRoughnessTexture, uv1, 0.0);
+            vec4 base = mix(texture02, texture01, texture03);
+            float alpha =
+                base.a * vColor.a *
+                clamp(uMaterialTimeSec, 0.0, 1.0) *
+                clamp(uMaterialAtlasSize.x, 0.0, 1.0);
+            if (alpha <= clamp(uAlphaCutoff, 0.0, 1.0)) discard;
+            vec3 normal = normalize(vWorldNormal);
+            const vec3 sourceSunRay =
+                vec3(0.5533391237, 0.2078260481, -0.8066127300);
+            float normalDotLight = dot(normal, -sourceSunRay);
+            float toonCoordinate = normalDotLight * 0.5 + 0.5;
+            float toon = clamp(
+                texture(
+                    uOcclusionTexture,
+                    vec2(toonCoordinate, 1.0 - toonCoordinate),
+                    0.0).r,
+                0.0,
+                1.0);
+            vec3 onGameColor =
+                vec3(
+                    uMaterialAtlasSize.y,
+                    uMaterialRect0.x,
+                    uMaterialRect0.y);
+            vec3 surface =
+                base.rgb * vColor.rgb *
+                mix(
+                    vec3(1.0),
+                    onGameColor,
+                    clamp(uMaterialFlags, 0.0, 1.0));
+            vec3 lighting =
+                mix(uEmissiveFactor, vec3(1.0), toon);
+            return vec4(lighting * surface, alpha);
+        }
+        vec4 evaluateLgpeFieldGrassShader05Surface() {
+            float scrollU = uMaterialRect0.y;
+            float scrollV = uMaterialRect0.z;
+            vec2 maskUv =
+                vec2(vUv.x + scrollU, 1.0 - (vUv.y + scrollV));
+            vec2 uv1Primary =
+                vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
+            vec2 uv1Secondary =
+                vec2(vSourceUv1.x + 1.0, 0.5 - vSourceUv1.y);
+            float lightLine =
+                clamp(texture(uNormalTexture, maskUv, 0.0).r, 0.0, 1.0);
+            vec4 alpha01Primary =
+                texture(uTexture, uv1Primary, 0.0);
+            vec4 alpha01Secondary =
+                texture(uTexture, uv1Secondary, 0.0);
+            vec4 base = mix(
+                alpha01Primary,
+                alpha01Secondary,
+                lightLine);
+            float alpha =
+                base.a * vColor.a *
+                clamp(uMaterialFlags, 0.0, 1.0);
+            if (alpha <= clamp(uAlphaCutoff, 0.0, 1.0)) discard;
+            vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
+            vec2 blendUv =
+                vec2(vUv.x * 0.3, 1.0 - vUv.y * 0.3);
+            float greenBlend =
+                clamp(texture(uEmissiveTexture, blendUv, 0.0).r, 0.0, 1.0);
+            vec3 textureMap01 =
+                texture(uMetallicRoughnessTexture, uv0, 0.0).rgb;
+            vec3 textureMap02 =
+                texture(uOcclusionTexture, uv0, 0.0).rgb;
+            vec3 decoration =
+                mix(textureMap02, textureMap01, greenBlend);
+            vec3 normal = normalize(vWorldNormal);
+            const vec3 sourceSunRay =
+                vec3(0.5533391237, 0.2078260481, -0.8066127300);
+            float normalDotLight = dot(normal, -sourceSunRay);
+            float toonCoordinate = normalDotLight * 0.5 + 0.5;
+            float toon = clamp(
+                texture(
+                    uEnvTexture,
+                    vec2(toonCoordinate, 1.0 - toonCoordinate),
+                    0.0).r,
+                0.0,
+                1.0);
+            vec3 onGameColor =
+                vec3(
+                    uMaterialAtlasSize.x,
+                    uMaterialAtlasSize.y,
+                    uMaterialRect0.x);
+            vec3 surface =
+                (base.rgb + decoration) * vColor.rgb *
+                mix(
+                    vec3(1.0),
+                    onGameColor,
+                    clamp(uMaterialTimeSec, 0.0, 1.0));
+            vec3 lighting =
+                mix(uEmissiveFactor, vec3(1.0), toon);
+            return vec4(lighting * surface, alpha);
+        }
         vec4 evaluateLgpeFieldObjectTreeMikiSurface() {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
             vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
@@ -1482,6 +1583,30 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                 const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
                 vec4 grassSurface =
                     evaluateLgpeFieldGrassSurface(true);
+                vec3 grassMapped = applyViewerToneMapping(
+                    max(grassSurface.rgb, vec3(0.0)),
+                    1.0,
+                    grassExposure);
+                FragColor =
+                    vec4(linearToSrgb(grassMapped), grassSurface.a);
+                return;
+            }
+            if (uMaterialMode > 10.5 && uMaterialMode < 11.5) {
+                const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+                vec4 grassSurface =
+                    evaluateLgpeFieldGrassShader04Surface();
+                vec3 grassMapped = applyViewerToneMapping(
+                    max(grassSurface.rgb, vec3(0.0)),
+                    1.0,
+                    grassExposure);
+                FragColor =
+                    vec4(linearToSrgb(grassMapped), grassSurface.a);
+                return;
+            }
+            if (uMaterialMode > 11.5 && uMaterialMode < 12.5) {
+                const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+                vec4 grassSurface =
+                    evaluateLgpeFieldGrassShader05Surface();
                 vec3 grassMapped = applyViewerToneMapping(
                     max(grassSurface.rgb, vec3(0.0)),
                     1.0,

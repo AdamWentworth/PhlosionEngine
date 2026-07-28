@@ -310,6 +310,21 @@ inline WorldPsConstants makeWorldPsConstants(const IRenderBackend::WorldTextureD
             constants.materialRect1U = textureData->emissiveFactorB;
             constants.materialFlipbook0Fps =
                 textureData->materialFlipbook0Fps;
+        } else if (textureData->materialMode == 11u ||
+                   textureData->materialMode == 12u) {
+            // FieldGrassShader04/05 use source Shadow_Color in the fixed
+            // multiplier slots and retain their typed OnGame/scroll payload.
+            constants.vertexColorMulR = textureData->normalScale;
+            constants.vertexColorMulG = textureData->metallicFactor;
+            constants.vertexColorMulB = textureData->roughnessFactor;
+            constants.vertexColorMulA = 1.0f;
+            constants.materialTimeSec = textureData->materialTimeSec;
+            constants.materialFlags = textureData->materialFlags;
+            constants.materialAtlasWidth = textureData->materialAtlasWidth;
+            constants.materialAtlasHeight = textureData->materialAtlasHeight;
+            constants.materialRect0U = textureData->materialRect0U;
+            constants.materialRect0V = textureData->materialRect0V;
+            constants.materialRect0W = textureData->materialRect0W;
         }
     }
 

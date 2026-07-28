@@ -574,6 +574,96 @@ float4 evaluateLgpeFieldGrassSurface(PSIn i, bool withRim) {
   return float4(result, alpha);
 }
 
+float4 evaluateLgpeFieldGrassShader04Surface(PSIn i) {
+  float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
+  float2 uv1 = float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
+  float texture03 =
+      saturate(sampleLgpeFieldGrassRepeat(gTex, uv0, 0.0f).r);
+  float4 texture02 =
+      sampleLgpeFieldGrassRepeat(gNormalTex, uv1, 0.0f);
+  float4 texture01 =
+      sampleLgpeFieldGrassRepeat(gMetallicRoughnessTex, uv1, 0.0f);
+  float4 base = lerp(texture02, texture01, texture03);
+  float alpha =
+      base.a * i.col.a * saturate(uMaterialTimeSec) *
+      saturate(uMaterialAtlasWidth);
+  if (alpha <= saturate(uAlphaCutoff)) discard;
+  float3 normal = normalize(i.worldNormal);
+  const float3 sourceSunRay =
+      float3(0.5533391237f, 0.2078260481f, -0.8066127300f);
+  float normalDotLight = dot(normal, -sourceSunRay);
+  float toonCoordinate = normalDotLight * 0.5f + 0.5f;
+  float toon = saturate(
+      sampleLgpeFieldGrassClamp(
+          gOcclusionTex,
+          float2(toonCoordinate, 1.0f - toonCoordinate),
+          0.0f).r);
+  float3 shadowColor =
+      float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB);
+  float3 onGameColor =
+      float3(uMaterialAtlasHeight, uMaterialRect0U, uMaterialRect0V);
+  float3 surface =
+      base.rgb * i.col.rgb *
+      lerp(1.0f.xxx, onGameColor, saturate(uMaterialFlags));
+  return float4(lerp(shadowColor, 1.0f.xxx, toon) * surface, alpha);
+}
+
+float4 evaluateLgpeFieldGrassShader05Surface(PSIn i) {
+  float2 maskUv =
+      float2(
+          i.uv.x + uMaterialRect0V,
+          1.0f - (i.uv.y + uMaterialRect0W));
+  float2 uv1Primary =
+      float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
+  float2 uv1Secondary =
+      float2(i.sourceUv1.x + 1.0f, 0.5f - i.sourceUv1.y);
+  float lightLine =
+      saturate(
+          sampleLgpeFieldGrassRepeat(gNormalTex, maskUv, 0.0f).r);
+  float4 alpha01Primary =
+      sampleLgpeFieldGrassRepeat(gTex, uv1Primary, 0.0f);
+  float4 alpha01Secondary =
+      sampleLgpeFieldGrassRepeat(gTex, uv1Secondary, 0.0f);
+  float4 base =
+      lerp(alpha01Primary, alpha01Secondary, lightLine);
+  float alpha = base.a * i.col.a * saturate(uMaterialFlags);
+  if (alpha <= saturate(uAlphaCutoff)) discard;
+  float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
+  float2 blendUv =
+      float2(i.uv.x * 0.3f, 1.0f - i.uv.y * 0.3f);
+  float greenBlend = saturate(
+      sampleLgpeFieldGrassRepeat(gEmissiveTex, blendUv, 0.0f).r);
+  float3 textureMap01 =
+      sampleLgpeFieldGrassRepeat(
+          gMetallicRoughnessTex,
+          uv0,
+          0.0f).rgb;
+  float3 textureMap02 =
+      sampleLgpeFieldGrassRepeat(gOcclusionTex, uv0, 0.0f).rgb;
+  float3 decoration = lerp(textureMap02, textureMap01, greenBlend);
+  float3 normal = normalize(i.worldNormal);
+  const float3 sourceSunRay =
+      float3(0.5533391237f, 0.2078260481f, -0.8066127300f);
+  float normalDotLight = dot(normal, -sourceSunRay);
+  float toonCoordinate = normalDotLight * 0.5f + 0.5f;
+  float toon = saturate(
+      sampleLgpeFieldGrassClamp(
+          gEnvTex,
+          float2(toonCoordinate, 1.0f - toonCoordinate),
+          0.0f).r);
+  float3 shadowColor =
+      float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB);
+  float3 onGameColor =
+      float3(
+          uMaterialAtlasWidth,
+          uMaterialAtlasHeight,
+          uMaterialRect0U);
+  float3 surface =
+      (base.rgb + decoration) * i.col.rgb *
+      lerp(1.0f.xxx, onGameColor, saturate(uMaterialTimeSec));
+  return float4(lerp(shadowColor, 1.0f.xxx, toon) * surface, alpha);
+}
+
 float4 evaluateLgpeFieldObjectTreeMikiSurface(PSIn i) {
   float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
   float2 uv1 = float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
@@ -1228,6 +1318,26 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
     const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
     float4 grassSurface =
         evaluateLgpeFieldGrassSurface(i, true);
+    float3 grassMapped = applyViewerToneMapping(
+        max(grassSurface.rgb, float3(0.0f, 0.0f, 0.0f)),
+        1.0f,
+        grassExposure);
+    return float4(linearToSrgb(grassMapped), grassSurface.a);
+  }
+  if (uMaterialMode > 10.5f && uMaterialMode < 11.5f) {
+    const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+    float4 grassSurface =
+        evaluateLgpeFieldGrassShader04Surface(i);
+    float3 grassMapped = applyViewerToneMapping(
+        max(grassSurface.rgb, float3(0.0f, 0.0f, 0.0f)),
+        1.0f,
+        grassExposure);
+    return float4(linearToSrgb(grassMapped), grassSurface.a);
+  }
+  if (uMaterialMode > 11.5f && uMaterialMode < 12.5f) {
+    const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+    float4 grassSurface =
+        evaluateLgpeFieldGrassShader05Surface(i);
     float3 grassMapped = applyViewerToneMapping(
         max(grassSurface.rgb, float3(0.0f, 0.0f, 0.0f)),
         1.0f,
