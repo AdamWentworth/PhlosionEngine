@@ -370,7 +370,9 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             texture->normalHeight,
             texture->normalWrapS,
             texture->normalWrapT,
-            texture->normalTextureSrgb != 0u)
+            texture->normalTextureSrgb != 0u,
+            texture->normalMipLevels,
+            texture->normalMipLevelCount)
         : 0u;
     const bool hasNormalTexture = (normalTexture != 0u);
     const GLuint boundNormalTexture = hasNormalTexture ? normalTexture : fallbackFlatNormalTexture;
@@ -383,7 +385,9 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             texture->metallicRoughnessHeight,
             texture->metallicRoughnessWrapS,
             texture->metallicRoughnessWrapT,
-            texture->metallicRoughnessTextureSrgb != 0u)
+            texture->metallicRoughnessTextureSrgb != 0u,
+            texture->metallicRoughnessMipLevels,
+            texture->metallicRoughnessMipLevelCount)
         : 0u;
     const bool hasMetallicRoughnessTexture = (metallicRoughnessTexture != 0u);
     const GLuint boundMetallicRoughnessTexture =
@@ -397,7 +401,9 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             texture->occlusionHeight,
             texture->occlusionWrapS,
             texture->occlusionWrapT,
-            texture->occlusionTextureSrgb != 0u)
+            texture->occlusionTextureSrgb != 0u,
+            texture->occlusionMipLevels,
+            texture->occlusionMipLevelCount)
         : 0u;
     const bool hasOcclusionTexture = (occlusionTexture != 0u);
     const GLuint boundOcclusionTexture = hasOcclusionTexture ? occlusionTexture : fallbackWhiteLinearTexture;
@@ -410,7 +416,9 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             texture->emissiveHeight,
             texture->emissiveWrapS,
             texture->emissiveWrapT,
-            texture->emissiveTextureSrgb != 0u)
+            texture->emissiveTextureSrgb != 0u,
+            texture->emissiveMipLevels,
+            texture->emissiveMipLevelCount)
         : 0u;
     const bool hasEmissiveTexture = (emissiveTexture != 0u);
     const GLuint boundEmissiveTexture = hasEmissiveTexture ? emissiveTexture : fallbackWhiteSrgbTexture;
@@ -443,7 +451,9 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             texture->environmentHeight,
             texture->environmentWrapS,
             texture->environmentWrapT,
-            texture->environmentTextureSrgb != 0u)
+            texture->environmentTextureSrgb != 0u,
+            texture->environmentMipLevels,
+            texture->environmentMipLevelCount)
         : 0u;
     const GLuint boundEnvTexture = authoredEnvironmentTexture != 0u
         ? authoredEnvironmentTexture

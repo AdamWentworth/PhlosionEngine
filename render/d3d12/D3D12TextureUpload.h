@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "engine/render/RenderBackendTypes.h"
+
 #if defined(_WIN32)
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
@@ -25,6 +27,9 @@ struct RgbaTextureUploadRequest {
     int wrapT = 33071;
     bool generateMipChain = false;
     bool srgbColorData = true;
+    const engine::render::backend::WorldTextureMipLevel* authoredMipLevels =
+        nullptr;
+    std::uint32_t authoredMipLevelCount = 0u;
     std::uint32_t descriptorIndex = 0u;
     Microsoft::WRL::ComPtr<ID3D12Resource>* outTexture = nullptr;
 };
@@ -44,7 +49,10 @@ bool createTextureResourceFromRgba(ID3D12Device* device,
                                    int wrapT,
                                    bool generateMipChain,
                                    bool srgbColorData,
-                                   Microsoft::WRL::ComPtr<ID3D12Resource>& outTexture);
+                                   Microsoft::WRL::ComPtr<ID3D12Resource>& outTexture,
+                                   const engine::render::backend::WorldTextureMipLevel*
+                                       authoredMipLevels = nullptr,
+                                   std::uint32_t authoredMipLevelCount = 0u);
 
 bool createTextureResourcesFromRgbaBatch(ID3D12Device* device,
                                          ID3D12CommandQueue* commandQueue,

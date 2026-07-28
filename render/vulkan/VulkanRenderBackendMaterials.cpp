@@ -22,7 +22,8 @@ std::string resolvedTextureKey(const char* key,
                                int height,
                                int wrapS,
                                int wrapT,
-                               bool srgb) {
+                               bool srgb,
+                               std::uint32_t authoredMipLevelCount) {
     std::ostringstream out;
     if (cacheKey && cacheKey[0] != '\0') {
         out << cacheKey;
@@ -34,6 +35,7 @@ std::string resolvedTextureKey(const char* key,
     out << '|' << width << 'x' << height
         << "|ws=" << wrapS
         << "|wt=" << wrapT
+        << "|mips=" << authoredMipLevelCount
         << (srgb ? "|srgb" : "|linear");
     return out.str();
 }
@@ -58,16 +60,34 @@ VulkanRenderBackendImpl::Texture* VulkanRenderBackendImpl::ensureWorldTextureRaw
     int wrapS,
     int wrapT,
     bool srgb,
-    std::string* outResolvedKey) {
+    std::string* outResolvedKey,
+    const IRenderBackend::WorldTextureMipLevel* authoredMipLevels,
+    std::uint32_t authoredMipLevelCount) {
     if (!rgba || width <= 0 || height <= 0) return nullptr;
     const std::string resolved = resolvedTextureKey(
-        key, cacheKey, rgba, width, height, wrapS, wrapT, srgb);
+        key,
+        cacheKey,
+        rgba,
+        width,
+        height,
+        wrapS,
+        wrapT,
+        srgb,
+        authoredMipLevelCount);
     if (outResolvedKey) *outResolvedKey = resolved;
     auto existing = worldTextures.find(resolved);
     if (existing != worldTextures.end()) return &existing->second;
 
     Texture uploaded = createTexture(
-        rgba, width, height, srgb, wrapS, wrapT, false);
+        rgba,
+        width,
+        height,
+        srgb,
+        wrapS,
+        wrapT,
+        false,
+        authoredMipLevels,
+        authoredMipLevelCount);
     return &worldTextures.emplace(resolved, std::move(uploaded)).first->second;
 }
 
@@ -143,7 +163,9 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->wrapS,
         texture->wrapT,
         texture->textureSrgb != 0u,
-        &keys[0]);
+        &keys[0],
+        texture->mipLevels,
+        texture->mipLevelCount);
     if (!base) base = &fallbackWorldTexture;
 
     Texture* normal = ensureWorldTextureRaw(
@@ -155,7 +177,9 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->normalWrapS,
         texture->normalWrapT,
         texture->normalTextureSrgb != 0u,
-        &keys[1]);
+        &keys[1],
+        texture->normalMipLevels,
+        texture->normalMipLevelCount);
     if (!normal) normal = &fallbackWorldNormalTexture;
 
     Texture* metallicRoughness = ensureWorldTextureRaw(
@@ -167,7 +191,9 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->metallicRoughnessWrapS,
         texture->metallicRoughnessWrapT,
         texture->metallicRoughnessTextureSrgb != 0u,
-        &keys[2]);
+        &keys[2],
+        texture->metallicRoughnessMipLevels,
+        texture->metallicRoughnessMipLevelCount);
     if (!metallicRoughness) metallicRoughness = &fallbackWorldLinearTexture;
 
     Texture* occlusion = ensureWorldTextureRaw(
@@ -179,7 +205,9 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->occlusionWrapS,
         texture->occlusionWrapT,
         texture->occlusionTextureSrgb != 0u,
-        &keys[3]);
+        &keys[3],
+        texture->occlusionMipLevels,
+        texture->occlusionMipLevelCount);
     if (!occlusion) occlusion = &fallbackWorldLinearTexture;
 
     Texture* emissive = ensureWorldTextureRaw(
@@ -191,7 +219,9 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->emissiveWrapS,
         texture->emissiveWrapT,
         texture->emissiveTextureSrgb != 0u,
-        &keys[4]);
+        &keys[4],
+        texture->emissiveMipLevels,
+        texture->emissiveMipLevelCount);
     if (!emissive) emissive = &fallbackWorldEmissiveTexture;
 
     Texture* environment = ensureWorldTextureRaw(
@@ -203,7 +233,9 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->environmentWrapS,
         texture->environmentWrapT,
         texture->environmentTextureSrgb != 0u,
-        &keys[5]);
+        &keys[5],
+        texture->environmentMipLevels,
+        texture->environmentMipLevelCount);
     if (!environment) environment = &neutralPmremTexture;
 
     const std::string key = materialKey(keys);

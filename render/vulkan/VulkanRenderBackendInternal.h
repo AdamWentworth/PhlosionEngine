@@ -355,7 +355,10 @@ struct VulkanRenderBackendImpl {
                           bool srgb,
                           int wrapS,
                           int wrapT,
-                          bool createStandaloneDescriptor);
+                          bool createStandaloneDescriptor,
+                          const IRenderBackend::WorldTextureMipLevel*
+                              authoredMipLevels = nullptr,
+                          std::uint32_t authoredMipLevelCount = 0u);
     Texture createTextureRgba16Float(const std::uint16_t* rgba16f,
                                      int width,
                                      int height,
@@ -369,7 +372,10 @@ struct VulkanRenderBackendImpl {
                                     VkFormat format,
                                     int wrapS,
                                     int wrapT,
-                                    bool createStandaloneDescriptor);
+                                    bool createStandaloneDescriptor,
+                                    const IRenderBackend::WorldTextureMipLevel*
+                                        authoredMipLevels = nullptr,
+                                    std::uint32_t authoredMipLevelCount = 0u);
     void destroyTexture(Texture& texture);
     Texture* ensureWorldTextureRaw(const char* key,
                                    const char* cacheKey,
@@ -379,7 +385,10 @@ struct VulkanRenderBackendImpl {
                                    int wrapS,
                                    int wrapT,
                                    bool srgb,
-                                   std::string* outResolvedKey = nullptr);
+                                   std::string* outResolvedKey = nullptr,
+                                   const IRenderBackend::WorldTextureMipLevel*
+                                       authoredMipLevels = nullptr,
+                                   std::uint32_t authoredMipLevelCount = 0u);
     WorldMaterial* ensureWorldMaterial(const IRenderBackend::WorldTextureData* texture);
     WorldMaterial createWorldMaterial(Texture& base,
                                       Texture& normal,

@@ -19,6 +19,8 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     texture.rgba = material.textureRgba;
     texture.width = material.textureWidth;
     texture.height = material.textureHeight;
+    texture.mipLevels = material.textureMipLevels;
+    texture.mipLevelCount = material.textureMipLevelCount;
     texture.wrapS = material.textureWrapS;
     texture.wrapT = material.textureWrapT;
     texture.textureSrgb = material.textureSrgb;
@@ -31,6 +33,8 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     texture.normalRgba = material.normalTextureRgba;
     texture.normalWidth = material.normalTextureWidth;
     texture.normalHeight = material.normalTextureHeight;
+    texture.normalMipLevels = material.normalTextureMipLevels;
+    texture.normalMipLevelCount = material.normalTextureMipLevelCount;
     texture.normalWrapS = material.normalTextureWrapS;
     texture.normalWrapT = material.normalTextureWrapT;
     texture.normalTextureSrgb = material.normalTextureSrgb;
@@ -44,6 +48,10 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     texture.metallicRoughnessRgba = material.metallicRoughnessTextureRgba;
     texture.metallicRoughnessWidth = material.metallicRoughnessTextureWidth;
     texture.metallicRoughnessHeight = material.metallicRoughnessTextureHeight;
+    texture.metallicRoughnessMipLevels =
+        material.metallicRoughnessTextureMipLevels;
+    texture.metallicRoughnessMipLevelCount =
+        material.metallicRoughnessTextureMipLevelCount;
     texture.metallicRoughnessWrapS = material.metallicRoughnessTextureWrapS;
     texture.metallicRoughnessWrapT = material.metallicRoughnessTextureWrapT;
     texture.metallicRoughnessTextureSrgb =
@@ -57,6 +65,8 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     texture.occlusionRgba = material.occlusionTextureRgba;
     texture.occlusionWidth = material.occlusionTextureWidth;
     texture.occlusionHeight = material.occlusionTextureHeight;
+    texture.occlusionMipLevels = material.occlusionTextureMipLevels;
+    texture.occlusionMipLevelCount = material.occlusionTextureMipLevelCount;
     texture.occlusionWrapS = material.occlusionTextureWrapS;
     texture.occlusionWrapT = material.occlusionTextureWrapT;
     texture.occlusionTextureSrgb = material.occlusionTextureSrgb;
@@ -69,6 +79,8 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     texture.emissiveRgba = material.emissiveTextureRgba;
     texture.emissiveWidth = material.emissiveTextureWidth;
     texture.emissiveHeight = material.emissiveTextureHeight;
+    texture.emissiveMipLevels = material.emissiveTextureMipLevels;
+    texture.emissiveMipLevelCount = material.emissiveTextureMipLevelCount;
     texture.emissiveWrapS = material.emissiveTextureWrapS;
     texture.emissiveWrapT = material.emissiveTextureWrapT;
     texture.emissiveTextureSrgb = material.emissiveTextureSrgb;
@@ -81,6 +93,8 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     texture.environmentRgba = material.environmentTextureRgba;
     texture.environmentWidth = material.environmentTextureWidth;
     texture.environmentHeight = material.environmentTextureHeight;
+    texture.environmentMipLevels = material.environmentTextureMipLevels;
+    texture.environmentMipLevelCount = material.environmentTextureMipLevelCount;
     texture.environmentWrapS = material.environmentTextureWrapS;
     texture.environmentWrapT = material.environmentTextureWrapT;
     texture.environmentTextureSrgb = material.environmentTextureSrgb;

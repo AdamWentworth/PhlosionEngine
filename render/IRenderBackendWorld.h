@@ -6,6 +6,7 @@ class IRenderBackendWorld {
 public:
     using WorldIndexedSubmissionStats = engine::render::backend::WorldIndexedSubmissionStats;
     using WorldMeshVertex = engine::render::backend::WorldMeshVertex;
+    using WorldTextureMipLevel = engine::render::backend::WorldTextureMipLevel;
     using WorldTextureData = engine::render::backend::WorldTextureData;
     using WorldMeshInstance = engine::render::backend::WorldMeshInstance;
     template <typename Tag>

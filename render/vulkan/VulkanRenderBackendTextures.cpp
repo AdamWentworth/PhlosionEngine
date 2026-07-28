@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <stb_image.h>
 
@@ -34,7 +35,9 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTexture(
     bool srgb,
     int wrapS,
     int wrapT,
-    bool createStandaloneDescriptor) {
+    bool createStandaloneDescriptor,
+    const IRenderBackend::WorldTextureMipLevel* authoredMipLevels,
+    std::uint32_t authoredMipLevelCount) {
     const VkFormat format = srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
     const VkDeviceSize byteCount = static_cast<VkDeviceSize>(width) *
                                    static_cast<VkDeviceSize>(height) * 4u;
@@ -46,7 +49,9 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTexture(
         format,
         wrapS,
         wrapT,
-        createStandaloneDescriptor);
+        createStandaloneDescriptor,
+        authoredMipLevels,
+        authoredMipLevelCount);
 }
 
 VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTextureRgba16Float(
@@ -78,7 +83,9 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTextureWithForma
     VkFormat format,
     int wrapS,
     int wrapT,
-    bool createStandaloneDescriptor) {
+    bool createStandaloneDescriptor,
+    const IRenderBackend::WorldTextureMipLevel* authoredMipLevels,
+    std::uint32_t authoredMipLevelCount) {
     if (!pixels || byteCount == 0u || width <= 0 || height <= 0 ||
         format == VK_FORMAT_UNDEFINED) {
         throw std::runtime_error("Vulkan texture upload received invalid pixel data.");
@@ -96,12 +103,66 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTextureWithForma
             std::to_string(static_cast<int>(format)) + ".");
     }
 
+    bool authoredMipChainValid =
+        authoredMipLevels && authoredMipLevelCount > 0u;
+    VkDeviceSize stagingByteCount = 0u;
+    for (std::uint32_t level = 0u;
+         authoredMipChainValid && level < authoredMipLevelCount;
+         ++level) {
+        const auto& mip = authoredMipLevels[level];
+        authoredMipChainValid =
+            mip.rgba && mip.width > 0 && mip.height > 0 &&
+            (level != 0u || (mip.width == width && mip.height == height));
+        if (authoredMipChainValid) {
+            stagingByteCount += static_cast<VkDeviceSize>(mip.width) *
+                                static_cast<VkDeviceSize>(mip.height) * 4u;
+        }
+    }
+    const std::uint32_t mipLevelCount =
+        authoredMipChainValid ? authoredMipLevelCount : 1u;
+    if (!authoredMipChainValid) stagingByteCount = byteCount;
+
     Buffer staging = createBuffer(
-        byteCount,
+        stagingByteCount,
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    std::memcpy(staging.mapped, pixels, static_cast<std::size_t>(byteCount));
+    std::vector<VkBufferImageCopy> copies;
+    copies.reserve(mipLevelCount);
+    if (authoredMipChainValid) {
+        VkDeviceSize offset = 0u;
+        for (std::uint32_t level = 0u; level < mipLevelCount; ++level) {
+            const auto& mip = authoredMipLevels[level];
+            const VkDeviceSize mipBytes =
+                static_cast<VkDeviceSize>(mip.width) *
+                static_cast<VkDeviceSize>(mip.height) * 4u;
+            std::memcpy(
+                static_cast<unsigned char*>(staging.mapped) + offset,
+                mip.rgba,
+                static_cast<std::size_t>(mipBytes));
+            VkBufferImageCopy copy{};
+            copy.bufferOffset = offset;
+            copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copy.imageSubresource.mipLevel = level;
+            copy.imageSubresource.layerCount = 1u;
+            copy.imageExtent = {
+                static_cast<std::uint32_t>(mip.width),
+                static_cast<std::uint32_t>(mip.height),
+                1u};
+            copies.push_back(copy);
+            offset += mipBytes;
+        }
+    } else {
+        std::memcpy(staging.mapped, pixels, static_cast<std::size_t>(byteCount));
+        VkBufferImageCopy copy{};
+        copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        copy.imageSubresource.layerCount = 1u;
+        copy.imageExtent = {
+            static_cast<std::uint32_t>(width),
+            static_cast<std::uint32_t>(height),
+            1u};
+        copies.push_back(copy);
+    }
     if (!staging.coherent) {
         VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
         range.memory = staging.memory;
@@ -122,7 +183,7 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTextureWithForma
             static_cast<std::uint32_t>(width),
             static_cast<std::uint32_t>(height),
             1u};
-        imageInfo.mipLevels = 1u;
+        imageInfo.mipLevels = mipLevelCount;
         imageInfo.arrayLayers = 1u;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -152,7 +213,7 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTextureWithForma
         toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         toTransfer.image = out.image;
         toTransfer.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        toTransfer.subresourceRange.levelCount = 1u;
+        toTransfer.subresourceRange.levelCount = mipLevelCount;
         toTransfer.subresourceRange.layerCount = 1u;
         vkCmdPipelineBarrier(commandBuffer,
                              VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
@@ -165,19 +226,12 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTextureWithForma
                              1u,
                              &toTransfer);
 
-        VkBufferImageCopy copy{};
-        copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        copy.imageSubresource.layerCount = 1u;
-        copy.imageExtent = {
-            static_cast<std::uint32_t>(width),
-            static_cast<std::uint32_t>(height),
-            1u};
         vkCmdCopyBufferToImage(commandBuffer,
                                staging.buffer,
                                out.image,
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                               1u,
-                               &copy);
+                               static_cast<std::uint32_t>(copies.size()),
+                               copies.data());
 
         VkImageMemoryBarrier toShader{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
         toShader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -205,7 +259,7 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTextureWithForma
         viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
         viewInfo.format = format;
         viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        viewInfo.subresourceRange.levelCount = 1u;
+        viewInfo.subresourceRange.levelCount = mipLevelCount;
         viewInfo.subresourceRange.layerCount = 1u;
         requireVkTexture(vkCreateImageView(device, &viewInfo, nullptr, &out.view),
                          "vkCreateImageView(texture)");
@@ -220,7 +274,8 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTextureWithForma
         samplerInfo.anisotropyEnable = samplerAnisotropyEnabled ? VK_TRUE : VK_FALSE;
         samplerInfo.maxAnisotropy = maxSamplerAnisotropy;
         samplerInfo.minLod = 0.0f;
-        samplerInfo.maxLod = 0.0f;
+        samplerInfo.maxLod =
+            static_cast<float>(mipLevelCount > 0u ? mipLevelCount - 1u : 0u);
         requireVkTexture(vkCreateSampler(device, &samplerInfo, nullptr, &out.sampler),
                          "vkCreateSampler");
 

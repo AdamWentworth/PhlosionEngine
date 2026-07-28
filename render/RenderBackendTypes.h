@@ -83,12 +83,20 @@ struct WorldMeshVertex {
     float sourceUv2V = 0.0f;
 };
 
+struct WorldTextureMipLevel {
+    const unsigned char* rgba = nullptr;
+    int width = 0;
+    int height = 0;
+};
+
 struct WorldTextureData {
     const char* key = nullptr;
     const char* cacheKey = nullptr;
     const unsigned char* rgba = nullptr;
     int width = 0;
     int height = 0;
+    const WorldTextureMipLevel* mipLevels = nullptr;
+    std::uint32_t mipLevelCount = 0u;
     int wrapS = 10497;
     int wrapT = 10497;
     std::uint8_t textureSrgb = 1u;
@@ -97,6 +105,8 @@ struct WorldTextureData {
     const unsigned char* normalRgba = nullptr;
     int normalWidth = 0;
     int normalHeight = 0;
+    const WorldTextureMipLevel* normalMipLevels = nullptr;
+    std::uint32_t normalMipLevelCount = 0u;
     int normalWrapS = 10497;
     int normalWrapT = 10497;
     std::uint8_t normalTextureSrgb = 0u;
@@ -105,6 +115,8 @@ struct WorldTextureData {
     const unsigned char* metallicRoughnessRgba = nullptr;
     int metallicRoughnessWidth = 0;
     int metallicRoughnessHeight = 0;
+    const WorldTextureMipLevel* metallicRoughnessMipLevels = nullptr;
+    std::uint32_t metallicRoughnessMipLevelCount = 0u;
     int metallicRoughnessWrapS = 10497;
     int metallicRoughnessWrapT = 10497;
     std::uint8_t metallicRoughnessTextureSrgb = 0u;
@@ -113,6 +125,8 @@ struct WorldTextureData {
     const unsigned char* occlusionRgba = nullptr;
     int occlusionWidth = 0;
     int occlusionHeight = 0;
+    const WorldTextureMipLevel* occlusionMipLevels = nullptr;
+    std::uint32_t occlusionMipLevelCount = 0u;
     int occlusionWrapS = 10497;
     int occlusionWrapT = 10497;
     std::uint8_t occlusionTextureSrgb = 0u;
@@ -121,6 +135,8 @@ struct WorldTextureData {
     const unsigned char* emissiveRgba = nullptr;
     int emissiveWidth = 0;
     int emissiveHeight = 0;
+    const WorldTextureMipLevel* emissiveMipLevels = nullptr;
+    std::uint32_t emissiveMipLevelCount = 0u;
     int emissiveWrapS = 10497;
     int emissiveWrapT = 10497;
     std::uint8_t emissiveTextureSrgb = 1u;
@@ -129,6 +145,8 @@ struct WorldTextureData {
     const unsigned char* environmentRgba = nullptr;
     int environmentWidth = 0;
     int environmentHeight = 0;
+    const WorldTextureMipLevel* environmentMipLevels = nullptr;
+    std::uint32_t environmentMipLevelCount = 0u;
     int environmentWrapS = 10497;
     int environmentWrapT = 10497;
     std::uint8_t environmentTextureSrgb = 0u;
@@ -305,6 +323,8 @@ struct WorldSceneSourceTextureBinding {
     const unsigned char* baseRgba = nullptr;
     int baseWidth = 0;
     int baseHeight = 0;
+    const WorldTextureMipLevel* mipLevels = nullptr;
+    std::uint32_t mipLevelCount = 0u;
     int resolvedWrapS = 10497;
     int resolvedWrapT = 10497;
 };
@@ -341,6 +361,8 @@ struct WorldSceneMaterial {
     const unsigned char* textureRgba = nullptr;
     int textureWidth = 0;
     int textureHeight = 0;
+    const WorldTextureMipLevel* textureMipLevels = nullptr;
+    std::uint32_t textureMipLevelCount = 0u;
     int textureWrapS = 10497;
     int textureWrapT = 10497;
     std::uint8_t textureSrgb = 1u;
@@ -349,6 +371,8 @@ struct WorldSceneMaterial {
     const unsigned char* normalTextureRgba = nullptr;
     int normalTextureWidth = 0;
     int normalTextureHeight = 0;
+    const WorldTextureMipLevel* normalTextureMipLevels = nullptr;
+    std::uint32_t normalTextureMipLevelCount = 0u;
     int normalTextureWrapS = 10497;
     int normalTextureWrapT = 10497;
     std::uint8_t normalTextureSrgb = 0u;
@@ -357,6 +381,8 @@ struct WorldSceneMaterial {
     const unsigned char* metallicRoughnessTextureRgba = nullptr;
     int metallicRoughnessTextureWidth = 0;
     int metallicRoughnessTextureHeight = 0;
+    const WorldTextureMipLevel* metallicRoughnessTextureMipLevels = nullptr;
+    std::uint32_t metallicRoughnessTextureMipLevelCount = 0u;
     int metallicRoughnessTextureWrapS = 10497;
     int metallicRoughnessTextureWrapT = 10497;
     std::uint8_t metallicRoughnessTextureSrgb = 0u;
@@ -365,6 +391,8 @@ struct WorldSceneMaterial {
     const unsigned char* occlusionTextureRgba = nullptr;
     int occlusionTextureWidth = 0;
     int occlusionTextureHeight = 0;
+    const WorldTextureMipLevel* occlusionTextureMipLevels = nullptr;
+    std::uint32_t occlusionTextureMipLevelCount = 0u;
     int occlusionTextureWrapS = 10497;
     int occlusionTextureWrapT = 10497;
     std::uint8_t occlusionTextureSrgb = 0u;
@@ -373,6 +401,8 @@ struct WorldSceneMaterial {
     const unsigned char* emissiveTextureRgba = nullptr;
     int emissiveTextureWidth = 0;
     int emissiveTextureHeight = 0;
+    const WorldTextureMipLevel* emissiveTextureMipLevels = nullptr;
+    std::uint32_t emissiveTextureMipLevelCount = 0u;
     int emissiveTextureWrapS = 10497;
     int emissiveTextureWrapT = 10497;
     std::uint8_t emissiveTextureSrgb = 1u;
@@ -381,6 +411,8 @@ struct WorldSceneMaterial {
     const unsigned char* environmentTextureRgba = nullptr;
     int environmentTextureWidth = 0;
     int environmentTextureHeight = 0;
+    const WorldTextureMipLevel* environmentTextureMipLevels = nullptr;
+    std::uint32_t environmentTextureMipLevelCount = 0u;
     int environmentTextureWrapS = 10497;
     int environmentTextureWrapT = 10497;
     std::uint8_t environmentTextureSrgb = 0u;

@@ -334,7 +334,9 @@ unsigned int OpenGLRenderBackend::ensureWorldTexture(const WorldTextureData* tex
         textureData->height,
         textureData->wrapS,
         textureData->wrapT,
-        textureData->textureSrgb != 0u);
+        textureData->textureSrgb != 0u,
+        textureData->mipLevels,
+        textureData->mipLevelCount);
 }
 
 unsigned int OpenGLRenderBackend::ensureWorldTextureRaw(const char* keyCStr,
@@ -344,7 +346,9 @@ unsigned int OpenGLRenderBackend::ensureWorldTextureRaw(const char* keyCStr,
                                                         int height,
                                                         int wrapSIn,
                                                         int wrapTIn,
-                                                        bool srgb) {
+                                                        bool srgb,
+                                                        const WorldTextureMipLevel* authoredMipLevels,
+                                                        std::uint32_t authoredMipLevelCount) {
     if (!rgba || width <= 0 || height <= 0 || !keyCStr || keyCStr[0] == '\0') {
         return 0;
     }
@@ -384,9 +388,26 @@ unsigned int OpenGLRenderBackend::ensureWorldTextureRaw(const char* keyCStr,
                                              : std::chrono::steady_clock::time_point{};
     const GLint wrapS = sanitizeWrapMode(wrapSIn);
     const GLint wrapT = sanitizeWrapMode(wrapTIn);
-    const bool generateMipChain = worldTextureMipChainEnabled();
+    bool authoredMipChainValid =
+        authoredMipLevels && authoredMipLevelCount > 0u;
+    for (std::uint32_t level = 0u;
+         authoredMipChainValid && level < authoredMipLevelCount;
+         ++level) {
+        const auto& mip = authoredMipLevels[level];
+        authoredMipChainValid =
+            mip.rgba && mip.width > 0 && mip.height > 0 &&
+            (level != 0u || (mip.width == width && mip.height == height));
+    }
+    const bool generateMipChain =
+        !authoredMipChainValid && worldTextureMipChainEnabled();
+    const bool useMipChain =
+        (authoredMipChainValid && authoredMipLevelCount > 1u) ||
+        generateMipChain;
     glBindTexture(GL_TEXTURE_2D, textureId);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, generateMipChain ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_MIN_FILTER,
+        useMipChain ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapS);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapT);
@@ -396,12 +417,28 @@ unsigned int OpenGLRenderBackend::ensureWorldTextureRaw(const char* keyCStr,
     if (generateMipChain) {
         mipChain = buildRgbaMipChain(rgba, width, height, wrapSIn, wrapTIn, srgb);
     }
-    const GLint maxLevel = generateMipChain
-        ? static_cast<GLint>((mipChain.empty() ? 1u : mipChain.size()) - 1u)
-        : 0;
+    const GLint maxLevel = authoredMipChainValid
+        ? static_cast<GLint>(authoredMipLevelCount - 1u)
+        : (generateMipChain
+            ? static_cast<GLint>((mipChain.empty() ? 1u : mipChain.size()) - 1u)
+            : 0);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, maxLevel);
-    if (generateMipChain && !mipChain.empty()) {
+    if (authoredMipChainValid) {
+        for (std::uint32_t level = 0u; level < authoredMipLevelCount; ++level) {
+            const auto& mip = authoredMipLevels[level];
+            glTexImage2D(
+                GL_TEXTURE_2D,
+                static_cast<GLint>(level),
+                srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8,
+                mip.width,
+                mip.height,
+                0,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                mip.rgba);
+        }
+    } else if (generateMipChain && !mipChain.empty()) {
         for (std::size_t level = 0; level < mipChain.size(); ++level) {
             const CpuMipLevel& mip = mipChain[level];
             glTexImage2D(GL_TEXTURE_2D,
@@ -426,7 +463,7 @@ unsigned int OpenGLRenderBackend::ensureWorldTextureRaw(const char* keyCStr,
                      rgba);
     }
 #if defined(GL_TEXTURE_MAX_ANISOTROPY_EXT) && defined(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT)
-    if (generateMipChain && GLAD_GL_EXT_texture_filter_anisotropic) {
+    if (useMipChain && GLAD_GL_EXT_texture_filter_anisotropic) {
         float maxAniso = 1.0f;
         glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxAniso);
         const float requested = std::max(1.0f, maxAniso);
@@ -453,7 +490,9 @@ unsigned int OpenGLRenderBackend::ensureWorldTextureRaw(const char* keyCStr,
             << " srgb="
             << (srgb ? 1 : 0)
             << " mips="
-            << (generateMipChain ? 1 : 0)
+            << (authoredMipChainValid
+                    ? authoredMipLevelCount
+                    : (generateMipChain ? mipChain.size() : 1u))
             << " wall_ms="
             << std::chrono::duration<double, std::milli>(uploadEnd - uploadStart).count()
             << " result=ok";

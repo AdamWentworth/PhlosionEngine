@@ -11,44 +11,71 @@ void OpenGLRenderBackend::prewarmWorldTextureData(const WorldTextureData* textur
     if (texture->normalRgba && texture->normalWidth > 0 && texture->normalHeight > 0) {
         (void)ensureWorldTextureRaw(
             texture->normalKey,
+            texture->normalCacheKey,
             texture->normalRgba,
             texture->normalWidth,
             texture->normalHeight,
             texture->normalWrapS,
             texture->normalWrapT,
-            /*srgb=*/false);
+            texture->normalTextureSrgb != 0u,
+            texture->normalMipLevels,
+            texture->normalMipLevelCount);
     }
     if (texture->metallicRoughnessRgba &&
         texture->metallicRoughnessWidth > 0 &&
         texture->metallicRoughnessHeight > 0) {
         (void)ensureWorldTextureRaw(
             texture->metallicRoughnessKey,
+            texture->metallicRoughnessCacheKey,
             texture->metallicRoughnessRgba,
             texture->metallicRoughnessWidth,
             texture->metallicRoughnessHeight,
             texture->metallicRoughnessWrapS,
             texture->metallicRoughnessWrapT,
-            /*srgb=*/false);
+            texture->metallicRoughnessTextureSrgb != 0u,
+            texture->metallicRoughnessMipLevels,
+            texture->metallicRoughnessMipLevelCount);
     }
     if (texture->occlusionRgba && texture->occlusionWidth > 0 && texture->occlusionHeight > 0) {
         (void)ensureWorldTextureRaw(
             texture->occlusionKey,
+            texture->occlusionCacheKey,
             texture->occlusionRgba,
             texture->occlusionWidth,
             texture->occlusionHeight,
             texture->occlusionWrapS,
             texture->occlusionWrapT,
-            /*srgb=*/false);
+            texture->occlusionTextureSrgb != 0u,
+            texture->occlusionMipLevels,
+            texture->occlusionMipLevelCount);
     }
     if (texture->emissiveRgba && texture->emissiveWidth > 0 && texture->emissiveHeight > 0) {
         (void)ensureWorldTextureRaw(
             texture->emissiveKey,
+            texture->emissiveCacheKey,
             texture->emissiveRgba,
             texture->emissiveWidth,
             texture->emissiveHeight,
             texture->emissiveWrapS,
             texture->emissiveWrapT,
-            /*srgb=*/true);
+            texture->emissiveTextureSrgb != 0u,
+            texture->emissiveMipLevels,
+            texture->emissiveMipLevelCount);
+    }
+    if (texture->environmentRgba &&
+        texture->environmentWidth > 0 &&
+        texture->environmentHeight > 0) {
+        (void)ensureWorldTextureRaw(
+            texture->environmentKey,
+            texture->environmentCacheKey,
+            texture->environmentRgba,
+            texture->environmentWidth,
+            texture->environmentHeight,
+            texture->environmentWrapS,
+            texture->environmentWrapT,
+            texture->environmentTextureSrgb != 0u,
+            texture->environmentMipLevels,
+            texture->environmentMipLevelCount);
     }
 }
 

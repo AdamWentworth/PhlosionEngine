@@ -171,7 +171,9 @@ private:
                                        int height,
                                        int wrapS,
                                        int wrapT,
-                                       bool srgb);
+                                       bool srgb,
+                                       const WorldTextureMipLevel* authoredMipLevels = nullptr,
+                                       std::uint32_t authoredMipLevelCount = 0u);
     unsigned int ensureWorldTextureRawHalfFloat(const char* key,
                                                 const std::uint16_t* rgba16f,
                                                 int width,

@@ -66,9 +66,41 @@ std::vector<CpuMipLevel> buildRgbaMipChain(const unsigned char* rgbaPixels,
                                            int wrapS,
                                            int wrapT,
                                            bool srgbColorData,
-                                           bool generateMipChain) {
+                                           bool generateMipChain,
+                                           const engine::render::backend::
+                                               WorldTextureMipLevel*
+                                                   authoredMipLevels,
+                                           std::uint32_t authoredMipLevelCount) {
     std::vector<CpuMipLevel> chain;
     if (!rgbaPixels || width <= 0 || height <= 0) return chain;
+
+    bool authoredValid = authoredMipLevels && authoredMipLevelCount > 0u;
+    for (std::uint32_t level = 0u;
+         authoredValid && level < authoredMipLevelCount;
+         ++level) {
+        const auto& source = authoredMipLevels[level];
+        authoredValid =
+            source.rgba && source.width > 0 && source.height > 0 &&
+            (level != 0u || (source.width == width && source.height == height));
+    }
+    if (authoredValid) {
+        chain.reserve(authoredMipLevelCount);
+        for (std::uint32_t level = 0u;
+             level < authoredMipLevelCount;
+             ++level) {
+            const auto& source = authoredMipLevels[level];
+            CpuMipLevel mip;
+            mip.width = source.width;
+            mip.height = source.height;
+            mip.rgba.assign(
+                source.rgba,
+                source.rgba +
+                    static_cast<std::size_t>(source.width) *
+                        static_cast<std::size_t>(source.height) * 4u);
+            chain.push_back(std::move(mip));
+        }
+        return chain;
+    }
 
     CpuMipLevel base;
     base.width = width;
@@ -190,7 +222,9 @@ bool createTextureResourcesFromRgbaBatch(ID3D12Device* device,
             req.wrapS,
             req.wrapT,
             req.srgbColorData,
-            req.generateMipChain);
+            req.generateMipChain,
+            req.authoredMipLevels,
+            req.authoredMipLevelCount);
         if (dst.mipChain.empty()) return false;
         dst.mipLevels = static_cast<UINT>(dst.mipChain.size());
 
@@ -406,13 +440,24 @@ bool createTextureResourceFromRgba(ID3D12Device* device,
                                    int wrapT,
                                    bool generateMipChain,
                                    bool srgbColorData,
-                                   Microsoft::WRL::ComPtr<ID3D12Resource>& outTexture) {
+                                   Microsoft::WRL::ComPtr<ID3D12Resource>& outTexture,
+                                   const engine::render::backend::
+                                       WorldTextureMipLevel* authoredMipLevels,
+                                   std::uint32_t authoredMipLevelCount) {
     if (!device || !commandQueue || !fence || !fenceEvent || !srvHeap || !rgbaPixels || width <= 0 || height <= 0) {
         return false;
     }
     std::vector<CpuMipLevel> mipChain =
         buildRgbaMipChain(
-            rgbaPixels, width, height, wrapS, wrapT, srgbColorData, generateMipChain);
+            rgbaPixels,
+            width,
+            height,
+            wrapS,
+            wrapT,
+            srgbColorData,
+            generateMipChain,
+            authoredMipLevels,
+            authoredMipLevelCount);
     if (mipChain.empty()) return false;
     const UINT mipLevels = static_cast<UINT>(mipChain.size());
 

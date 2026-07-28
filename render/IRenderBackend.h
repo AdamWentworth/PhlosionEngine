@@ -13,6 +13,7 @@ public:
 
     using WorldIndexedSubmissionStats = IRenderBackendWorld::WorldIndexedSubmissionStats;
     using WorldMeshVertex = IRenderBackendWorld::WorldMeshVertex;
+    using WorldTextureMipLevel = IRenderBackendWorld::WorldTextureMipLevel;
     using WorldTextureData = IRenderBackendWorld::WorldTextureData;
     using WorldMeshInstance = IRenderBackendWorld::WorldMeshInstance;
     template <typename Tag>

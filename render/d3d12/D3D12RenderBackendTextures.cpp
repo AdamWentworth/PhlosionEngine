@@ -498,7 +498,9 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTexture(const 
         textureData->height,
         textureData->wrapS,
         textureData->wrapT,
-        textureData->textureSrgb != 0u);
+        textureData->textureSrgb != 0u,
+        textureData->mipLevels,
+        textureData->mipLevelCount);
 #else
     (void)textureData;
     return nullptr;
@@ -638,7 +640,9 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         textureData->normalHeight,
         textureData->normalWrapS,
         textureData->normalWrapT,
-        textureData->normalTextureSrgb != 0u);
+        textureData->normalTextureSrgb != 0u,
+        textureData->normalMipLevels,
+        textureData->normalMipLevelCount);
     const std::uint32_t normalDescriptorIndex =
         normalTex ? normalTex->descriptorIndex : worldFallbackNormalTextureDescriptorIndex_;
 
@@ -650,7 +654,9 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         textureData->metallicRoughnessHeight,
         textureData->metallicRoughnessWrapS,
         textureData->metallicRoughnessWrapT,
-        textureData->metallicRoughnessTextureSrgb != 0u);
+        textureData->metallicRoughnessTextureSrgb != 0u,
+        textureData->metallicRoughnessMipLevels,
+        textureData->metallicRoughnessMipLevelCount);
     const std::uint32_t metallicRoughnessDescriptorIndex =
         metallicRoughnessTex
             ? metallicRoughnessTex->descriptorIndex
@@ -664,7 +670,9 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         textureData->occlusionHeight,
         textureData->occlusionWrapS,
         textureData->occlusionWrapT,
-        textureData->occlusionTextureSrgb != 0u);
+        textureData->occlusionTextureSrgb != 0u,
+        textureData->occlusionMipLevels,
+        textureData->occlusionMipLevelCount);
     const std::uint32_t occlusionDescriptorIndex =
         occlusionTex ? occlusionTex->descriptorIndex : worldFallbackOcclusionTextureDescriptorIndex_;
 
@@ -676,7 +684,9 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         textureData->emissiveHeight,
         textureData->emissiveWrapS,
         textureData->emissiveWrapT,
-        textureData->emissiveTextureSrgb != 0u);
+        textureData->emissiveTextureSrgb != 0u,
+        textureData->emissiveMipLevels,
+        textureData->emissiveMipLevelCount);
     const std::uint32_t emissiveDescriptorIndex =
         emissiveTex ? emissiveTex->descriptorIndex : worldFallbackEmissiveTextureDescriptorIndex_;
 
@@ -688,7 +698,9 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         textureData->environmentHeight,
         textureData->environmentWrapS,
         textureData->environmentWrapT,
-        textureData->environmentTextureSrgb != 0u);
+        textureData->environmentTextureSrgb != 0u,
+        textureData->environmentMipLevels,
+        textureData->environmentMipLevelCount);
     const std::uint32_t environmentDescriptorIndex =
         environmentTex
             ? environmentTex->descriptorIndex
@@ -720,7 +732,9 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTextureRaw(con
                                                                               int height,
                                                                               int wrapS,
                                                                               int wrapT,
-                                                                              bool srgb) {
+                                                                              bool srgb,
+                                                                              const WorldTextureMipLevel* authoredMipLevels,
+                                                                              std::uint32_t authoredMipLevelCount) {
 #if defined(_WIN32)
     if (!key || key[0] == '\0' || !rgba || width <= 0 || height <= 0) {
         return nullptr;
@@ -771,7 +785,9 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTextureRaw(con
                                                                           wrapT,
                                                                           generateMipChain,
                                                                           srgb,
-                                                                          texture.resource);
+                                                                          texture.resource,
+                                                                          authoredMipLevels,
+                                                                          authoredMipLevelCount);
     if (tailFireTexture) {
         const auto uploadEnd = std::chrono::steady_clock::now();
         std::ostringstream msg;
@@ -784,7 +800,9 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTextureRaw(con
             << " srgb="
             << (srgb ? 1 : 0)
             << " mips="
-            << (generateMipChain ? 1 : 0)
+            << (authoredMipLevels && authoredMipLevelCount > 0u
+                    ? authoredMipLevelCount
+                    : (generateMipChain ? 1u : 0u))
             << " wall_ms="
             << std::chrono::duration<double, std::milli>(uploadEnd - uploadStart).count()
             << " result="
@@ -802,12 +820,15 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTextureRaw(con
     return &insertedIt->second;
 #else
     (void)key;
+    (void)cacheKey;
     (void)rgba;
     (void)width;
     (void)height;
     (void)wrapS;
     (void)wrapT;
     (void)srgb;
+    (void)authoredMipLevels;
+    (void)authoredMipLevelCount;
     return nullptr;
 #endif
 }
