@@ -266,6 +266,31 @@ inline WorldPsConstants makeWorldPsConstants(const IRenderBackend::WorldTextureD
             constants.materialRect1U = textureData->materialRect1U;
             constants.materialFlipbook0Fps =
                 textureData->materialFlipbook0Fps;
+        } else if (textureData->materialMode == 8u) {
+            // FieldTreeShader02 has five independent source colors plus its
+            // camera-dependent rim. Repack the typed mode-8 payload around
+            // the fixed 64-DWORD root-signature limit.
+            constants.vertexColorMulR = textureData->normalScale;
+            constants.vertexColorMulG = textureData->metallicFactor;
+            constants.vertexColorMulB = textureData->roughnessFactor;
+            constants.vertexColorMulA = 1.0f;
+            constants.materialFlags = textureData->materialFlags;
+            constants.materialAtlasWidth = textureData->materialAtlasWidth;
+            constants.materialAtlasHeight = textureData->materialAtlasHeight;
+            constants.materialRect0U = textureData->materialRect0U;
+            constants.materialRect0V = textureData->materialRect0V;
+            constants.materialRect0W = textureData->emissiveFactorR;
+            constants.materialRect0H = textureData->emissiveFactorG;
+            constants.materialRect1U = textureData->emissiveFactorB;
+            constants.materialRect1V = textureData->materialRect0W;
+            constants.materialRect1W = textureData->materialRect0H;
+            constants.materialRect1H = textureData->materialRect1U;
+            constants.materialFlipbook0Cols = textureData->materialRect1V;
+            constants.materialFlipbook0Rows = textureData->materialRect1W;
+            constants.materialFlipbook0Frames = textureData->materialRect1H;
+            constants.materialFlipbook1Cols = textureData->cameraPosX;
+            constants.materialFlipbook1Rows = textureData->cameraPosY;
+            constants.materialFlipbook1Frames = textureData->cameraPosZ;
         }
     }
 

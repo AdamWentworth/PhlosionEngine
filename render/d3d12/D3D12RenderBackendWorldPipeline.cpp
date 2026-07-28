@@ -402,6 +402,76 @@ float4 evaluateLgpeFieldTree05Surface(PSIn i) {
                 texture01.a);
 }
 
+float4 evaluateLgpeFieldTree02Surface(PSIn i) {
+  float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
+  float4 texture01 = sampleLgpeFieldTreeTexture(gTex, uv0);
+  if (texture01.a <= saturate(uAlphaCutoff)) discard;
+  float3 texture02 =
+      sampleLgpeFieldTreeTexture(gNormalTex, uv0).rgb;
+  float3 normal = normalize(i.worldNormal);
+  const float3 sourceSunRay =
+      float3(0.5533391237f, 0.2078260481f, -0.8066127300f);
+  float normalDotLight = dot(normal, -sourceSunRay);
+  float toonCoordinate = normalDotLight * 0.5f + 0.5f;
+  float2 toonUv =
+      float2(toonCoordinate, 1.0f - toonCoordinate);
+  float toon = saturate(
+      gOcclusionTex.SampleBias(gSampCC, toonUv, 0.35f).r);
+  float lightToon = saturate(
+      gEmissiveTex.SampleBias(gSampCC, toonUv, 0.35f).r);
+  float3 cameraPos =
+      float3(
+          uMaterialFlipbook1Cols,
+          uMaterialFlipbook1Rows,
+          uMaterialFlipbook1Frames);
+  float3 viewDirection = normalize(cameraPos - i.worldPos);
+  float edge = saturate(1.0f - dot(normal, viewDirection));
+  float rimMin = uMaterialTimeSec;
+  float rimMax = uMaterialFlags;
+  float rimStrength = uMaterialAtlasWidth;
+  float rimSpan = max(rimMax, rimMin) - rimMin;
+  float rim = rimSpan > 0.0f
+      ? saturate((edge - rimMin) / rimSpan) * rimStrength
+      : 0.0f;
+  float directional = saturate(edge * (5.0f / 3.0f));
+  float3 greenColor =
+      float3(
+          uVertexColorMulR,
+          uVertexColorMulG,
+          uVertexColorMulB);
+  float3 shadowColor =
+      float3(
+          uMaterialRect0W,
+          uMaterialRect0H,
+          uMaterialRect1U);
+  float3 rimColor =
+      float3(
+          uMaterialAtlasHeight,
+          uMaterialRect0U,
+          uMaterialRect0V);
+  float3 directionalLightColor =
+      float3(
+          uMaterialRect1V,
+          uMaterialRect1W,
+          uMaterialRect1H);
+  float3 rimColor02 =
+      float3(
+          uMaterialFlipbook0Cols,
+          uMaterialFlipbook0Rows,
+          uMaterialFlipbook0Frames);
+  float3 secondary =
+      rim * rimColor +
+      (1.0f - directional) * rimColor02 +
+      lightToon * directionalLightColor;
+  float3 surface = texture01.rgb + texture02 * secondary;
+  float3 authored = surface * i.col.rgb;
+  float3 tinted = lerp(greenColor, authored, saturate(i.col.a));
+  // The shared projected-depth PCF is intentionally held at one until its
+  // source matrix/depth state is represented by the world renderer.
+  float3 lighting = lerp(shadowColor, 1.0f.xxx, toon);
+  return float4(lighting * tinted, texture01.a);
+}
+
 float4 evaluateLgpeFieldObjectTreeMikiSurface(PSIn i) {
   float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
   float2 uv1 = float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
@@ -1032,6 +1102,15 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         1.0f,
         trunkExposure);
     return float4(linearToSrgb(trunkMapped), trunkSurface.a);
+  }
+  if (uMaterialMode > 7.5f && uMaterialMode < 8.5f) {
+    const float treeExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+    float4 treeSurface = evaluateLgpeFieldTree02Surface(i);
+    float3 treeMapped = applyViewerToneMapping(
+        max(treeSurface.rgb, float3(0.0f, 0.0f, 0.0f)),
+        1.0f,
+        treeExposure);
+    return float4(linearToSrgb(treeMapped), treeSurface.a);
   }
   float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
   float3 outLinear = saturate(i.col.rgb * float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB));

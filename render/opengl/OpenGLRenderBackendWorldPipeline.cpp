@@ -646,6 +646,67 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             return vec4(mix(shadowColor, vec3(1.0), toon) * surface,
                         texture01.a);
         }
+        vec4 evaluateLgpeFieldTree02Surface() {
+            vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
+            vec4 texture01 = texture(uTexture, uv0, 0.0);
+            if (texture01.a <= clamp(uAlphaCutoff, 0.0, 1.0)) discard;
+            vec3 texture02 = texture(uNormalTexture, uv0, 0.0).rgb;
+            vec3 normal = normalize(vWorldNormal);
+            const vec3 sourceSunRay =
+                vec3(0.5533391237, 0.2078260481, -0.8066127300);
+            float normalDotLight = dot(normal, -sourceSunRay);
+            float toonCoordinate = normalDotLight * 0.5 + 0.5;
+            vec2 toonUv =
+                vec2(toonCoordinate, 1.0 - toonCoordinate);
+            float toon = clamp(
+                texture(uOcclusionTexture, toonUv, 0.0).r,
+                0.0,
+                1.0);
+            float lightToon = clamp(
+                texture(uEmissiveTexture, toonUv, 0.0).r,
+                0.0,
+                1.0);
+            vec3 viewDirection = normalize(uCameraPos - vWorldPos);
+            float edge =
+                clamp(1.0 - dot(normal, viewDirection), 0.0, 1.0);
+            float rimMin = uMaterialTimeSec;
+            float rimMax = uMaterialFlags;
+            float rimStrength = uMaterialAtlasSize.x;
+            float rimSpan = max(rimMax, rimMin) - rimMin;
+            float rim = rimSpan > 0.0
+                ? clamp((edge - rimMin) / rimSpan, 0.0, 1.0) *
+                      rimStrength
+                : 0.0;
+            float directional = clamp(edge * (5.0 / 3.0), 0.0, 1.0);
+            vec3 greenColor =
+                vec3(uNormalScale, uMetallicFactor, uRoughnessFactor);
+            vec3 shadowColor = uEmissiveFactor;
+            vec3 rimColor =
+                vec3(
+                    uMaterialAtlasSize.y,
+                    uMaterialRect0.x,
+                    uMaterialRect0.y);
+            vec3 directionalLightColor =
+                vec3(
+                    uMaterialRect0.z,
+                    uMaterialRect0.w,
+                    uMaterialRect1.x);
+            vec3 rimColor02 = uMaterialRect1.yzw;
+            vec3 secondary =
+                rim * rimColor +
+                (1.0 - directional) * rimColor02 +
+                lightToon * directionalLightColor;
+            vec3 surface = texture01.rgb + texture02 * secondary;
+            vec3 authored = surface * vColor.rgb;
+            vec3 tinted =
+                mix(greenColor, authored, clamp(vColor.a, 0.0, 1.0));
+            // The source uses a shared ten-tap projected-depth PCF. Until the
+            // source projection matrix is represented, preserve its exact
+            // local material path with projectedShadow held at one.
+            vec3 lighting =
+                mix(shadowColor, vec3(1.0), toon);
+            return vec4(lighting * tinted, texture01.a);
+        }
         vec4 evaluateLgpeFieldObjectTreeMikiSurface() {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
             vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
@@ -1300,6 +1361,17 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                     trunkExposure);
                 FragColor =
                     vec4(linearToSrgb(trunkMapped), trunkSurface.a);
+                return;
+            }
+            if (uMaterialMode > 7.5 && uMaterialMode < 8.5) {
+                const float treeExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+                vec4 treeSurface = evaluateLgpeFieldTree02Surface();
+                vec3 treeMapped = applyViewerToneMapping(
+                    max(treeSurface.rgb, vec3(0.0)),
+                    1.0,
+                    treeExposure);
+                FragColor =
+                    vec4(linearToSrgb(treeMapped), treeSurface.a);
                 return;
             }
             vec4 tex = vec4(1.0);
