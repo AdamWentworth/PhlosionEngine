@@ -1161,6 +1161,64 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                         clamp(uMaterialRect1.x, 0.0, 1.0)),
                 clamp(uMaterialRect1.y, 0.0, 1.0));
         }
+        vec4 evaluateLgpeFieldSignSurface() {
+            float sourceMipBias = uMaterialFlipbook0.w;
+            vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
+            vec4 texture01 = texture(uTexture, uv0, sourceMipBias);
+            vec3 normal = normalize(vWorldNormal);
+            const vec3 sourceSunRay =
+                vec3(0.5533391237, 0.2078260481, -0.8066127300);
+            float normalDotLight = dot(normal, -sourceSunRay);
+            float toonCoordinate = normalDotLight * 0.5 + 0.5;
+            vec2 toonUv =
+                vec2(toonCoordinate, 1.0 - toonCoordinate);
+            float shadowToon = clamp(
+                texture(
+                    uOcclusionTexture,
+                    toonUv,
+                    sourceMipBias).r,
+                0.0,
+                1.0);
+            float lightToon =
+                evaluateLgpeFieldRockLightToon(toonCoordinate);
+            vec3 viewDirection =
+                normalize(uCameraPos - vWorldPos);
+            float rimMin = uMaterialAtlasSize.y;
+            float rimMax = uMaterialRect0.x;
+            float rimStrength = uMaterialRect0.y;
+            float rimSpan = max(rimMax, rimMin) - rimMin;
+            float rim = rimSpan > 0.0
+                ? clamp(
+                      ((1.0 - dot(normal, viewDirection)) - rimMin) /
+                          rimSpan,
+                      0.0,
+                      1.0) *
+                      rimStrength
+                : 0.0;
+            vec3 rimColor =
+                vec3(
+                    uMaterialTimeSec,
+                    uMaterialFlags,
+                    uMaterialAtlasSize.x);
+            // Source ShadowColor and OnGameColor are exactly white, so the
+            // recovered AutoShadow and OnGame mixes are neutral for this
+            // Route 1 sign material.
+            vec3 surface =
+                texture01.rgb +
+                uEmissiveFactor * lightToon +
+                rimColor * rim;
+            vec3 shadowColor =
+                vec3(
+                    uNormalScale,
+                    uMetallicFactor,
+                    uRoughnessFactor);
+            vec3 lighting =
+                mix(shadowColor, vec3(1.0), shadowToon);
+            vec4 authoredVertexColor = vColor * uVertexColorMul;
+            return vec4(
+                lighting * surface * authoredVertexColor.rgb,
+                texture01.a * authoredVertexColor.a);
+        }
         vec4 evaluateLgpeFieldObjectTreeMikiSurface() {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
             vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
@@ -1922,6 +1980,18 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                     rockExposure);
                 FragColor =
                     vec4(linearToSrgb(rockMapped), rockSurface.a);
+                return;
+            }
+            if (uMaterialMode > 16.5 && uMaterialMode < 17.5) {
+                const float signExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+                vec4 signSurface =
+                    evaluateLgpeFieldSignSurface();
+                vec3 signMapped = applyViewerToneMapping(
+                    max(signSurface.rgb, vec3(0.0)),
+                    1.0,
+                    signExposure);
+                FragColor =
+                    vec4(linearToSrgb(signMapped), signSurface.a);
                 return;
             }
             vec4 tex = vec4(1.0);

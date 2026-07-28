@@ -385,6 +385,25 @@ inline WorldPsConstants makeWorldPsConstants(const IRenderBackend::WorldTextureD
             constants.materialRect1U = textureData->emissiveFactorB;
             constants.materialFlipbook0Fps =
                 textureData->materialFlipbook0Fps;
+        } else if (textureData->materialMode == 17u) {
+            // FieldObjectShader signboard carries light, shadow, and rim
+            // triples plus a camera-dependent rim. Repack those around the
+            // fixed 64-DWORD root-signature limit.
+            constants.vertexColorMulR = textureData->emissiveFactorR;
+            constants.vertexColorMulG = textureData->emissiveFactorG;
+            constants.vertexColorMulB = textureData->emissiveFactorB;
+            constants.vertexColorMulA = 1.0f;
+            constants.materialTimeSec = textureData->normalScale;
+            constants.materialFlags = textureData->metallicFactor;
+            constants.materialAtlasWidth = textureData->roughnessFactor;
+            constants.materialAtlasHeight = textureData->materialTimeSec;
+            constants.materialRect0U = textureData->materialFlags;
+            constants.materialRect0V = textureData->materialAtlasWidth;
+            constants.materialRect0W = textureData->materialAtlasHeight;
+            constants.materialRect0H = textureData->materialRect0U;
+            constants.materialRect1U = textureData->materialRect0V;
+            constants.materialFlipbook0Fps =
+                textureData->materialFlipbook0Fps;
         }
     }
 

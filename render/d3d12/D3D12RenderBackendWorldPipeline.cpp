@@ -936,6 +936,64 @@ float4 evaluateLgpeFieldRockSurface(PSIn i) {
       1.0f);
 }
 
+float4 evaluateLgpeFieldSignSurface(PSIn i) {
+  float sourceMipBias = uMaterialFlipbook0Fps;
+  float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
+  float4 texture01 =
+      sampleLgpeFieldGrassRepeat(gTex, uv0, sourceMipBias);
+  float3 normal = normalize(i.worldNormal);
+  const float3 sourceSunRay =
+      float3(0.5533391237f, 0.2078260481f, -0.8066127300f);
+  float normalDotLight = dot(normal, -sourceSunRay);
+  float toonCoordinate = normalDotLight * 0.5f + 0.5f;
+  float2 toonUv =
+      float2(toonCoordinate, 1.0f - toonCoordinate);
+  float shadowToon = saturate(
+      sampleLgpeFieldGrassClamp(
+          gOcclusionTex,
+          toonUv,
+          sourceMipBias).r);
+  float lightToon =
+      evaluateLgpeFieldRockLightToon(toonCoordinate);
+  float3 cameraPos =
+      float3(uMaterialRect1V, uMaterialRect1W, uMaterialRect1H);
+  float3 viewDirection = normalize(cameraPos - i.worldPos);
+  float rimMin = uMaterialRect0W;
+  float rimMax = uMaterialRect0H;
+  float rimStrength = uMaterialRect1U;
+  float rimSpan = max(rimMax, rimMin) - rimMin;
+  float rim = rimSpan > 0.0f
+      ? saturate(
+            ((1.0f - dot(normal, viewDirection)) - rimMin) /
+            rimSpan) *
+            rimStrength
+      : 0.0f;
+  float3 lightColor =
+      float3(
+          uVertexColorMulR,
+          uVertexColorMulG,
+          uVertexColorMulB);
+  float3 shadowColor =
+      float3(
+          uMaterialTimeSec,
+          uMaterialFlags,
+          uMaterialAtlasWidth);
+  float3 rimColor =
+      float3(
+          uMaterialAtlasHeight,
+          uMaterialRect0U,
+          uMaterialRect0V);
+  // Source ShadowColor and OnGameColor are exactly white, so the recovered
+  // AutoShadow and OnGame mixes are neutral for this Route 1 sign material.
+  float3 surface =
+      texture01.rgb + lightColor * lightToon + rimColor * rim;
+  float3 lighting =
+      lerp(shadowColor, 1.0f.xxx, shadowToon);
+  return float4(
+      lighting * surface * i.col.rgb,
+      texture01.a * i.col.a);
+}
+
 float4 evaluateLgpeFieldObjectTreeMikiSurface(PSIn i) {
   float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
   float2 uv1 = float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
@@ -1653,6 +1711,15 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         1.0f,
         rockExposure);
     return float4(linearToSrgb(rockMapped), rockSurface.a);
+  }
+  if (uMaterialMode > 16.5f && uMaterialMode < 17.5f) {
+    const float signExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+    float4 signSurface = evaluateLgpeFieldSignSurface(i);
+    float3 signMapped = applyViewerToneMapping(
+        max(signSurface.rgb, 0.0f.xxx),
+        1.0f,
+        signExposure);
+    return float4(linearToSrgb(signMapped), signSurface.a);
   }
   float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
   float3 outLinear = saturate(i.col.rgb * float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB));
