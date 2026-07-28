@@ -938,7 +938,7 @@ float4 evaluateLgpeFieldRockSurface(PSIn i) {
 
 float4 evaluateLgpeFieldSignSurface(PSIn i) {
   float sourceMipBias = uMaterialFlipbook0Fps;
-  float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
+  float2 uv0 = i.uv;
   float4 texture01 =
       sampleLgpeFieldGrassRepeat(gTex, uv0, sourceMipBias);
   float3 normal = normalize(i.worldNormal);

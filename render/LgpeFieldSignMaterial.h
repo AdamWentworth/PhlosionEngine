@@ -20,6 +20,14 @@ inline constexpr float kRimMin = 0.432098567f;
 inline constexpr float kRimMax = 1.0f;
 inline constexpr float kRimStrength = 1.0f;
 
+inline std::array<float, 2> canonicalDecodedTextureUv(
+    const std::array<float, 2>& uv0) {
+    // The source program applies 1-V to GPU-native BNTX rows. The canonical
+    // cooker emits top-down RGBA rows, so applying 1-V again would swap the
+    // sign's front and back atlas islands.
+    return uv0;
+}
+
 struct SurfaceInputs {
     std::array<float, 4> texture01{};
     std::array<float, 4> vertexColor{1.0f, 1.0f, 1.0f, 1.0f};

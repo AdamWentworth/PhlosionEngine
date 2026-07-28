@@ -1163,7 +1163,9 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         }
         vec4 evaluateLgpeFieldSignSurface() {
             float sourceMipBias = uMaterialFlipbook0.w;
-            vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
+            // Canonical BNTX RGBA rows are top-down. The source program's
+            // 1-V convention is therefore already represented by the decode.
+            vec2 uv0 = vUv;
             vec4 texture01 = texture(uTexture, uv0, sourceMipBias);
             vec3 normal = normalize(vWorldNormal);
             const vec3 sourceSunRay =
