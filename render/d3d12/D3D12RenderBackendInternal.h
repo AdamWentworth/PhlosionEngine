@@ -325,6 +325,32 @@ inline WorldPsConstants makeWorldPsConstants(const IRenderBackend::WorldTextureD
             constants.materialRect0U = textureData->materialRect0U;
             constants.materialRect0V = textureData->materialRect0V;
             constants.materialRect0W = textureData->materialRect0W;
+        } else if (textureData->materialMode == 13u ||
+                   textureData->materialMode == 14u) {
+            // FieldObjectShader roadstone and FieldGrassShader02 rock-mask
+            // overlays preserve source Shadow_Color, OnGame, opacity, and
+            // mip-bias payloads. Both source programs write premultiplied RGB.
+            constants.vertexColorMulR = textureData->emissiveFactorR;
+            constants.vertexColorMulG = textureData->emissiveFactorG;
+            constants.vertexColorMulB = textureData->emissiveFactorB;
+            constants.vertexColorMulA = 1.0f;
+            constants.materialTimeSec = textureData->materialTimeSec;
+            constants.materialFlags = textureData->materialFlags;
+            constants.materialAtlasWidth = textureData->materialAtlasWidth;
+            constants.materialAtlasHeight = textureData->materialAtlasHeight;
+            constants.materialRect0U = textureData->materialRect0U;
+            constants.materialRect0V = textureData->materialRect0V;
+            constants.materialFlipbook0Fps =
+                textureData->materialFlipbook0Fps;
+            if (textureData->materialMode == 14u) {
+                // Rock-mask source Color is independent of Shadow_Color.
+                constants.materialFlipbook0Cols =
+                    textureData->normalScale;
+                constants.materialFlipbook0Rows =
+                    textureData->metallicFactor;
+                constants.materialFlipbook0Frames =
+                    textureData->roughnessFactor;
+            }
         }
     }
 

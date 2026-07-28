@@ -147,7 +147,7 @@ void D3D12RenderBackend::createWorldPipeline() {
         "  o.worldTangent = float4(wt, localTangent.w);"
         "  return o;"
         "}";
-    static constexpr char kPsSource[] = R"HLSL(
+    const std::string kPsSource = std::string(R"HLSL(
 cbuffer PSConstants : register(b1) {
   float uUseTexture;
   float uWrapS;
@@ -485,6 +485,7 @@ float4 evaluateLgpeFieldTree02Surface(PSIn i) {
   return float4(lighting * tinted, texture01.a);
 }
 
+)HLSL") + R"HLSL(
 float4 evaluateLgpeFieldGrassSurface(PSIn i, bool withRim) {
   float sourceMipBias = uMaterialFlipbook0Fps;
   float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
@@ -662,6 +663,122 @@ float4 evaluateLgpeFieldGrassShader05Surface(PSIn i) {
       (base.rgb + decoration) * i.col.rgb *
       lerp(1.0f.xxx, onGameColor, saturate(uMaterialTimeSec));
   return float4(lerp(shadowColor, 1.0f.xxx, toon) * surface, alpha);
+}
+
+)HLSL" + R"HLSL(
+float4 evaluateLgpeRoadstoneOverlaySurface(PSIn i) {
+  float sourceMipBias = uMaterialFlipbook0Fps;
+  float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
+  float4 texture01 =
+      sampleLgpeFieldGrassRepeat(gTex, uv0, sourceMipBias);
+  float3 normal = normalize(i.worldNormal);
+  const float3 sourceSunRay =
+      float3(0.5533391237f, 0.2078260481f, -0.8066127300f);
+  float normalDotLight = dot(normal, -sourceSunRay);
+  float toonCoordinate = normalDotLight * 0.5f + 0.5f;
+  float toon = saturate(
+      sampleLgpeFieldGrassClamp(
+          gOcclusionTex,
+          float2(toonCoordinate, 1.0f - toonCoordinate),
+          sourceMipBias).r);
+  float3 onGameColor =
+      float3(
+          uMaterialTimeSec,
+          uMaterialFlags,
+          uMaterialAtlasWidth);
+  float alpha =
+      texture01.a * i.col.a *
+      saturate(uMaterialRect0V) *
+      saturate(uMaterialRect0U);
+  float3 surface =
+      texture01.rgb * i.col.rgb *
+      lerp(
+          1.0f.xxx,
+          onGameColor,
+          saturate(uMaterialAtlasHeight));
+  float3 lighting =
+      lerp(
+          float3(
+              uVertexColorMulR,
+              uVertexColorMulG,
+              uVertexColorMulB),
+          1.0f.xxx,
+          toon);
+  return float4(lighting * surface * alpha, alpha);
+}
+
+float4 evaluateLgpeRockMaskOverlaySurface(PSIn i) {
+  float sourceMipBias = uMaterialFlipbook0Fps;
+  float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
+  float2 uv1 =
+      float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
+  float2 blendUv =
+      float2(i.uv.x * 0.3f, 1.0f - i.uv.y * 0.3f);
+  float3 textureMap01 =
+      sampleLgpeFieldGrassRepeat(
+          gTex,
+          uv0,
+          sourceMipBias).rgb;
+  float3 textureMap02 =
+      sampleLgpeFieldGrassRepeat(
+          gNormalTex,
+          uv0,
+          sourceMipBias).rgb;
+  float4 greenHikari =
+      sampleLgpeFieldGrassRepeat(
+          gMetallicRoughnessTex,
+          uv1,
+          sourceMipBias);
+  float greenBlend = saturate(
+      sampleLgpeFieldGrassRepeat(
+          gOcclusionTex,
+          blendUv,
+          sourceMipBias).r);
+  float highlight = saturate(
+      sampleLgpeFieldGrassRepeat(
+          gEmissiveTex,
+          uv1,
+          sourceMipBias).r);
+  float3 normal = normalize(i.worldNormal);
+  const float3 sourceSunRay =
+      float3(0.5533391237f, 0.2078260481f, -0.8066127300f);
+  float normalDotLight = dot(normal, -sourceSunRay);
+  float toonCoordinate = normalDotLight * 0.5f + 0.5f;
+  float toon = saturate(
+      sampleLgpeFieldGrassClamp(
+          gEnvTex,
+          float2(toonCoordinate, 1.0f - toonCoordinate),
+          sourceMipBias).r);
+  float3 sourceColor =
+      float3(
+          uMaterialFlipbook0Cols,
+          uMaterialFlipbook0Rows,
+          uMaterialFlipbook0Frames);
+  float3 decoration =
+      lerp(textureMap02, textureMap01, greenBlend) +
+      sourceColor * (1.0f - highlight);
+  float3 onGameColor =
+      float3(
+          uMaterialTimeSec,
+          uMaterialFlags,
+          uMaterialAtlasWidth);
+  float alpha =
+      greenHikari.a * saturate(uMaterialRect0U);
+  float3 surface =
+      decoration * greenHikari.rgb * i.col.rgb *
+      lerp(
+          1.0f.xxx,
+          onGameColor,
+          saturate(uMaterialAtlasHeight));
+  float3 lighting =
+      lerp(
+          float3(
+              uVertexColorMulR,
+              uVertexColorMulG,
+              uVertexColorMulB),
+          1.0f.xxx,
+          toon);
+  return float4(lighting * surface * alpha, alpha);
 }
 
 float4 evaluateLgpeFieldObjectTreeMikiSurface(PSIn i) {
@@ -1343,6 +1460,26 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         1.0f,
         grassExposure);
     return float4(linearToSrgb(grassMapped), grassSurface.a);
+  }
+  if (uMaterialMode > 12.5f && uMaterialMode < 13.5f) {
+    const float overlayExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+    float4 overlaySurface =
+        evaluateLgpeRoadstoneOverlaySurface(i);
+    float3 overlayMapped = applyViewerToneMapping(
+        max(overlaySurface.rgb, float3(0.0f, 0.0f, 0.0f)),
+        1.0f,
+        overlayExposure);
+    return float4(linearToSrgb(overlayMapped), overlaySurface.a);
+  }
+  if (uMaterialMode > 13.5f && uMaterialMode < 14.5f) {
+    const float overlayExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+    float4 overlaySurface =
+        evaluateLgpeRockMaskOverlaySurface(i);
+    float3 overlayMapped = applyViewerToneMapping(
+        max(overlaySurface.rgb, float3(0.0f, 0.0f, 0.0f)),
+        1.0f,
+        overlayExposure);
+    return float4(linearToSrgb(overlayMapped), overlaySurface.a);
   }
   float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
   float3 outLinear = saturate(i.col.rgb * float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB));

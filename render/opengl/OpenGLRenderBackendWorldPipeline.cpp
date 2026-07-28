@@ -424,7 +424,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         }
     )GLSL";
 
-    static constexpr const char* kFs = R"GLSL(
+    const std::string kFs = std::string(R"GLSL(
         #version 330 core
         in vec2 vUv;
         in vec4 vColor;
@@ -707,6 +707,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 mix(shadowColor, vec3(1.0), toon);
             return vec4(lighting * tinted, texture01.a);
         }
+    )GLSL") + R"GLSL(
         vec4 evaluateLgpeFieldGrassSurface(bool withRim) {
             float sourceMipBias = uMaterialFlipbook0.w;
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
@@ -899,6 +900,106 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             vec3 lighting =
                 mix(uEmissiveFactor, vec3(1.0), toon);
             return vec4(lighting * surface, alpha);
+        }
+    )GLSL" + R"GLSL(
+        vec4 evaluateLgpeRoadstoneOverlaySurface() {
+            float sourceMipBias = uMaterialFlipbook0.w;
+            vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
+            vec4 texture01 = texture(uTexture, uv0, sourceMipBias);
+            vec3 normal = normalize(vWorldNormal);
+            const vec3 sourceSunRay =
+                vec3(0.5533391237, 0.2078260481, -0.8066127300);
+            float normalDotLight = dot(normal, -sourceSunRay);
+            float toonCoordinate = normalDotLight * 0.5 + 0.5;
+            float toon = clamp(
+                texture(
+                    uOcclusionTexture,
+                    vec2(toonCoordinate, 1.0 - toonCoordinate),
+                    sourceMipBias).r,
+                0.0,
+                1.0);
+            vec3 onGameColor =
+                vec3(
+                    uMaterialTimeSec,
+                    uMaterialFlags,
+                    uMaterialAtlasSize.x);
+            float alpha =
+                texture01.a * vColor.a *
+                clamp(uMaterialRect0.y, 0.0, 1.0) *
+                clamp(uMaterialRect0.x, 0.0, 1.0);
+            vec3 surface =
+                texture01.rgb * vColor.rgb *
+                mix(
+                    vec3(1.0),
+                    onGameColor,
+                    clamp(uMaterialAtlasSize.y, 0.0, 1.0));
+            vec3 lighting =
+                mix(uEmissiveFactor, vec3(1.0), toon);
+            return vec4(lighting * surface * alpha, alpha);
+        }
+        vec4 evaluateLgpeRockMaskOverlaySurface() {
+            float sourceMipBias = uMaterialFlipbook0.w;
+            vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
+            vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
+            vec2 blendUv =
+                vec2(vUv.x * 0.3, 1.0 - vUv.y * 0.3);
+            vec3 textureMap01 =
+                texture(uTexture, uv0, sourceMipBias).rgb;
+            vec3 textureMap02 =
+                texture(uNormalTexture, uv0, sourceMipBias).rgb;
+            vec4 greenHikari =
+                texture(
+                    uMetallicRoughnessTexture,
+                    uv1,
+                    sourceMipBias);
+            float greenBlend = clamp(
+                texture(
+                    uOcclusionTexture,
+                    blendUv,
+                    sourceMipBias).r,
+                0.0,
+                1.0);
+            float highlight = clamp(
+                texture(
+                    uEmissiveTexture,
+                    uv1,
+                    sourceMipBias).r,
+                0.0,
+                1.0);
+            vec3 normal = normalize(vWorldNormal);
+            const vec3 sourceSunRay =
+                vec3(0.5533391237, 0.2078260481, -0.8066127300);
+            float normalDotLight = dot(normal, -sourceSunRay);
+            float toonCoordinate = normalDotLight * 0.5 + 0.5;
+            float toon = clamp(
+                texture(
+                    uEnvTexture,
+                    vec2(toonCoordinate, 1.0 - toonCoordinate),
+                    sourceMipBias).r,
+                0.0,
+                1.0);
+            vec3 sourceColor =
+                vec3(uNormalScale, uMetallicFactor, uRoughnessFactor);
+            vec3 decoration =
+                mix(textureMap02, textureMap01, greenBlend) +
+                sourceColor * (1.0 - highlight);
+            vec3 onGameColor =
+                vec3(
+                    uMaterialTimeSec,
+                    uMaterialFlags,
+                    uMaterialAtlasSize.x);
+            float alpha =
+                greenHikari.a *
+                clamp(uMaterialRect0.x, 0.0, 1.0);
+            vec3 surface =
+                decoration * greenHikari.rgb * vColor.rgb *
+                mix(
+                    vec3(1.0),
+                    onGameColor,
+                    clamp(uMaterialAtlasSize.y, 0.0, 1.0));
+            vec3 lighting =
+                mix(uEmissiveFactor, vec3(1.0), toon);
+            return vec4(lighting * surface * alpha, alpha);
         }
         vec4 evaluateLgpeFieldObjectTreeMikiSurface() {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
@@ -1613,6 +1714,30 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                     grassExposure);
                 FragColor =
                     vec4(linearToSrgb(grassMapped), grassSurface.a);
+                return;
+            }
+            if (uMaterialMode > 12.5 && uMaterialMode < 13.5) {
+                const float overlayExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+                vec4 overlaySurface =
+                    evaluateLgpeRoadstoneOverlaySurface();
+                vec3 overlayMapped = applyViewerToneMapping(
+                    max(overlaySurface.rgb, vec3(0.0)),
+                    1.0,
+                    overlayExposure);
+                FragColor =
+                    vec4(linearToSrgb(overlayMapped), overlaySurface.a);
+                return;
+            }
+            if (uMaterialMode > 13.5 && uMaterialMode < 14.5) {
+                const float overlayExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+                vec4 overlaySurface =
+                    evaluateLgpeRockMaskOverlaySurface();
+                vec3 overlayMapped = applyViewerToneMapping(
+                    max(overlaySurface.rgb, vec3(0.0)),
+                    1.0,
+                    overlayExposure);
+                FragColor =
+                    vec4(linearToSrgb(overlayMapped), overlaySurface.a);
                 return;
             }
             vec4 tex = vec4(1.0);
