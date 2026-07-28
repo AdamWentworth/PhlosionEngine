@@ -255,6 +255,10 @@ float4 sampleLgpeGroundTexture(Texture2D tex, float2 uv) {
   // FieldGroundShader01 effective -2.0 LOD bias.
   return tex.SampleBias(gSampRR, uv, -1.65f);
 }
+float4 sampleLgpeFieldTreeTexture(Texture2D tex, float2 uv) {
+  // The shared sampler contributes -0.35; the source material requests zero.
+  return tex.SampleBias(gSampRR, uv, 0.35f);
+}
 float3 evaluateLgpeFieldGroundSurface(PSIn i) {
   float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
   float2 blendUv = float2(i.uv.x * 0.3f, 1.0f - i.uv.y * 0.3f);
@@ -318,6 +322,84 @@ float3 evaluateLgpeFieldCliffSurface(PSIn i) {
           uVertexColorMulB,
           uVertexColorMulA);
   return borderTex.rgb * authoredVertexColor.rgb * surface;
+}
+float4 evaluateLgpeFieldTree05Surface(PSIn i) {
+  float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
+  float2 uv1 = float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
+  float4 texture01 = sampleLgpeFieldTreeTexture(gTex, uv0);
+  if (texture01.a <= saturate(uAlphaCutoff)) discard;
+  float3 texture02 =
+      sampleLgpeFieldTreeTexture(gNormalTex, uv1).rgb;
+  float texture03 =
+      sampleLgpeFieldTreeTexture(gMetallicRoughnessTex, uv0).r;
+  float3 normal = normalize(i.worldNormal);
+  const float3 sourceSunRay =
+      float3(0.5533391237f, 0.2078260481f, -0.8066127300f);
+  float normalDotLight = dot(normal, -sourceSunRay);
+  float toonCoordinate = normalDotLight * 0.5f + 0.5f;
+  float toon = saturate(
+      gOcclusionTex.SampleBias(
+          gSampCC,
+          float2(toonCoordinate, 1.0f - toonCoordinate),
+          0.35f).r);
+  float3 cameraPos =
+      float3(uMaterialRect1V, uMaterialRect1W, uMaterialRect1H);
+  float3 viewDirection = normalize(cameraPos - i.worldPos);
+  float rimMin = uMaterialTimeSec;
+  float rimMax = uMaterialFlags;
+  float rimStrength = uMaterialAtlasWidth;
+  float rimSpan = max(rimMax, rimMin) - rimMin;
+  float rim = rimSpan > 0.0f
+      ? saturate(
+            ((1.0f - dot(normal, viewDirection)) - rimMin) /
+            rimSpan) *
+            rimStrength
+      : 0.0f;
+  float lightGate =
+      1.0f -
+      saturate((1.0f - normalDotLight) * 12.7408008575f);
+  float3 secondaryDirection =
+      lerp(
+          viewDirection,
+          -sourceSunRay,
+          uMaterialFlipbook0Fps);
+  float secondaryMin = uMaterialFlipbook1Frames;
+  float secondaryMax = uMaterialFlipbook1Fps;
+  float secondarySpan =
+      max(secondaryMax, secondaryMin) - secondaryMin;
+  float secondaryCoordinate =
+      saturate(1.0f - dot(normal, secondaryDirection));
+  float secondary = secondarySpan > 0.0f
+      ? saturate(
+            (secondaryCoordinate - secondaryMin) /
+            secondarySpan)
+      : 0.0f;
+  float3 shadowColor =
+      max(float3(
+              uVertexColorMulR,
+              uVertexColorMulG,
+              uVertexColorMulB),
+          float3(0.0f, 0.0f, 0.0f));
+  float3 rimColor =
+      max(float3(
+              uMaterialAtlasHeight,
+              uMaterialRect0U,
+              uMaterialRect0V),
+          float3(0.0f, 0.0f, 0.0f));
+  float3 rimColor02 =
+      max(float3(
+              uMaterialRect0W,
+              uMaterialRect0H,
+              uMaterialRect1U),
+          float3(0.0f, 0.0f, 0.0f));
+  float3 surface =
+      texture01.rgb +
+      texture02 * rim * rimColor +
+      float3(0.110647157f, 0.3070065f, 0.0411512256f) *
+          (1.0f - secondary) +
+      texture03 * lightGate * rimColor02;
+  return float4(lerp(shadowColor, 1.0f.xxx, toon) * surface,
+                texture01.a);
 }
 
 float hash11(float x) { return frac(sin(x * 12.9898f) * 43758.5453f); }
@@ -882,6 +964,15 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         1.0f,
         cliffExposure);
     return float4(linearToSrgb(cliffMapped), 1.0f);
+  }
+  if (uMaterialMode > 5.5f && uMaterialMode < 6.5f) {
+    const float treeExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+    float4 treeSurface = evaluateLgpeFieldTree05Surface(i);
+    float3 treeMapped = applyViewerToneMapping(
+        max(treeSurface.rgb, float3(0.0f, 0.0f, 0.0f)),
+        1.0f,
+        treeExposure);
+    return float4(linearToSrgb(treeMapped), treeSurface.a);
   }
   float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
   float3 outLinear = saturate(i.col.rgb * float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB));

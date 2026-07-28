@@ -245,6 +245,27 @@ inline WorldPsConstants makeWorldPsConstants(const IRenderBackend::WorldTextureD
         constants.materialFlipbook0Fps = textureData->cameraTargetX;
         constants.materialFlipbook1Cols = textureData->cameraTargetY;
         constants.materialFlipbook1Rows = textureData->cameraTargetZ;
+
+        // FieldTreeShader05 mode 6 uses a typed source-material payload, not
+        // the generic PBR interpretation above. Preserve its raw specialized
+        // values and move Shadow_Color into otherwise-unused PS multiplier
+        // constants without changing the vertex instance color.
+        if (textureData->materialMode == 6u) {
+            constants.vertexColorMulR = textureData->normalScale;
+            constants.vertexColorMulG = textureData->metallicFactor;
+            constants.vertexColorMulB = textureData->roughnessFactor;
+            constants.vertexColorMulA = 1.0f;
+            constants.materialFlags = textureData->materialFlags;
+            constants.materialAtlasWidth = textureData->materialAtlasWidth;
+            constants.materialAtlasHeight = textureData->materialAtlasHeight;
+            constants.materialRect0U = textureData->materialRect0U;
+            constants.materialRect0V = textureData->materialRect0V;
+            constants.materialRect0W = textureData->materialRect0W;
+            constants.materialRect0H = textureData->materialRect0H;
+            constants.materialRect1U = textureData->materialRect1U;
+            constants.materialFlipbook0Fps =
+                textureData->materialFlipbook0Fps;
+        }
     }
 
     return constants;

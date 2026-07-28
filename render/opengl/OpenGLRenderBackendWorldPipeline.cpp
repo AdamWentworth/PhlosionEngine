@@ -560,6 +560,92 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             vec4 authoredVertexColor = vColor * uVertexColorMul;
             return borderTex.rgb * authoredVertexColor.rgb * surface;
         }
+        vec4 evaluateLgpeFieldTree05Surface() {
+            vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
+            vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
+            vec4 texture01 = texture(uTexture, uv0, 0.0);
+            if (texture01.a <= clamp(uAlphaCutoff, 0.0, 1.0)) discard;
+            vec3 texture02 = texture(uNormalTexture, uv1, 0.0).rgb;
+            float texture03 =
+                texture(uMetallicRoughnessTexture, uv0, 0.0).r;
+            vec3 normal = normalize(vWorldNormal);
+            const vec3 sourceSunRay =
+                vec3(0.5533391237, 0.2078260481, -0.8066127300);
+            float normalDotLight = dot(normal, -sourceSunRay);
+            float toonCoordinate = normalDotLight * 0.5 + 0.5;
+            float toon = clamp(
+                texture(
+                    uOcclusionTexture,
+                    vec2(toonCoordinate, 1.0 - toonCoordinate),
+                    0.0).r,
+                0.0,
+                1.0);
+            vec3 viewDirection = normalize(uCameraPos - vWorldPos);
+            float rimMin = uMaterialTimeSec;
+            float rimMax = uMaterialFlags;
+            float rimStrength = uMaterialAtlasSize.x;
+            float rimSpan = max(rimMax, rimMin) - rimMin;
+            float rim = rimSpan > 0.0
+                ? clamp(
+                      ((1.0 - dot(normal, viewDirection)) - rimMin) /
+                          rimSpan,
+                      0.0,
+                      1.0) *
+                      rimStrength
+                : 0.0;
+            float lightGate =
+                1.0 -
+                clamp(
+                    (1.0 - normalDotLight) * 12.7408008575,
+                    0.0,
+                    1.0);
+            vec3 secondaryDirection =
+                mix(
+                    viewDirection,
+                    -sourceSunRay,
+                    uMaterialFlipbook0.w);
+            float secondaryMin = uMaterialFlipbook1.z;
+            float secondaryMax = uMaterialFlipbook1.w;
+            float secondarySpan =
+                max(secondaryMax, secondaryMin) - secondaryMin;
+            float secondaryCoordinate =
+                clamp(
+                    1.0 - dot(normal, secondaryDirection),
+                    0.0,
+                    1.0);
+            float secondary = secondarySpan > 0.0
+                ? clamp(
+                      (secondaryCoordinate - secondaryMin) /
+                          secondarySpan,
+                      0.0,
+                      1.0)
+                : 0.0;
+            vec3 shadowColor =
+                max(vec3(uNormalScale, uMetallicFactor, uRoughnessFactor),
+                    vec3(0.0));
+            vec3 rimColor =
+                max(
+                    vec3(
+                        uMaterialAtlasSize.y,
+                        uMaterialRect0.x,
+                        uMaterialRect0.y),
+                    vec3(0.0));
+            vec3 rimColor02 =
+                max(
+                    vec3(
+                        uMaterialRect0.z,
+                        uMaterialRect0.w,
+                        uMaterialRect1.x),
+                    vec3(0.0));
+            vec3 surface =
+                texture01.rgb +
+                texture02 * rim * rimColor +
+                vec3(0.110647157, 0.3070065, 0.0411512256) *
+                    (1.0 - secondary) +
+                texture03 * lightGate * rimColor02;
+            return vec4(mix(shadowColor, vec3(1.0), toon) * surface,
+                        texture01.a);
+        }
 
         float hash11(float x) { return fract(sin(x * 12.9898) * 43758.5453); }
         float hash21(vec2 p) {
@@ -1138,6 +1224,17 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                     1.0,
                     cliffExposure);
                 FragColor = vec4(linearToSrgb(cliffMapped), 1.0);
+                return;
+            }
+            if (uMaterialMode > 5.5 && uMaterialMode < 6.5) {
+                const float treeExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+                vec4 treeSurface = evaluateLgpeFieldTree05Surface();
+                vec3 treeMapped = applyViewerToneMapping(
+                    max(treeSurface.rgb, vec3(0.0)),
+                    1.0,
+                    treeExposure);
+                FragColor =
+                    vec4(linearToSrgb(treeMapped), treeSurface.a);
                 return;
             }
             vec4 tex = vec4(1.0);
