@@ -803,11 +803,13 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         vec4 evaluateLgpeFieldGrassShader04Surface() {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
             vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
-            float texture03 = clamp(texture(uTexture, uv0, 0.0).r, 0.0, 1.0);
+            vec4 texture01 = texture(uTexture, uv0, 0.0);
             vec4 texture02 = texture(uNormalTexture, uv1, 0.0);
-            vec4 texture01 =
-                texture(uMetallicRoughnessTexture, uv1, 0.0);
-            vec4 base = mix(texture02, texture01, texture03);
+            float texture03 = clamp(
+                texture(uMetallicRoughnessTexture, uv1, 0.0).r,
+                0.0,
+                1.0);
+            vec4 base = mix(texture01, texture02, texture03);
             float alpha =
                 base.a * vColor.a *
                 clamp(uMaterialTimeSec, 0.0, 1.0) *

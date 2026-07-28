@@ -578,13 +578,16 @@ float4 evaluateLgpeFieldGrassSurface(PSIn i, bool withRim) {
 float4 evaluateLgpeFieldGrassShader04Surface(PSIn i) {
   float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
   float2 uv1 = float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
-  float texture03 =
-      saturate(sampleLgpeFieldGrassRepeat(gTex, uv0, 0.0f).r);
+  float4 texture01 =
+      sampleLgpeFieldGrassRepeat(gTex, uv0, 0.0f);
   float4 texture02 =
       sampleLgpeFieldGrassRepeat(gNormalTex, uv1, 0.0f);
-  float4 texture01 =
-      sampleLgpeFieldGrassRepeat(gMetallicRoughnessTex, uv1, 0.0f);
-  float4 base = lerp(texture02, texture01, texture03);
+  float texture03 = saturate(
+      sampleLgpeFieldGrassRepeat(
+          gMetallicRoughnessTex,
+          uv1,
+          0.0f).r);
+  float4 base = lerp(texture01, texture02, texture03);
   float alpha =
       base.a * i.col.a * saturate(uMaterialTimeSec) *
       saturate(uMaterialAtlasWidth);

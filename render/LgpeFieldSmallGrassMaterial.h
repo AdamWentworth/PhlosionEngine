@@ -70,8 +70,8 @@ inline SurfaceResult evaluateShader04Surface(const Shader04Inputs& input) {
     const float textureBlend = saturate(input.texture03);
     for (std::size_t channel = 0u; channel < 4u; ++channel) {
         base[channel] =
-            input.texture02[channel] * (1.0f - textureBlend) +
-            input.texture01[channel] * textureBlend;
+            input.texture01[channel] * (1.0f - textureBlend) +
+            input.texture02[channel] * textureBlend;
     }
     const float alpha =
         base[3] * input.vertexColor[3] * saturate(input.transparent) *
