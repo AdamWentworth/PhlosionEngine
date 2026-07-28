@@ -77,6 +77,10 @@ struct WorldMeshVertex {
     float ty = 0.0f;
     float tz = 0.0f;
     float tw = 1.0f;
+    // Source TEXCOORD_2. This channel is part of the compact GPU stream
+    // because LGPE FieldGroundShader01 consumes it for GrassBlendTex.
+    float sourceUv2U = 0.0f;
+    float sourceUv2V = 0.0f;
 };
 
 struct WorldTextureData {
@@ -87,6 +91,7 @@ struct WorldTextureData {
     int height = 0;
     int wrapS = 10497;
     int wrapT = 10497;
+    std::uint8_t textureSrgb = 1u;
     const char* normalKey = nullptr;
     const char* normalCacheKey = nullptr;
     const unsigned char* normalRgba = nullptr;
@@ -94,6 +99,7 @@ struct WorldTextureData {
     int normalHeight = 0;
     int normalWrapS = 10497;
     int normalWrapT = 10497;
+    std::uint8_t normalTextureSrgb = 0u;
     const char* metallicRoughnessKey = nullptr;
     const char* metallicRoughnessCacheKey = nullptr;
     const unsigned char* metallicRoughnessRgba = nullptr;
@@ -101,6 +107,7 @@ struct WorldTextureData {
     int metallicRoughnessHeight = 0;
     int metallicRoughnessWrapS = 10497;
     int metallicRoughnessWrapT = 10497;
+    std::uint8_t metallicRoughnessTextureSrgb = 0u;
     const char* occlusionKey = nullptr;
     const char* occlusionCacheKey = nullptr;
     const unsigned char* occlusionRgba = nullptr;
@@ -108,6 +115,7 @@ struct WorldTextureData {
     int occlusionHeight = 0;
     int occlusionWrapS = 10497;
     int occlusionWrapT = 10497;
+    std::uint8_t occlusionTextureSrgb = 0u;
     const char* emissiveKey = nullptr;
     const char* emissiveCacheKey = nullptr;
     const unsigned char* emissiveRgba = nullptr;
@@ -115,6 +123,15 @@ struct WorldTextureData {
     int emissiveHeight = 0;
     int emissiveWrapS = 10497;
     int emissiveWrapT = 10497;
+    std::uint8_t emissiveTextureSrgb = 1u;
+    const char* environmentKey = nullptr;
+    const char* environmentCacheKey = nullptr;
+    const unsigned char* environmentRgba = nullptr;
+    int environmentWidth = 0;
+    int environmentHeight = 0;
+    int environmentWrapS = 10497;
+    int environmentWrapT = 10497;
+    std::uint8_t environmentTextureSrgb = 0u;
     std::uint8_t alphaMode = 0u;
     std::uint8_t blendMode = 0u;
     std::uint8_t dualSourceBlendEnabled = 0u;
@@ -256,11 +273,9 @@ enum WorldSceneSourceVertexSemantic : std::uint32_t {
     WorldSceneSourceVertexSemanticBitangent = 1u << 7u,
 };
 
-// Source-only channels that are intentionally kept separate from
-// WorldMeshVertex. The compact WorldMeshVertex layout is shared by all three
-// renderer vertex formats; widening it would consume scarce OpenGL attribute
-// locations before a source shader family has established how a channel is
-// consumed.
+// Remaining source-only channels that are intentionally kept separate from
+// WorldMeshVertex. TEXCOORD_2 was promoted to the compact stream only after
+// FieldGroundShader01 established its authored use.
 struct WorldSceneSourceVertex {
     std::array<std::array<float, 2>, 3> texcoords{};
     std::array<std::array<float, 4>, 3> colors{};
@@ -328,6 +343,7 @@ struct WorldSceneMaterial {
     int textureHeight = 0;
     int textureWrapS = 10497;
     int textureWrapT = 10497;
+    std::uint8_t textureSrgb = 1u;
     std::string normalTextureKey;
     std::string normalTextureCacheKey;
     const unsigned char* normalTextureRgba = nullptr;
@@ -335,6 +351,7 @@ struct WorldSceneMaterial {
     int normalTextureHeight = 0;
     int normalTextureWrapS = 10497;
     int normalTextureWrapT = 10497;
+    std::uint8_t normalTextureSrgb = 0u;
     std::string metallicRoughnessTextureKey;
     std::string metallicRoughnessTextureCacheKey;
     const unsigned char* metallicRoughnessTextureRgba = nullptr;
@@ -342,6 +359,7 @@ struct WorldSceneMaterial {
     int metallicRoughnessTextureHeight = 0;
     int metallicRoughnessTextureWrapS = 10497;
     int metallicRoughnessTextureWrapT = 10497;
+    std::uint8_t metallicRoughnessTextureSrgb = 0u;
     std::string occlusionTextureKey;
     std::string occlusionTextureCacheKey;
     const unsigned char* occlusionTextureRgba = nullptr;
@@ -349,6 +367,7 @@ struct WorldSceneMaterial {
     int occlusionTextureHeight = 0;
     int occlusionTextureWrapS = 10497;
     int occlusionTextureWrapT = 10497;
+    std::uint8_t occlusionTextureSrgb = 0u;
     std::string emissiveTextureKey;
     std::string emissiveTextureCacheKey;
     const unsigned char* emissiveTextureRgba = nullptr;
@@ -356,6 +375,15 @@ struct WorldSceneMaterial {
     int emissiveTextureHeight = 0;
     int emissiveTextureWrapS = 10497;
     int emissiveTextureWrapT = 10497;
+    std::uint8_t emissiveTextureSrgb = 1u;
+    std::string environmentTextureKey;
+    std::string environmentTextureCacheKey;
+    const unsigned char* environmentTextureRgba = nullptr;
+    int environmentTextureWidth = 0;
+    int environmentTextureHeight = 0;
+    int environmentTextureWrapS = 10497;
+    int environmentTextureWrapT = 10497;
+    std::uint8_t environmentTextureSrgb = 0u;
     std::uint8_t alphaMode = 0u;
     std::uint8_t blendMode = 0u;
     std::uint8_t dualSourceBlendEnabled = 0u;

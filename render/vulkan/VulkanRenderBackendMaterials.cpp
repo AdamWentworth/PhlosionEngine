@@ -38,7 +38,7 @@ std::string resolvedTextureKey(const char* key,
     return out.str();
 }
 
-std::string materialKey(const std::array<std::string, 5>& textureKeys) {
+std::string materialKey(const std::array<std::string, 6>& textureKeys) {
     std::string key;
     for (const std::string& textureKey : textureKeys) {
         key += '|';
@@ -76,7 +76,8 @@ VulkanRenderBackendImpl::WorldMaterial VulkanRenderBackendImpl::createWorldMater
     Texture& normal,
     Texture& metallicRoughness,
     Texture& occlusion,
-    Texture& emissive) {
+    Texture& emissive,
+    Texture& environment) {
     const std::array<
         Texture*,
         engine::render::vulkan_backend::kWorldMaterialTextureCount> textures{
@@ -85,7 +86,7 @@ VulkanRenderBackendImpl::WorldMaterial VulkanRenderBackendImpl::createWorldMater
         &metallicRoughness,
         &occlusion,
         &emissive,
-        &neutralPmremTexture};
+        &environment};
     WorldMaterial out;
     out.textures = textures;
 
@@ -124,12 +125,13 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
     const IRenderBackend::WorldTextureData* texture) {
     if (!texture) return &fallbackWorldMaterial;
 
-    std::array<std::string, 5> keys{
+    std::array<std::string, 6> keys{
         "__fallback_base__",
         "__fallback_normal__",
         "__fallback_metallic_roughness__",
         "__fallback_occlusion__",
         "__fallback_emissive__",
+        "__neutral_pmrem_environment__",
     };
 
     Texture* base = ensureWorldTextureRaw(
@@ -140,7 +142,7 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->height,
         texture->wrapS,
         texture->wrapT,
-        true,
+        texture->textureSrgb != 0u,
         &keys[0]);
     if (!base) base = &fallbackWorldTexture;
 
@@ -152,7 +154,7 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->normalHeight,
         texture->normalWrapS,
         texture->normalWrapT,
-        false,
+        texture->normalTextureSrgb != 0u,
         &keys[1]);
     if (!normal) normal = &fallbackWorldNormalTexture;
 
@@ -164,7 +166,7 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->metallicRoughnessHeight,
         texture->metallicRoughnessWrapS,
         texture->metallicRoughnessWrapT,
-        false,
+        texture->metallicRoughnessTextureSrgb != 0u,
         &keys[2]);
     if (!metallicRoughness) metallicRoughness = &fallbackWorldLinearTexture;
 
@@ -176,7 +178,7 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->occlusionHeight,
         texture->occlusionWrapS,
         texture->occlusionWrapT,
-        false,
+        texture->occlusionTextureSrgb != 0u,
         &keys[3]);
     if (!occlusion) occlusion = &fallbackWorldLinearTexture;
 
@@ -188,9 +190,21 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->emissiveHeight,
         texture->emissiveWrapS,
         texture->emissiveWrapT,
-        true,
+        texture->emissiveTextureSrgb != 0u,
         &keys[4]);
     if (!emissive) emissive = &fallbackWorldEmissiveTexture;
+
+    Texture* environment = ensureWorldTextureRaw(
+        texture->environmentKey,
+        texture->environmentCacheKey,
+        texture->environmentRgba,
+        texture->environmentWidth,
+        texture->environmentHeight,
+        texture->environmentWrapS,
+        texture->environmentWrapT,
+        texture->environmentTextureSrgb != 0u,
+        &keys[5]);
+    if (!environment) environment = &neutralPmremTexture;
 
     const std::string key = materialKey(keys);
     auto existing = worldMaterials.find(key);
@@ -199,7 +213,8 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         return &existing->second;
     }
     WorldMaterial material = createWorldMaterial(
-        *base, *normal, *metallicRoughness, *occlusion, *emissive);
+        *base, *normal, *metallicRoughness, *occlusion, *emissive,
+        *environment);
     WorldMaterial& inserted = worldMaterials.emplace(key, material).first->second;
     (void)registerIndexedWorldMaterial(inserted);
     return &inserted;

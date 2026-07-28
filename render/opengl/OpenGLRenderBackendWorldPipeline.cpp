@@ -236,11 +236,12 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         layout (location = 4) in vec4 aJoints;
         layout (location = 5) in vec4 aWeights;
         layout (location = 6) in vec4 aTangent;
-        layout (location = 7) in vec4 aInstanceModel0;
-        layout (location = 8) in vec4 aInstanceModel1;
-        layout (location = 9) in vec4 aInstanceModel2;
-        layout (location = 10) in vec4 aInstanceModel3;
-        layout (location = 11) in vec4 aInstanceColor;
+        layout (location = 7) in vec2 aSourceUv2;
+        layout (location = 8) in vec4 aInstanceModel0;
+        layout (location = 9) in vec4 aInstanceModel1;
+        layout (location = 10) in vec4 aInstanceModel2;
+        layout (location = 11) in vec4 aInstanceModel3;
+        layout (location = 12) in vec4 aInstanceColor;
         uniform mat4 uViewProj;
         uniform mat4 uModel;
         uniform float uClipSpaceDepthBias;
@@ -260,6 +261,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         out vec3 vWorldNormal;
         out vec4 vWorldTangent;
         out vec3 vGenerated;
+        out vec2 vSourceUv2;
         mat4 loadSkinMatrix(int jointIndex) {
             if (uSkinningMode > 0.5) {
                 return uSkinMatrices[jointIndex] * uSkinMatrices[jointIndex + uSkinMatrixCount];
@@ -403,6 +405,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             gl_Position = uViewProj * worldPos;
             gl_Position.z -= uClipSpaceDepthBias * gl_Position.w;
             vUv = aUv;
+            vSourceUv2 = aSourceUv2;
             vColor = aColor * aInstanceColor;
             vec3 genDen = max(uMaterialRect1.xyz - uMaterialRect0.xyz, vec3(1e-5));
             vGenerated = clamp((aPos - uMaterialRect0.xyz) / genDen, vec3(0.0), vec3(1.0));
@@ -426,6 +429,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         in vec3 vWorldNormal;
         in vec4 vWorldTangent;
         in vec3 vGenerated;
+        in vec2 vSourceUv2;
         uniform float uUseTexture;
         uniform float uWrapS;
         uniform float uWrapT;
@@ -490,6 +494,32 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         vec4 sampleTextureWithWrap(sampler2D tex, vec2 uv, vec2 uvDx, vec2 uvDy) {
             float lodScale = exp2(litTextureDetailLodBias());
             return textureGrad(tex, uv, uvDx * lodScale, uvDy * lodScale);
+        }
+        vec4 sampleLgpeGroundTexture(sampler2D tex, vec2 uv) {
+            return texture(tex, uv, -2.0);
+        }
+        vec3 evaluateLgpeFieldGroundSurface() {
+            vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
+            vec2 blendUv = vec2(vUv.x * 0.3, 1.0 - vUv.y * 0.3);
+            vec2 uv2 = vec2(vSourceUv2.x, 1.0 - vSourceUv2.y);
+            vec4 ground01 = sampleLgpeGroundTexture(uTexture, uv0);
+            vec4 ground02 = sampleLgpeGroundTexture(uNormalTexture, uv0);
+            vec4 grass02 =
+                sampleLgpeGroundTexture(uMetallicRoughnessTexture, uv0);
+            vec4 grass01 = sampleLgpeGroundTexture(uOcclusionTexture, uv0);
+            float blend =
+                clamp(sampleLgpeGroundTexture(uEmissiveTexture, blendUv).r,
+                      0.0,
+                      1.0);
+            vec4 grassBlend =
+                sampleLgpeGroundTexture(uEnvTexture, uv2);
+            vec3 ground = mix(ground01.rgb, ground02.rgb, blend);
+            vec3 grass = mix(grass02.rgb, grass01.rgb, blend);
+            vec3 surface = mix(ground, grass, clamp(grassBlend.a, 0.0, 1.0));
+            vec4 authoredVertexColor = vColor * uVertexColorMul;
+            return grassBlend.rgb * authoredVertexColor.rgb * surface +
+                   max(uEmissiveFactor, vec3(0.0)) *
+                       (1.0 - clamp(authoredVertexColor.a, 0.0, 1.0));
         }
 
         float hash11(float x) { return fract(sin(x * 12.9898) * 43758.5453); }
@@ -1051,6 +1081,16 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                 FragColor = evalFireTailExact();
                 return;
             }
+            if (uMaterialMode > 3.5 && uMaterialMode < 4.5) {
+                const float groundExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+                vec3 groundLinear = evaluateLgpeFieldGroundSurface();
+                vec3 groundMapped = applyViewerToneMapping(
+                    max(groundLinear, vec3(0.0)),
+                    1.0,
+                    groundExposure);
+                FragColor = vec4(linearToSrgb(groundMapped), 1.0);
+                return;
+            }
             vec4 tex = vec4(1.0);
             vec3 outLinear = clamp(vColor.rgb * uVertexColorMul.rgb, 0.0, 1.0);
             vec2 rawUv = vUv;
@@ -1269,23 +1309,25 @@ void OpenGLRenderBackend::configureWorldMeshVertexLayout(unsigned int vao,
     glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, vertexStride, reinterpret_cast<void*>(offsetof(WorldMeshVertex, weight0)));
     glEnableVertexAttribArray(6);
     glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, vertexStride, reinterpret_cast<void*>(offsetof(WorldMeshVertex, tx)));
+    glEnableVertexAttribArray(7);
+    glVertexAttribPointer(7, 2, GL_FLOAT, GL_FALSE, vertexStride, reinterpret_cast<void*>(offsetof(WorldMeshVertex, sourceUv2U)));
 
     glBindBuffer(GL_ARRAY_BUFFER, worldInstanceVbo_);
-    glEnableVertexAttribArray(7);
-    glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, instanceStride, reinterpret_cast<void*>(0));
-    glVertexAttribDivisor(7, 1);
     glEnableVertexAttribArray(8);
-    glVertexAttribPointer(8, 4, GL_FLOAT, GL_FALSE, instanceStride, reinterpret_cast<void*>(sizeof(float) * 4));
+    glVertexAttribPointer(8, 4, GL_FLOAT, GL_FALSE, instanceStride, reinterpret_cast<void*>(0));
     glVertexAttribDivisor(8, 1);
     glEnableVertexAttribArray(9);
-    glVertexAttribPointer(9, 4, GL_FLOAT, GL_FALSE, instanceStride, reinterpret_cast<void*>(sizeof(float) * 8));
+    glVertexAttribPointer(9, 4, GL_FLOAT, GL_FALSE, instanceStride, reinterpret_cast<void*>(sizeof(float) * 4));
     glVertexAttribDivisor(9, 1);
     glEnableVertexAttribArray(10);
-    glVertexAttribPointer(10, 4, GL_FLOAT, GL_FALSE, instanceStride, reinterpret_cast<void*>(sizeof(float) * 12));
+    glVertexAttribPointer(10, 4, GL_FLOAT, GL_FALSE, instanceStride, reinterpret_cast<void*>(sizeof(float) * 8));
     glVertexAttribDivisor(10, 1);
     glEnableVertexAttribArray(11);
-    glVertexAttribPointer(11, 4, GL_FLOAT, GL_FALSE, instanceStride, reinterpret_cast<void*>(sizeof(float) * 16));
+    glVertexAttribPointer(11, 4, GL_FLOAT, GL_FALSE, instanceStride, reinterpret_cast<void*>(sizeof(float) * 12));
     glVertexAttribDivisor(11, 1);
+    glEnableVertexAttribArray(12);
+    glVertexAttribPointer(12, 4, GL_FLOAT, GL_FALSE, instanceStride, reinterpret_cast<void*>(sizeof(float) * 16));
+    glVertexAttribDivisor(12, 1);
 }
 
 void OpenGLRenderBackend::destroyWorldPipeline() {

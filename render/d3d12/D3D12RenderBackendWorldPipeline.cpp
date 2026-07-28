@@ -24,8 +24,8 @@ void D3D12RenderBackend::createWorldPipeline() {
         "StructuredBuffer<float4> gSkinMatrices : register(t7);"
         "struct InstanceData { float4 model0; float4 model1; float4 model2; float4 model3; float4 color; uint4 skinMeta; };"
         "StructuredBuffer<InstanceData> gInstances : register(t6);"
-        "struct VSIn { float3 pos : POSITION; float2 uv : TEXCOORD; float4 col : COLOR; float3 nrm : NORMAL; float4 jnts : BLENDINDICES; float4 wgts : BLENDWEIGHT; float4 tan : TANGENT; };"
-        "struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD; float4 col : COLOR; float3 worldPos : TEXCOORD1; float3 worldNormal : TEXCOORD2; float4 worldTangent : TEXCOORD3; float3 generated : TEXCOORD4; };"
+        "struct VSIn { float3 pos : POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 nrm : NORMAL; float4 jnts : BLENDINDICES; float4 wgts : BLENDWEIGHT; float4 tan : TANGENT; float2 sourceUv2 : TEXCOORD1; };"
+        "struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 worldPos : TEXCOORD1; float3 worldNormal : TEXCOORD2; float4 worldTangent : TEXCOORD3; float3 generated : TEXCOORD4; float2 sourceUv2 : TEXCOORD5; };"
         "static const int kMaxSkinMatrices = 128;"
         "float4 resolveSkinMeta(InstanceData inst) {"
         "  if (inst.skinMeta.x != 0u) return float4(1.0f, (float)inst.skinMeta.y, (float)inst.skinMeta.z, (float)inst.skinMeta.w);"
@@ -129,6 +129,7 @@ void D3D12RenderBackend::createWorldPipeline() {
         "  clip.z -= uClipMeta.x * clip.w;"
         "  o.pos = clip;"
         "  o.uv = i.uv;"
+        "  o.sourceUv2 = i.sourceUv2;"
         "  o.col = i.col * inst.color;"
         "  float3 genDen = max(uGeneratedBoundsMax.xyz - uGeneratedBoundsMin.xyz, float3(1e-5f, 1e-5f, 1e-5f));"
         "  o.generated = saturate((i.pos - uGeneratedBoundsMin.xyz) / genDen);"
@@ -195,7 +196,7 @@ SamplerState gSampRM : register(s5);
 SamplerState gSampMM : register(s6);
 SamplerState gSampCM : register(s7);
 SamplerState gSampMC : register(s8);
-struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD; float4 col : COLOR; float3 worldPos : TEXCOORD1; float3 worldNormal : TEXCOORD2; float4 worldTangent : TEXCOORD3; float3 generated : TEXCOORD4; };
+struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 worldPos : TEXCOORD1; float3 worldNormal : TEXCOORD2; float4 worldTangent : TEXCOORD3; float3 generated : TEXCOORD4; float2 sourceUv2 : TEXCOORD5; };
 
 float applyWrap(float coord, float mode) {
   if (abs(mode - 33071.0f) < 0.5f) return saturate(coord);
@@ -247,6 +248,36 @@ float4 sampleTextureWithWrap(Texture2D tex,
 }
 float4 sampleWorldTextureWithWrap(float2 uv, float2 uvDx, float2 uvDy) {
   return sampleTextureWithWrap(gTex, uv, uvDx, uvDy, uWrapS, uWrapT);
+}
+float4 sampleLgpeGroundTexture(Texture2D tex, float2 uv) {
+  // The shared world sampler contributes -0.35; this restores the source
+  // FieldGroundShader01 effective -2.0 LOD bias.
+  return tex.SampleBias(gSampRR, uv, -1.65f);
+}
+float3 evaluateLgpeFieldGroundSurface(PSIn i) {
+  float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
+  float2 blendUv = float2(i.uv.x * 0.3f, 1.0f - i.uv.y * 0.3f);
+  float2 uv2 = float2(i.sourceUv2.x, 1.0f - i.sourceUv2.y);
+  float4 ground01 = sampleLgpeGroundTexture(gTex, uv0);
+  float4 ground02 = sampleLgpeGroundTexture(gNormalTex, uv0);
+  float4 grass02 = sampleLgpeGroundTexture(gMetallicRoughnessTex, uv0);
+  float4 grass01 = sampleLgpeGroundTexture(gOcclusionTex, uv0);
+  float blend = saturate(sampleLgpeGroundTexture(gEmissiveTex, blendUv).r);
+  float4 grassBlend = sampleLgpeGroundTexture(gEnvTex, uv2);
+  float3 ground = lerp(ground01.rgb, ground02.rgb, blend);
+  float3 grass = lerp(grass02.rgb, grass01.rgb, blend);
+  float3 surface = lerp(ground, grass, saturate(grassBlend.a));
+  float4 authoredVertexColor =
+      i.col * float4(
+          uVertexColorMulR,
+          uVertexColorMulG,
+          uVertexColorMulB,
+          uVertexColorMulA);
+  const float3 alphaLight =
+      max(float3(uMaterialRect0W, uMaterialRect0H, uMaterialRect1U),
+          float3(0.0f, 0.0f, 0.0f));
+  return grassBlend.rgb * authoredVertexColor.rgb * surface +
+         alphaLight * (1.0f - saturate(authoredVertexColor.a));
 }
 
 float hash11(float x) { return frac(sin(x * 12.9898f) * 43758.5453f); }
@@ -794,6 +825,15 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   if (uMaterialMode > 0.5f && uMaterialMode < 1.5f) {
     return evalFireTailExact(i);
   }
+  if (uMaterialMode > 3.5f && uMaterialMode < 4.5f) {
+    const float groundExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+    float3 groundLinear = evaluateLgpeFieldGroundSurface(i);
+    float3 groundMapped = applyViewerToneMapping(
+        max(groundLinear, float3(0.0f, 0.0f, 0.0f)),
+        1.0f,
+        groundExposure);
+    return float4(linearToSrgb(groundMapped), 1.0f);
+  }
   float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
   float3 outLinear = saturate(i.col.rgb * float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB));
   float2 wrappedUv = float2(applyWrap(i.uv.x, uWrapS), applyWrap(i.uv.y, uWrapT));
@@ -1059,6 +1099,7 @@ DualSourcePSOut mainDualSource(PSIn i, bool isFrontFace : SV_IsFrontFace) {
         {"BLENDINDICES", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 48, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"BLENDWEIGHT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 64, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 80, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 1, DXGI_FORMAT_R32G32_FLOAT, 0, 96, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
     };
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso{};

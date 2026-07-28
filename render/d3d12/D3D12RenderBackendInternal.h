@@ -52,6 +52,8 @@ struct WorldVertex {
     float ty;
     float tz;
     float tw;
+    float sourceUv2U;
+    float sourceUv2V;
 };
 
 struct WorldInstanceVertexData {

@@ -498,7 +498,7 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTexture(const 
         textureData->height,
         textureData->wrapS,
         textureData->wrapT,
-        /*srgb=*/true);
+        textureData->textureSrgb != 0u);
 #else
     (void)textureData;
     return nullptr;
@@ -638,7 +638,7 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         textureData->normalHeight,
         textureData->normalWrapS,
         textureData->normalWrapT,
-        /*srgb=*/false);
+        textureData->normalTextureSrgb != 0u);
     const std::uint32_t normalDescriptorIndex =
         normalTex ? normalTex->descriptorIndex : worldFallbackNormalTextureDescriptorIndex_;
 
@@ -650,7 +650,7 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         textureData->metallicRoughnessHeight,
         textureData->metallicRoughnessWrapS,
         textureData->metallicRoughnessWrapT,
-        /*srgb=*/false);
+        textureData->metallicRoughnessTextureSrgb != 0u);
     const std::uint32_t metallicRoughnessDescriptorIndex =
         metallicRoughnessTex
             ? metallicRoughnessTex->descriptorIndex
@@ -664,7 +664,7 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         textureData->occlusionHeight,
         textureData->occlusionWrapS,
         textureData->occlusionWrapT,
-        /*srgb=*/false);
+        textureData->occlusionTextureSrgb != 0u);
     const std::uint32_t occlusionDescriptorIndex =
         occlusionTex ? occlusionTex->descriptorIndex : worldFallbackOcclusionTextureDescriptorIndex_;
 
@@ -676,9 +676,23 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         textureData->emissiveHeight,
         textureData->emissiveWrapS,
         textureData->emissiveWrapT,
-        /*srgb=*/true);
+        textureData->emissiveTextureSrgb != 0u);
     const std::uint32_t emissiveDescriptorIndex =
         emissiveTex ? emissiveTex->descriptorIndex : worldFallbackEmissiveTextureDescriptorIndex_;
+
+    SpriteTexture* environmentTex = ensureWorldTextureRaw(
+        textureData->environmentKey,
+        textureData->environmentCacheKey,
+        textureData->environmentRgba,
+        textureData->environmentWidth,
+        textureData->environmentHeight,
+        textureData->environmentWrapS,
+        textureData->environmentWrapT,
+        textureData->environmentTextureSrgb != 0u);
+    const std::uint32_t environmentDescriptorIndex =
+        environmentTex
+            ? environmentTex->descriptorIndex
+            : worldFallbackEnvTextureDescriptorIndex_;
 
     (void)logPbrBinding;
 
@@ -688,7 +702,7 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         metallicRoughnessDescriptorIndex,
         occlusionDescriptorIndex,
         emissiveDescriptorIndex,
-        worldFallbackEnvTextureDescriptorIndex_);
+        environmentDescriptorIndex);
     return outDescriptorBlockIndex != 0xffffffffu;
 #else
     (void)textureData;

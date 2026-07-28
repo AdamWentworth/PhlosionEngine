@@ -334,7 +334,7 @@ unsigned int OpenGLRenderBackend::ensureWorldTexture(const WorldTextureData* tex
         textureData->height,
         textureData->wrapS,
         textureData->wrapT,
-        /*srgb=*/true);
+        textureData->textureSrgb != 0u);
 }
 
 unsigned int OpenGLRenderBackend::ensureWorldTextureRaw(const char* keyCStr,

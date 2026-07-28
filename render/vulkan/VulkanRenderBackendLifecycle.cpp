@@ -327,7 +327,8 @@ void VulkanRenderBackendImpl::initialize(SDL_Window* sdlWindow,
             fallbackWorldNormalTexture,
             fallbackWorldLinearTexture,
             fallbackWorldLinearTexture,
-            fallbackWorldEmissiveTexture);
+            fallbackWorldEmissiveTexture,
+            neutralPmremTexture);
         if (descriptorIndexingSupported) {
             if (!registerIndexedWorldMaterial(fallbackWorldMaterial)) {
                 throw std::runtime_error(
@@ -1150,6 +1151,8 @@ void VulkanRenderBackendImpl::createPipelines() {
              offsetof(IRenderBackend::WorldMeshVertex, weight0)},
             {6u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
              offsetof(IRenderBackend::WorldMeshVertex, tx)},
+            {7u, 0u, VK_FORMAT_R32G32_SFLOAT,
+             offsetof(IRenderBackend::WorldMeshVertex, sourceUv2U)},
         };
         worldPipelines[0] = createGraphicsPipeline(device, renderPass, texturedPipelineLayout,
                                                    worldVs, worldFs, worldBinding, worldAttributes,

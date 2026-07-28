@@ -370,7 +370,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             texture->normalHeight,
             texture->normalWrapS,
             texture->normalWrapT,
-            /*srgb=*/false)
+            texture->normalTextureSrgb != 0u)
         : 0u;
     const bool hasNormalTexture = (normalTexture != 0u);
     const GLuint boundNormalTexture = hasNormalTexture ? normalTexture : fallbackFlatNormalTexture;
@@ -383,7 +383,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             texture->metallicRoughnessHeight,
             texture->metallicRoughnessWrapS,
             texture->metallicRoughnessWrapT,
-            /*srgb=*/false)
+            texture->metallicRoughnessTextureSrgb != 0u)
         : 0u;
     const bool hasMetallicRoughnessTexture = (metallicRoughnessTexture != 0u);
     const GLuint boundMetallicRoughnessTexture =
@@ -397,7 +397,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             texture->occlusionHeight,
             texture->occlusionWrapS,
             texture->occlusionWrapT,
-            /*srgb=*/false)
+            texture->occlusionTextureSrgb != 0u)
         : 0u;
     const bool hasOcclusionTexture = (occlusionTexture != 0u);
     const GLuint boundOcclusionTexture = hasOcclusionTexture ? occlusionTexture : fallbackWhiteLinearTexture;
@@ -410,7 +410,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             texture->emissiveHeight,
             texture->emissiveWrapS,
             texture->emissiveWrapT,
-            /*srgb=*/true)
+            texture->emissiveTextureSrgb != 0u)
         : 0u;
     const bool hasEmissiveTexture = (emissiveTexture != 0u);
     const GLuint boundEmissiveTexture = hasEmissiveTexture ? emissiveTexture : fallbackWhiteSrgbTexture;
@@ -434,7 +434,22 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
                 /*srgb=*/false);
     }
     const GLuint neutralPmremTexture = worldNeutralPmremTexture_;
-    const GLuint boundEnvTexture = (neutralPmremTexture != 0u) ? neutralPmremTexture : fallbackWhiteLinearTexture;
+    const GLuint authoredEnvironmentTexture = texture
+        ? ensureWorldTextureRaw(
+            texture->environmentKey,
+            texture->environmentCacheKey,
+            texture->environmentRgba,
+            texture->environmentWidth,
+            texture->environmentHeight,
+            texture->environmentWrapS,
+            texture->environmentWrapT,
+            texture->environmentTextureSrgb != 0u)
+        : 0u;
+    const GLuint boundEnvTexture = authoredEnvironmentTexture != 0u
+        ? authoredEnvironmentTexture
+        : ((neutralPmremTexture != 0u)
+            ? neutralPmremTexture
+            : fallbackWhiteLinearTexture);
     const GLfloat wrapS = static_cast<GLfloat>(texture ? texture->wrapS : 10497);
     const GLfloat wrapT = static_cast<GLfloat>(texture ? texture->wrapT : 10497);
     const bool blendAlpha = blendState.enabled;

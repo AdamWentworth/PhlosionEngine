@@ -385,7 +385,8 @@ struct VulkanRenderBackendImpl {
                                       Texture& normal,
                                       Texture& metallicRoughness,
                                       Texture& occlusion,
-                                      Texture& emissive);
+                                      Texture& emissive,
+                                      Texture& environment);
     bool registerIndexedWorldMaterial(WorldMaterial& material);
     void initializeIndexedWorldMaterialSets();
     bool syncIndexedWorldMaterialSet();

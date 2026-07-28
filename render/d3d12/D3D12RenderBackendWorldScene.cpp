@@ -17,6 +17,7 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     tex.height = material.textureHeight;
     tex.wrapS = material.textureWrapS;
     tex.wrapT = material.textureWrapT;
+    tex.textureSrgb = material.textureSrgb;
     tex.normalKey =
         material.normalTextureKey.empty() ? "" : material.normalTextureKey.c_str();
     tex.normalCacheKey = material.normalTextureCacheKey.empty()
@@ -27,6 +28,7 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     tex.normalHeight = material.normalTextureHeight;
     tex.normalWrapS = material.normalTextureWrapS;
     tex.normalWrapT = material.normalTextureWrapT;
+    tex.normalTextureSrgb = material.normalTextureSrgb;
     tex.metallicRoughnessKey = material.metallicRoughnessTextureKey.empty()
         ? ""
         : material.metallicRoughnessTextureKey.c_str();
@@ -38,6 +40,8 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     tex.metallicRoughnessHeight = material.metallicRoughnessTextureHeight;
     tex.metallicRoughnessWrapS = material.metallicRoughnessTextureWrapS;
     tex.metallicRoughnessWrapT = material.metallicRoughnessTextureWrapT;
+    tex.metallicRoughnessTextureSrgb =
+        material.metallicRoughnessTextureSrgb;
     tex.occlusionKey =
         material.occlusionTextureKey.empty() ? "" : material.occlusionTextureKey.c_str();
     tex.occlusionCacheKey = material.occlusionTextureCacheKey.empty()
@@ -48,6 +52,7 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     tex.occlusionHeight = material.occlusionTextureHeight;
     tex.occlusionWrapS = material.occlusionTextureWrapS;
     tex.occlusionWrapT = material.occlusionTextureWrapT;
+    tex.occlusionTextureSrgb = material.occlusionTextureSrgb;
     tex.emissiveKey =
         material.emissiveTextureKey.empty() ? "" : material.emissiveTextureKey.c_str();
     tex.emissiveCacheKey = material.emissiveTextureCacheKey.empty()
@@ -58,6 +63,19 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     tex.emissiveHeight = material.emissiveTextureHeight;
     tex.emissiveWrapS = material.emissiveTextureWrapS;
     tex.emissiveWrapT = material.emissiveTextureWrapT;
+    tex.emissiveTextureSrgb = material.emissiveTextureSrgb;
+    tex.environmentKey = material.environmentTextureKey.empty()
+        ? ""
+        : material.environmentTextureKey.c_str();
+    tex.environmentCacheKey = material.environmentTextureCacheKey.empty()
+        ? nullptr
+        : material.environmentTextureCacheKey.c_str();
+    tex.environmentRgba = material.environmentTextureRgba;
+    tex.environmentWidth = material.environmentTextureWidth;
+    tex.environmentHeight = material.environmentTextureHeight;
+    tex.environmentWrapS = material.environmentTextureWrapS;
+    tex.environmentWrapT = material.environmentTextureWrapT;
+    tex.environmentTextureSrgb = material.environmentTextureSrgb;
     tex.alphaMode = material.alphaMode;
     tex.blendMode = material.blendMode;
     tex.dualSourceBlendEnabled = material.dualSourceBlendEnabled;
