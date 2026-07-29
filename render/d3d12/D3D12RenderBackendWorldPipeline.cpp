@@ -1067,6 +1067,62 @@ float4 evaluateLgpeFieldSignSurface(PSIn i) {
       texture01.a * i.col.a);
 }
 
+float4 evaluateLgpeFieldEncounterGrassSurface(PSIn i) {
+  float sourceMipBias = uMaterialFlipbook0Fps;
+  float2 uv0 = i.uv;
+  float4 texture01 =
+      sampleLgpeFieldGrassRepeat(gTex, uv0, sourceMipBias);
+  if (texture01.a <= saturate(uAlphaCutoff)) discard;
+  float rimMask = saturate(
+      sampleLgpeFieldGrassRepeat(
+          gNormalTex,
+          uv0,
+          sourceMipBias).r);
+  float3 normal = normalize(i.worldNormal);
+  const float3 sourceSunRay =
+      float3(0.5533391237f, 0.2078260481f, -0.8066127300f);
+  float toonCoordinate =
+      dot(normal, -sourceSunRay) * 0.5f + 0.5f;
+  float shadowToon = saturate(
+      sampleLgpeFieldGrassClamp(
+          gOcclusionTex,
+          float2(toonCoordinate, 1.0f - toonCoordinate),
+          sourceMipBias).r);
+  float3 cameraPos =
+      float3(uMaterialRect1V, uMaterialRect1W, uMaterialRect1H);
+  float3 viewDirection = normalize(cameraPos - i.worldPos);
+  float rimMin = uMaterialRect0W;
+  float rimMax = uMaterialRect0H;
+  float rimStrength = uMaterialRect1U;
+  float rim =
+      smoothstep(
+          rimMin,
+          max(rimMax, rimMin + 1.0e-5f),
+          saturate(1.0f - abs(dot(normal, viewDirection)))) *
+      rimStrength * rimMask;
+  float3 shadowColor =
+      float3(
+          uMaterialTimeSec,
+          uMaterialFlags,
+          uMaterialAtlasWidth);
+  float3 rimColor =
+      float3(
+          uMaterialAtlasHeight,
+          uMaterialRect0U,
+          uMaterialRect0V);
+  float3 base = texture01.rgb * i.col.rgb;
+  float3 lighting =
+      lerp(
+          shadowColor,
+          1.0f.xxx,
+          min(
+              shadowToon,
+              evaluateLgpeRoute1ProjectedCloud(i.worldPos)));
+  return float4(
+      (base + rimColor * rim) * lighting,
+      texture01.a * i.col.a);
+}
+
 float4 evaluateLgpeFieldObjectTreeMikiSurface(PSIn i) {
   float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
   float2 uv1 = float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
@@ -1793,6 +1849,16 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         1.0f,
         signExposure);
     return float4(linearToSrgb(signMapped), signSurface.a);
+  }
+  if (uMaterialMode > 17.5f && uMaterialMode < 18.5f) {
+    const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+    float4 grassSurface =
+        evaluateLgpeFieldEncounterGrassSurface(i);
+    float3 grassMapped = applyViewerToneMapping(
+        max(grassSurface.rgb, 0.0f.xxx),
+        1.0f,
+        grassExposure);
+    return float4(linearToSrgb(grassMapped), grassSurface.a);
   }
   float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
   float3 outLinear = saturate(i.col.rgb * float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB));

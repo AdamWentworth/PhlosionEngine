@@ -1282,6 +1282,67 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 lighting * surface * authoredVertexColor.rgb,
                 texture01.a * authoredVertexColor.a);
         }
+        vec4 evaluateLgpeFieldEncounterGrassSurface() {
+            float sourceMipBias = uMaterialFlipbook0.w;
+            // The canonical top-down decode already accounts for the
+            // Switch-to-runtime texture-origin convention.
+            vec2 uv0 = vUv;
+            vec4 texture01 = texture(uTexture, uv0, sourceMipBias);
+            if (texture01.a <= clamp(uAlphaCutoff, 0.0, 1.0)) {
+                discard;
+            }
+            float rimMask = clamp(
+                texture(uNormalTexture, uv0, sourceMipBias).r,
+                0.0,
+                1.0);
+            vec3 normal = normalize(vWorldNormal);
+            const vec3 sourceSunRay =
+                vec3(0.5533391237, 0.2078260481, -0.8066127300);
+            float toonCoordinate =
+                dot(normal, -sourceSunRay) * 0.5 + 0.5;
+            float shadowToon = clamp(
+                texture(
+                    uOcclusionTexture,
+                    vec2(toonCoordinate, 1.0 - toonCoordinate),
+                    sourceMipBias).r,
+                0.0,
+                1.0);
+            vec3 viewDirection =
+                normalize(uCameraPos - vWorldPos);
+            float rimMin = uMaterialAtlasSize.y;
+            float rimMax = uMaterialRect0.x;
+            float rimStrength = uMaterialRect0.y;
+            float rim = smoothstep(
+                            rimMin,
+                            max(rimMax, rimMin + 1e-5),
+                            clamp(
+                                1.0 - abs(dot(normal, viewDirection)),
+                                0.0,
+                                1.0)) *
+                        rimStrength * rimMask;
+            vec3 shadowColor =
+                vec3(
+                    uNormalScale,
+                    uMetallicFactor,
+                    uRoughnessFactor);
+            vec3 rimColor =
+                vec3(
+                    uMaterialTimeSec,
+                    uMaterialFlags,
+                    uMaterialAtlasSize.x);
+            vec4 authoredVertexColor = vColor * uVertexColorMul;
+            vec3 base =
+                texture01.rgb * authoredVertexColor.rgb;
+            vec3 lighting = mix(
+                shadowColor,
+                vec3(1.0),
+                min(
+                    shadowToon,
+                    evaluateLgpeRoute1ProjectedCloud()));
+            return vec4(
+                (base + rimColor * rim) * lighting,
+                texture01.a * authoredVertexColor.a);
+        }
         vec4 evaluateLgpeFieldObjectTreeMikiSurface() {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
             vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
@@ -2055,6 +2116,18 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                     signExposure);
                 FragColor =
                     vec4(linearToSrgb(signMapped), signSurface.a);
+                return;
+            }
+            if (uMaterialMode > 17.5 && uMaterialMode < 18.5) {
+                const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+                vec4 grassSurface =
+                    evaluateLgpeFieldEncounterGrassSurface();
+                vec3 grassMapped = applyViewerToneMapping(
+                    max(grassSurface.rgb, vec3(0.0)),
+                    1.0,
+                    grassExposure);
+                FragColor =
+                    vec4(linearToSrgb(grassMapped), grassSurface.a);
                 return;
             }
             vec4 tex = vec4(1.0);

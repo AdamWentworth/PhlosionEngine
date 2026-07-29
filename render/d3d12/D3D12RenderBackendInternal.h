@@ -404,6 +404,19 @@ inline WorldPsConstants makeWorldPsConstants(const IRenderBackend::WorldTextureD
             constants.materialRect1U = textureData->materialRect0V;
             constants.materialFlipbook0Fps =
                 textureData->materialFlipbook0Fps;
+        } else if (textureData->materialMode == 18u) {
+            // FieldEncGrassShader01 uses Texture02 as a rim mask and retains
+            // independent shadow/rim triples. Its LightColor branch is
+            // identically zero for the shipped Y-up source normals.
+            constants.materialTimeSec = textureData->normalScale;
+            constants.materialFlags = textureData->metallicFactor;
+            constants.materialAtlasWidth = textureData->roughnessFactor;
+            constants.materialAtlasHeight = textureData->materialTimeSec;
+            constants.materialRect0U = textureData->materialFlags;
+            constants.materialRect0V = textureData->materialAtlasWidth;
+            constants.materialRect0W = textureData->materialAtlasHeight;
+            constants.materialRect0H = textureData->materialRect0U;
+            constants.materialRect1U = textureData->materialRect0V;
         }
     }
 
