@@ -434,6 +434,23 @@ float3 lgpeFoliageAcceptedDisplayTransform(float3 color) {
   float saturationRetention = lerp(0.9f, 0.55f, highlight);
   return lerp(luminance.xxx, mapped, saturationRetention);
 }
+float3 lgpeGroundShrubGreenRetention(
+    float3 displayedColor,
+    float3 sourceGreenColor) {
+  float luminance =
+      dot(displayedColor, float3(0.2126f, 0.7152f, 0.0722f));
+  float paleHighlight =
+      smoothstep(0.25f, 0.55f, luminance);
+  float3 greenPalette =
+      dot(sourceGreenColor, 1.0f.xxx) > 0.0001f
+          ? sourceGreenColor
+          : float3(0.220678f, 1.0f, 0.409323f);
+  float3 greenRetained = lgpeFoliageColorize(
+      displayedColor,
+      greenPalette,
+      0.92f * paleHighlight);
+  return greenRetained * lerp(1.0f, 0.96f, paleHighlight);
+}
 float4 evaluateLgpeReviewedFieldTree05Surface(
     PSIn i,
     float hueShift,
@@ -476,7 +493,8 @@ float4 evaluateLgpeReviewedFieldTree02Surface(
     float hueShift,
     float saturation,
     float value,
-    bool darkConifer) {
+    bool darkConifer,
+    bool preserveGroundShrubGreen) {
   float2 uv0 = i.uv;
   float4 texture01 = sampleLgpeFieldTreeTexture(gTex, uv0);
   if (texture01.a <= saturate(uAlphaCutoff)) discard;
@@ -527,8 +545,15 @@ float4 evaluateLgpeReviewedFieldTree02Surface(
       lgpeFoliageProjectionCompensation(
           shadowColor,
           i.worldPos);
+  float3 displayedColor =
+      lgpeFoliageAcceptedDisplayTransform(finalColor);
+  if (preserveGroundShrubGreen) {
+    displayedColor = lgpeGroundShrubGreenRetention(
+        displayedColor,
+        float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB));
+  }
   return float4(
-      lgpeFoliageAcceptedDisplayTransform(finalColor),
+      displayedColor,
       texture01.a);
 }
 float4 evaluateLgpeFieldTree05Surface(PSIn i) {
@@ -2079,7 +2104,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   if (uMaterialMode > 22.5f && uMaterialMode < 23.5f) {
     float4 foliageSurface =
         evaluateLgpeReviewedFieldTree02Surface(
-            i, 0.02271645f, 1.0476480571f, 0.82f, false);
+            i, 0.02271645f, 1.0476480571f, 0.82f, false, false);
     return float4(
         encodeLgpeFinalColor(foliageSurface.rgb),
         foliageSurface.a);
@@ -2087,7 +2112,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   if (uMaterialMode > 23.5f && uMaterialMode < 24.5f) {
     float4 foliageSurface =
         evaluateLgpeReviewedFieldTree02Surface(
-            i, 0.00425595f, 1.0114461323f, 1.0689001800f, true);
+            i, 0.00425595f, 1.0114461323f, 1.0689001800f, true, false);
     return float4(
         encodeLgpeFinalColor(foliageSurface.rgb),
         foliageSurface.a);
@@ -2103,7 +2128,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   if (uMaterialMode > 25.5f && uMaterialMode < 26.5f) {
     float4 foliageSurface =
         evaluateLgpeReviewedFieldTree02Surface(
-            i, -0.05f, 0.72f, 0.95f, false);
+            i, -0.05f, 0.72f, 0.95f, false, true);
     return float4(
         encodeLgpeFinalColor(foliageSurface.rgb),
         foliageSurface.a);
