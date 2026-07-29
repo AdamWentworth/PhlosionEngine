@@ -800,6 +800,20 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             }
             return vec4(result, alpha);
         }
+        vec2 lgpeRoute1CloudTextureUv(vec3 worldPosition) {
+            const vec3 projectionU =
+                vec3(-0.00010391304269433, 0.0, -0.000276669561862946);
+            const vec3 projectionV =
+                vec3(
+                    -0.000223165191709995,
+                    -0.000349375866353512,
+                    0.0000838175788521767);
+            float sourceU =
+                dot(worldPosition, projectionU) + 0.695972776542572;
+            float sourceV =
+                dot(worldPosition, projectionV) + 0.692474711333548;
+            return vec2(sourceU, 1.0 - sourceV);
+        }
         vec4 evaluateLgpeFieldGrassShader04Surface() {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
             vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
@@ -827,6 +841,13 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                     0.0).r,
                 0.0,
                 1.0);
+            float projectedCloud = clamp(
+                texture(
+                    uEmissiveTexture,
+                    lgpeRoute1CloudTextureUv(vWorldPos),
+                    0.0).r,
+                0.0,
+                1.0);
             vec3 onGameColor =
                 vec3(
                     uMaterialAtlasSize.y,
@@ -839,7 +860,10 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                     onGameColor,
                     clamp(uMaterialFlags, 0.0, 1.0));
             vec3 lighting =
-                mix(uEmissiveFactor, vec3(1.0), toon);
+                mix(
+                    uEmissiveFactor,
+                    vec3(1.0),
+                    min(toon, projectedCloud));
             return vec4(lighting * surface, alpha);
         }
         vec4 evaluateLgpeFieldGrassShader05Surface() {
@@ -876,15 +900,10 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 texture(uOcclusionTexture, uv0, 0.0).rgb;
             vec3 decoration =
                 mix(textureMap02, textureMap01, greenBlend);
-            vec3 normal = normalize(vWorldNormal);
-            const vec3 sourceSunRay =
-                vec3(0.5533391237, 0.2078260481, -0.8066127300);
-            float normalDotLight = dot(normal, -sourceSunRay);
-            float toonCoordinate = normalDotLight * 0.5 + 0.5;
-            float toon = clamp(
+            float projectedCloud = clamp(
                 texture(
                     uEnvTexture,
-                    vec2(toonCoordinate, 1.0 - toonCoordinate),
+                    lgpeRoute1CloudTextureUv(vWorldPos),
                     0.0).r,
                 0.0,
                 1.0);
@@ -900,7 +919,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                     onGameColor,
                     clamp(uMaterialTimeSec, 0.0, 1.0));
             vec3 lighting =
-                mix(uEmissiveFactor, vec3(1.0), toon);
+                mix(uEmissiveFactor, vec3(1.0), projectedCloud);
             return vec4(lighting * surface, alpha);
         }
     )GLSL" + R"GLSL(

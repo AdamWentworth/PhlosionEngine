@@ -13,6 +13,20 @@ inline constexpr std::array<float, 3> kRoute1SunRay{
     0.5533391237f,
     0.2078260481f,
     -0.8066127300f};
+// Captured fixed-light projection transformed from Blender
+// (x, -z, y) * 0.01 plus the accepted Route 1 root offset back into the
+// canonical Y-up game-space coordinates consumed by the engine.
+inline constexpr std::array<float, 3> kRoute1CloudProjectionU{
+    -0.00010391304269433f,
+    0.0f,
+    -0.000276669561862946f};
+inline constexpr std::array<float, 3> kRoute1CloudProjectionV{
+    -0.000223165191709995f,
+    -0.000349375866353512f,
+    0.0000838175788521767f};
+inline constexpr std::array<float, 2> kRoute1CloudProjectionOffset{
+    0.695972776542572f,
+    0.692474711333548f};
 
 struct SharedInputs {
     float toon = 1.0f;
@@ -49,6 +63,19 @@ struct SurfaceResult {
 
 inline float saturate(float value) {
     return std::clamp(value, 0.0f, 1.0f);
+}
+
+inline std::array<float, 2> projectRoute1CloudTextureUv(
+    const std::array<float, 3>& worldPosition) {
+    float sourceU = kRoute1CloudProjectionOffset[0];
+    float sourceV = kRoute1CloudProjectionOffset[1];
+    for (std::size_t axis = 0u; axis < 3u; ++axis) {
+        sourceU += worldPosition[axis] * kRoute1CloudProjectionU[axis];
+        sourceV += worldPosition[axis] * kRoute1CloudProjectionV[axis];
+    }
+    // Canonical texture payload rows are top-down while the captured
+    // projection was evaluated through Blender's bottom-up image coordinates.
+    return {sourceU, 1.0f - sourceV};
 }
 
 inline std::array<float, 3> evaluateLighting(

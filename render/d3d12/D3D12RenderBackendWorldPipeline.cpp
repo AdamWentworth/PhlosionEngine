@@ -575,6 +575,21 @@ float4 evaluateLgpeFieldGrassSurface(PSIn i, bool withRim) {
   return float4(result, alpha);
 }
 
+float2 lgpeRoute1CloudTextureUv(float3 worldPosition) {
+  const float3 projectionU =
+      float3(-0.00010391304269433f, 0.0f, -0.000276669561862946f);
+  const float3 projectionV =
+      float3(
+          -0.000223165191709995f,
+          -0.000349375866353512f,
+          0.0000838175788521767f);
+  float sourceU =
+      dot(worldPosition, projectionU) + 0.695972776542572f;
+  float sourceV =
+      dot(worldPosition, projectionV) + 0.692474711333548f;
+  return float2(sourceU, 1.0f - sourceV);
+}
+
 float4 evaluateLgpeFieldGrassShader04Surface(PSIn i) {
   float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
   float2 uv1 = float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
@@ -602,6 +617,11 @@ float4 evaluateLgpeFieldGrassShader04Surface(PSIn i) {
           gOcclusionTex,
           float2(toonCoordinate, 1.0f - toonCoordinate),
           0.0f).r);
+  float projectedCloud = saturate(
+      sampleLgpeFieldGrassRepeat(
+          gEmissiveTex,
+          lgpeRoute1CloudTextureUv(i.worldPos),
+          0.0f).r);
   float3 shadowColor =
       float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB);
   float3 onGameColor =
@@ -609,7 +629,9 @@ float4 evaluateLgpeFieldGrassShader04Surface(PSIn i) {
   float3 surface =
       base.rgb * i.col.rgb *
       lerp(1.0f.xxx, onGameColor, saturate(uMaterialFlags));
-  return float4(lerp(shadowColor, 1.0f.xxx, toon) * surface, alpha);
+  return float4(
+      lerp(shadowColor, 1.0f.xxx, min(toon, projectedCloud)) * surface,
+      alpha);
 }
 
 float4 evaluateLgpeFieldGrassShader05Surface(PSIn i) {
@@ -645,15 +667,10 @@ float4 evaluateLgpeFieldGrassShader05Surface(PSIn i) {
   float3 textureMap02 =
       sampleLgpeFieldGrassRepeat(gOcclusionTex, uv0, 0.0f).rgb;
   float3 decoration = lerp(textureMap02, textureMap01, greenBlend);
-  float3 normal = normalize(i.worldNormal);
-  const float3 sourceSunRay =
-      float3(0.5533391237f, 0.2078260481f, -0.8066127300f);
-  float normalDotLight = dot(normal, -sourceSunRay);
-  float toonCoordinate = normalDotLight * 0.5f + 0.5f;
-  float toon = saturate(
-      sampleLgpeFieldGrassClamp(
+  float projectedCloud = saturate(
+      sampleLgpeFieldGrassRepeat(
           gEnvTex,
-          float2(toonCoordinate, 1.0f - toonCoordinate),
+          lgpeRoute1CloudTextureUv(i.worldPos),
           0.0f).r);
   float3 shadowColor =
       float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB);
@@ -665,7 +682,9 @@ float4 evaluateLgpeFieldGrassShader05Surface(PSIn i) {
   float3 surface =
       (base.rgb + decoration) * i.col.rgb *
       lerp(1.0f.xxx, onGameColor, saturate(uMaterialTimeSec));
-  return float4(lerp(shadowColor, 1.0f.xxx, toon) * surface, alpha);
+  return float4(
+      lerp(shadowColor, 1.0f.xxx, projectedCloud) * surface,
+      alpha);
 }
 
 )HLSL" + R"HLSL(
