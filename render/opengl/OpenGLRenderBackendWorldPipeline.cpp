@@ -671,33 +671,6 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 mapped,
                 saturationRetention);
         }
-        vec3 lgpeGroundShrubGreenRetention(
-            vec3 displayedColor,
-            vec3 sourceGreenColor) {
-            // grass02's lowest leaf cards carry very bright, low-chroma
-            // highlights. The accepted Blender presentation keeps them
-            // mint-green instead of allowing the foliage display shoulder to
-            // turn them grey. Reuse the material's authored GreenColor hue
-            // while preserving the displayed luminance.
-            float luminance =
-                dot(displayedColor, vec3(0.2126, 0.7152, 0.0722));
-            float paleHighlight =
-                smoothstep(0.25, 0.55, luminance);
-            // This BuildModel material authors GreenColor as black. The
-            // accepted isolated shrub measures display R:G:B =
-            // 0.49406:1:0.66345. Its linearized ratio is
-            // 0.220678:1:0.409323, used only when the source role carries no
-            // usable hue.
-            vec3 greenPalette =
-                dot(sourceGreenColor, vec3(1.0)) > 0.0001
-                    ? sourceGreenColor
-                    : vec3(0.220678, 1.0, 0.409323);
-            vec3 greenRetained = lgpeFoliageColorize(
-                displayedColor,
-                greenPalette,
-                0.92 * paleHighlight);
-            return greenRetained * mix(1.0, 0.96, paleHighlight);
-        }
         vec4 evaluateLgpeReviewedFieldTree05Surface(
             float hueShift,
             float saturation,
@@ -746,8 +719,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             float hueShift,
             float saturation,
             float value,
-            bool darkConifer,
-            bool preserveGroundShrubGreen) {
+            bool darkConifer) {
             vec2 uv0 = vUv;
             vec4 texture01 = texture(uTexture, uv0, 0.0);
             if (texture01.a <= clamp(uAlphaCutoff, 0.0, 1.0)) {
@@ -795,11 +767,6 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 lgpeFoliageProjectionCompensation(uEmissiveFactor);
             vec3 displayedColor =
                 lgpeFoliageAcceptedDisplayTransform(finalColor);
-            if (preserveGroundShrubGreen) {
-                displayedColor = lgpeGroundShrubGreenRetention(
-                    displayedColor,
-                    vec3(uNormalScale, uMetallicFactor, uRoughnessFactor));
-            }
             return vec4(
                 displayedColor,
                 texture01.a);
@@ -2420,7 +2387,7 @@ __PAC_SHARED_WORLD_PBR_SECTION__
             if (uMaterialMode > 22.5 && uMaterialMode < 23.5) {
                 vec4 foliageSurface =
                     evaluateLgpeReviewedFieldTree02Surface(
-                        0.02271645, 1.0476480571, 0.82, false, false);
+                        0.02271645, 1.0476480571, 0.82, false);
                 FragColor =
                     vec4(encodeLgpeFinalColor(foliageSurface.rgb), foliageSurface.a);
                 return;
@@ -2428,7 +2395,7 @@ __PAC_SHARED_WORLD_PBR_SECTION__
             if (uMaterialMode > 23.5 && uMaterialMode < 24.5) {
                 vec4 foliageSurface =
                     evaluateLgpeReviewedFieldTree02Surface(
-                        0.00425595, 1.0114461323, 1.0689001800, true, false);
+                        0.00425595, 1.0114461323, 1.0689001800, true);
                 FragColor =
                     vec4(encodeLgpeFinalColor(foliageSurface.rgb), foliageSurface.a);
                 return;
@@ -2442,9 +2409,11 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                 return;
             }
             if (uMaterialMode > 25.5 && uMaterialMode < 26.5) {
-                vec4 foliageSurface =
-                    evaluateLgpeReviewedFieldTree02Surface(
-                        -0.05, 0.72, 0.95, false, true);
+                vec4 sourceSurface =
+                    evaluateLgpeFieldTree02Surface(true);
+                vec4 foliageSurface = vec4(
+                    lgpeFoliageAcceptedDisplayTransform(sourceSurface.rgb),
+                    sourceSurface.a);
                 FragColor =
                     vec4(encodeLgpeFinalColor(foliageSurface.rgb), foliageSurface.a);
                 return;
