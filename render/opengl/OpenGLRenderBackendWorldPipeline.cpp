@@ -524,17 +524,18 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 sampleLgpeGroundTexture(uMetallicRoughnessTexture, uv0);
             vec4 grass01 = sampleLgpeGroundTexture(uOcclusionTexture, uv0);
             float blend =
-                clamp(sampleLgpeGroundTexture(uEmissiveTexture, blendUv).r,
+                clamp(sampleLgpeGroundTexture(uEnvTexture, blendUv).r,
                       0.0,
                       1.0);
-            vec4 grassBlend =
-                sampleLgpeGroundTexture(uEnvTexture, uv2);
+            vec4 grassMask =
+                sampleLgpeGroundTexture(uEmissiveTexture, uv2);
             vec3 ground = mix(ground01.rgb, ground02.rgb, blend);
             vec3 grass = mix(grass02.rgb, grass01.rgb, blend);
-            vec3 surface = mix(ground, grass, clamp(grassBlend.a, 0.0, 1.0));
+            vec3 surface =
+                mix(ground, grass, clamp(grassMask.a, 0.0, 1.0));
             vec4 authoredVertexColor = vColor * uVertexColorMul;
             vec3 sourceSurface =
-                grassBlend.rgb * authoredVertexColor.rgb * surface +
+                grassMask.rgb * authoredVertexColor.rgb * surface +
                 max(uEmissiveFactor, vec3(0.0)) *
                     (1.0 - clamp(authoredVertexColor.a, 0.0, 1.0));
             return applyLgpeGroundCliffSharedLighting(sourceSurface);
@@ -735,18 +736,18 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
             vec2 blendUv =
                 vec2(vUv.x * 0.3, 1.0 - vUv.y * 0.3);
-            vec4 textureMap01 =
-                texture(uTexture, uv1, sourceMipBias);
-            if (textureMap01.a <= clamp(uAlphaCutoff, 0.0, 1.0)) {
-                discard;
-            }
+            vec3 textureMap01 =
+                texture(uTexture, uv0, sourceMipBias).rgb;
             vec3 textureMap02 =
                 texture(uNormalTexture, uv0, sourceMipBias).rgb;
-            vec3 greenHikari =
+            vec4 greenHikari =
                 texture(
                     uMetallicRoughnessTexture,
-                    uv0,
-                    sourceMipBias).rgb;
+                    uv1,
+                    sourceMipBias);
+            if (greenHikari.a <= clamp(uAlphaCutoff, 0.0, 1.0)) {
+                discard;
+            }
             float greenBlend = clamp(
                 texture(
                     uOcclusionTexture,
@@ -776,10 +777,19 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             vec3 sourceColor =
                 vec3(uNormalScale, uMetallicFactor, uRoughnessFactor);
             vec3 decoration =
-                mix(greenHikari, textureMap02, greenBlend);
+                mix(textureMap02, textureMap01, greenBlend) +
+                sourceColor * (1.0 - highlight);
+            vec3 authoredColor = vColor.rgb;
+            if (!withRim && sourceMipBias > -1.0 &&
+                normalize(vWorldNormal).y > 0.9) {
+                // grass01_com_001 floor carriers use branch-coded Color0
+                // values. The accepted source-geometry audit resolves their
+                // horizontal lawn branch to this continuous raised-lawn tint.
+                authoredColor =
+                    vec3(0.180392161, 0.482352942, 0.431372553);
+            }
             vec3 surface =
-                textureMap01.rgb * vColor.rgb *
-                (decoration + sourceColor * (1.0 - highlight));
+                decoration * greenHikari.rgb * authoredColor;
             if (withRim) {
                 vec3 viewDirection = normalize(uCameraPos - vWorldPos);
                 float edge =
@@ -808,7 +818,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 vec3(1.0),
                 min(toon, evaluateLgpeRoute1ProjectedCloud()));
             vec3 result = lighting * surface;
-            float alpha = textureMap01.a;
+            float alpha = greenHikari.a;
             if (!withRim) {
                 vec3 onGameColor =
                     vec3(

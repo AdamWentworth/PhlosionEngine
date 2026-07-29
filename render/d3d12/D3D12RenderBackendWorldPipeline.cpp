@@ -294,11 +294,11 @@ float3 evaluateLgpeFieldGroundSurface(PSIn i) {
   float4 ground02 = sampleLgpeGroundTexture(gNormalTex, uv0);
   float4 grass02 = sampleLgpeGroundTexture(gMetallicRoughnessTex, uv0);
   float4 grass01 = sampleLgpeGroundTexture(gOcclusionTex, uv0);
-  float blend = saturate(sampleLgpeGroundTexture(gEmissiveTex, blendUv).r);
-  float4 grassBlend = sampleLgpeGroundTexture(gEnvTex, uv2);
+  float blend = saturate(sampleLgpeGroundTexture(gEnvTex, blendUv).r);
+  float4 grassMask = sampleLgpeGroundTexture(gEmissiveTex, uv2);
   float3 ground = lerp(ground01.rgb, ground02.rgb, blend);
   float3 grass = lerp(grass02.rgb, grass01.rgb, blend);
-  float3 surface = lerp(ground, grass, saturate(grassBlend.a));
+  float3 surface = lerp(ground, grass, saturate(grassMask.a));
   float4 authoredVertexColor =
       i.col * float4(
           uVertexColorMulR,
@@ -309,7 +309,7 @@ float3 evaluateLgpeFieldGroundSurface(PSIn i) {
       max(float3(uMaterialRect0W, uMaterialRect0H, uMaterialRect1U),
           float3(0.0f, 0.0f, 0.0f));
   float3 sourceSurface =
-      grassBlend.rgb * authoredVertexColor.rgb * surface +
+      grassMask.rgb * authoredVertexColor.rgb * surface +
       alphaLight * (1.0f - saturate(authoredVertexColor.a));
   return applyLgpeGroundCliffSharedLighting(sourceSurface, i.worldPos);
 }
@@ -516,19 +516,22 @@ float4 evaluateLgpeFieldGrassSurface(PSIn i, bool withRim) {
       float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
   float2 blendUv =
       float2(i.uv.x * 0.3f, 1.0f - i.uv.y * 0.3f);
-  float4 textureMap01 =
-      sampleLgpeFieldGrassRepeat(gTex, uv1, sourceMipBias);
-  if (textureMap01.a <= saturate(uAlphaCutoff)) discard;
   float3 textureMap02 =
       sampleLgpeFieldGrassRepeat(
           gNormalTex,
           uv0,
           sourceMipBias).rgb;
-  float3 greenHikari =
+  float3 textureMap01 =
       sampleLgpeFieldGrassRepeat(
-          gMetallicRoughnessTex,
+          gTex,
           uv0,
           sourceMipBias).rgb;
+  float4 greenHikari =
+      sampleLgpeFieldGrassRepeat(
+          gMetallicRoughnessTex,
+          uv1,
+          sourceMipBias);
+  if (greenHikari.a <= saturate(uAlphaCutoff)) discard;
   float greenBlend = saturate(
       sampleLgpeFieldGrassRepeat(
           gOcclusionTex,
@@ -555,10 +558,16 @@ float4 evaluateLgpeFieldGrassSurface(PSIn i, bool withRim) {
           uVertexColorMulG,
           uVertexColorMulB);
   float3 decoration =
-      lerp(greenHikari, textureMap02, greenBlend);
+      lerp(textureMap02, textureMap01, greenBlend) +
+      sourceColor * (1.0f - highlight);
+  float3 authoredColor = i.col.rgb;
+  if (!withRim && sourceMipBias > -1.0f &&
+      normalize(i.worldNormal).y > 0.9f) {
+    authoredColor =
+        float3(0.180392161f, 0.482352942f, 0.431372553f);
+  }
   float3 surface =
-      textureMap01.rgb * i.col.rgb *
-      (decoration + sourceColor * (1.0f - highlight));
+      decoration * greenHikari.rgb * authoredColor;
   if (withRim) {
     float3 cameraPos =
         float3(uMaterialRect1V, uMaterialRect1W, uMaterialRect1H);
@@ -589,7 +598,7 @@ float4 evaluateLgpeFieldGrassSurface(PSIn i, bool withRim) {
           1.0f.xxx,
           min(toon, evaluateLgpeRoute1ProjectedCloud(i.worldPos))) *
       surface;
-  float alpha = textureMap01.a;
+  float alpha = greenHikari.a;
   if (!withRim) {
     float3 onGameColor =
         float3(

@@ -18,16 +18,20 @@ struct SurfaceInputs {
     std::array<float, 4> groundTex02{};
     std::array<float, 4> grassTex02{};
     std::array<float, 4> grassTex01{};
-    float blendTexRed = 0.0f;
-    std::array<float, 4> grassBlendTex{};
+    float grassBlendTexRed = 0.0f;
+    std::array<float, 4> blendTex{};
     std::array<float, 4> vertexColor{1.0f, 1.0f, 1.0f, 1.0f};
     std::array<float, 3> alphaLight{};
 };
 
+// GrassBlendTex is the low-frequency soil/grass texture-variation noise.
+// BlendTex is the UV2-authored route paint whose alpha selects dirt or lawn
+// and whose RGB supplies the authored edge decoration.
 inline std::array<float, 4> evaluateSurface(const SurfaceInputs& input) {
-    const float blend = std::clamp(input.blendTexRed, 0.0f, 1.0f);
+    const float blend =
+        std::clamp(input.grassBlendTexRed, 0.0f, 1.0f);
     const float grassBlend =
-        std::clamp(input.grassBlendTex[3], 0.0f, 1.0f);
+        std::clamp(input.blendTex[3], 0.0f, 1.0f);
     std::array<float, 4> output{};
     for (std::size_t channel = 0u; channel < 3u; ++channel) {
         const float ground =
@@ -39,7 +43,7 @@ inline std::array<float, 4> evaluateSurface(const SurfaceInputs& input) {
         const float surface =
             ground * (1.0f - grassBlend) + grass * grassBlend;
         output[channel] =
-            input.grassBlendTex[channel] *
+            input.blendTex[channel] *
                 input.vertexColor[channel] * surface +
             input.alphaLight[channel] *
                 (1.0f - std::clamp(input.vertexColor[3], 0.0f, 1.0f));

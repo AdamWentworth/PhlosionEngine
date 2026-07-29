@@ -57,12 +57,14 @@ inline std::array<float, 3> evaluateLocalSurface(
     const float blend = saturate(input.greenBlend);
     const float highlight = saturate(input.highlight);
     for (std::size_t channel = 0u; channel < 3u; ++channel) {
+        const float base =
+            input.textureMap02[channel] * (1.0f - blend) +
+            input.textureMap01[channel] * blend;
         const float decoration =
-            input.greenHikari[channel] * (1.0f - blend) +
-            input.textureMap02[channel] * blend;
+            base + input.color[channel] * (1.0f - highlight);
         surface[channel] =
-            input.textureMap01[channel] * input.vertexColor[channel] *
-            (decoration + input.color[channel] * (1.0f - highlight));
+            decoration * input.greenHikari[channel] *
+            input.vertexColor[channel];
     }
     return surface;
 }
@@ -80,12 +82,13 @@ inline std::array<float, 3> evaluateLighting(
     return lighting;
 }
 
-// Exact local FieldGrassShader02 order. The shared projected shadow/cloud
-// terms remain explicit inputs because their matrices and frame state are not
-// material-local.
+// Source-backed FieldGrassShader02 order after reconciling the recovered
+// program with its sampler dictionary and the authored alpha-bearing
+// green_hikari atlas. The shared projected shadow/cloud terms remain explicit
+// because their matrices and frame state are not material-local.
 inline SurfaceResult evaluateShader02Surface(const SurfaceInputs& input) {
     SurfaceResult result;
-    if (input.textureMap01[3] <= saturate(input.discardThreshold)) {
+    if (input.greenHikari[3] <= saturate(input.discardThreshold)) {
         result.discarded = true;
         return result;
     }
@@ -99,15 +102,15 @@ inline SurfaceResult evaluateShader02Surface(const SurfaceInputs& input) {
         result.color[channel] = lighting[channel] * surface[channel] * onGame;
     }
     result.color[3] =
-        input.textureMap01[3] * saturate(input.onGameAlpha);
+        input.greenHikari[3] * saturate(input.onGameAlpha);
     return result;
 }
 
-// Exact local FieldGrassShader01 order. RimColor is added after the layered
-// grass/base/vertex product and before toon/cloud/shadow lighting.
+// FieldGrassShader01 uses the same base/decal contract, then adds RimColor
+// before toon/cloud/shadow lighting.
 inline SurfaceResult evaluateShader01Surface(const SurfaceInputs& input) {
     SurfaceResult result;
-    if (input.textureMap01[3] <= saturate(input.discardThreshold)) {
+    if (input.greenHikari[3] <= saturate(input.discardThreshold)) {
         result.discarded = true;
         return result;
     }
@@ -123,7 +126,7 @@ inline SurfaceResult evaluateShader01Surface(const SurfaceInputs& input) {
         surface[channel] += input.rimColor[channel] * rim;
         result.color[channel] = lighting[channel] * surface[channel];
     }
-    result.color[3] = input.textureMap01[3];
+    result.color[3] = input.greenHikari[3];
     return result;
 }
 
