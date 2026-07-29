@@ -4,15 +4,26 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 namespace engine::render::lgpe_field_grass {
 
 inline constexpr std::uint8_t kShader02MaterialMode = 9u;
 inline constexpr std::uint8_t kShader01MaterialMode = 10u;
+// Renderer-private selector for the accepted two-layer interpretation of the
+// single Route 1 horizontal carrier. FieldGrassShader02 does not sample UV2.
+inline constexpr float kFloorFoliageMaskMarker = -4096.0f;
 inline constexpr std::array<float, 3> kRoute1SunRay{
     0.5533391237f,
     0.2078260481f,
     -0.8066127300f};
+
+inline constexpr bool usesFloorFoliageMask(
+    std::string_view profileId,
+    std::string_view meshName) {
+    return profileId == "lgpe_route1_road001_00" &&
+           meshName == "road001_00_grass00_000";
+}
 
 struct SurfaceInputs {
     std::array<float, 4> textureMap01{};

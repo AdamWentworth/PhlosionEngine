@@ -516,6 +516,7 @@ float4 evaluateLgpeFieldGrassSurface(PSIn i, bool withRim) {
       float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
   float2 blendUv =
       float2(i.uv.x * 0.3f, 1.0f - i.uv.y * 0.3f);
+  bool floorFoliageCard = !withRim && i.sourceUv2.x < -2048.0f;
   float3 textureMap02 =
       sampleLgpeFieldGrassRepeat(
           gNormalTex,
@@ -529,9 +530,15 @@ float4 evaluateLgpeFieldGrassSurface(PSIn i, bool withRim) {
   float4 greenHikari =
       sampleLgpeFieldGrassRepeat(
           gMetallicRoughnessTex,
-          uv1,
+          floorFoliageCard
+              ? float2(i.sourceUv1.x, i.sourceUv1.y)
+              : uv1,
           sourceMipBias);
-  if (greenHikari.a <= saturate(uAlphaCutoff)) discard;
+  if (floorFoliageCard) {
+    if (greenHikari.r >= saturate(uAlphaCutoff)) discard;
+  } else if (greenHikari.a <= saturate(uAlphaCutoff)) {
+    discard;
+  }
   float greenBlend = saturate(
       sampleLgpeFieldGrassRepeat(
           gOcclusionTex,

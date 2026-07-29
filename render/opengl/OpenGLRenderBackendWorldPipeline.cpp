@@ -736,16 +736,28 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
             vec2 blendUv =
                 vec2(vUv.x * 0.3, 1.0 - vUv.y * 0.3);
+            bool floorFoliageCard =
+                !withRim && vSourceUv2.x < -2048.0;
             vec3 textureMap01 =
-                texture(uTexture, uv0, sourceMipBias).rgb;
+                texture(
+                    uTexture,
+                    uv0,
+                    sourceMipBias).rgb;
             vec3 textureMap02 =
                 texture(uNormalTexture, uv0, sourceMipBias).rgb;
             vec4 greenHikari =
                 texture(
                     uMetallicRoughnessTexture,
-                    uv1,
+                    floorFoliageCard
+                        ? vSourceUv1
+                        : uv1,
                     sourceMipBias);
-            if (greenHikari.a <= clamp(uAlphaCutoff, 0.0, 1.0)) {
+            if (floorFoliageCard) {
+                if (greenHikari.r >= clamp(uAlphaCutoff, 0.0, 1.0)) {
+                    discard;
+                }
+            } else if (
+                greenHikari.a <= clamp(uAlphaCutoff, 0.0, 1.0)) {
                 discard;
             }
             float greenBlend = clamp(
