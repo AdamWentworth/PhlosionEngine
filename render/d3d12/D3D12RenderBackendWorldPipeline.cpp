@@ -438,7 +438,9 @@ float4 evaluateLgpeFieldTree05Surface(PSIn i) {
       texture01.a);
 }
 
-float4 evaluateLgpeFieldTree02Surface(PSIn i) {
+float4 evaluateLgpeFieldTree02Surface(
+    PSIn i,
+    bool useProjectedCloud) {
   float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
   float4 texture01 = sampleLgpeFieldTreeTexture(gTex, uv0);
   if (texture01.a <= saturate(uAlphaCutoff)) discard;
@@ -502,9 +504,12 @@ float4 evaluateLgpeFieldTree02Surface(PSIn i) {
   float3 surface = texture01.rgb + texture02 * secondary;
   float3 authored = surface * i.col.rgb;
   float3 tinted = lerp(greenColor, authored, saturate(i.col.a));
-  // The shared projected-depth PCF is intentionally held at one until its
-  // source matrix/depth state is represented by the world renderer.
-  float3 lighting = lerp(shadowColor, 1.0f.xxx, toon);
+  // The shared projected-depth PCF is held at one until its source matrix is
+  // represented. Only pasted__pasted__tree15 samples the recovered cloud map.
+  float light = useProjectedCloud
+      ? min(toon, evaluateLgpeRoute1ProjectedCloud(i.worldPos))
+      : toon;
+  float3 lighting = lerp(shadowColor, 1.0f.xxx, light);
   return float4(lighting * tinted, texture01.a);
 }
 
@@ -1748,7 +1753,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
     return float4(encodeLgpeFinalColor(trunkSurface.rgb), trunkSurface.a);
   }
   if (uMaterialMode > 7.5f && uMaterialMode < 8.5f) {
-    float4 treeSurface = evaluateLgpeFieldTree02Surface(i);
+    float4 treeSurface = evaluateLgpeFieldTree02Surface(i, false);
     return float4(encodeLgpeFinalColor(treeSurface.rgb), treeSurface.a);
   }
   if (uMaterialMode > 8.5f && uMaterialMode < 9.5f) {
@@ -1797,6 +1802,11 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
     float4 grassSurface =
         evaluateLgpeFieldEncounterGrassSurface(i);
     return float4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
+  }
+  if (uMaterialMode > 18.5f && uMaterialMode < 19.5f) {
+    float4 shrubSurface =
+        evaluateLgpeFieldTree02Surface(i, true);
+    return float4(encodeLgpeFinalColor(shrubSurface.rgb), shrubSurface.a);
   }
   float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
   float3 outLinear = saturate(i.col.rgb * float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB));

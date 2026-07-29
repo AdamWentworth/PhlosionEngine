@@ -8,6 +8,7 @@
 namespace engine::render::lgpe_field_tree02 {
 
 inline constexpr std::uint8_t kMaterialMode = 8u;
+inline constexpr std::uint8_t kGrass02MaterialMode = 19u;
 inline constexpr float kRouteTreeDiscardValue = 0.6f;
 inline constexpr float kRouteTreeShadowBias = 0.05f;
 inline constexpr float kGrass02DiscardValue = 0.418742657f;
@@ -24,6 +25,7 @@ struct SurfaceInputs {
     float toon = 1.0f;
     float lightToon = 0.0f;
     float projectedShadow = 1.0f;
+    float projectedCloud = 1.0f;
     std::array<float, 3> greenColor{};
     std::array<float, 3> rimColor{};
     std::array<float, 3> shadowColor{};
@@ -55,7 +57,9 @@ inline float rangeMap(float value, float minimum, float maximum) {
 // family recovered from Route 1's named tree004/tree005 and grass02 programs.
 // projectedShadow is an explicit input because the source ten-tap PCF requires
 // the game's shared shadow matrix/depth state, which is not part of a material.
-inline SurfaceResult evaluateSurface(const SurfaceInputs& input) {
+inline SurfaceResult evaluateSurfaceImpl(
+    const SurfaceInputs& input,
+    bool useProjectedCloud) {
     SurfaceResult result;
     if (input.texture01[3] <= saturate(input.discardThreshold)) {
         result.discarded = true;
@@ -67,8 +71,11 @@ inline SurfaceResult evaluateSurface(const SurfaceInputs& input) {
         rangeMap(edge, input.rimLightMin, input.rimLightMax) *
         input.rimLightStrength;
     const float directional = saturate(edge * kDirectionalEdgeScale);
-    const float shadow =
+    const float toonShadow =
         saturate(input.toon) * saturate(input.projectedShadow);
+    const float shadow = useProjectedCloud
+        ? std::min(toonShadow, saturate(input.projectedCloud))
+        : toonShadow;
     for (std::size_t channel = 0u; channel < 3u; ++channel) {
         const float secondary =
             rim * input.rimColor[channel] +
@@ -88,6 +95,17 @@ inline SurfaceResult evaluateSurface(const SurfaceInputs& input) {
     }
     result.color[3] = input.texture01[3];
     return result;
+}
+
+inline SurfaceResult evaluateSurface(const SurfaceInputs& input) {
+    return evaluateSurfaceImpl(input, false);
+}
+
+// Grass02's separately recovered pasted__pasted__tree15 fragment program is
+// the six-sampler member of this family. Unlike tree004/tree005, it gates the
+// toon/depth result with pow(LightProjMap, 1.0).
+inline SurfaceResult evaluateGrass02Surface(const SurfaceInputs& input) {
+    return evaluateSurfaceImpl(input, true);
 }
 
 } // namespace engine::render::lgpe_field_tree02

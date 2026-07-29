@@ -266,7 +266,8 @@ inline WorldPsConstants makeWorldPsConstants(const IRenderBackend::WorldTextureD
             constants.materialRect1U = textureData->materialRect1U;
             constants.materialFlipbook0Fps =
                 textureData->materialFlipbook0Fps;
-        } else if (textureData->materialMode == 8u) {
+        } else if (textureData->materialMode == 8u ||
+                   textureData->materialMode == 19u) {
             // FieldTreeShader02 has five independent source colors plus its
             // camera-dependent rim. Repack the typed mode-8 payload around
             // the fixed 64-DWORD root-signature limit.

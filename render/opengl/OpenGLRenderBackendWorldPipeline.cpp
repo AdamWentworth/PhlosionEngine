@@ -668,7 +668,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                     surface,
                 texture01.a);
         }
-        vec4 evaluateLgpeFieldTree02Surface() {
+        vec4 evaluateLgpeFieldTree02Surface(bool useProjectedCloud) {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
             vec4 texture01 = texture(uTexture, uv0, 0.0);
             if (texture01.a <= clamp(uAlphaCutoff, 0.0, 1.0)) discard;
@@ -722,11 +722,14 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             vec3 authored = surface * vColor.rgb;
             vec3 tinted =
                 mix(greenColor, authored, clamp(vColor.a, 0.0, 1.0));
-            // The source uses a shared ten-tap projected-depth PCF. Until the
-            // source projection matrix is represented, preserve its exact
-            // local material path with projectedShadow held at one.
+            // The source uses a shared ten-tap projected-depth PCF. Until its
+            // projection matrix is represented, projectedShadow stays one.
+            // Only pasted__pasted__tree15 samples the recovered cloud map.
+            float light = useProjectedCloud
+                ? min(toon, evaluateLgpeRoute1ProjectedCloud())
+                : toon;
             vec3 lighting =
-                mix(shadowColor, vec3(1.0), toon);
+                mix(shadowColor, vec3(1.0), light);
             return vec4(lighting * tinted, texture01.a);
         }
     )GLSL") + R"GLSL(
@@ -1998,7 +2001,7 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                 return;
             }
             if (uMaterialMode > 7.5 && uMaterialMode < 8.5) {
-                vec4 treeSurface = evaluateLgpeFieldTree02Surface();
+                vec4 treeSurface = evaluateLgpeFieldTree02Surface(false);
                 FragColor =
                     vec4(encodeLgpeFinalColor(treeSurface.rgb), treeSurface.a);
                 return;
@@ -2071,6 +2074,13 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                     evaluateLgpeFieldEncounterGrassSurface();
                 FragColor =
                     vec4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
+                return;
+            }
+            if (uMaterialMode > 18.5 && uMaterialMode < 19.5) {
+                vec4 shrubSurface =
+                    evaluateLgpeFieldTree02Surface(true);
+                FragColor =
+                    vec4(encodeLgpeFinalColor(shrubSurface.rgb), shrubSurface.a);
                 return;
             }
             vec4 tex = vec4(1.0);
