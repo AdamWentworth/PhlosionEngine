@@ -877,9 +877,46 @@ float evaluateLgpeFieldRockLightToon(float toonCoordinate) {
   return lerp(lowerValue, upperValue, frac(sourceTexel)) / 255.0f;
 }
 
+float lgpeFlowerCoverage(float alpha) {
+  float coverageT = saturate((alpha - 0.55f) / (0.85f - 0.55f));
+  return coverageT * coverageT * (3.0f - 2.0f * coverageT);
+}
+
+float lgpeFlowerDitherThreshold(float2 fragmentPosition) {
+  int2 pixel = int2(floor(fmod(fragmentPosition, 4.0f)));
+  static const float bayer[16] = {
+       0.5f,  8.5f,  2.5f, 10.5f,
+      12.5f,  4.5f, 14.5f,  6.5f,
+       3.5f, 11.5f,  1.5f,  9.5f,
+      15.5f,  7.5f, 13.5f,  5.5f};
+  return bayer[pixel.x + pixel.y * 4] / 16.0f;
+}
+
+float3 lgpeFlowerFieldHighlight(float3 sourceColor) {
+  float maximum = max(max(sourceColor.r, sourceColor.g), sourceColor.b);
+  float minimum = min(min(sourceColor.r, sourceColor.g), sourceColor.b);
+  float chroma = maximum - minimum;
+  float sourceSaturation =
+      maximum > 0.000001f ? chroma / maximum : 0.0f;
+  float saturation = saturate(sourceSaturation * 1.14f);
+  float value = maximum * 1.12f;
+  float adjustedMinimum = value * (1.0f - saturation);
+  float adjustedChroma = value * saturation;
+  float3 hueComponent =
+      chroma > 0.000001f
+          ? (sourceColor - minimum.xxx) / chroma
+          : 0.0f.xxx;
+  return adjustedMinimum.xxx + hueComponent * adjustedChroma;
+}
+
 float4 evaluateLgpeFieldFlowerSurface(PSIn i) {
   float sourceMipBias = uMaterialFlipbook0Fps;
-  float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
+  bool buildmodelReview =
+      uMaterialMode > 19.5f && uMaterialMode < 20.5f;
+  float2 uv0 =
+      buildmodelReview
+          ? i.uv
+          : float2(i.uv.x, 1.0f - i.uv.y);
   float4 texture01 =
       sampleLgpeFieldGrassRepeat(gTex, uv0, sourceMipBias);
   float4 authoredVertexColor =
@@ -889,11 +926,50 @@ float4 evaluateLgpeFieldFlowerSurface(PSIn i) {
           uVertexColorMulG,
           uVertexColorMulB,
           uVertexColorMulA);
-  float alpha =
+  float sourceAlpha =
       texture01.a * authoredVertexColor.a *
       saturate(uMaterialRect0V) *
       saturate(uMaterialRect0U);
-  if (alpha <= saturate(uAlphaCutoff)) discard;
+  float alpha = sourceAlpha;
+  if (buildmodelReview) {
+    alpha = lgpeFlowerCoverage(sourceAlpha);
+    if (alpha <= lgpeFlowerDitherThreshold(i.pos.xy)) discard;
+  } else if (alpha <= saturate(uAlphaCutoff)) {
+    discard;
+  }
+
+  float3 shadowColor =
+      float3(
+          uMaterialRect0W,
+          uMaterialRect0H,
+          uMaterialRect1U);
+  if (buildmodelReview) {
+    float projectedCloud = evaluateLgpeRoute1ProjectedCloud(i.worldPos);
+    float3 normal = normalize(i.worldNormal);
+    const float3 sourceSunRay =
+        float3(0.5533391237f, 0.2078260481f, -0.8066127300f);
+    float normalDotLight = dot(normal, -sourceSunRay);
+    float toonCoordinate = normalDotLight * 0.5f + 0.5f;
+    float toon = saturate(
+        sampleLgpeFieldGrassClamp(
+            gOcclusionTex,
+            float2(toonCoordinate, 1.0f - toonCoordinate),
+            sourceMipBias).r);
+    float3 projectedLighting =
+        lerp(shadowColor, 1.0f.xxx, projectedCloud);
+    float3 projectionCompensation =
+        lerp(1.0f.xxx, projectedLighting, 0.25f);
+    float3 accepted = lgpeFlowerFieldHighlight(texture01.rgb);
+    float3 exact =
+        texture01.rgb * authoredVertexColor.rgb *
+        projectionCompensation;
+    float3 restrained = lerp(accepted, exact, 0.35f);
+    float3 fieldLighting =
+        lerp(shadowColor, 1.0f.xxx, min(toon, projectedCloud));
+    return float4(
+        restrained * (fieldLighting + 0.12f.xxx),
+        alpha);
+  }
 
   float3 normal = normalize(i.worldNormal);
   const float3 sourceSunRay =
@@ -916,11 +992,6 @@ float4 evaluateLgpeFieldFlowerSurface(PSIn i) {
           1.0f.xxx,
           onGameColor,
           saturate(uMaterialAtlasHeight));
-  float3 shadowColor =
-      float3(
-          uMaterialRect0W,
-          uMaterialRect0H,
-          uMaterialRect1U);
   float3 lighting = lerp(
       shadowColor,
       1.0f.xxx,
@@ -1807,6 +1878,10 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
     float4 shrubSurface =
         evaluateLgpeFieldTree02Surface(i, true);
     return float4(encodeLgpeFinalColor(shrubSurface.rgb), shrubSurface.a);
+  }
+  if (uMaterialMode > 19.5f && uMaterialMode < 20.5f) {
+    float4 flowerSurface = evaluateLgpeFieldFlowerSurface(i);
+    return float4(encodeLgpeFinalColor(flowerSurface.rgb), flowerSurface.a);
   }
   float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
   float3 outLinear = saturate(i.col.rgb * float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB));

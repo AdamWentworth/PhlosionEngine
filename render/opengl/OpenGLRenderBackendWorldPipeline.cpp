@@ -1103,16 +1103,100 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                        fract(sourceTexel)) /
                    255.0;
         }
+        float lgpeFlowerCoverage(float alpha) {
+            float coverageT =
+                clamp((alpha - 0.55) / (0.85 - 0.55), 0.0, 1.0);
+            return coverageT * coverageT * (3.0 - 2.0 * coverageT);
+        }
+        float lgpeFlowerDitherThreshold(vec2 fragmentPosition) {
+            ivec2 pixel = ivec2(mod(floor(fragmentPosition), 4.0));
+            int index = pixel.x + pixel.y * 4;
+            const float bayer[16] = float[16](
+                 0.5,  8.5,  2.5, 10.5,
+                12.5,  4.5, 14.5,  6.5,
+                 3.5, 11.5,  1.5,  9.5,
+                15.5,  7.5, 13.5,  5.5);
+            return bayer[index] / 16.0;
+        }
+        vec3 lgpeFlowerFieldHighlight(vec3 sourceColor) {
+            float maximum = max(max(sourceColor.r, sourceColor.g), sourceColor.b);
+            float minimum = min(min(sourceColor.r, sourceColor.g), sourceColor.b);
+            float chroma = maximum - minimum;
+            float sourceSaturation =
+                maximum > 0.000001 ? chroma / maximum : 0.0;
+            float saturation = clamp(sourceSaturation * 1.14, 0.0, 1.0);
+            float value = maximum * 1.12;
+            float adjustedMinimum = value * (1.0 - saturation);
+            float adjustedChroma = value * saturation;
+            vec3 hueComponent =
+                chroma > 0.000001
+                    ? (sourceColor - vec3(minimum)) / chroma
+                    : vec3(0.0);
+            return vec3(adjustedMinimum) + hueComponent * adjustedChroma;
+        }
         vec4 evaluateLgpeFieldFlowerSurface() {
             float sourceMipBias = uMaterialFlipbook0.w;
-            vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
+            bool buildmodelReview =
+                uMaterialMode > 19.5 && uMaterialMode < 20.5;
+            // Canonical BuildModel texture rows remain in source top-down
+            // order when uploaded. Their raw source UV0 therefore samples
+            // directly here; the road-scene texture retains the older
+            // bottom-origin upload contract.
+            vec2 uv0 =
+                buildmodelReview
+                    ? vUv
+                    : vec2(vUv.x, 1.0 - vUv.y);
             vec4 texture01 = texture(uTexture, uv0, sourceMipBias);
             vec4 authoredVertexColor = vColor * uVertexColorMul;
-            float alpha =
+            float sourceAlpha =
                 texture01.a * authoredVertexColor.a *
                 clamp(uMaterialRect0.y, 0.0, 1.0) *
                 clamp(uMaterialRect0.x, 0.0, 1.0);
-            if (alpha <= clamp(uAlphaCutoff, 0.0, 1.0)) discard;
+            float alpha = sourceAlpha;
+            if (buildmodelReview) {
+                alpha = lgpeFlowerCoverage(sourceAlpha);
+                if (alpha <= lgpeFlowerDitherThreshold(gl_FragCoord.xy)) {
+                    discard;
+                }
+            } else if (alpha <= clamp(uAlphaCutoff, 0.0, 1.0)) {
+                discard;
+            }
+
+            if (buildmodelReview) {
+                float projectedCloud = evaluateLgpeRoute1ProjectedCloud();
+                vec3 normal = normalize(vWorldNormal);
+                const vec3 sourceSunRay =
+                    vec3(0.5533391237, 0.2078260481, -0.8066127300);
+                float normalDotLight = dot(normal, -sourceSunRay);
+                float toonCoordinate = normalDotLight * 0.5 + 0.5;
+                float toon = clamp(
+                    texture(
+                        uOcclusionTexture,
+                        vec2(toonCoordinate, 1.0 - toonCoordinate),
+                        sourceMipBias).r,
+                    0.0,
+                    1.0);
+                vec3 projectedLighting = mix(
+                    uEmissiveFactor,
+                    vec3(1.0),
+                    projectedCloud);
+                vec3 projectionCompensation = mix(
+                    vec3(1.0),
+                    projectedLighting,
+                    0.25);
+                vec3 accepted = lgpeFlowerFieldHighlight(texture01.rgb);
+                vec3 exact =
+                    texture01.rgb * authoredVertexColor.rgb *
+                    projectionCompensation;
+                vec3 restrained = mix(accepted, exact, 0.35);
+                vec3 fieldLighting = mix(
+                    uEmissiveFactor,
+                    vec3(1.0),
+                    min(toon, projectedCloud));
+                return vec4(
+                    restrained * (fieldLighting + vec3(0.12)),
+                    alpha);
+            }
 
             vec3 normal = normalize(vWorldNormal);
             const vec3 sourceSunRay =
@@ -2081,6 +2165,13 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                     evaluateLgpeFieldTree02Surface(true);
                 FragColor =
                     vec4(encodeLgpeFinalColor(shrubSurface.rgb), shrubSurface.a);
+                return;
+            }
+            if (uMaterialMode > 19.5 && uMaterialMode < 20.5) {
+                vec4 flowerSurface =
+                    evaluateLgpeFieldFlowerSurface();
+                FragColor =
+                    vec4(encodeLgpeFinalColor(flowerSurface.rgb), flowerSurface.a);
                 return;
             }
             vec4 tex = vec4(1.0);

@@ -352,7 +352,8 @@ inline WorldPsConstants makeWorldPsConstants(const IRenderBackend::WorldTextureD
                 constants.materialFlipbook0Frames =
                     textureData->roughnessFactor;
             }
-        } else if (textureData->materialMode == 15u) {
+        } else if (textureData->materialMode == 15u ||
+                   textureData->materialMode == 20u) {
             // FieldObjectShader flower cutout retains source Shadow_Color,
             // OnGame, transparency, and mip-bias values. Unlike the overlay
             // modes its recovered fragment output is not premultiplied.
