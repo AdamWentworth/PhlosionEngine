@@ -251,7 +251,10 @@ inline WorldPsConstants makeWorldPsConstants(const IRenderBackend::WorldTextureD
         // values and move Shadow_Color into otherwise-unused PS multiplier
         // constants without changing the vertex instance color.
         if (textureData->materialMode == 6u ||
-            textureData->materialMode == 7u) {
+            textureData->materialMode == 7u ||
+            textureData->materialMode == 21u ||
+            textureData->materialMode == 22u ||
+            textureData->materialMode == 25u) {
             constants.vertexColorMulR = textureData->normalScale;
             constants.vertexColorMulG = textureData->metallicFactor;
             constants.vertexColorMulB = textureData->roughnessFactor;
@@ -267,7 +270,10 @@ inline WorldPsConstants makeWorldPsConstants(const IRenderBackend::WorldTextureD
             constants.materialFlipbook0Fps =
                 textureData->materialFlipbook0Fps;
         } else if (textureData->materialMode == 8u ||
-                   textureData->materialMode == 19u) {
+                   textureData->materialMode == 19u ||
+                   textureData->materialMode == 23u ||
+                   textureData->materialMode == 24u ||
+                   textureData->materialMode == 26u) {
             // FieldTreeShader02 has five independent source colors plus its
             // camera-dependent rim. Repack the typed mode-8 payload around
             // the fixed 64-DWORD root-signature limit.

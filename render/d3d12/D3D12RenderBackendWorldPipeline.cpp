@@ -354,6 +354,183 @@ float3 evaluateLgpeFieldCliffSurface(PSIn i) {
       borderTex.rgb * authoredVertexColor.rgb * surface;
   return applyLgpeGroundCliffSharedLighting(sourceSurface, i.worldPos);
 }
+float3 lgpeFoliageRgbToHsv(float3 color) {
+  float4 k = float4(0.0f, -1.0f / 3.0f, 2.0f / 3.0f, -1.0f);
+  float4 p = lerp(
+      float4(color.bg, k.wz),
+      float4(color.gb, k.xy),
+      step(color.b, color.g));
+  float4 q = lerp(
+      float4(p.xyw, color.r),
+      float4(color.r, p.yzx),
+      step(p.x, color.r));
+  float chroma = q.x - min(q.w, q.y);
+  const float epsilon = 1.0e-10f;
+  return float3(
+      abs(q.z + (q.w - q.y) / (6.0f * chroma + epsilon)),
+      chroma / (q.x + epsilon),
+      q.x);
+}
+float3 lgpeFoliageHsvToRgb(float3 hsv) {
+  float3 p = abs(
+      frac(hsv.xxx + float3(0.0f, 2.0f / 3.0f, 1.0f / 3.0f)) *
+          6.0f -
+      3.0f);
+  return hsv.z *
+      lerp(1.0f.xxx, saturate(p - 1.0f), hsv.y);
+}
+float3 lgpeFoliageColorBalance(
+    float3 color,
+    float hueShift,
+    float saturation,
+    float value) {
+  float3 hsv = lgpeFoliageRgbToHsv(max(color, 0.0f.xxx));
+  hsv.x = frac(hsv.x + hueShift);
+  hsv.y = saturate(hsv.y * saturation);
+  hsv.z *= value;
+  return lgpeFoliageHsvToRgb(hsv);
+}
+float lgpeFoliageAcceptedLightCoordinate(float3 normal) {
+  const float3 acceptedLightDirection =
+      float3(0.32f, -0.42f, 0.85f);
+  float sourceDot =
+      dot(normalize(normal), acceptedLightDirection);
+  return lerp(
+      0.12f,
+      0.96f,
+      saturate((sourceDot + 0.15f) / 1.0f));
+}
+float3 lgpeFoliageProjectionCompensation(
+    float3 shadowColor,
+    float3 worldPosition) {
+  float cloud = evaluateLgpeRoute1ProjectedCloud(worldPosition);
+  float3 projectedLighting =
+      lerp(max(shadowColor, 0.0f.xxx), 1.0f.xxx, cloud);
+  return lerp(1.0f.xxx, projectedLighting, 0.25f);
+}
+float3 lgpeFoliageColorize(
+    float3 baseColor,
+    float3 paletteColor,
+    float factor) {
+  const float3 luminanceWeights =
+      float3(0.2126f, 0.7152f, 0.0722f);
+  float baseLuminance =
+      dot(max(baseColor, 0.0f.xxx), luminanceWeights);
+  float paletteLuminance = max(
+      dot(max(paletteColor, 0.0f.xxx), luminanceWeights),
+      0.0001f);
+  float3 paletteAtBaseLuminance =
+      paletteColor * (baseLuminance / paletteLuminance);
+  return lerp(baseColor, paletteAtBaseLuminance, saturate(factor));
+}
+float3 lgpeFoliageAcceptedDisplayTransform(float3 color) {
+  float3 exposed = max(color, 0.0f.xxx) * 0.72f;
+  float3 mapped = saturate(
+      (exposed * (2.51f * exposed + 0.03f)) /
+      (exposed * (2.43f * exposed + 0.59f) + 0.14f));
+  float luminance =
+      dot(mapped, float3(0.2126f, 0.7152f, 0.0722f));
+  float highlight = smoothstep(0.35f, 0.85f, luminance);
+  float saturationRetention = lerp(0.9f, 0.55f, highlight);
+  return lerp(luminance.xxx, mapped, saturationRetention);
+}
+float4 evaluateLgpeReviewedFieldTree05Surface(
+    PSIn i,
+    float hueShift,
+    float saturation,
+    float value) {
+  float2 uv0 = i.uv;
+  float4 texture01 = sampleLgpeFieldTreeTexture(gTex, uv0);
+  if (texture01.a <= saturate(uAlphaCutoff)) discard;
+  float lightCoordinate =
+      lgpeFoliageAcceptedLightCoordinate(i.worldNormal);
+  float3 texture02 = sampleLgpeFieldTreeTexture(
+      gNormalTex,
+      float2(0.5f, 1.0f - lightCoordinate)).rgb;
+  float texture03 =
+      sampleLgpeFieldTreeTexture(gMetallicRoughnessTex, uv0).r;
+  float3 acceptedLocalSurface =
+      saturate(texture01.rgb + texture02 * texture03);
+  float3 acceptedColor = lgpeFoliageColorBalance(
+      acceptedLocalSurface,
+      hueShift,
+      saturation,
+      value);
+  float3 shadowColor = max(
+      float3(
+          uVertexColorMulR,
+          uVertexColorMulG,
+          uVertexColorMulB),
+      0.0f.xxx);
+  float3 finalColor =
+      acceptedColor *
+      lgpeFoliageProjectionCompensation(
+          shadowColor,
+          i.worldPos);
+  return float4(
+      lgpeFoliageAcceptedDisplayTransform(finalColor),
+      texture01.a);
+}
+float4 evaluateLgpeReviewedFieldTree02Surface(
+    PSIn i,
+    float hueShift,
+    float saturation,
+    float value,
+    bool darkConifer) {
+  float2 uv0 = i.uv;
+  float4 texture01 = sampleLgpeFieldTreeTexture(gTex, uv0);
+  if (texture01.a <= saturate(uAlphaCutoff)) discard;
+  float3 texture02 =
+      sampleLgpeFieldTreeTexture(gNormalTex, uv0).rgb;
+  float lightCoordinate =
+      lgpeFoliageAcceptedLightCoordinate(i.worldNormal);
+  float lightToon = gEmissiveTex.SampleBias(
+      gSampCC,
+      float2(lightCoordinate, 0.5f),
+      0.35f).r;
+  float3 directionalLightColor =
+      float3(
+          uMaterialRect1V,
+          uMaterialRect1W,
+          uMaterialRect1H);
+  float3 acceptedLocalSurface = saturate(
+      texture01.rgb +
+      texture02 * directionalLightColor * saturate(lightToon));
+  if (darkConifer) {
+    float3 greenColor =
+        float3(
+            uVertexColorMulR,
+            uVertexColorMulG,
+            uVertexColorMulB);
+    float inverseShade =
+        1.0f -
+        dot(
+            saturate(texture02),
+            float3(0.2126f, 0.7152f, 0.0722f));
+    acceptedLocalSurface = lgpeFoliageColorize(
+        acceptedLocalSurface,
+        greenColor,
+        inverseShade);
+  }
+  float3 acceptedColor = lgpeFoliageColorBalance(
+      acceptedLocalSurface,
+      hueShift,
+      saturation,
+      value);
+  float3 shadowColor =
+      float3(
+          uMaterialRect0W,
+          uMaterialRect0H,
+          uMaterialRect1U);
+  float3 finalColor =
+      acceptedColor *
+      lgpeFoliageProjectionCompensation(
+          shadowColor,
+          i.worldPos);
+  return float4(
+      lgpeFoliageAcceptedDisplayTransform(finalColor),
+      texture01.a);
+}
 float4 evaluateLgpeFieldTree05Surface(PSIn i) {
   float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
   float2 uv1 = float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
@@ -1882,6 +2059,54 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   if (uMaterialMode > 19.5f && uMaterialMode < 20.5f) {
     float4 flowerSurface = evaluateLgpeFieldFlowerSurface(i);
     return float4(encodeLgpeFinalColor(flowerSurface.rgb), flowerSurface.a);
+  }
+  if (uMaterialMode > 20.5f && uMaterialMode < 21.5f) {
+    float4 foliageSurface =
+        evaluateLgpeReviewedFieldTree05Surface(
+            i, 0.02072325f, 1.08f, 0.8807060431f);
+    return float4(
+        encodeLgpeFinalColor(foliageSurface.rgb),
+        foliageSurface.a);
+  }
+  if (uMaterialMode > 21.5f && uMaterialMode < 22.5f) {
+    float4 foliageSurface =
+        evaluateLgpeReviewedFieldTree05Surface(
+            i, 0.00049965f, 1.0371891204f, 0.9015603440f);
+    return float4(
+        encodeLgpeFinalColor(foliageSurface.rgb),
+        foliageSurface.a);
+  }
+  if (uMaterialMode > 22.5f && uMaterialMode < 23.5f) {
+    float4 foliageSurface =
+        evaluateLgpeReviewedFieldTree02Surface(
+            i, 0.02271645f, 1.0476480571f, 0.82f, false);
+    return float4(
+        encodeLgpeFinalColor(foliageSurface.rgb),
+        foliageSurface.a);
+  }
+  if (uMaterialMode > 23.5f && uMaterialMode < 24.5f) {
+    float4 foliageSurface =
+        evaluateLgpeReviewedFieldTree02Surface(
+            i, 0.00425595f, 1.0114461323f, 1.0689001800f, true);
+    return float4(
+        encodeLgpeFinalColor(foliageSurface.rgb),
+        foliageSurface.a);
+  }
+  if (uMaterialMode > 24.5f && uMaterialMode < 25.5f) {
+    float4 foliageSurface =
+        evaluateLgpeReviewedFieldTree05Surface(
+            i, 0.02981715f, 0.9248157036f, 0.9181899276f);
+    return float4(
+        encodeLgpeFinalColor(foliageSurface.rgb),
+        foliageSurface.a);
+  }
+  if (uMaterialMode > 25.5f && uMaterialMode < 26.5f) {
+    float4 foliageSurface =
+        evaluateLgpeReviewedFieldTree02Surface(
+            i, -0.05f, 0.72f, 0.95f, false);
+    return float4(
+        encodeLgpeFinalColor(foliageSurface.rgb),
+        foliageSurface.a);
   }
   float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
   float3 outLinear = saturate(i.col.rgb * float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB));

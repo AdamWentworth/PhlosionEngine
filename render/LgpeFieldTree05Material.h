@@ -8,6 +8,14 @@
 namespace engine::render::lgpe_field_tree05 {
 
 inline constexpr std::uint8_t kMaterialMode = 6u;
+// Route 1's accepted Blender/gameplay checkpoint retains the recovered local
+// FieldTree surface but applies a material-family color calibration and a
+// restrained stationary projection pass around it.  Keep those reviewed
+// route treatments on distinct modes so mode 6 remains the exact local shader
+// oracle used by importer and recovery tests.
+inline constexpr std::uint8_t kTree001ReviewedMaterialMode = 21u;
+inline constexpr std::uint8_t kTree002ReviewedMaterialMode = 22u;
+inline constexpr std::uint8_t kTree006ReviewedMaterialMode = 25u;
 inline constexpr float kLightGateScale = 12.740800857543945f;
 inline constexpr std::array<float, 3> kRoute1SunRay{
     0.5533391237f,

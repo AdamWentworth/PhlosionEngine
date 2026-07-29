@@ -9,6 +9,9 @@ namespace engine::render::lgpe_field_tree02 {
 
 inline constexpr std::uint8_t kMaterialMode = 8u;
 inline constexpr std::uint8_t kGrass02MaterialMode = 19u;
+inline constexpr std::uint8_t kTree004ReviewedMaterialMode = 23u;
+inline constexpr std::uint8_t kTree005ReviewedMaterialMode = 24u;
+inline constexpr std::uint8_t kGrass02ReviewedMaterialMode = 26u;
 inline constexpr float kRouteTreeDiscardValue = 0.6f;
 inline constexpr float kRouteTreeShadowBias = 0.05f;
 inline constexpr float kGrass02DiscardValue = 0.418742657f;
