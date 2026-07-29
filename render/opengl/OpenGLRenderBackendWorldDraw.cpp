@@ -460,6 +460,23 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
         : ((neutralPmremTexture != 0u)
             ? neutralPmremTexture
             : fallbackWhiteLinearTexture);
+    const GLuint authoredLightProjectionTexture = texture
+        ? ensureWorldTextureRaw(
+            texture->lightProjectionKey,
+            texture->lightProjectionCacheKey,
+            texture->lightProjectionRgba,
+            texture->lightProjectionWidth,
+            texture->lightProjectionHeight,
+            texture->lightProjectionWrapS,
+            texture->lightProjectionWrapT,
+            texture->lightProjectionTextureSrgb != 0u,
+            texture->lightProjectionMipLevels,
+            texture->lightProjectionMipLevelCount)
+        : 0u;
+    const GLuint boundLightProjectionTexture =
+        authoredLightProjectionTexture != 0u
+        ? authoredLightProjectionTexture
+        : fallbackWhiteLinearTexture;
     const GLfloat wrapS = static_cast<GLfloat>(texture ? texture->wrapS : 10497);
     const GLfloat wrapT = static_cast<GLfloat>(texture ? texture->wrapT : 10497);
     const bool blendAlpha = blendState.enabled;
@@ -624,7 +641,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     GLint prevElementArrayBuffer = 0;
     GLint prevActiveTexture = 0;
     GLint prevTexture2DOnActive = 0;
-    GLint prevTexture2DOnUnit[6] = {0, 0, 0, 0, 0, 0};
+    GLint prevTexture2DOnUnit[7] = {0, 0, 0, 0, 0, 0, 0};
     GLint prevUniformBuffer = 0;
     GLint prevWorldSkinBufferBinding = 0;
     GLboolean depthEnabled = GL_FALSE;
@@ -646,7 +663,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
         glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &prevElementArrayBuffer);
         glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActiveTexture);
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTexture2DOnActive);
-        for (int unit = 0; unit < 6; ++unit) {
+        for (int unit = 0; unit < 7; ++unit) {
             glActiveTexture(GL_TEXTURE0 + unit);
             glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTexture2DOnUnit[unit]);
         }
@@ -877,6 +894,9 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
         if (worldOcclusionTextureSamplerLoc_ >= 0) glUniform1i(worldOcclusionTextureSamplerLoc_, 3);
         if (worldEmissiveTextureSamplerLoc_ >= 0) glUniform1i(worldEmissiveTextureSamplerLoc_, 4);
         if (worldEnvTextureSamplerLoc_ >= 0) glUniform1i(worldEnvTextureSamplerLoc_, 5);
+        if (worldLightProjectionTextureSamplerLoc_ >= 0) {
+            glUniform1i(worldLightProjectionTextureSamplerLoc_, 6);
+        }
         if (worldEnvTexelSizeLoc_ >= 0) {
             glUniform2f(
                 worldEnvTexelSizeLoc_,
@@ -900,6 +920,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     bindTextureUnit2D(3, boundOcclusionTexture);
     bindTextureUnit2D(4, boundEmissiveTexture);
     bindTextureUnit2D(5, boundEnvTexture);
+    bindTextureUnit2D(6, boundLightProjectionTexture);
 
     const std::size_t effectiveInstanceCount =
         (instances && instanceCount > 0u) ? instanceCount : 1u;
@@ -1026,7 +1047,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             static_cast<GLuint>(prevWorldSkinBufferBinding));
         glUseProgram(static_cast<GLuint>(prevProgram));
 
-        for (int unit = 0; unit < 6; ++unit) {
+        for (int unit = 0; unit < 7; ++unit) {
             glActiveTexture(GL_TEXTURE0 + unit);
             glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(prevTexture2DOnUnit[unit]));
         }

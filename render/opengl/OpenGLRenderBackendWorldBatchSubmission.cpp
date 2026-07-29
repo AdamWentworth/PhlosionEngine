@@ -17,7 +17,7 @@ void OpenGLRenderBackend::beginWorldIndexedBatchSubmission() {
     glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &state.prevElementArrayBuffer);
     glGetIntegerv(GL_ACTIVE_TEXTURE, &state.prevActiveTexture);
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &state.prevTexture2DOnActive);
-    for (int unit = 0; unit < 6; ++unit) {
+    for (int unit = 0; unit < 7; ++unit) {
         glActiveTexture(GL_TEXTURE0 + unit);
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &state.prevTexture2DOnUnit[static_cast<std::size_t>(unit)]);
     }
@@ -71,7 +71,7 @@ void OpenGLRenderBackend::endWorldIndexedBatchSubmission() {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLuint>(state.prevElementArrayBuffer));
     glUseProgram(static_cast<GLuint>(state.prevProgram));
 
-    for (int unit = 0; unit < 6; ++unit) {
+    for (int unit = 0; unit < 7; ++unit) {
         glActiveTexture(GL_TEXTURE0 + unit);
         glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(state.prevTexture2DOnUnit[static_cast<std::size_t>(unit)]));
     }

@@ -40,7 +40,10 @@ std::string resolvedTextureKey(const char* key,
     return out.str();
 }
 
-std::string materialKey(const std::array<std::string, 6>& textureKeys) {
+std::string materialKey(const std::array<
+                        std::string,
+                        engine::render::vulkan_backend::
+                            kWorldMaterialTextureCount>& textureKeys) {
     std::string key;
     for (const std::string& textureKey : textureKeys) {
         key += '|';
@@ -97,7 +100,8 @@ VulkanRenderBackendImpl::WorldMaterial VulkanRenderBackendImpl::createWorldMater
     Texture& metallicRoughness,
     Texture& occlusion,
     Texture& emissive,
-    Texture& environment) {
+    Texture& environment,
+    Texture& lightProjection) {
     const std::array<
         Texture*,
         engine::render::vulkan_backend::kWorldMaterialTextureCount> textures{
@@ -106,7 +110,8 @@ VulkanRenderBackendImpl::WorldMaterial VulkanRenderBackendImpl::createWorldMater
         &metallicRoughness,
         &occlusion,
         &emissive,
-        &environment};
+        &environment,
+        &lightProjection};
     WorldMaterial out;
     out.textures = textures;
 
@@ -145,13 +150,16 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
     const IRenderBackend::WorldTextureData* texture) {
     if (!texture) return &fallbackWorldMaterial;
 
-    std::array<std::string, 6> keys{
+    std::array<
+        std::string,
+        engine::render::vulkan_backend::kWorldMaterialTextureCount> keys{
         "__fallback_base__",
         "__fallback_normal__",
         "__fallback_metallic_roughness__",
         "__fallback_occlusion__",
         "__fallback_emissive__",
         "__neutral_pmrem_environment__",
+        "__fallback_light_projection__",
     };
 
     Texture* base = ensureWorldTextureRaw(
@@ -238,6 +246,20 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->environmentMipLevelCount);
     if (!environment) environment = &neutralPmremTexture;
 
+    Texture* lightProjection = ensureWorldTextureRaw(
+        texture->lightProjectionKey,
+        texture->lightProjectionCacheKey,
+        texture->lightProjectionRgba,
+        texture->lightProjectionWidth,
+        texture->lightProjectionHeight,
+        texture->lightProjectionWrapS,
+        texture->lightProjectionWrapT,
+        texture->lightProjectionTextureSrgb != 0u,
+        &keys[6],
+        texture->lightProjectionMipLevels,
+        texture->lightProjectionMipLevelCount);
+    if (!lightProjection) lightProjection = &fallbackWorldLinearTexture;
+
     const std::string key = materialKey(keys);
     auto existing = worldMaterials.find(key);
     if (existing != worldMaterials.end()) {
@@ -246,7 +268,7 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
     }
     WorldMaterial material = createWorldMaterial(
         *base, *normal, *metallicRoughness, *occlusion, *emissive,
-        *environment);
+        *environment, *lightProjection);
     WorldMaterial& inserted = worldMaterials.emplace(key, material).first->second;
     (void)registerIndexedWorldMaterial(inserted);
     return &inserted;

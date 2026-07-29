@@ -219,6 +219,7 @@ private:
     int worldOcclusionTextureSamplerLoc_ = -1;
     int worldEmissiveTextureSamplerLoc_ = -1;
     int worldEnvTextureSamplerLoc_ = -1;
+    int worldLightProjectionTextureSamplerLoc_ = -1;
     int worldEnvTexelSizeLoc_ = -1;
     int worldEnvMaxMipLoc_ = -1;
     int worldEnvRgbmRangeLoc_ = -1;
@@ -372,7 +373,7 @@ private:
         int prevElementArrayBuffer = 0;
         int prevActiveTexture = 0;
         int prevTexture2DOnActive = 0;
-        std::array<int, 6> prevTexture2DOnUnit{0, 0, 0, 0, 0, 0};
+        std::array<int, 7> prevTexture2DOnUnit{0, 0, 0, 0, 0, 0, 0};
         bool depthEnabled = false;
         bool blendEnabled = false;
         bool cullEnabled = false;
@@ -390,7 +391,7 @@ private:
         int currentArrayBuffer = 0;
         int currentElementArrayBuffer = 0;
         int currentActiveTexture = 0;
-        std::array<int, 6> currentTexture2DOnUnit{0, 0, 0, 0, 0, 0};
+        std::array<int, 7> currentTexture2DOnUnit{0, 0, 0, 0, 0, 0, 0};
         bool currentDepthEnabled = false;
         bool currentBlendEnabled = false;
         bool currentCullEnabled = false;

@@ -458,6 +458,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         uniform sampler2D uOcclusionTexture;
         uniform sampler2D uEmissiveTexture;
         uniform sampler2D uEnvTexture;
+        uniform sampler2D uLightProjectionTexture;
         uniform vec4 uVertexColorMul;
         uniform float uDualSourceBlendEnabled;
         uniform vec2 uEnvTexelSize;
@@ -560,6 +561,8 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             vec4 authoredVertexColor = vColor * uVertexColorMul;
             return borderTex.rgb * authoredVertexColor.rgb * surface;
         }
+        vec2 lgpeRoute1CloudTextureUv(vec3 worldPosition);
+        float evaluateLgpeRoute1ProjectedCloud();
         vec4 evaluateLgpeFieldTree05Surface() {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
             vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
@@ -643,8 +646,13 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 vec3(0.110647157, 0.3070065, 0.0411512256) *
                     (1.0 - secondary) +
                 texture03 * lightGate * rimColor02;
-            return vec4(mix(shadowColor, vec3(1.0), toon) * surface,
-                        texture01.a);
+            return vec4(
+                mix(
+                    shadowColor,
+                    vec3(1.0),
+                    min(toon, evaluateLgpeRoute1ProjectedCloud())) *
+                    surface,
+                texture01.a);
         }
         vec4 evaluateLgpeFieldTree02Surface() {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
@@ -780,10 +788,12 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                         uMaterialRect0.y);
                 surface += rimColor * rim;
             }
-            // Source projected shadow and cloud terms are held at one until
-            // the shared matrices/frame state are represented.
-            vec3 lighting =
-                mix(uEmissiveFactor, vec3(1.0), toon);
+            // The depth PCF remains held lit; the captured stationary
+            // LightProjMap projection is represented separately.
+            vec3 lighting = mix(
+                uEmissiveFactor,
+                vec3(1.0),
+                min(toon, evaluateLgpeRoute1ProjectedCloud()));
             vec3 result = lighting * surface;
             float alpha = textureMap01.a;
             if (!withRim) {
@@ -814,6 +824,15 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 dot(worldPosition, projectionV) + 0.692474711333548;
             return vec2(sourceU, 1.0 - sourceV);
         }
+        float evaluateLgpeRoute1ProjectedCloud() {
+            return clamp(
+                texture(
+                    uLightProjectionTexture,
+                    lgpeRoute1CloudTextureUv(vWorldPos),
+                    0.0).r,
+                0.0,
+                1.0);
+        }
         vec4 evaluateLgpeFieldGrassShader04Surface() {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
             vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);
@@ -841,13 +860,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                     0.0).r,
                 0.0,
                 1.0);
-            float projectedCloud = clamp(
-                texture(
-                    uEmissiveTexture,
-                    lgpeRoute1CloudTextureUv(vWorldPos),
-                    0.0).r,
-                0.0,
-                1.0);
+            float projectedCloud = evaluateLgpeRoute1ProjectedCloud();
             vec3 onGameColor =
                 vec3(
                     uMaterialAtlasSize.y,
@@ -900,13 +913,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 texture(uOcclusionTexture, uv0, 0.0).rgb;
             vec3 decoration =
                 mix(textureMap02, textureMap01, greenBlend);
-            float projectedCloud = clamp(
-                texture(
-                    uEnvTexture,
-                    lgpeRoute1CloudTextureUv(vWorldPos),
-                    0.0).r,
-                0.0,
-                1.0);
+            float projectedCloud = evaluateLgpeRoute1ProjectedCloud();
             vec3 onGameColor =
                 vec3(
                     uMaterialAtlasSize.x,
@@ -954,8 +961,10 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                     vec3(1.0),
                     onGameColor,
                     clamp(uMaterialAtlasSize.y, 0.0, 1.0));
-            vec3 lighting =
-                mix(uEmissiveFactor, vec3(1.0), toon);
+            vec3 lighting = mix(
+                uEmissiveFactor,
+                vec3(1.0),
+                min(toon, evaluateLgpeRoute1ProjectedCloud()));
             return vec4(lighting * surface * alpha, alpha);
         }
         vec4 evaluateLgpeRockMaskOverlaySurface() {
@@ -1018,8 +1027,10 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                     vec3(1.0),
                     onGameColor,
                     clamp(uMaterialAtlasSize.y, 0.0, 1.0));
-            vec3 lighting =
-                mix(uEmissiveFactor, vec3(1.0), toon);
+            vec3 lighting = mix(
+                uEmissiveFactor,
+                vec3(1.0),
+                min(toon, evaluateLgpeRoute1ProjectedCloud()));
             return vec4(lighting * surface * alpha, alpha);
         }
     )GLSL"
@@ -1088,8 +1099,10 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                     vec3(1.0),
                     onGameColor,
                     clamp(uMaterialAtlasSize.y, 0.0, 1.0));
-            vec3 lighting =
-                mix(uEmissiveFactor, vec3(1.0), toon);
+            vec3 lighting = mix(
+                uEmissiveFactor,
+                vec3(1.0),
+                min(toon, evaluateLgpeRoute1ProjectedCloud()));
             return vec4(lighting * surface, alpha);
         }
         vec4 evaluateLgpeFieldRockSurface() {
@@ -1170,8 +1183,10 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                     uMaterialRect0.y,
                     uMaterialRect0.z,
                     uMaterialRect0.w);
-            vec3 lighting =
-                mix(shadowColor, vec3(1.0), shadowToon);
+            vec3 lighting = mix(
+                shadowColor,
+                vec3(1.0),
+                min(shadowToon, evaluateLgpeRoute1ProjectedCloud()));
             vec4 authoredVertexColor = vColor * uVertexColorMul;
             return vec4(
                 lighting * borderTexture.rgb *
@@ -1235,8 +1250,10 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                     uNormalScale,
                     uMetallicFactor,
                     uRoughnessFactor);
-            vec3 lighting =
-                mix(shadowColor, vec3(1.0), shadowToon);
+            vec3 lighting = mix(
+                shadowColor,
+                vec3(1.0),
+                min(shadowToon, evaluateLgpeRoute1ProjectedCloud()));
             vec4 authoredVertexColor = vColor * uVertexColorMul;
             return vec4(
                 lighting * surface * authoredVertexColor.rgb,
@@ -2128,6 +2145,8 @@ __PAC_SHARED_WORLD_PBR_SECTION__
     worldOcclusionTextureSamplerLoc_ = glGetUniformLocation(worldProgram_, "uOcclusionTexture");
     worldEmissiveTextureSamplerLoc_ = glGetUniformLocation(worldProgram_, "uEmissiveTexture");
     worldEnvTextureSamplerLoc_ = glGetUniformLocation(worldProgram_, "uEnvTexture");
+    worldLightProjectionTextureSamplerLoc_ =
+        glGetUniformLocation(worldProgram_, "uLightProjectionTexture");
     worldEnvTexelSizeLoc_ = glGetUniformLocation(worldProgram_, "uEnvTexelSize");
     worldEnvMaxMipLoc_ = glGetUniformLocation(worldProgram_, "uEnvMaxMip");
     worldEnvRgbmRangeLoc_ = glGetUniformLocation(worldProgram_, "uEnvRgbmRange");
@@ -2299,6 +2318,7 @@ void OpenGLRenderBackend::destroyWorldPipeline() {
     worldOcclusionTextureSamplerLoc_ = -1;
     worldEmissiveTextureSamplerLoc_ = -1;
     worldEnvTextureSamplerLoc_ = -1;
+    worldLightProjectionTextureSamplerLoc_ = -1;
     worldEnvTexelSizeLoc_ = -1;
     worldEnvMaxMipLoc_ = -1;
     worldEnvRgbmRangeLoc_ = -1;

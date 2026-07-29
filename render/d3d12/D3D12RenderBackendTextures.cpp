@@ -529,14 +529,17 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
     std::uint32_t metallicRoughnessTextureDescriptorIndex,
     std::uint32_t occlusionTextureDescriptorIndex,
     std::uint32_t emissiveTextureDescriptorIndex,
-    std::uint32_t envTextureDescriptorIndex) {
+    std::uint32_t envTextureDescriptorIndex,
+    std::uint32_t lightProjectionTextureDescriptorIndex) {
 #if defined(_WIN32)
     const bool alreadyContiguous =
         normalTextureDescriptorIndex == baseTextureDescriptorIndex + 1u &&
         metallicRoughnessTextureDescriptorIndex == baseTextureDescriptorIndex + 2u &&
         occlusionTextureDescriptorIndex == baseTextureDescriptorIndex + 3u &&
         emissiveTextureDescriptorIndex == baseTextureDescriptorIndex + 4u &&
-        envTextureDescriptorIndex == baseTextureDescriptorIndex + 5u;
+        envTextureDescriptorIndex == baseTextureDescriptorIndex + 5u &&
+        lightProjectionTextureDescriptorIndex ==
+            baseTextureDescriptorIndex + 6u;
     if (alreadyContiguous) {
         return baseTextureDescriptorIndex;
     }
@@ -547,7 +550,8 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
         metallicRoughnessTextureDescriptorIndex,
         occlusionTextureDescriptorIndex,
         emissiveTextureDescriptorIndex,
-        envTextureDescriptorIndex};
+        envTextureDescriptorIndex,
+        lightProjectionTextureDescriptorIndex};
     const auto found = worldMaterialDescriptorBlocks_.find(key);
     if (found != worldMaterialDescriptorBlocks_.end()) {
         return found->second;
@@ -556,18 +560,20 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
     if (!device_ || !srvHeap_ || srvDescriptorSize_ == 0u) {
         return 0xffffffffu;
     }
-    if (nextSrvDescriptorIndex_ + 6u > static_cast<std::uint32_t>(kMaxSrvDescriptors)) {
+    if (nextSrvDescriptorIndex_ + 7u >
+        static_cast<std::uint32_t>(kMaxSrvDescriptors)) {
         return 0xffffffffu;
     }
 
-    const std::array<std::uint32_t, 6> sourceDescriptorIndices = {
+    const std::array<std::uint32_t, 7> sourceDescriptorIndices = {
         baseTextureDescriptorIndex,
         normalTextureDescriptorIndex,
         metallicRoughnessTextureDescriptorIndex,
         occlusionTextureDescriptorIndex,
         emissiveTextureDescriptorIndex,
-        envTextureDescriptorIndex};
-    std::array<const SpriteTexture*, 6> sourceTextures{};
+        envTextureDescriptorIndex,
+        lightProjectionTextureDescriptorIndex};
+    std::array<const SpriteTexture*, 7> sourceTextures{};
     for (std::size_t i = 0; i < sourceDescriptorIndices.size(); ++i) {
         sourceTextures[i] = findWorldTextureByDescriptorIndex(sourceDescriptorIndices[i]);
         if (!sourceTextures[i] ||
@@ -590,7 +596,7 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
             dstHandle);
     }
 
-    nextSrvDescriptorIndex_ += 6u;
+    nextSrvDescriptorIndex_ += 7u;
     worldMaterialDescriptorBlocks_.emplace(key, blockBaseDescriptorIndex);
     return blockBaseDescriptorIndex;
 #else
@@ -600,6 +606,7 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
     (void)occlusionTextureDescriptorIndex;
     (void)emissiveTextureDescriptorIndex;
     (void)envTextureDescriptorIndex;
+    (void)lightProjectionTextureDescriptorIndex;
     return 0xffffffffu;
 #endif
 }
@@ -618,7 +625,8 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
             worldFallbackMetallicRoughnessTextureDescriptorIndex_,
             worldFallbackOcclusionTextureDescriptorIndex_,
             worldFallbackEmissiveTextureDescriptorIndex_,
-            worldFallbackEnvTextureDescriptorIndex_);
+            worldFallbackEnvTextureDescriptorIndex_,
+            worldFallbackOcclusionTextureDescriptorIndex_);
     }
 
     if (!textureData) {
@@ -706,6 +714,22 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
             ? environmentTex->descriptorIndex
             : worldFallbackEnvTextureDescriptorIndex_;
 
+    SpriteTexture* lightProjectionTex = ensureWorldTextureRaw(
+        textureData->lightProjectionKey,
+        textureData->lightProjectionCacheKey,
+        textureData->lightProjectionRgba,
+        textureData->lightProjectionWidth,
+        textureData->lightProjectionHeight,
+        textureData->lightProjectionWrapS,
+        textureData->lightProjectionWrapT,
+        textureData->lightProjectionTextureSrgb != 0u,
+        textureData->lightProjectionMipLevels,
+        textureData->lightProjectionMipLevelCount);
+    const std::uint32_t lightProjectionDescriptorIndex =
+        lightProjectionTex
+        ? lightProjectionTex->descriptorIndex
+        : worldFallbackOcclusionTextureDescriptorIndex_;
+
     (void)logPbrBinding;
 
     outDescriptorBlockIndex = ensureWorldMaterialDescriptorBlock(
@@ -714,7 +738,8 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         metallicRoughnessDescriptorIndex,
         occlusionDescriptorIndex,
         emissiveDescriptorIndex,
-        environmentDescriptorIndex);
+        environmentDescriptorIndex,
+        lightProjectionDescriptorIndex);
     return outDescriptorBlockIndex != 0xffffffffu;
 #else
     (void)textureData;

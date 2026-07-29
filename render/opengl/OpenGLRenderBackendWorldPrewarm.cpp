@@ -77,6 +77,21 @@ void OpenGLRenderBackend::prewarmWorldTextureData(const WorldTextureData* textur
             texture->environmentMipLevels,
             texture->environmentMipLevelCount);
     }
+    if (texture->lightProjectionRgba &&
+        texture->lightProjectionWidth > 0 &&
+        texture->lightProjectionHeight > 0) {
+        (void)ensureWorldTextureRaw(
+            texture->lightProjectionKey,
+            texture->lightProjectionCacheKey,
+            texture->lightProjectionRgba,
+            texture->lightProjectionWidth,
+            texture->lightProjectionHeight,
+            texture->lightProjectionWrapS,
+            texture->lightProjectionWrapT,
+            texture->lightProjectionTextureSrgb != 0u,
+            texture->lightProjectionMipLevels,
+            texture->lightProjectionMipLevelCount);
+    }
 }
 
 void OpenGLRenderBackend::prewarmWorldRenderAssets() {

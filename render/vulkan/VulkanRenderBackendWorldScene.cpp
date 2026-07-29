@@ -98,6 +98,25 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     texture.environmentWrapS = material.environmentTextureWrapS;
     texture.environmentWrapT = material.environmentTextureWrapT;
     texture.environmentTextureSrgb = material.environmentTextureSrgb;
+    texture.lightProjectionKey =
+        material.lightProjectionTextureKey.empty()
+        ? ""
+        : material.lightProjectionTextureKey.c_str();
+    texture.lightProjectionCacheKey =
+        material.lightProjectionTextureCacheKey.empty()
+        ? nullptr
+        : material.lightProjectionTextureCacheKey.c_str();
+    texture.lightProjectionRgba = material.lightProjectionTextureRgba;
+    texture.lightProjectionWidth = material.lightProjectionTextureWidth;
+    texture.lightProjectionHeight = material.lightProjectionTextureHeight;
+    texture.lightProjectionMipLevels =
+        material.lightProjectionTextureMipLevels;
+    texture.lightProjectionMipLevelCount =
+        material.lightProjectionTextureMipLevelCount;
+    texture.lightProjectionWrapS = material.lightProjectionTextureWrapS;
+    texture.lightProjectionWrapT = material.lightProjectionTextureWrapT;
+    texture.lightProjectionTextureSrgb =
+        material.lightProjectionTextureSrgb;
     texture.alphaMode = material.alphaMode;
     texture.blendMode = material.blendMode;
     texture.dualSourceBlendEnabled = material.dualSourceBlendEnabled;
