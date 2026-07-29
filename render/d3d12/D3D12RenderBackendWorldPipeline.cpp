@@ -1243,6 +1243,12 @@ float3 linearToSrgb(float3 c) {
   return lerp(lo, hi, step(float3(0.0031308f, 0.0031308f, 0.0031308f), c));
 }
 
+float3 encodeLgpeFinalColor(float3 linearColor) {
+  // The source writes linear color to UNORM before its dedicated
+  // gamma_correction shader applies the standard sRGB transfer.
+  return linearToSrgb(saturate(linearColor));
+}
+
 float2 clampUvToRegionPixels(float2 localUV01, float4 rectUv) {
   float2 atlasSize = max(float2(uMaterialAtlasWidth, uMaterialAtlasHeight), float2(1.0f, 1.0f));
   float2 rectPx = max(rectUv.zw * atlasSize, float2(1.0f, 1.0f));
@@ -1725,147 +1731,72 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
     return evalFireTailExact(i);
   }
   if (uMaterialMode > 3.5f && uMaterialMode < 4.5f) {
-    const float groundExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
     float3 groundLinear = evaluateLgpeFieldGroundSurface(i);
-    float3 groundMapped = applyViewerToneMapping(
-        max(groundLinear, float3(0.0f, 0.0f, 0.0f)),
-        1.0f,
-        groundExposure);
-    return float4(linearToSrgb(groundMapped), 1.0f);
+    return float4(encodeLgpeFinalColor(groundLinear), 1.0f);
   }
   if (uMaterialMode > 4.5f && uMaterialMode < 5.5f) {
-    const float cliffExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
     float3 cliffLinear = evaluateLgpeFieldCliffSurface(i);
-    float3 cliffMapped = applyViewerToneMapping(
-        max(cliffLinear, float3(0.0f, 0.0f, 0.0f)),
-        1.0f,
-        cliffExposure);
-    return float4(linearToSrgb(cliffMapped), 1.0f);
+    return float4(encodeLgpeFinalColor(cliffLinear), 1.0f);
   }
   if (uMaterialMode > 5.5f && uMaterialMode < 6.5f) {
-    const float treeExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
     float4 treeSurface = evaluateLgpeFieldTree05Surface(i);
-    float3 treeMapped = applyViewerToneMapping(
-        max(treeSurface.rgb, float3(0.0f, 0.0f, 0.0f)),
-        1.0f,
-        treeExposure);
-    return float4(linearToSrgb(treeMapped), treeSurface.a);
+    return float4(encodeLgpeFinalColor(treeSurface.rgb), treeSurface.a);
   }
   if (uMaterialMode > 6.5f && uMaterialMode < 7.5f) {
-    const float trunkExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
     float4 trunkSurface =
         evaluateLgpeFieldObjectTreeMikiSurface(i);
-    float3 trunkMapped = applyViewerToneMapping(
-        max(trunkSurface.rgb, float3(0.0f, 0.0f, 0.0f)),
-        1.0f,
-        trunkExposure);
-    return float4(linearToSrgb(trunkMapped), trunkSurface.a);
+    return float4(encodeLgpeFinalColor(trunkSurface.rgb), trunkSurface.a);
   }
   if (uMaterialMode > 7.5f && uMaterialMode < 8.5f) {
-    const float treeExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
     float4 treeSurface = evaluateLgpeFieldTree02Surface(i);
-    float3 treeMapped = applyViewerToneMapping(
-        max(treeSurface.rgb, float3(0.0f, 0.0f, 0.0f)),
-        1.0f,
-        treeExposure);
-    return float4(linearToSrgb(treeMapped), treeSurface.a);
+    return float4(encodeLgpeFinalColor(treeSurface.rgb), treeSurface.a);
   }
   if (uMaterialMode > 8.5f && uMaterialMode < 9.5f) {
-    const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
     float4 grassSurface =
         evaluateLgpeFieldGrassSurface(i, false);
-    float3 grassMapped = applyViewerToneMapping(
-        max(grassSurface.rgb, float3(0.0f, 0.0f, 0.0f)),
-        1.0f,
-        grassExposure);
-    return float4(linearToSrgb(grassMapped), grassSurface.a);
+    return float4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
   }
   if (uMaterialMode > 9.5f && uMaterialMode < 10.5f) {
-    const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
     float4 grassSurface =
         evaluateLgpeFieldGrassSurface(i, true);
-    float3 grassMapped = applyViewerToneMapping(
-        max(grassSurface.rgb, float3(0.0f, 0.0f, 0.0f)),
-        1.0f,
-        grassExposure);
-    return float4(linearToSrgb(grassMapped), grassSurface.a);
+    return float4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
   }
   if (uMaterialMode > 10.5f && uMaterialMode < 11.5f) {
-    const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
     float4 grassSurface =
         evaluateLgpeFieldGrassShader04Surface(i);
-    float3 grassMapped = applyViewerToneMapping(
-        max(grassSurface.rgb, float3(0.0f, 0.0f, 0.0f)),
-        1.0f,
-        grassExposure);
-    return float4(linearToSrgb(grassMapped), grassSurface.a);
+    return float4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
   }
   if (uMaterialMode > 11.5f && uMaterialMode < 12.5f) {
-    const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
     float4 grassSurface =
         evaluateLgpeFieldGrassShader05Surface(i);
-    float3 grassMapped = applyViewerToneMapping(
-        max(grassSurface.rgb, float3(0.0f, 0.0f, 0.0f)),
-        1.0f,
-        grassExposure);
-    return float4(linearToSrgb(grassMapped), grassSurface.a);
+    return float4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
   }
   if (uMaterialMode > 12.5f && uMaterialMode < 13.5f) {
-    const float overlayExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
     float4 overlaySurface =
         evaluateLgpeRoadstoneOverlaySurface(i);
-    float3 overlayMapped = applyViewerToneMapping(
-        max(overlaySurface.rgb, float3(0.0f, 0.0f, 0.0f)),
-        1.0f,
-        overlayExposure);
-    return float4(linearToSrgb(overlayMapped), overlaySurface.a);
+    return float4(encodeLgpeFinalColor(overlaySurface.rgb), overlaySurface.a);
   }
   if (uMaterialMode > 13.5f && uMaterialMode < 14.5f) {
-    const float overlayExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
     float4 overlaySurface =
         evaluateLgpeRockMaskOverlaySurface(i);
-    float3 overlayMapped = applyViewerToneMapping(
-        max(overlaySurface.rgb, float3(0.0f, 0.0f, 0.0f)),
-        1.0f,
-        overlayExposure);
-    return float4(linearToSrgb(overlayMapped), overlaySurface.a);
+    return float4(encodeLgpeFinalColor(overlaySurface.rgb), overlaySurface.a);
   }
   if (uMaterialMode > 14.5f && uMaterialMode < 15.5f) {
-    const float flowerExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
     float4 flowerSurface = evaluateLgpeFieldFlowerSurface(i);
-    float3 flowerMapped = applyViewerToneMapping(
-        max(flowerSurface.rgb, 0.0f.xxx),
-        1.0f,
-        flowerExposure);
-    return float4(linearToSrgb(flowerMapped), flowerSurface.a);
+    return float4(encodeLgpeFinalColor(flowerSurface.rgb), flowerSurface.a);
   }
   if (uMaterialMode > 15.5f && uMaterialMode < 16.5f) {
-    const float rockExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
     float4 rockSurface = evaluateLgpeFieldRockSurface(i);
-    float3 rockMapped = applyViewerToneMapping(
-        max(rockSurface.rgb, 0.0f.xxx),
-        1.0f,
-        rockExposure);
-    return float4(linearToSrgb(rockMapped), rockSurface.a);
+    return float4(encodeLgpeFinalColor(rockSurface.rgb), rockSurface.a);
   }
   if (uMaterialMode > 16.5f && uMaterialMode < 17.5f) {
-    const float signExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
     float4 signSurface = evaluateLgpeFieldSignSurface(i);
-    float3 signMapped = applyViewerToneMapping(
-        max(signSurface.rgb, 0.0f.xxx),
-        1.0f,
-        signExposure);
-    return float4(linearToSrgb(signMapped), signSurface.a);
+    return float4(encodeLgpeFinalColor(signSurface.rgb), signSurface.a);
   }
   if (uMaterialMode > 17.5f && uMaterialMode < 18.5f) {
-    const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
     float4 grassSurface =
         evaluateLgpeFieldEncounterGrassSurface(i);
-    float3 grassMapped = applyViewerToneMapping(
-        max(grassSurface.rgb, 0.0f.xxx),
-        1.0f,
-        grassExposure);
-    return float4(linearToSrgb(grassMapped), grassSurface.a);
+    return float4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
   }
   float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
   float3 outLinear = saturate(i.col.rgb * float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB));

@@ -1774,6 +1774,12 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             return mix(lo, hi, step(vec3(0.0031308), c));
         }
 
+        vec3 encodeLgpeFinalColor(vec3 linearColor) {
+            // The source writes linear color to UNORM before its dedicated
+            // gamma_correction shader applies the standard sRGB transfer.
+            return linearToSrgb(clamp(linearColor, 0.0, 1.0));
+        }
+
         vec3 safeNormalize(vec3 value, vec3 fallback) {
             float len2 = dot(value, value);
             if (len2 < 1e-8) return fallback;
@@ -1969,177 +1975,102 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                 return;
             }
             if (uMaterialMode > 3.5 && uMaterialMode < 4.5) {
-                const float groundExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
                 vec3 groundLinear = evaluateLgpeFieldGroundSurface();
-                vec3 groundMapped = applyViewerToneMapping(
-                    max(groundLinear, vec3(0.0)),
-                    1.0,
-                    groundExposure);
-                FragColor = vec4(linearToSrgb(groundMapped), 1.0);
+                FragColor = vec4(encodeLgpeFinalColor(groundLinear), 1.0);
                 return;
             }
             if (uMaterialMode > 4.5 && uMaterialMode < 5.5) {
-                const float cliffExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
                 vec3 cliffLinear = evaluateLgpeFieldCliffSurface();
-                vec3 cliffMapped = applyViewerToneMapping(
-                    max(cliffLinear, vec3(0.0)),
-                    1.0,
-                    cliffExposure);
-                FragColor = vec4(linearToSrgb(cliffMapped), 1.0);
+                FragColor = vec4(encodeLgpeFinalColor(cliffLinear), 1.0);
                 return;
             }
             if (uMaterialMode > 5.5 && uMaterialMode < 6.5) {
-                const float treeExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
                 vec4 treeSurface = evaluateLgpeFieldTree05Surface();
-                vec3 treeMapped = applyViewerToneMapping(
-                    max(treeSurface.rgb, vec3(0.0)),
-                    1.0,
-                    treeExposure);
                 FragColor =
-                    vec4(linearToSrgb(treeMapped), treeSurface.a);
+                    vec4(encodeLgpeFinalColor(treeSurface.rgb), treeSurface.a);
                 return;
             }
             if (uMaterialMode > 6.5 && uMaterialMode < 7.5) {
-                const float trunkExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
                 vec4 trunkSurface =
                     evaluateLgpeFieldObjectTreeMikiSurface();
-                vec3 trunkMapped = applyViewerToneMapping(
-                    max(trunkSurface.rgb, vec3(0.0)),
-                    1.0,
-                    trunkExposure);
                 FragColor =
-                    vec4(linearToSrgb(trunkMapped), trunkSurface.a);
+                    vec4(encodeLgpeFinalColor(trunkSurface.rgb), trunkSurface.a);
                 return;
             }
             if (uMaterialMode > 7.5 && uMaterialMode < 8.5) {
-                const float treeExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
                 vec4 treeSurface = evaluateLgpeFieldTree02Surface();
-                vec3 treeMapped = applyViewerToneMapping(
-                    max(treeSurface.rgb, vec3(0.0)),
-                    1.0,
-                    treeExposure);
                 FragColor =
-                    vec4(linearToSrgb(treeMapped), treeSurface.a);
+                    vec4(encodeLgpeFinalColor(treeSurface.rgb), treeSurface.a);
                 return;
             }
             if (uMaterialMode > 8.5 && uMaterialMode < 9.5) {
-                const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
                 vec4 grassSurface =
                     evaluateLgpeFieldGrassSurface(false);
-                vec3 grassMapped = applyViewerToneMapping(
-                    max(grassSurface.rgb, vec3(0.0)),
-                    1.0,
-                    grassExposure);
                 FragColor =
-                    vec4(linearToSrgb(grassMapped), grassSurface.a);
+                    vec4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
                 return;
             }
             if (uMaterialMode > 9.5 && uMaterialMode < 10.5) {
-                const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
                 vec4 grassSurface =
                     evaluateLgpeFieldGrassSurface(true);
-                vec3 grassMapped = applyViewerToneMapping(
-                    max(grassSurface.rgb, vec3(0.0)),
-                    1.0,
-                    grassExposure);
                 FragColor =
-                    vec4(linearToSrgb(grassMapped), grassSurface.a);
+                    vec4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
                 return;
             }
             if (uMaterialMode > 10.5 && uMaterialMode < 11.5) {
-                const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
                 vec4 grassSurface =
                     evaluateLgpeFieldGrassShader04Surface();
-                vec3 grassMapped = applyViewerToneMapping(
-                    max(grassSurface.rgb, vec3(0.0)),
-                    1.0,
-                    grassExposure);
                 FragColor =
-                    vec4(linearToSrgb(grassMapped), grassSurface.a);
+                    vec4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
                 return;
             }
             if (uMaterialMode > 11.5 && uMaterialMode < 12.5) {
-                const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
                 vec4 grassSurface =
                     evaluateLgpeFieldGrassShader05Surface();
-                vec3 grassMapped = applyViewerToneMapping(
-                    max(grassSurface.rgb, vec3(0.0)),
-                    1.0,
-                    grassExposure);
                 FragColor =
-                    vec4(linearToSrgb(grassMapped), grassSurface.a);
+                    vec4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
                 return;
             }
             if (uMaterialMode > 12.5 && uMaterialMode < 13.5) {
-                const float overlayExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
                 vec4 overlaySurface =
                     evaluateLgpeRoadstoneOverlaySurface();
-                vec3 overlayMapped = applyViewerToneMapping(
-                    max(overlaySurface.rgb, vec3(0.0)),
-                    1.0,
-                    overlayExposure);
                 FragColor =
-                    vec4(linearToSrgb(overlayMapped), overlaySurface.a);
+                    vec4(encodeLgpeFinalColor(overlaySurface.rgb), overlaySurface.a);
                 return;
             }
             if (uMaterialMode > 13.5 && uMaterialMode < 14.5) {
-                const float overlayExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
                 vec4 overlaySurface =
                     evaluateLgpeRockMaskOverlaySurface();
-                vec3 overlayMapped = applyViewerToneMapping(
-                    max(overlaySurface.rgb, vec3(0.0)),
-                    1.0,
-                    overlayExposure);
                 FragColor =
-                    vec4(linearToSrgb(overlayMapped), overlaySurface.a);
+                    vec4(encodeLgpeFinalColor(overlaySurface.rgb), overlaySurface.a);
                 return;
             }
             if (uMaterialMode > 14.5 && uMaterialMode < 15.5) {
-                const float flowerExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
                 vec4 flowerSurface =
                     evaluateLgpeFieldFlowerSurface();
-                vec3 flowerMapped = applyViewerToneMapping(
-                    max(flowerSurface.rgb, vec3(0.0)),
-                    1.0,
-                    flowerExposure);
                 FragColor =
-                    vec4(linearToSrgb(flowerMapped), flowerSurface.a);
+                    vec4(encodeLgpeFinalColor(flowerSurface.rgb), flowerSurface.a);
                 return;
             }
             if (uMaterialMode > 15.5 && uMaterialMode < 16.5) {
-                const float rockExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
                 vec4 rockSurface =
                     evaluateLgpeFieldRockSurface();
-                vec3 rockMapped = applyViewerToneMapping(
-                    max(rockSurface.rgb, vec3(0.0)),
-                    1.0,
-                    rockExposure);
                 FragColor =
-                    vec4(linearToSrgb(rockMapped), rockSurface.a);
+                    vec4(encodeLgpeFinalColor(rockSurface.rgb), rockSurface.a);
                 return;
             }
             if (uMaterialMode > 16.5 && uMaterialMode < 17.5) {
-                const float signExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
                 vec4 signSurface =
                     evaluateLgpeFieldSignSurface();
-                vec3 signMapped = applyViewerToneMapping(
-                    max(signSurface.rgb, vec3(0.0)),
-                    1.0,
-                    signExposure);
                 FragColor =
-                    vec4(linearToSrgb(signMapped), signSurface.a);
+                    vec4(encodeLgpeFinalColor(signSurface.rgb), signSurface.a);
                 return;
             }
             if (uMaterialMode > 17.5 && uMaterialMode < 18.5) {
-                const float grassExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
                 vec4 grassSurface =
                     evaluateLgpeFieldEncounterGrassSurface();
-                vec3 grassMapped = applyViewerToneMapping(
-                    max(grassSurface.rgb, vec3(0.0)),
-                    1.0,
-                    grassExposure);
                 FragColor =
-                    vec4(linearToSrgb(grassMapped), grassSurface.a);
+                    vec4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
                 return;
             }
             vec4 tex = vec4(1.0);
