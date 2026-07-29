@@ -862,8 +862,15 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                     surface,
                 texture01.a);
         }
-        vec4 evaluateLgpeFieldTree02Surface(bool useProjectedCloud) {
-            vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
+        vec4 evaluateLgpeFieldTree02Surface(
+            bool useProjectedCloud,
+            bool useCanonicalTextureUv) {
+            // Exact modes retain the decoded 1-V operation. Reviewed
+            // BuildModel grass02 uses canonical presentation UVs, matching
+            // its exact Blender checkpoint's direct model-texcoord links.
+            vec2 uv0 = useCanonicalTextureUv
+                ? vUv
+                : vec2(vUv.x, 1.0 - vUv.y);
             vec4 texture01 = texture(uTexture, uv0, 0.0);
             if (texture01.a <= clamp(uAlphaCutoff, 0.0, 1.0)) discard;
             vec3 texture02 = texture(uNormalTexture, uv0, 0.0).rgb;
@@ -2279,7 +2286,8 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                 return;
             }
             if (uMaterialMode > 7.5 && uMaterialMode < 8.5) {
-                vec4 treeSurface = evaluateLgpeFieldTree02Surface(false);
+                vec4 treeSurface =
+                    evaluateLgpeFieldTree02Surface(false, false);
                 FragColor =
                     vec4(encodeLgpeFinalColor(treeSurface.rgb), treeSurface.a);
                 return;
@@ -2356,7 +2364,7 @@ __PAC_SHARED_WORLD_PBR_SECTION__
             }
             if (uMaterialMode > 18.5 && uMaterialMode < 19.5) {
                 vec4 shrubSurface =
-                    evaluateLgpeFieldTree02Surface(true);
+                    evaluateLgpeFieldTree02Surface(true, false);
                 FragColor =
                     vec4(encodeLgpeFinalColor(shrubSurface.rgb), shrubSurface.a);
                 return;
@@ -2410,7 +2418,7 @@ __PAC_SHARED_WORLD_PBR_SECTION__
             }
             if (uMaterialMode > 25.5 && uMaterialMode < 26.5) {
                 vec4 sourceSurface =
-                    evaluateLgpeFieldTree02Surface(true);
+                    evaluateLgpeFieldTree02Surface(true, true);
                 vec4 foliageSurface = vec4(
                     lgpeFoliageAcceptedDisplayTransform(sourceSurface.rgb),
                     sourceSurface.a);

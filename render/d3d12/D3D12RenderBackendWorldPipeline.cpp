@@ -619,8 +619,14 @@ float4 evaluateLgpeFieldTree05Surface(PSIn i) {
 
 float4 evaluateLgpeFieldTree02Surface(
     PSIn i,
-    bool useProjectedCloud) {
-  float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
+    bool useProjectedCloud,
+    bool useCanonicalTextureUv) {
+  // Exact modes retain the decoded 1-V operation. Reviewed BuildModel
+  // grass02 uses canonical presentation UVs, matching its exact Blender
+  // checkpoint's direct model-texcoord links.
+  float2 uv0 = useCanonicalTextureUv
+      ? i.uv
+      : float2(i.uv.x, 1.0f - i.uv.y);
   float4 texture01 = sampleLgpeFieldTreeTexture(gTex, uv0);
   if (texture01.a <= saturate(uAlphaCutoff)) discard;
   float3 texture02 =
@@ -2003,7 +2009,8 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
     return float4(encodeLgpeFinalColor(trunkSurface.rgb), trunkSurface.a);
   }
   if (uMaterialMode > 7.5f && uMaterialMode < 8.5f) {
-    float4 treeSurface = evaluateLgpeFieldTree02Surface(i, false);
+    float4 treeSurface =
+        evaluateLgpeFieldTree02Surface(i, false, false);
     return float4(encodeLgpeFinalColor(treeSurface.rgb), treeSurface.a);
   }
   if (uMaterialMode > 8.5f && uMaterialMode < 9.5f) {
@@ -2055,7 +2062,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   }
   if (uMaterialMode > 18.5f && uMaterialMode < 19.5f) {
     float4 shrubSurface =
-        evaluateLgpeFieldTree02Surface(i, true);
+        evaluateLgpeFieldTree02Surface(i, true, false);
     return float4(encodeLgpeFinalColor(shrubSurface.rgb), shrubSurface.a);
   }
   if (uMaterialMode > 19.5f && uMaterialMode < 20.5f) {
@@ -2104,7 +2111,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   }
   if (uMaterialMode > 25.5f && uMaterialMode < 26.5f) {
     float4 sourceSurface =
-        evaluateLgpeFieldTree02Surface(i, true);
+        evaluateLgpeFieldTree02Surface(i, true, true);
     float4 foliageSurface = float4(
         lgpeFoliageAcceptedDisplayTransform(sourceSurface.rgb),
         sourceSurface.a);
