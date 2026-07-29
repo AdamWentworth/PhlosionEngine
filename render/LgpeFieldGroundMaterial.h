@@ -1,5 +1,7 @@
 #pragma once
 
+#include "engine/render/LgpeFieldSharedLighting.h"
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -44,6 +46,13 @@ inline std::array<float, 4> evaluateSurface(const SurfaceInputs& input) {
     }
     output[3] = 1.0f;
     return output;
+}
+
+inline std::array<float, 4> applySharedLighting(
+    const std::array<float, 4>& surface,
+    float projectedCloud) {
+    return lgpe_field_shared::applyUniformWhiteToonCloudLighting(
+        surface, projectedCloud);
 }
 
 } // namespace engine::render::lgpe_field_ground

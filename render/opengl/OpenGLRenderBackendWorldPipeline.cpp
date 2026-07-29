@@ -503,6 +503,17 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         vec4 sampleLgpeGroundTexture(sampler2D tex, vec2 uv) {
             return texture(tex, uv, -2.0);
         }
+        vec2 lgpeRoute1CloudTextureUv(vec3 worldPosition);
+        float evaluateLgpeRoute1ProjectedCloud();
+        vec3 applyLgpeGroundCliffSharedLighting(vec3 surface) {
+            // Route 1 ground and cliff both bind the uniformly opaque-white
+            // shadowtable02_t. With projectedShadow bounded at one, the
+            // decoded shared-light equation reduces to projectedCloud.
+            const vec3 shadowColor = vec3(0.235, 0.361, 0.391);
+            float light =
+                clamp(evaluateLgpeRoute1ProjectedCloud(), 0.0, 1.0);
+            return mix(shadowColor, vec3(1.0), light) * surface;
+        }
         vec3 evaluateLgpeFieldGroundSurface() {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
             vec2 blendUv = vec2(vUv.x * 0.3, 1.0 - vUv.y * 0.3);
@@ -522,9 +533,11 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             vec3 grass = mix(grass02.rgb, grass01.rgb, blend);
             vec3 surface = mix(ground, grass, clamp(grassBlend.a, 0.0, 1.0));
             vec4 authoredVertexColor = vColor * uVertexColorMul;
-            return grassBlend.rgb * authoredVertexColor.rgb * surface +
-                   max(uEmissiveFactor, vec3(0.0)) *
-                       (1.0 - clamp(authoredVertexColor.a, 0.0, 1.0));
+            vec3 sourceSurface =
+                grassBlend.rgb * authoredVertexColor.rgb * surface +
+                max(uEmissiveFactor, vec3(0.0)) *
+                    (1.0 - clamp(authoredVertexColor.a, 0.0, 1.0));
+            return applyLgpeGroundCliffSharedLighting(sourceSurface);
         }
         vec3 evaluateLgpeFieldCliffSurface() {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
@@ -559,10 +572,10 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             vec3 surface =
                 mix(cliff, grass, clamp(borderTex.a, 0.0, 1.0));
             vec4 authoredVertexColor = vColor * uVertexColorMul;
-            return borderTex.rgb * authoredVertexColor.rgb * surface;
+            vec3 sourceSurface =
+                borderTex.rgb * authoredVertexColor.rgb * surface;
+            return applyLgpeGroundCliffSharedLighting(sourceSurface);
         }
-        vec2 lgpeRoute1CloudTextureUv(vec3 worldPosition);
-        float evaluateLgpeRoute1ProjectedCloud();
         vec4 evaluateLgpeFieldTree05Surface() {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
             vec2 uv1 = vec2(vSourceUv1.x, 1.0 - vSourceUv1.y);

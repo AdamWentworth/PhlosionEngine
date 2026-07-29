@@ -273,6 +273,19 @@ float4 sampleLgpeFieldGrassClamp(
     float sourceMipBias) {
   return tex.SampleBias(gSampCC, uv, sourceMipBias + 0.35f);
 }
+float2 lgpeRoute1CloudTextureUv(float3 worldPosition);
+float evaluateLgpeRoute1ProjectedCloud(float3 worldPosition);
+float3 applyLgpeGroundCliffSharedLighting(
+    float3 surface,
+    float3 worldPosition) {
+  // Route 1 ground/cliff both bind the uniformly opaque-white
+  // shadowtable02_t. With projectedShadow bounded at one, the decoded shared
+  // light equation reduces to projectedCloud.
+  const float3 shadowColor = float3(0.235f, 0.361f, 0.391f);
+  float light =
+      saturate(evaluateLgpeRoute1ProjectedCloud(worldPosition));
+  return lerp(shadowColor, 1.0f.xxx, light) * surface;
+}
 float3 evaluateLgpeFieldGroundSurface(PSIn i) {
   float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
   float2 blendUv = float2(i.uv.x * 0.3f, 1.0f - i.uv.y * 0.3f);
@@ -295,8 +308,10 @@ float3 evaluateLgpeFieldGroundSurface(PSIn i) {
   const float3 alphaLight =
       max(float3(uMaterialRect0W, uMaterialRect0H, uMaterialRect1U),
           float3(0.0f, 0.0f, 0.0f));
-  return grassBlend.rgb * authoredVertexColor.rgb * surface +
-         alphaLight * (1.0f - saturate(authoredVertexColor.a));
+  float3 sourceSurface =
+      grassBlend.rgb * authoredVertexColor.rgb * surface +
+      alphaLight * (1.0f - saturate(authoredVertexColor.a));
+  return applyLgpeGroundCliffSharedLighting(sourceSurface, i.worldPos);
 }
 float3 evaluateLgpeFieldCliffSurface(PSIn i) {
   float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
@@ -335,10 +350,10 @@ float3 evaluateLgpeFieldCliffSurface(PSIn i) {
           uVertexColorMulG,
           uVertexColorMulB,
           uVertexColorMulA);
-  return borderTex.rgb * authoredVertexColor.rgb * surface;
+  float3 sourceSurface =
+      borderTex.rgb * authoredVertexColor.rgb * surface;
+  return applyLgpeGroundCliffSharedLighting(sourceSurface, i.worldPos);
 }
-float2 lgpeRoute1CloudTextureUv(float3 worldPosition);
-float evaluateLgpeRoute1ProjectedCloud(float3 worldPosition);
 float4 evaluateLgpeFieldTree05Surface(PSIn i) {
   float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
   float2 uv1 = float2(i.sourceUv1.x, 1.0f - i.sourceUv1.y);
