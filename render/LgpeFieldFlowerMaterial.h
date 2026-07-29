@@ -9,6 +9,8 @@ namespace engine::render::lgpe_field_flower {
 
 inline constexpr std::uint8_t kMaterialMode = 15u;
 inline constexpr float kDiscardValue = 0.85f;
+inline constexpr float kRoadShadowBias = 0.003f;
+inline constexpr float kBuildmodelShadowBias = 0.001f;
 inline constexpr std::array<float, 3> kRoute1SunRay{
     0.5533391237f,
     0.2078260481f,

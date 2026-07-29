@@ -8,6 +8,10 @@
 namespace engine::render::lgpe_field_tree02 {
 
 inline constexpr std::uint8_t kMaterialMode = 8u;
+inline constexpr float kRouteTreeDiscardValue = 0.6f;
+inline constexpr float kRouteTreeShadowBias = 0.05f;
+inline constexpr float kGrass02DiscardValue = 0.418742657f;
+inline constexpr float kGrass02ShadowBias = 0.01f;
 inline constexpr float kDirectionalEdgeScale = 5.0f / 3.0f;
 inline constexpr std::array<float, 3> kRoute1SunRay{
     0.5533391237f,
@@ -48,7 +52,7 @@ inline float rangeMap(float value, float minimum, float maximum) {
 }
 
 // Deterministic scalar oracle for the exact local FieldTreeShader02 fragment
-// program recovered from Route 1's named tree004/tree005 BNSH programs.
+// family recovered from Route 1's named tree004/tree005 and grass02 programs.
 // projectedShadow is an explicit input because the source ten-tap PCF requires
 // the game's shared shadow matrix/depth state, which is not part of a material.
 inline SurfaceResult evaluateSurface(const SurfaceInputs& input) {
