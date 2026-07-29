@@ -57,6 +57,14 @@ public:
         outCaps = WorldSceneFastPathCaps{};
         return false;
     }
+    // Brackets the complete 3D world composition. Backends that support a
+    // linear scene-color target use this boundary to defer display transfer
+    // until opaque and blended world content has been composed.
+    virtual void beginWorldSceneColorPass(int surfaceWidth, int surfaceHeight) {
+        (void)surfaceWidth;
+        (void)surfaceHeight;
+    }
+    virtual void endWorldSceneColorPass() {}
     virtual void beginWorldIndexedBatchSubmission() {}
     virtual void endWorldIndexedBatchSubmission() {}
     virtual void recordWorldIndexedSubmissionStats(const WorldIndexedSubmissionStats& stats) {

@@ -166,6 +166,8 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
             &texture,
             worldMaterial->indexedTableSlot,
             instanceBaseWordIndex));
+        drawStates.back().shadingParams[3] =
+            worldSceneColorPassActive ? 1.0f : 0.0f;
         const VkDrawIndexedIndirectCommand command{
             static_cast<std::uint32_t>(mesh->indexCount),
             instanceCount,

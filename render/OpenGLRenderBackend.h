@@ -30,6 +30,8 @@ public:
     bool supportsWorldIndexedMeshInstancing() const override { return true; }
     std::string activeGpuName() const override;
     bool activeGpuIsDiscrete() const override;
+    void beginWorldSceneColorPass(int surfaceWidth, int surfaceHeight) override;
+    void endWorldSceneColorPass() override;
     void beginWorldIndexedBatchSubmission() override;
     void endWorldIndexedBatchSubmission() override;
     void recordWorldIndexedSubmissionStats(const WorldIndexedSubmissionStats& stats) override;
@@ -128,6 +130,8 @@ private:
     void destroyCachedDebugGeometry();
     void ensureWorldPipeline();
     void destroyWorldPipeline();
+    bool ensureWorldSceneColorResources(int width, int height);
+    void destroyWorldSceneColorResources();
     void destroyCachedWorldMeshes();
     void configureWorldMeshVertexLayout(unsigned int vao,
                                         unsigned int vertexBuffer,
@@ -240,6 +244,7 @@ private:
     int worldOcclusionStrengthLoc_ = -1;
     int worldEmissiveFactorLoc_ = -1;
     int worldCharacterInkingEnabledLoc_ = -1;
+    int worldSceneColorPostEnabledLoc_ = -1;
     int worldMaterialModeLoc_ = -1;
     int worldMaterialTimeLoc_ = -1;
     int worldMaterialFlagsLoc_ = -1;
@@ -251,6 +256,20 @@ private:
     int worldSkinningEnabledLoc_ = -1;
     int worldSkinningModeLoc_ = -1;
     int worldSkinMatrixCountLoc_ = -1;
+
+    unsigned int worldSceneColorFbo_ = 0;
+    unsigned int worldSceneColorTexture_ = 0;
+    unsigned int worldSceneDepthRenderbuffer_ = 0;
+    unsigned int worldSceneColorPostProgram_ = 0;
+    unsigned int worldSceneColorPostVao_ = 0;
+    int worldSceneColorPostSamplerLoc_ = -1;
+    int worldSceneColorWidth_ = 0;
+    int worldSceneColorHeight_ = 0;
+    bool worldSceneColorPassActive_ = false;
+    int worldSceneColorPrevDrawFbo_ = 0;
+    int worldSceneColorPrevReadFbo_ = 0;
+    std::array<int, 4> worldSceneColorPrevViewport_{0, 0, 1, 1};
+    std::array<float, 4> frameClearColor_{0.1f, 0.1f, 0.1f, 1.0f};
 
     unsigned int spriteProgram_ = 0;
     unsigned int spriteVao_ = 0;

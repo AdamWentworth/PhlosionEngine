@@ -243,6 +243,7 @@ void VulkanRenderBackendImpl::drawWorldTriangles(
     }
     bindVertexBuffer(commandBuffer, vertexBuffer, vertexOffset);
     WorldPushConstants push = engine::render::vulkan_backend::makeWorldPushConstants(nullptr);
+    push.reserved0 = worldSceneColorPassActive ? 1.0f : 0.0f;
     std::memcpy(push.viewProjection.data(), viewProjectionMatrix4x4, sizeof(float) * 16u);
     vkCmdPushConstants(commandBuffer,
                        texturedPipelineLayout,
@@ -395,6 +396,7 @@ void VulkanRenderBackendImpl::drawWorldIndexedMeshBuffers(
     bindVertexBuffer(commandBuffer, vertexBuffer, vertexOffset);
     bindIndexBuffer(commandBuffer, indexBuffer, indexOffset, VK_INDEX_TYPE_UINT32);
     WorldPushConstants push = engine::render::vulkan_backend::makeWorldPushConstants(textureData);
+    push.reserved0 = worldSceneColorPassActive ? 1.0f : 0.0f;
     std::memcpy(push.viewProjection.data(), viewProjectionMatrix4x4, sizeof(float) * 16u);
     const bool drawCharacterOutline =
         textureData &&

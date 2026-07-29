@@ -158,21 +158,32 @@ struct VulkanRenderBackendImpl {
     std::vector<VkFramebuffer> framebuffers;
     std::vector<VkFence> imagesInFlight;
     VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkRenderPass loadRenderPass = VK_NULL_HANDLE;
+    VkRenderPass worldSceneColorRenderPass = VK_NULL_HANDLE;
 
     VkFormat depthFormat = VK_FORMAT_UNDEFINED;
     std::vector<VkImage> depthImages;
     std::vector<VkDeviceMemory> depthMemories;
     std::vector<VkImageView> depthViews;
+    std::array<VkImage, kFramesInFlight> worldSceneColorImages{};
+    std::array<VkDeviceMemory, kFramesInFlight> worldSceneColorMemories{};
+    std::array<VkImageView, kFramesInFlight> worldSceneColorViews{};
+    std::vector<VkFramebuffer> worldSceneColorFramebuffers;
 
     VkDescriptorSetLayout textureSetLayout = VK_NULL_HANDLE;
     VkDescriptorSetLayout indexedWorldMaterialSetLayout = VK_NULL_HANDLE;
     VkDescriptorSetLayout worldStateSetLayout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout worldSceneColorSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
     VkPipelineLayout debugPipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout texturedPipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout indirectWorldPipelineLayout = VK_NULL_HANDLE;
+    VkPipelineLayout worldSceneColorPipelineLayout = VK_NULL_HANDLE;
+    std::array<VkDescriptorSet, kFramesInFlight> worldSceneColorDescriptorSets{};
+    VkSampler worldSceneColorSampler = VK_NULL_HANDLE;
     VkPipeline debugPipeline = VK_NULL_HANDLE;
     VkPipeline spritePipeline = VK_NULL_HANDLE;
+    VkPipeline worldSceneColorPipeline = VK_NULL_HANDLE;
     std::array<
         VkPipeline,
         engine::render::vulkan_backend::kWorldPipelineCount> worldPipelines{};
@@ -212,6 +223,9 @@ struct VulkanRenderBackendImpl {
     std::uint32_t boundViewportWidth = 0u;
     std::uint32_t boundViewportHeight = 0u;
     bool boundViewportValid = false;
+    bool mainRenderPassActive = false;
+    bool worldSceneColorPassActive = false;
+    std::array<float, 4> frameClearColor{0.0f, 0.0f, 0.0f, 1.0f};
 
     std::string gpuName;
     bool gpuDiscrete = false;
@@ -260,6 +274,8 @@ struct VulkanRenderBackendImpl {
     void shutdown();
     void beginFrame(float r, float g, float b, float a);
     void endFrame();
+    void beginWorldSceneColorPass(int surfaceWidth, int surfaceHeight);
+    void endWorldSceneColorPass();
     void requestResize(int width, int height);
     void requestVSync(bool enabled);
     void recordSubmissionStats(const IRenderBackend::WorldIndexedSubmissionStats& stats);
@@ -277,6 +293,8 @@ struct VulkanRenderBackendImpl {
     bool recreateSwapchain();
     void createRenderPass();
     void createDepthResources();
+    void createWorldSceneColorResources();
+    void destroyWorldSceneColorResources();
     void createFramebuffers();
     void createPipelines();
     void destroyPipelines();

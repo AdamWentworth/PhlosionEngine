@@ -43,6 +43,7 @@ engine::log::Sink& d3d12LifecycleLog() {
 
 void D3D12RenderBackend::beginFrame(float r, float g, float b, float a) {
     ++frameCounter_;
+    worldSceneColorPassActive_ = false;
     clearColor_[0] = r;
     clearColor_[1] = g;
     clearColor_[2] = b;
@@ -181,6 +182,9 @@ void D3D12RenderBackend::beginFrame(float r, float g, float b, float a) {
 void D3D12RenderBackend::endFrame() {
 #if defined(_WIN32)
     if (!initialized_ || !recording_ || !commandList_ || !swapChain_ || !commandQueue_) return;
+    if (worldSceneColorPassActive_) {
+        endWorldSceneColorPass();
+    }
 
     lastPresentWaitMs_ = 0.0f;
 
@@ -534,6 +538,11 @@ void D3D12RenderBackend::shutdown() {
     worldMaterialDescriptorBlocks_.clear();
     worldSceneMaterialBindingCache_.clear();
     worldSceneMaterialBindingCacheGeneration_ = 0u;
+    worldSceneColorTarget_.Reset();
+    worldSceneColorPipelineState_.Reset();
+    worldSceneColorRootSignature_.Reset();
+    worldSceneColorSrvDescriptorIndex_ = 0xffffffffu;
+    worldSceneColorPassActive_ = false;
     if (spriteVertexBuffer_ && spriteVertexMappedData_) {
         D3D12_RANGE readRange{0, 0};
         spriteVertexBuffer_->Unmap(0, &readRange);
@@ -662,7 +671,7 @@ void D3D12RenderBackend::initDeviceAndSwapchain(const std::string& preferredAdap
     frameIndex_ = swapChain_->GetCurrentBackBufferIndex();
 
     D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc{};
-    rtvHeapDesc.NumDescriptors = kFrameCount;
+    rtvHeapDesc.NumDescriptors = kFrameCount + 1u;
     rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
     rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     if (FAILED(device_->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(rtvHeap_.ReleaseAndGetAddressOf()))) ||
@@ -776,6 +785,14 @@ void D3D12RenderBackend::initDeviceAndSwapchain(const std::string& preferredAdap
         "ms");
 
     stageStart = std::chrono::steady_clock::now();
+    createWorldSceneColorPipeline();
+    stageEnd = std::chrono::steady_clock::now();
+    d3d12LifecycleLog().info(
+        "[Renderer][D3D12][Startup] createWorldSceneColorPipeline=" +
+        std::to_string(std::chrono::duration<double, std::milli>(stageEnd - stageStart).count()) +
+        "ms");
+
+    stageStart = std::chrono::steady_clock::now();
     createRenderTargets();
     stageEnd = std::chrono::steady_clock::now();
     d3d12LifecycleLog().info(
@@ -813,6 +830,7 @@ void D3D12RenderBackend::createRenderTargets() {
         }
         handle.ptr += static_cast<SIZE_T>(rtvDescriptorSize_);
     }
+    createWorldSceneColorResource();
 #endif
 }
 
@@ -891,6 +909,7 @@ void D3D12RenderBackend::releaseDepthResources() {
 
 void D3D12RenderBackend::releaseRenderTargets() {
 #if defined(_WIN32)
+    releaseWorldSceneColorResource();
     for (auto& target : renderTargets_) {
         target.Reset();
     }

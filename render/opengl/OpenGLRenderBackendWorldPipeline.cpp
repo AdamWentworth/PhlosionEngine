@@ -222,6 +222,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         worldMaterialModeLoc_ >= 0 && worldMaterialTimeLoc_ >= 0 && worldMaterialFlagsLoc_ >= 0 &&
         worldMaterialAtlasSizeLoc_ >= 0 && worldMaterialRect0Loc_ >= 0 && worldMaterialRect1Loc_ >= 0 &&
         worldMaterialFlipbook0Loc_ >= 0 && worldMaterialFlipbook1Loc_ >= 0 &&
+        worldSceneColorPostEnabledLoc_ >= 0 &&
         worldSkinningEnabledLoc_ >= 0 && worldSkinningModeLoc_ >= 0 && worldSkinMatrixCountLoc_ >= 0) {
         return;
     }
@@ -474,6 +475,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         uniform float uOcclusionStrength;
         uniform vec3 uEmissiveFactor;
         uniform float uCharacterInkingEnabled;
+        uniform float uSceneColorPostEnabled;
         out vec4 FragColor;
         out vec4 FragBlendAlpha;
 
@@ -2068,6 +2070,13 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             return linearToSrgb(clamp(linearColor, 0.0, 1.0));
         }
 
+        vec3 resolveWorldSceneColor(vec3 linearColor) {
+            vec3 clamped = clamp(linearColor, 0.0, 1.0);
+            return (uSceneColorPostEnabled > 0.5)
+                ? clamped
+                : encodeLgpeFinalColor(clamped);
+        }
+
         vec3 safeNormalize(vec3 value, vec3 fallback) {
             float len2 = dot(value, value);
             if (len2 < 1e-8) return fallback;
@@ -2264,116 +2273,116 @@ __PAC_SHARED_WORLD_PBR_SECTION__
             }
             if (uMaterialMode > 3.5 && uMaterialMode < 4.5) {
                 vec3 groundLinear = evaluateLgpeFieldGroundSurface();
-                FragColor = vec4(encodeLgpeFinalColor(groundLinear), 1.0);
+                FragColor = vec4(resolveWorldSceneColor(groundLinear), 1.0);
                 return;
             }
             if (uMaterialMode > 4.5 && uMaterialMode < 5.5) {
                 vec3 cliffLinear = evaluateLgpeFieldCliffSurface();
-                FragColor = vec4(encodeLgpeFinalColor(cliffLinear), 1.0);
+                FragColor = vec4(resolveWorldSceneColor(cliffLinear), 1.0);
                 return;
             }
             if (uMaterialMode > 5.5 && uMaterialMode < 6.5) {
                 vec4 treeSurface = evaluateLgpeFieldTree05Surface();
                 FragColor =
-                    vec4(encodeLgpeFinalColor(treeSurface.rgb), treeSurface.a);
+                    vec4(resolveWorldSceneColor(treeSurface.rgb), treeSurface.a);
                 return;
             }
             if (uMaterialMode > 6.5 && uMaterialMode < 7.5) {
                 vec4 trunkSurface =
                     evaluateLgpeFieldObjectTreeMikiSurface();
                 FragColor =
-                    vec4(encodeLgpeFinalColor(trunkSurface.rgb), trunkSurface.a);
+                    vec4(resolveWorldSceneColor(trunkSurface.rgb), trunkSurface.a);
                 return;
             }
             if (uMaterialMode > 7.5 && uMaterialMode < 8.5) {
                 vec4 treeSurface =
                     evaluateLgpeFieldTree02Surface(false, false);
                 FragColor =
-                    vec4(encodeLgpeFinalColor(treeSurface.rgb), treeSurface.a);
+                    vec4(resolveWorldSceneColor(treeSurface.rgb), treeSurface.a);
                 return;
             }
             if (uMaterialMode > 8.5 && uMaterialMode < 9.5) {
                 vec4 grassSurface =
                     evaluateLgpeFieldGrassSurface(false);
                 FragColor =
-                    vec4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
+                    vec4(resolveWorldSceneColor(grassSurface.rgb), grassSurface.a);
                 return;
             }
             if (uMaterialMode > 9.5 && uMaterialMode < 10.5) {
                 vec4 grassSurface =
                     evaluateLgpeFieldGrassSurface(true);
                 FragColor =
-                    vec4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
+                    vec4(resolveWorldSceneColor(grassSurface.rgb), grassSurface.a);
                 return;
             }
             if (uMaterialMode > 10.5 && uMaterialMode < 11.5) {
                 vec4 grassSurface =
                     evaluateLgpeFieldGrassShader04Surface();
                 FragColor =
-                    vec4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
+                    vec4(resolveWorldSceneColor(grassSurface.rgb), grassSurface.a);
                 return;
             }
             if (uMaterialMode > 11.5 && uMaterialMode < 12.5) {
                 vec4 grassSurface =
                     evaluateLgpeFieldGrassShader05Surface();
                 FragColor =
-                    vec4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
+                    vec4(resolveWorldSceneColor(grassSurface.rgb), grassSurface.a);
                 return;
             }
             if (uMaterialMode > 12.5 && uMaterialMode < 13.5) {
                 vec4 overlaySurface =
                     evaluateLgpeRoadstoneOverlaySurface();
                 FragColor =
-                    vec4(encodeLgpeFinalColor(overlaySurface.rgb), overlaySurface.a);
+                    vec4(resolveWorldSceneColor(overlaySurface.rgb), overlaySurface.a);
                 return;
             }
             if (uMaterialMode > 13.5 && uMaterialMode < 14.5) {
                 vec4 overlaySurface =
                     evaluateLgpeRockMaskOverlaySurface();
                 FragColor =
-                    vec4(encodeLgpeFinalColor(overlaySurface.rgb), overlaySurface.a);
+                    vec4(resolveWorldSceneColor(overlaySurface.rgb), overlaySurface.a);
                 return;
             }
             if (uMaterialMode > 14.5 && uMaterialMode < 15.5) {
                 vec4 flowerSurface =
                     evaluateLgpeFieldFlowerSurface();
                 FragColor =
-                    vec4(encodeLgpeFinalColor(flowerSurface.rgb), flowerSurface.a);
+                    vec4(resolveWorldSceneColor(flowerSurface.rgb), flowerSurface.a);
                 return;
             }
             if (uMaterialMode > 15.5 && uMaterialMode < 16.5) {
                 vec4 rockSurface =
                     evaluateLgpeFieldRockSurface();
                 FragColor =
-                    vec4(encodeLgpeFinalColor(rockSurface.rgb), rockSurface.a);
+                    vec4(resolveWorldSceneColor(rockSurface.rgb), rockSurface.a);
                 return;
             }
             if (uMaterialMode > 16.5 && uMaterialMode < 17.5) {
                 vec4 signSurface =
                     evaluateLgpeFieldSignSurface();
                 FragColor =
-                    vec4(encodeLgpeFinalColor(signSurface.rgb), signSurface.a);
+                    vec4(resolveWorldSceneColor(signSurface.rgb), signSurface.a);
                 return;
             }
             if (uMaterialMode > 17.5 && uMaterialMode < 18.5) {
                 vec4 grassSurface =
                     evaluateLgpeFieldEncounterGrassSurface();
                 FragColor =
-                    vec4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
+                    vec4(resolveWorldSceneColor(grassSurface.rgb), grassSurface.a);
                 return;
             }
             if (uMaterialMode > 18.5 && uMaterialMode < 19.5) {
                 vec4 shrubSurface =
                     evaluateLgpeFieldTree02Surface(true, false);
                 FragColor =
-                    vec4(encodeLgpeFinalColor(shrubSurface.rgb), shrubSurface.a);
+                    vec4(resolveWorldSceneColor(shrubSurface.rgb), shrubSurface.a);
                 return;
             }
             if (uMaterialMode > 19.5 && uMaterialMode < 20.5) {
                 vec4 flowerSurface =
                     evaluateLgpeFieldFlowerSurface();
                 FragColor =
-                    vec4(encodeLgpeFinalColor(flowerSurface.rgb), flowerSurface.a);
+                    vec4(resolveWorldSceneColor(flowerSurface.rgb), flowerSurface.a);
                 return;
             }
             if (uMaterialMode > 20.5 && uMaterialMode < 21.5) {
@@ -2381,7 +2390,7 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                     evaluateLgpeReviewedFieldTree05Surface(
                         0.02072325, 1.08, 0.8807060431);
                 FragColor =
-                    vec4(encodeLgpeFinalColor(foliageSurface.rgb), foliageSurface.a);
+                    vec4(resolveWorldSceneColor(foliageSurface.rgb), foliageSurface.a);
                 return;
             }
             if (uMaterialMode > 21.5 && uMaterialMode < 22.5) {
@@ -2389,7 +2398,7 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                     evaluateLgpeReviewedFieldTree05Surface(
                         0.00049965, 1.0371891204, 0.9015603440);
                 FragColor =
-                    vec4(encodeLgpeFinalColor(foliageSurface.rgb), foliageSurface.a);
+                    vec4(resolveWorldSceneColor(foliageSurface.rgb), foliageSurface.a);
                 return;
             }
             if (uMaterialMode > 22.5 && uMaterialMode < 23.5) {
@@ -2397,7 +2406,7 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                     evaluateLgpeReviewedFieldTree02Surface(
                         0.02271645, 1.0476480571, 0.82, false);
                 FragColor =
-                    vec4(encodeLgpeFinalColor(foliageSurface.rgb), foliageSurface.a);
+                    vec4(resolveWorldSceneColor(foliageSurface.rgb), foliageSurface.a);
                 return;
             }
             if (uMaterialMode > 23.5 && uMaterialMode < 24.5) {
@@ -2405,7 +2414,7 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                     evaluateLgpeReviewedFieldTree02Surface(
                         0.00425595, 1.0114461323, 1.0689001800, true);
                 FragColor =
-                    vec4(encodeLgpeFinalColor(foliageSurface.rgb), foliageSurface.a);
+                    vec4(resolveWorldSceneColor(foliageSurface.rgb), foliageSurface.a);
                 return;
             }
             if (uMaterialMode > 24.5 && uMaterialMode < 25.5) {
@@ -2413,7 +2422,7 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                     evaluateLgpeReviewedFieldTree05Surface(
                         0.02981715, 0.9248157036, 0.9181899276);
                 FragColor =
-                    vec4(encodeLgpeFinalColor(foliageSurface.rgb), foliageSurface.a);
+                    vec4(resolveWorldSceneColor(foliageSurface.rgb), foliageSurface.a);
                 return;
             }
             if (uMaterialMode > 25.5 && uMaterialMode < 26.5) {
@@ -2423,7 +2432,7 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                     lgpeFoliageAcceptedDisplayTransform(sourceSurface.rgb),
                     sourceSurface.a);
                 FragColor =
-                    vec4(encodeLgpeFinalColor(foliageSurface.rgb), foliageSurface.a);
+                    vec4(resolveWorldSceneColor(foliageSurface.rgb), foliageSurface.a);
                 return;
             }
             vec4 tex = vec4(1.0);
@@ -2479,7 +2488,7 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                         uOcclusionTexture, wrappedUv, uvDx, uvDy).r;
                     dbg = vec3(ao);
                 }
-                FragColor = vec4(linearToSrgb(clamp(dbg, 0.0, 1.0)), 1.0);
+                FragColor = vec4(resolveWorldSceneColor(dbg), 1.0);
                 return;
             }
             if (uMaterialMode >= 1.5) {
@@ -2489,7 +2498,7 @@ __PAC_SHARED_WORLD_PBR_SECTION__
             const float toneMappingExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
             const float toneMappingMode = 1.0;
             vec3 mapped = applyViewerToneMapping(max(outLinear, vec3(0.0)), toneMappingMode, toneMappingExposure);
-            vec3 outSrgb = linearToSrgb(mapped);
+            vec3 outSrgb = resolveWorldSceneColor(mapped);
             float mainOutA = outA;
             if (uDualSourceBlendEnabled > 0.5) {
                 mainOutA = floor(clamp(outA, 0.0, 1.0) * 63.0 + 0.5) / 63.0;
@@ -2559,6 +2568,8 @@ __PAC_SHARED_WORLD_PBR_SECTION__
     worldOcclusionStrengthLoc_ = glGetUniformLocation(worldProgram_, "uOcclusionStrength");
     worldEmissiveFactorLoc_ = glGetUniformLocation(worldProgram_, "uEmissiveFactor");
     worldCharacterInkingEnabledLoc_ = glGetUniformLocation(worldProgram_, "uCharacterInkingEnabled");
+    worldSceneColorPostEnabledLoc_ =
+        glGetUniformLocation(worldProgram_, "uSceneColorPostEnabled");
     worldMaterialModeLoc_ = glGetUniformLocation(worldProgram_, "uMaterialMode");
     worldMaterialTimeLoc_ = glGetUniformLocation(worldProgram_, "uMaterialTimeSec");
     worldMaterialFlagsLoc_ = glGetUniformLocation(worldProgram_, "uMaterialFlags");
@@ -2581,6 +2592,7 @@ __PAC_SHARED_WORLD_PBR_SECTION__
         worldMaterialModeLoc_ < 0 || worldMaterialTimeLoc_ < 0 || worldMaterialFlagsLoc_ < 0 ||
         worldMaterialAtlasSizeLoc_ < 0 || worldMaterialRect0Loc_ < 0 || worldMaterialRect1Loc_ < 0 ||
         worldMaterialFlipbook0Loc_ < 0 || worldMaterialFlipbook1Loc_ < 0 ||
+        worldSceneColorPostEnabledLoc_ < 0 ||
         worldSkinningEnabledLoc_ < 0 || worldSkinningModeLoc_ < 0 || worldSkinMatrixCountLoc_ < 0 ||
         worldSkinBlockIndex == GL_INVALID_INDEX) {
         destroyWorldPipeline();
@@ -2731,6 +2743,7 @@ void OpenGLRenderBackend::destroyWorldPipeline() {
     worldOcclusionStrengthLoc_ = -1;
     worldEmissiveFactorLoc_ = -1;
     worldCharacterInkingEnabledLoc_ = -1;
+    worldSceneColorPostEnabledLoc_ = -1;
     worldMaterialModeLoc_ = -1;
     worldMaterialTimeLoc_ = -1;
     worldMaterialFlagsLoc_ = -1;

@@ -37,6 +37,8 @@ public:
     bool supportsWorldIndexedMeshInstancing() const override { return true; }
     bool supportsWorldSceneFastPath() const override;
     bool getWorldSceneFastPathCaps(WorldSceneFastPathCaps& outCaps) const override;
+    void beginWorldSceneColorPass(int surfaceWidth, int surfaceHeight) override;
+    void endWorldSceneColorPass() override;
     void submitWorldScene(const WorldSceneFrame& frame,
                           const WorldSceneView& view) override;
     void recordWorldIndexedSubmissionStats(const WorldIndexedSubmissionStats& stats) override;

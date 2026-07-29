@@ -181,6 +181,7 @@ cbuffer PSConstants : register(b1) {
   float uMaterialFlipbook1Rows;
   float uMaterialFlipbook1Frames;
   float uMaterialFlipbook1Fps;
+  float uSceneColorPostEnabled;
 };
 Texture2D gTex : register(t0);
 Texture2D gNormalTex : register(t1);
@@ -1510,6 +1511,13 @@ float3 encodeLgpeFinalColor(float3 linearColor) {
   return linearToSrgb(saturate(linearColor));
 }
 
+float3 resolveWorldSceneColor(float3 linearColor) {
+  float3 clamped = saturate(linearColor);
+  return (uSceneColorPostEnabled > 0.5f)
+      ? clamped
+      : encodeLgpeFinalColor(clamped);
+}
+
 float2 clampUvToRegionPixels(float2 localUV01, float4 rectUv) {
   float2 atlasSize = max(float2(uMaterialAtlasWidth, uMaterialAtlasHeight), float2(1.0f, 1.0f));
   float2 rectPx = max(rectUv.zw * atlasSize, float2(1.0f, 1.0f));
@@ -1993,88 +2001,88 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   }
   if (uMaterialMode > 3.5f && uMaterialMode < 4.5f) {
     float3 groundLinear = evaluateLgpeFieldGroundSurface(i);
-    return float4(encodeLgpeFinalColor(groundLinear), 1.0f);
+    return float4(resolveWorldSceneColor(groundLinear), 1.0f);
   }
   if (uMaterialMode > 4.5f && uMaterialMode < 5.5f) {
     float3 cliffLinear = evaluateLgpeFieldCliffSurface(i);
-    return float4(encodeLgpeFinalColor(cliffLinear), 1.0f);
+    return float4(resolveWorldSceneColor(cliffLinear), 1.0f);
   }
   if (uMaterialMode > 5.5f && uMaterialMode < 6.5f) {
     float4 treeSurface = evaluateLgpeFieldTree05Surface(i);
-    return float4(encodeLgpeFinalColor(treeSurface.rgb), treeSurface.a);
+    return float4(resolveWorldSceneColor(treeSurface.rgb), treeSurface.a);
   }
   if (uMaterialMode > 6.5f && uMaterialMode < 7.5f) {
     float4 trunkSurface =
         evaluateLgpeFieldObjectTreeMikiSurface(i);
-    return float4(encodeLgpeFinalColor(trunkSurface.rgb), trunkSurface.a);
+    return float4(resolveWorldSceneColor(trunkSurface.rgb), trunkSurface.a);
   }
   if (uMaterialMode > 7.5f && uMaterialMode < 8.5f) {
     float4 treeSurface =
         evaluateLgpeFieldTree02Surface(i, false, false);
-    return float4(encodeLgpeFinalColor(treeSurface.rgb), treeSurface.a);
+    return float4(resolveWorldSceneColor(treeSurface.rgb), treeSurface.a);
   }
   if (uMaterialMode > 8.5f && uMaterialMode < 9.5f) {
     float4 grassSurface =
         evaluateLgpeFieldGrassSurface(i, false);
-    return float4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
+    return float4(resolveWorldSceneColor(grassSurface.rgb), grassSurface.a);
   }
   if (uMaterialMode > 9.5f && uMaterialMode < 10.5f) {
     float4 grassSurface =
         evaluateLgpeFieldGrassSurface(i, true);
-    return float4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
+    return float4(resolveWorldSceneColor(grassSurface.rgb), grassSurface.a);
   }
   if (uMaterialMode > 10.5f && uMaterialMode < 11.5f) {
     float4 grassSurface =
         evaluateLgpeFieldGrassShader04Surface(i);
-    return float4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
+    return float4(resolveWorldSceneColor(grassSurface.rgb), grassSurface.a);
   }
   if (uMaterialMode > 11.5f && uMaterialMode < 12.5f) {
     float4 grassSurface =
         evaluateLgpeFieldGrassShader05Surface(i);
-    return float4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
+    return float4(resolveWorldSceneColor(grassSurface.rgb), grassSurface.a);
   }
   if (uMaterialMode > 12.5f && uMaterialMode < 13.5f) {
     float4 overlaySurface =
         evaluateLgpeRoadstoneOverlaySurface(i);
-    return float4(encodeLgpeFinalColor(overlaySurface.rgb), overlaySurface.a);
+    return float4(resolveWorldSceneColor(overlaySurface.rgb), overlaySurface.a);
   }
   if (uMaterialMode > 13.5f && uMaterialMode < 14.5f) {
     float4 overlaySurface =
         evaluateLgpeRockMaskOverlaySurface(i);
-    return float4(encodeLgpeFinalColor(overlaySurface.rgb), overlaySurface.a);
+    return float4(resolveWorldSceneColor(overlaySurface.rgb), overlaySurface.a);
   }
   if (uMaterialMode > 14.5f && uMaterialMode < 15.5f) {
     float4 flowerSurface = evaluateLgpeFieldFlowerSurface(i);
-    return float4(encodeLgpeFinalColor(flowerSurface.rgb), flowerSurface.a);
+    return float4(resolveWorldSceneColor(flowerSurface.rgb), flowerSurface.a);
   }
   if (uMaterialMode > 15.5f && uMaterialMode < 16.5f) {
     float4 rockSurface = evaluateLgpeFieldRockSurface(i);
-    return float4(encodeLgpeFinalColor(rockSurface.rgb), rockSurface.a);
+    return float4(resolveWorldSceneColor(rockSurface.rgb), rockSurface.a);
   }
   if (uMaterialMode > 16.5f && uMaterialMode < 17.5f) {
     float4 signSurface = evaluateLgpeFieldSignSurface(i);
-    return float4(encodeLgpeFinalColor(signSurface.rgb), signSurface.a);
+    return float4(resolveWorldSceneColor(signSurface.rgb), signSurface.a);
   }
   if (uMaterialMode > 17.5f && uMaterialMode < 18.5f) {
     float4 grassSurface =
         evaluateLgpeFieldEncounterGrassSurface(i);
-    return float4(encodeLgpeFinalColor(grassSurface.rgb), grassSurface.a);
+    return float4(resolveWorldSceneColor(grassSurface.rgb), grassSurface.a);
   }
   if (uMaterialMode > 18.5f && uMaterialMode < 19.5f) {
     float4 shrubSurface =
         evaluateLgpeFieldTree02Surface(i, true, false);
-    return float4(encodeLgpeFinalColor(shrubSurface.rgb), shrubSurface.a);
+    return float4(resolveWorldSceneColor(shrubSurface.rgb), shrubSurface.a);
   }
   if (uMaterialMode > 19.5f && uMaterialMode < 20.5f) {
     float4 flowerSurface = evaluateLgpeFieldFlowerSurface(i);
-    return float4(encodeLgpeFinalColor(flowerSurface.rgb), flowerSurface.a);
+    return float4(resolveWorldSceneColor(flowerSurface.rgb), flowerSurface.a);
   }
   if (uMaterialMode > 20.5f && uMaterialMode < 21.5f) {
     float4 foliageSurface =
         evaluateLgpeReviewedFieldTree05Surface(
             i, 0.02072325f, 1.08f, 0.8807060431f);
     return float4(
-        encodeLgpeFinalColor(foliageSurface.rgb),
+        resolveWorldSceneColor(foliageSurface.rgb),
         foliageSurface.a);
   }
   if (uMaterialMode > 21.5f && uMaterialMode < 22.5f) {
@@ -2082,7 +2090,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         evaluateLgpeReviewedFieldTree05Surface(
             i, 0.00049965f, 1.0371891204f, 0.9015603440f);
     return float4(
-        encodeLgpeFinalColor(foliageSurface.rgb),
+        resolveWorldSceneColor(foliageSurface.rgb),
         foliageSurface.a);
   }
   if (uMaterialMode > 22.5f && uMaterialMode < 23.5f) {
@@ -2090,7 +2098,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         evaluateLgpeReviewedFieldTree02Surface(
             i, 0.02271645f, 1.0476480571f, 0.82f, false);
     return float4(
-        encodeLgpeFinalColor(foliageSurface.rgb),
+        resolveWorldSceneColor(foliageSurface.rgb),
         foliageSurface.a);
   }
   if (uMaterialMode > 23.5f && uMaterialMode < 24.5f) {
@@ -2098,7 +2106,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         evaluateLgpeReviewedFieldTree02Surface(
             i, 0.00425595f, 1.0114461323f, 1.0689001800f, true);
     return float4(
-        encodeLgpeFinalColor(foliageSurface.rgb),
+        resolveWorldSceneColor(foliageSurface.rgb),
         foliageSurface.a);
   }
   if (uMaterialMode > 24.5f && uMaterialMode < 25.5f) {
@@ -2106,7 +2114,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         evaluateLgpeReviewedFieldTree05Surface(
             i, 0.02981715f, 0.9248157036f, 0.9181899276f);
     return float4(
-        encodeLgpeFinalColor(foliageSurface.rgb),
+        resolveWorldSceneColor(foliageSurface.rgb),
         foliageSurface.a);
   }
   if (uMaterialMode > 25.5f && uMaterialMode < 26.5f) {
@@ -2116,7 +2124,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         lgpeFoliageAcceptedDisplayTransform(sourceSurface.rgb),
         sourceSurface.a);
     return float4(
-        encodeLgpeFinalColor(foliageSurface.rgb),
+        resolveWorldSceneColor(foliageSurface.rgb),
         foliageSurface.a);
   }
   float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -2170,7 +2178,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
           sampleTextureWithWrap(gOcclusionTex, wrappedUv, uvDx, uvDy, uWrapS, uWrapT).r;
       dbg = float3(ao, ao, ao);
     }
-    return float4(linearToSrgb(saturate(dbg)), 1.0f);
+    return float4(resolveWorldSceneColor(dbg), 1.0f);
   }
   if (uMaterialMode >= 1.5f) {
     const int pbrFlags = (int)(uMaterialFlags + 0.5f);
@@ -2212,7 +2220,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
       max(outLinear, float3(0.0f, 0.0f, 0.0f)),
       toneMappingMode,
       toneMappingExposure);
-  float3 outSrgb = linearToSrgb(mapped);
+  float3 outSrgb = resolveWorldSceneColor(mapped);
   return float4(outSrgb, outA);
 }
 

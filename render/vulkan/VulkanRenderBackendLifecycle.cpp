@@ -622,10 +622,27 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
                   device, &worldStateLayoutInfo, nullptr, &worldStateSetLayout),
               "vkCreateDescriptorSetLayout(world state)");
 
+    VkDescriptorSetLayoutBinding sceneColorBinding{};
+    sceneColorBinding.binding = 0u;
+    sceneColorBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    sceneColorBinding.descriptorCount = 1u;
+    sceneColorBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutCreateInfo sceneColorSetLayoutInfo{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    sceneColorSetLayoutInfo.bindingCount = 1u;
+    sceneColorSetLayoutInfo.pBindings = &sceneColorBinding;
+    requireVk(vkCreateDescriptorSetLayout(
+                  device,
+                  &sceneColorSetLayoutInfo,
+                  nullptr,
+                  &worldSceneColorSetLayout),
+              "vkCreateDescriptorSetLayout(world scene color)");
+
     std::array<VkDescriptorPoolSize, 4> poolSizes{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     poolSizes[0].descriptorCount =
         4096u * engine::render::vulkan_backend::kWorldMaterialTextureCount +
+        kFramesInFlight +
         (descriptorIndexingSupported
              ? kFramesInFlight *
                    engine::render::vulkan_backend::kMaxIndexedWorldMaterials *
@@ -638,7 +655,7 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
     poolSizes[3].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
     poolSizes[3].descriptorCount = kFramesInFlight;
     VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    poolInfo.maxSets = 4096u + kFramesInFlight +
+    poolInfo.maxSets = 4096u + kFramesInFlight + kFramesInFlight +
                        (descriptorIndexingSupported ? kFramesInFlight : 0u);
     poolInfo.poolSizeCount = static_cast<std::uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
@@ -671,6 +688,46 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
     requireVk(vkCreatePipelineLayout(
                   device, &texturedLayoutInfo, nullptr, &texturedPipelineLayout),
               "vkCreatePipelineLayout(textured)");
+
+    VkPipelineLayoutCreateInfo sceneColorLayoutInfo{
+        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    sceneColorLayoutInfo.setLayoutCount = 1u;
+    sceneColorLayoutInfo.pSetLayouts = &worldSceneColorSetLayout;
+    requireVk(vkCreatePipelineLayout(
+                  device,
+                  &sceneColorLayoutInfo,
+                  nullptr,
+                  &worldSceneColorPipelineLayout),
+              "vkCreatePipelineLayout(world scene color)");
+
+    std::array<VkDescriptorSetLayout, kFramesInFlight> sceneColorSetLayouts{};
+    sceneColorSetLayouts.fill(worldSceneColorSetLayout);
+    VkDescriptorSetAllocateInfo sceneColorAllocateInfo{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    sceneColorAllocateInfo.descriptorPool = descriptorPool;
+    sceneColorAllocateInfo.descriptorSetCount = kFramesInFlight;
+    sceneColorAllocateInfo.pSetLayouts = sceneColorSetLayouts.data();
+    requireVk(vkAllocateDescriptorSets(
+                  device,
+                  &sceneColorAllocateInfo,
+                  worldSceneColorDescriptorSets.data()),
+              "vkAllocateDescriptorSets(world scene color)");
+
+    VkSamplerCreateInfo sceneColorSamplerInfo{
+        VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    sceneColorSamplerInfo.magFilter = VK_FILTER_NEAREST;
+    sceneColorSamplerInfo.minFilter = VK_FILTER_NEAREST;
+    sceneColorSamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    sceneColorSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sceneColorSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sceneColorSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sceneColorSamplerInfo.maxLod = 0.0f;
+    requireVk(vkCreateSampler(
+                  device,
+                  &sceneColorSamplerInfo,
+                  nullptr,
+                  &worldSceneColorSampler),
+              "vkCreateSampler(world scene color)");
 
     if (descriptorIndexingSupported) {
         const std::array<VkDescriptorSetLayout, 2> indirectSetLayouts{
@@ -902,6 +959,7 @@ void VulkanRenderBackendImpl::createSwapchainResources() {
 
     createRenderPass();
     createDepthResources();
+    createWorldSceneColorResources();
     createFramebuffers();
     createPipelines();
 }
@@ -942,10 +1000,6 @@ void VulkanRenderBackendImpl::createRenderPass() {
     depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-    const std::array<VkAttachmentDescription, 2> attachments{
-        colorAttachment,
-        depthAttachment,
-    };
     VkAttachmentReference colorReference{0u, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
     VkAttachmentReference depthReference{1u, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
     VkSubpassDescription subpass{};
@@ -954,24 +1008,100 @@ void VulkanRenderBackendImpl::createRenderPass() {
     subpass.pColorAttachments = &colorReference;
     subpass.pDepthStencilAttachment = &depthReference;
 
-    VkSubpassDependency dependency{};
-    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependency.dstSubpass = 0u;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.dstStageMask = dependency.srcStageMask;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    const auto createCompatibleRenderPass =
+        [&](const VkAttachmentDescription& color,
+            const VkAttachmentDescription& depth,
+            const VkSubpassDependency* dependencies,
+            std::uint32_t dependencyCount,
+            VkRenderPass& outRenderPass,
+            const char* operation) {
+            const std::array<VkAttachmentDescription, 2> attachments{color, depth};
+            VkRenderPassCreateInfo createInfo{
+                VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+            createInfo.attachmentCount =
+                static_cast<std::uint32_t>(attachments.size());
+            createInfo.pAttachments = attachments.data();
+            createInfo.subpassCount = 1u;
+            createInfo.pSubpasses = &subpass;
+            createInfo.dependencyCount = dependencyCount;
+            createInfo.pDependencies = dependencies;
+            requireVk(
+                vkCreateRenderPass(
+                    device, &createInfo, nullptr, &outRenderPass),
+                operation);
+        };
 
-    VkRenderPassCreateInfo createInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-    createInfo.attachmentCount = static_cast<std::uint32_t>(attachments.size());
-    createInfo.pAttachments = attachments.data();
-    createInfo.subpassCount = 1u;
-    createInfo.pSubpasses = &subpass;
-    createInfo.dependencyCount = 1u;
-    createInfo.pDependencies = &dependency;
-    requireVk(vkCreateRenderPass(device, &createInfo, nullptr, &renderPass),
-              "vkCreateRenderPass");
+    VkSubpassDependency beginDependency{};
+    beginDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    beginDependency.dstSubpass = 0u;
+    beginDependency.srcStageMask =
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    beginDependency.dstStageMask = beginDependency.srcStageMask;
+    beginDependency.dstAccessMask =
+        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    createCompatibleRenderPass(
+        colorAttachment,
+        depthAttachment,
+        &beginDependency,
+        1u,
+        renderPass,
+        "vkCreateRenderPass");
+
+    VkAttachmentDescription loadColorAttachment = colorAttachment;
+    loadColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    loadColorAttachment.initialLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    VkAttachmentDescription loadDepthAttachment = depthAttachment;
+    loadDepthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    loadDepthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    loadDepthAttachment.initialLayout =
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    VkSubpassDependency loadDependency{};
+    loadDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    loadDependency.dstSubpass = 0u;
+    loadDependency.srcStageMask =
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    loadDependency.dstStageMask = loadDependency.srcStageMask;
+    loadDependency.srcAccessMask =
+        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    loadDependency.dstAccessMask =
+        VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+    createCompatibleRenderPass(
+        loadColorAttachment,
+        loadDepthAttachment,
+        &loadDependency,
+        1u,
+        loadRenderPass,
+        "vkCreateRenderPass(load)");
+
+    VkAttachmentDescription sceneColorAttachment = colorAttachment;
+    sceneColorAttachment.finalLayout =
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkAttachmentDescription sceneDepthAttachment = depthAttachment;
+    sceneDepthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    const std::array<VkSubpassDependency, 2> sceneDependencies{
+        beginDependency,
+        VkSubpassDependency{
+            0u,
+            VK_SUBPASS_EXTERNAL,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT,
+            0u},
+    };
+    createCompatibleRenderPass(
+        sceneColorAttachment,
+        sceneDepthAttachment,
+        sceneDependencies.data(),
+        static_cast<std::uint32_t>(sceneDependencies.size()),
+        worldSceneColorRenderPass,
+        "vkCreateRenderPass(world scene color)");
 }
 
 void VulkanRenderBackendImpl::createDepthResources() {
@@ -1065,6 +1195,8 @@ void VulkanRenderBackendImpl::createPipelines() {
     VkShaderModule debugFs = VK_NULL_HANDLE;
     VkShaderModule spriteVs = VK_NULL_HANDLE;
     VkShaderModule spriteFs = VK_NULL_HANDLE;
+    VkShaderModule sceneColorVs = VK_NULL_HANDLE;
+    VkShaderModule sceneColorFs = VK_NULL_HANDLE;
     VkShaderModule worldVs = VK_NULL_HANDLE;
     VkShaderModule worldFs = VK_NULL_HANDLE;
     VkShaderModule worldDualSourceFs = VK_NULL_HANDLE;
@@ -1076,6 +1208,8 @@ void VulkanRenderBackendImpl::createPipelines() {
         debugFs = loadShaderModule("debug.frag.spv");
         spriteVs = loadShaderModule("sprite.vert.spv");
         spriteFs = loadShaderModule("sprite.frag.spv");
+        sceneColorVs = loadShaderModule("scene_color.vert.spv");
+        sceneColorFs = loadShaderModule("scene_color.frag.spv");
         worldVs = loadShaderModule("world.vert.spv");
         worldFs = loadShaderModule("world.frag.spv");
         if (dualSourceBlendSupported) {
@@ -1132,6 +1266,24 @@ void VulkanRenderBackendImpl::createPipelines() {
                                                 false,
                                                 false,
                                                 false);
+
+        VkVertexInputBindingDescription sceneColorBinding{
+            0u, 0u, VK_VERTEX_INPUT_RATE_VERTEX};
+        const std::vector<VkVertexInputAttributeDescription>
+            sceneColorAttributes{};
+        worldSceneColorPipeline = createGraphicsPipeline(
+            device,
+            loadRenderPass,
+            worldSceneColorPipelineLayout,
+            sceneColorVs,
+            sceneColorFs,
+            sceneColorBinding,
+            sceneColorAttributes,
+            false,
+            0u,
+            false,
+            false,
+            false);
 
         VkVertexInputBindingDescription worldBinding{
             0u,
@@ -1232,6 +1384,12 @@ void VulkanRenderBackendImpl::createPipelines() {
         if (debugFs != VK_NULL_HANDLE) vkDestroyShaderModule(device, debugFs, nullptr);
         if (spriteVs != VK_NULL_HANDLE) vkDestroyShaderModule(device, spriteVs, nullptr);
         if (spriteFs != VK_NULL_HANDLE) vkDestroyShaderModule(device, spriteFs, nullptr);
+        if (sceneColorVs != VK_NULL_HANDLE) {
+            vkDestroyShaderModule(device, sceneColorVs, nullptr);
+        }
+        if (sceneColorFs != VK_NULL_HANDLE) {
+            vkDestroyShaderModule(device, sceneColorFs, nullptr);
+        }
         if (worldVs != VK_NULL_HANDLE) vkDestroyShaderModule(device, worldVs, nullptr);
         if (worldFs != VK_NULL_HANDLE) vkDestroyShaderModule(device, worldFs, nullptr);
         if (worldDualSourceFs != VK_NULL_HANDLE) {
@@ -1252,6 +1410,8 @@ void VulkanRenderBackendImpl::createPipelines() {
     vkDestroyShaderModule(device, debugFs, nullptr);
     vkDestroyShaderModule(device, spriteVs, nullptr);
     vkDestroyShaderModule(device, spriteFs, nullptr);
+    vkDestroyShaderModule(device, sceneColorVs, nullptr);
+    vkDestroyShaderModule(device, sceneColorFs, nullptr);
     vkDestroyShaderModule(device, worldVs, nullptr);
     vkDestroyShaderModule(device, worldFs, nullptr);
     if (worldDualSourceFs != VK_NULL_HANDLE) {
@@ -1272,8 +1432,12 @@ void VulkanRenderBackendImpl::destroyPipelines() {
     if (device == VK_NULL_HANDLE) return;
     if (debugPipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, debugPipeline, nullptr);
     if (spritePipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, spritePipeline, nullptr);
+    if (worldSceneColorPipeline != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device, worldSceneColorPipeline, nullptr);
+    }
     debugPipeline = VK_NULL_HANDLE;
     spritePipeline = VK_NULL_HANDLE;
+    worldSceneColorPipeline = VK_NULL_HANDLE;
     for (VkPipeline& pipeline : worldPipelines) {
         if (pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, pipeline, nullptr);
         pipeline = VK_NULL_HANDLE;
@@ -1286,7 +1450,10 @@ void VulkanRenderBackendImpl::destroyPipelines() {
 
 void VulkanRenderBackendImpl::destroySwapchainResources() {
     if (device == VK_NULL_HANDLE) return;
+    mainRenderPassActive = false;
+    worldSceneColorPassActive = false;
     destroyPipelines();
+    destroyWorldSceneColorResources();
     for (VkFramebuffer framebuffer : framebuffers) {
         if (framebuffer != VK_NULL_HANDLE) vkDestroyFramebuffer(device, framebuffer, nullptr);
     }
@@ -1304,7 +1471,15 @@ void VulkanRenderBackendImpl::destroySwapchainResources() {
     depthImages.clear();
     depthMemories.clear();
     if (renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, renderPass, nullptr);
+    if (loadRenderPass != VK_NULL_HANDLE) {
+        vkDestroyRenderPass(device, loadRenderPass, nullptr);
+    }
+    if (worldSceneColorRenderPass != VK_NULL_HANDLE) {
+        vkDestroyRenderPass(device, worldSceneColorRenderPass, nullptr);
+    }
     renderPass = VK_NULL_HANDLE;
+    loadRenderPass = VK_NULL_HANDLE;
+    worldSceneColorRenderPass = VK_NULL_HANDLE;
     for (VkImageView view : swapchainImageViews) {
         if (view != VK_NULL_HANDLE) vkDestroyImageView(device, view, nullptr);
     }
@@ -1317,6 +1492,8 @@ void VulkanRenderBackendImpl::destroySwapchainResources() {
 
 void VulkanRenderBackendImpl::beginFrame(float r, float g, float b, float a) {
     frameActive = false;
+    mainRenderPassActive = false;
+    worldSceneColorPassActive = false;
     if (!initialized || device == VK_NULL_HANDLE) return;
     ++frameCounter;
     if ((swapchainDirty || swapchain == VK_NULL_HANDLE) && !recreateSwapchain()) return;
@@ -1410,6 +1587,8 @@ void VulkanRenderBackendImpl::beginFrame(float r, float g, float b, float a) {
     renderPassInfo.clearValueCount = static_cast<std::uint32_t>(clearValues.size());
     renderPassInfo.pClearValues = clearValues.data();
     vkCmdBeginRenderPass(frame.commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    frameClearColor = {r, g, b, a};
+    mainRenderPassActive = true;
 
     setViewportAndScissor(
         frame.commandBuffer,
@@ -1420,8 +1599,14 @@ void VulkanRenderBackendImpl::beginFrame(float r, float g, float b, float a) {
 
 void VulkanRenderBackendImpl::endFrame() {
     if (!frameActive || device == VK_NULL_HANDLE) return;
+    if (worldSceneColorPassActive) {
+        endWorldSceneColorPass();
+    }
     FrameResources& frame = frames[currentFrame];
-    vkCmdEndRenderPass(frame.commandBuffer);
+    if (mainRenderPassActive) {
+        vkCmdEndRenderPass(frame.commandBuffer);
+        mainRenderPassActive = false;
+    }
     const bool capturedThisFrame = recordScreenshotCopy(frame.commandBuffer);
     if (frame.timestampIssued) {
         vkCmdWriteTimestamp(frame.commandBuffer,
@@ -1665,6 +1850,13 @@ void VulkanRenderBackendImpl::shutdown() {
         if (indirectWorldPipelineLayout != VK_NULL_HANDLE) {
             vkDestroyPipelineLayout(device, indirectWorldPipelineLayout, nullptr);
         }
+        if (worldSceneColorPipelineLayout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(
+                device, worldSceneColorPipelineLayout, nullptr);
+        }
+        if (worldSceneColorSampler != VK_NULL_HANDLE) {
+            vkDestroySampler(device, worldSceneColorSampler, nullptr);
+        }
         if (descriptorPool != VK_NULL_HANDLE) {
             vkDestroyDescriptorPool(device, descriptorPool, nullptr);
         }
@@ -1678,6 +1870,10 @@ void VulkanRenderBackendImpl::shutdown() {
         if (worldStateSetLayout != VK_NULL_HANDLE) {
             vkDestroyDescriptorSetLayout(device, worldStateSetLayout, nullptr);
         }
+        if (worldSceneColorSetLayout != VK_NULL_HANDLE) {
+            vkDestroyDescriptorSetLayout(
+                device, worldSceneColorSetLayout, nullptr);
+        }
         if (commandPool != VK_NULL_HANDLE) vkDestroyCommandPool(device, commandPool, nullptr);
         vkDestroyDevice(device, nullptr);
     }
@@ -1686,10 +1882,14 @@ void VulkanRenderBackendImpl::shutdown() {
     debugPipelineLayout = VK_NULL_HANDLE;
     texturedPipelineLayout = VK_NULL_HANDLE;
     indirectWorldPipelineLayout = VK_NULL_HANDLE;
+    worldSceneColorPipelineLayout = VK_NULL_HANDLE;
+    worldSceneColorSampler = VK_NULL_HANDLE;
     descriptorPool = VK_NULL_HANDLE;
     textureSetLayout = VK_NULL_HANDLE;
     indexedWorldMaterialSetLayout = VK_NULL_HANDLE;
     worldStateSetLayout = VK_NULL_HANDLE;
+    worldSceneColorSetLayout = VK_NULL_HANDLE;
+    worldSceneColorDescriptorSets.fill(VK_NULL_HANDLE);
     descriptorIndexingSupported = false;
     indirectWorldBatchingSupported = false;
     if (surface != VK_NULL_HANDLE && instance != VK_NULL_HANDLE) {

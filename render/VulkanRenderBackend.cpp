@@ -28,6 +28,16 @@ void VulkanRenderBackend::endFrame() {
     if (impl_) impl_->endFrame();
 }
 
+void VulkanRenderBackend::beginWorldSceneColorPass(
+    int surfaceWidth,
+    int surfaceHeight) {
+    if (impl_) impl_->beginWorldSceneColorPass(surfaceWidth, surfaceHeight);
+}
+
+void VulkanRenderBackend::endWorldSceneColorPass() {
+    if (impl_) impl_->endWorldSceneColorPass();
+}
+
 void VulkanRenderBackend::onResize(int width, int height) {
     if (impl_) impl_->requestResize(width, height);
 }

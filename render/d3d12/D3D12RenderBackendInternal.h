@@ -168,11 +168,16 @@ struct WorldPsConstants {
     float materialFlipbook1Rows = 1.0f;
     float materialFlipbook1Frames = 1.0f;
     float materialFlipbook1Fps = 0.0f;
+    float sceneColorPostEnabled = 0.0f;
 };
 
-inline WorldPsConstants makeWorldPsConstants(const IRenderBackend::WorldTextureData* textureData, float useTexture) {
+inline WorldPsConstants makeWorldPsConstants(
+    const IRenderBackend::WorldTextureData* textureData,
+    float useTexture,
+    bool sceneColorPostEnabled = false) {
     WorldPsConstants constants;
     constants.useTexture = useTexture;
+    constants.sceneColorPostEnabled = sceneColorPostEnabled ? 1.0f : 0.0f;
     if (!textureData) return constants;
     constants.wrapS = sanitizeWrapMode(textureData->wrapS);
     constants.wrapT = sanitizeWrapMode(textureData->wrapT);

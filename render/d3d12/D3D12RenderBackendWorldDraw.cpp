@@ -805,7 +805,8 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
         4,
         worldInstanceBufferGpuAddress_ +
             static_cast<std::uint64_t>(worldInstanceFrameBaseOffset_));
-    WorldPsConstants worldPs = makeWorldPsConstants(textureData, useTexture);
+    WorldPsConstants worldPs = makeWorldPsConstants(
+        textureData, useTexture, worldSceneColorPassActive_);
     if (textureData && textureData->materialMode >= 2u) {
         // Reuse an unused packed slot in lit model mode for shader debug-view selection.
         worldPs.materialFlipbook1Fps = static_cast<float>(pbrDebugViewMode());
@@ -838,7 +839,8 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
     // The textured surface must follow the inverted hull because blended
     // character materials do not guarantee a depth write.
     if (drawCharacterOutline) {
-        WorldPsConstants outlinePs = makeWorldPsConstants(textureData, 0.0f);
+        WorldPsConstants outlinePs = makeWorldPsConstants(
+            textureData, 0.0f, worldSceneColorPassActive_);
         outlinePs.materialMode = 3.0f;
         commandList_->SetGraphicsRoot32BitConstants(
             1,
@@ -1004,7 +1006,8 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
         worldVsConstantBufferGpuAddress_ + static_cast<std::uint64_t>(vsConstantsWriteOffset));
     commandList_->SetGraphicsRootShaderResourceView(2, skinMatrixGpuAddress);
     commandList_->SetGraphicsRootShaderResourceView(4, instanceDataGpuAddress);
-    WorldPsConstants worldPs = makeWorldPsConstants(textureData, useTexture);
+    WorldPsConstants worldPs = makeWorldPsConstants(
+        textureData, useTexture, worldSceneColorPassActive_);
     if (textureData && textureData->materialMode >= 2u) {
         worldPs.materialFlipbook1Fps = static_cast<float>(pbrDebugViewMode());
     }
@@ -1035,7 +1038,8 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
         textureData->materialMode >= 2u;
     // Keep the cached path in the same outline-then-surface order.
     if (drawCharacterOutline) {
-        WorldPsConstants outlinePs = makeWorldPsConstants(textureData, 0.0f);
+        WorldPsConstants outlinePs = makeWorldPsConstants(
+            textureData, 0.0f, worldSceneColorPassActive_);
         outlinePs.materialMode = 3.0f;
         commandList_->SetGraphicsRoot32BitConstants(
             1,

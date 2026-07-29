@@ -396,7 +396,8 @@ void D3D12RenderBackend::drawWorldIndexedMeshCachedInternal(const CachedWorldMes
         4,
         worldInstanceBufferGpuAddress_ +
             static_cast<std::uint64_t>(worldInstanceFrameBaseOffset_));
-    const WorldPsConstants worldPs = makeWorldPsConstants(nullptr, useTexture);
+    const WorldPsConstants worldPs = makeWorldPsConstants(
+        nullptr, useTexture, worldSceneColorPassActive_);
     commandList_->SetGraphicsRoot32BitConstants(
         1,
         static_cast<UINT>(sizeof(WorldPsConstants) / sizeof(float)),

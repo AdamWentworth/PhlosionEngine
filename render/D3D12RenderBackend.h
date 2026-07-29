@@ -53,6 +53,8 @@ public:
     bool supportsWorldIndexedMeshInstancing() const override { return true; }
     bool supportsWorldSceneFastPath() const override { return true; }
     bool getWorldSceneFastPathCaps(WorldSceneFastPathCaps& outCaps) const override;
+    void beginWorldSceneColorPass(int surfaceWidth, int surfaceHeight) override;
+    void endWorldSceneColorPass() override;
     void recordWorldIndexedSubmissionStats(const WorldIndexedSubmissionStats& stats) override;
     void submitWorldScene(const WorldSceneFrame& frame,
                           const WorldSceneView& view) override;
@@ -153,6 +155,9 @@ private:
     void createDebugPipeline();
     void createWorldPipeline();
     void createSpritePipeline();
+    void createWorldSceneColorPipeline();
+    void createWorldSceneColorResource();
+    void releaseWorldSceneColorResource();
     struct SpriteTexture;
     SpriteTexture* ensureSpriteTexture(const std::string& texturePath);
     SpriteTexture* ensureFallbackSpriteTexture();
@@ -394,6 +399,11 @@ private:
     std::uint32_t rtvDescriptorSize_ = 0;
     std::uint32_t dsvDescriptorSize_ = 0;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, kFrameCount> renderTargets_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> worldSceneColorTarget_;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> worldSceneColorRootSignature_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> worldSceneColorPipelineState_;
+    std::uint32_t worldSceneColorSrvDescriptorIndex_ = 0xffffffffu;
+    bool worldSceneColorPassActive_ = false;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, kFrameCount> depthBuffers_;
     std::array<Microsoft::WRL::ComPtr<ID3D12CommandAllocator>, kFrameCount> commandAllocators_;
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList_;

@@ -83,6 +83,7 @@ void OpenGLRenderBackend::beginFrame(float r, float g, float b, float a) {
     frameIndexedMaterialSwitches_ = 0u;
     frameIndexedTextureSwitches_ = 0u;
     frameIndexedGlTextureBindCalls_ = 0u;
+    frameClearColor_ = {r, g, b, a};
 #ifdef GL_FRAMEBUFFER_SRGB
     if (engine::render::parity_contract::kFramebufferSrgbEnabled) {
         glEnable(GL_FRAMEBUFFER_SRGB);
@@ -102,6 +103,9 @@ void OpenGLRenderBackend::beginFrame(float r, float g, float b, float a) {
 }
 
 void OpenGLRenderBackend::endFrame() {
+    if (worldSceneColorPassActive_) {
+        endWorldSceneColorPass();
+    }
     if (gpuTimingSupported_) {
         const std::size_t writeIdx = static_cast<std::size_t>(gpuTimerWriteIndex_ & 1u);
         if (gpuTimerQueries_[writeIdx] != 0u && gpuTimerIssued_[writeIdx]) {
@@ -219,6 +223,7 @@ void OpenGLRenderBackend::shutdown() {
     lastGpuFrameMs_ = 0.0f;
     lastGpuFrameValid_ = false;
 
+    destroyWorldSceneColorResources();
     destroyDebugPipeline();
     destroyWorldPipeline();
     destroySpritePipeline();

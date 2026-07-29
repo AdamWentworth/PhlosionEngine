@@ -815,6 +815,11 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             worldCharacterInkingEnabledLoc_,
             (texture && texture->characterInkingEnabled != 0u) ? 1.0f : 0.0f);
     }
+    if (worldSceneColorPostEnabledLoc_ >= 0) {
+        glUniform1f(
+            worldSceneColorPostEnabledLoc_,
+            worldSceneColorPassActive_ ? 1.0f : 0.0f);
+    }
     glUniform1f(worldMaterialModeLoc_, static_cast<GLfloat>(materialMode));
     glUniform1f(worldMaterialTimeLoc_, texture ? texture->materialTimeSec : 0.0f);
     glUniform1f(worldMaterialFlagsLoc_, texture ? texture->materialFlags : 0.0f);
