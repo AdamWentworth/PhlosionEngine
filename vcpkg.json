@@ -16,6 +16,13 @@
     "sol2",
     "nlohmann-json",
     "fastgltf",
+    {
+      "name": "imgui",
+      "features": [
+        "docking-experimental",
+        "opengl3-binding"
+      ]
+    },
     "stb",
     "vulkan",
     {

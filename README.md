@@ -38,4 +38,6 @@ target_link_libraries(MyGame PRIVATE Phlosion::Engine)
 See [docs/EXTRACTION_STATUS.md](docs/EXTRACTION_STATUS.md) for the active
 separation boundaries and
 [docs/PHLOSION_ASSET_ARCHITECTURE.md](docs/PHLOSION_ASSET_ARCHITECTURE.md)
-for the shared cooked-resource design.
+for the shared cooked-resource design. The native editor boundary and first
+vertical slice are defined in
+[docs/EDITOR_ARCHITECTURE.md](docs/EDITOR_ARCHITECTURE.md).

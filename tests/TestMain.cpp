@@ -3,6 +3,7 @@
 
 bool test_phlosion_resource_container_contract(std::string& outFail);
 bool test_phlosion_scene_archive_contract(std::string& outFail);
+bool test_project_descriptor_contract(std::string& outFail);
 
 int main() {
     struct TestCase {
@@ -13,6 +14,7 @@ int main() {
     const TestCase tests[] = {
         {"phlosion_resource_container_contract", &test_phlosion_resource_container_contract},
         {"phlosion_scene_archive_contract", &test_phlosion_scene_archive_contract},
+        {"project_descriptor_contract", &test_project_descriptor_contract},
     };
 
     bool passed = true;

@@ -8,8 +8,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(_phlosion_tests_default ON)
+    set(_phlosion_editor_default ON)
 else()
     set(_phlosion_tests_default OFF)
+    set(_phlosion_editor_default OFF)
 endif()
 
 set(_phlosion_werror_default OFF)
@@ -18,6 +20,7 @@ if (DEFINED ENV{CI} AND NOT "$ENV{CI}" STREQUAL "" AND NOT "$ENV{CI}" STREQUAL "
 endif()
 
 option(PHLOSION_BUILD_TESTS "Build Phlosion Engine contract tests" ${_phlosion_tests_default})
+option(PHLOSION_BUILD_EDITOR "Build the Phlosion Editor UI framework" ${_phlosion_editor_default})
 option(PHLOSION_ENABLE_WARNINGS "Enable compiler warnings for engine sources" ON)
 option(PHLOSION_WARNINGS_AS_ERRORS "Treat engine warnings as errors" ${_phlosion_werror_default})
 option(PHLOSION_VERBOSE_STARTUP "Enable verbose startup and model-load logging" OFF)
@@ -42,6 +45,9 @@ find_package(sol2 CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(fastgltf CONFIG REQUIRED)
 find_package(Vulkan REQUIRED)
+if (PHLOSION_BUILD_EDITOR)
+    find_package(imgui CONFIG REQUIRED)
+endif()
 
 if (TARGET sol2::sol2)
     set(PHLOSION_SOL2_TARGET sol2::sol2)
@@ -324,6 +330,31 @@ add_library(engine_runtime STATIC
 target_link_libraries(engine_runtime PUBLIC Engine)
 phlosion_apply_settings(engine_runtime)
 
+add_library(engine_editor_core STATIC
+    src/engine/editor/ProjectDescriptor.cpp
+)
+target_link_libraries(engine_editor_core
+    PUBLIC
+        engine_core
+        nlohmann_json::nlohmann_json
+)
+phlosion_apply_settings(engine_editor_core)
+
+if (PHLOSION_BUILD_EDITOR)
+    add_library(engine_editor STATIC
+        src/engine/editor/EditorShell.cpp
+    )
+    target_link_libraries(engine_editor
+        PUBLIC
+            Engine
+            engine_editor_core
+        PRIVATE
+            imgui::imgui
+    )
+    phlosion_apply_settings(engine_editor)
+    add_library(Phlosion::Editor ALIAS engine_editor)
+endif()
+
 add_library(engine_tools_vfx_preview STATIC
     src/engine/tools/vfx_preview/VfxPreviewApp.cpp
 )
@@ -338,6 +369,7 @@ add_library(Phlosion::Core ALIAS engine_core)
 add_library(Phlosion::Platform ALIAS engine_platform)
 add_library(Phlosion::Render ALIAS engine_render)
 add_library(Phlosion::Runtime ALIAS engine_runtime)
+add_library(Phlosion::EditorCore ALIAS engine_editor_core)
 add_library(Phlosion::VfxPreview ALIAS engine_tools_vfx_preview)
 
 if (PHLOSION_OPTIMIZE_RENDER_HOTPATHS_IN_DEBUG)
@@ -373,10 +405,15 @@ if (PHLOSION_BUILD_TESTS)
     include(CTest)
     add_executable(PhlosionEngineTests
         tests/TestMain.cpp
+        tests/TestProjectDescriptor.cpp
         tests/TestPhlosionResourceContainer.cpp
         tests/TestPhlosionSceneArchive.cpp
     )
-    target_link_libraries(PhlosionEngineTests PRIVATE Phlosion::Core)
+    target_link_libraries(PhlosionEngineTests
+        PRIVATE
+            Phlosion::Core
+            Phlosion::EditorCore
+    )
     if (MSVC)
         target_compile_options(PhlosionEngineTests PRIVATE
             /permissive- /Zc:__cplusplus /FS /MP)
