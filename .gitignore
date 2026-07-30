@@ -1,0 +1,26 @@
+# Build output
+build/
+build-*/
+dist/
+out/
+
+# Generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+generated/
+
+# Compiler and IDE output
+*.exe
+*.obj
+*.o
+*.pdb
+.vs/
+.vscode/
+
+# Local diagnostics
+artifacts/
+*.log
+.codex/
+__pycache__/

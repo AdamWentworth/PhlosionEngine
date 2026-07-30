@@ -1,0 +1,32 @@
+{
+  "name": "phlosion-engine",
+  "version-string": "0.1.0",
+  "builtin-baseline": "b7ba15730cadac50ce5092223efc92972c0afc5b",
+  "dependencies": [
+    {
+      "name": "sdl2",
+      "features": [
+        "vulkan"
+      ]
+    },
+    "sdl2-ttf",
+    "glad",
+    "glm",
+    "lua",
+    "sol2",
+    "nlohmann-json",
+    "fastgltf",
+    "stb",
+    "vulkan",
+    {
+      "name": "glslang",
+      "host": true,
+      "features": [
+        "tools"
+      ]
+    }
+  ],
+  "overrides": [
+    { "name": "lua", "version": "5.4.8#0" }
+  ]
+}
