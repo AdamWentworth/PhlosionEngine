@@ -101,7 +101,8 @@ VulkanRenderBackendImpl::WorldMaterial VulkanRenderBackendImpl::createWorldMater
     Texture& occlusion,
     Texture& emissive,
     Texture& environment,
-    Texture& lightProjection) {
+    Texture& lightProjection,
+    Texture& projectedShadow) {
     const std::array<
         Texture*,
         engine::render::vulkan_backend::kWorldMaterialTextureCount> textures{
@@ -111,7 +112,8 @@ VulkanRenderBackendImpl::WorldMaterial VulkanRenderBackendImpl::createWorldMater
         &occlusion,
         &emissive,
         &environment,
-        &lightProjection};
+        &lightProjection,
+        &projectedShadow};
     WorldMaterial out;
     out.textures = textures;
 
@@ -160,6 +162,7 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         "__fallback_emissive__",
         "__neutral_pmrem_environment__",
         "__fallback_light_projection__",
+        "__fallback_projected_shadow__",
     };
 
     Texture* base = ensureWorldTextureRaw(
@@ -260,6 +263,20 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->lightProjectionMipLevelCount);
     if (!lightProjection) lightProjection = &fallbackWorldLinearTexture;
 
+    Texture* projectedShadow = ensureWorldTextureRaw(
+        texture->projectedShadowKey,
+        texture->projectedShadowCacheKey,
+        texture->projectedShadowRgba,
+        texture->projectedShadowWidth,
+        texture->projectedShadowHeight,
+        texture->projectedShadowWrapS,
+        texture->projectedShadowWrapT,
+        texture->projectedShadowTextureSrgb != 0u,
+        &keys[7],
+        nullptr,
+        0u);
+    if (!projectedShadow) projectedShadow = &fallbackWorldLinearTexture;
+
     const std::string key = materialKey(keys);
     auto existing = worldMaterials.find(key);
     if (existing != worldMaterials.end()) {
@@ -268,7 +285,7 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
     }
     WorldMaterial material = createWorldMaterial(
         *base, *normal, *metallicRoughness, *occlusion, *emissive,
-        *environment, *lightProjection);
+        *environment, *lightProjection, *projectedShadow);
     WorldMaterial& inserted = worldMaterials.emplace(key, material).first->second;
     (void)registerIndexedWorldMaterial(inserted);
     return &inserted;

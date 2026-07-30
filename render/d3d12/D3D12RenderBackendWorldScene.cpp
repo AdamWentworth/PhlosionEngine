@@ -108,6 +108,25 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     tex.lightProjectionWrapT = material.lightProjectionTextureWrapT;
     tex.lightProjectionTextureSrgb =
         material.lightProjectionTextureSrgb;
+    tex.projectedShadowKey = material.projectedShadowTextureKey.empty()
+        ? ""
+        : material.projectedShadowTextureKey.c_str();
+    tex.projectedShadowCacheKey =
+        material.projectedShadowTextureCacheKey.empty()
+        ? nullptr
+        : material.projectedShadowTextureCacheKey.c_str();
+    tex.projectedShadowRgba = material.projectedShadowTextureRgba;
+    tex.projectedShadowWidth = material.projectedShadowTextureWidth;
+    tex.projectedShadowHeight = material.projectedShadowTextureHeight;
+    tex.projectedShadowWrapS = material.projectedShadowTextureWrapS;
+    tex.projectedShadowWrapT = material.projectedShadowTextureWrapT;
+    tex.projectedShadowTextureSrgb =
+        material.projectedShadowTextureSrgb;
+    tex.projectedShadowEnabled = material.projectedShadowEnabled;
+    tex.projectedShadowSamplingScale =
+        material.projectedShadowSamplingScale;
+    tex.projectedShadowBias = material.projectedShadowBias;
+    tex.projectedShadowMatrix = material.projectedShadowMatrix;
     tex.alphaMode = material.alphaMode;
     tex.blendMode = material.blendMode;
     tex.dualSourceBlendEnabled = material.dualSourceBlendEnabled;

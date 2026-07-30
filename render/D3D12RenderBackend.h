@@ -202,7 +202,8 @@ private:
         std::uint32_t occlusionTextureDescriptorIndex,
         std::uint32_t emissiveTextureDescriptorIndex,
         std::uint32_t envTextureDescriptorIndex,
-        std::uint32_t lightProjectionTextureDescriptorIndex);
+        std::uint32_t lightProjectionTextureDescriptorIndex,
+        std::uint32_t projectedShadowTextureDescriptorIndex);
 #if defined(_WIN32)
     struct WorldMaterialDescriptorBlockKey {
         std::uint32_t baseTextureDescriptorIndex = 0u;
@@ -212,6 +213,7 @@ private:
         std::uint32_t emissiveTextureDescriptorIndex = 0u;
         std::uint32_t envTextureDescriptorIndex = 0u;
         std::uint32_t lightProjectionTextureDescriptorIndex = 0u;
+        std::uint32_t projectedShadowTextureDescriptorIndex = 0u;
 
         bool operator==(const WorldMaterialDescriptorBlockKey& other) const {
             return baseTextureDescriptorIndex == other.baseTextureDescriptorIndex &&
@@ -222,7 +224,9 @@ private:
                    emissiveTextureDescriptorIndex == other.emissiveTextureDescriptorIndex &&
                    envTextureDescriptorIndex == other.envTextureDescriptorIndex &&
                    lightProjectionTextureDescriptorIndex ==
-                       other.lightProjectionTextureDescriptorIndex;
+                        other.lightProjectionTextureDescriptorIndex &&
+                   projectedShadowTextureDescriptorIndex ==
+                        other.projectedShadowTextureDescriptorIndex;
         }
     };
     struct WorldMaterialDescriptorBlockKeyHash {
@@ -240,7 +244,10 @@ private:
                  (h << 6) + (h >> 2);
             h ^= static_cast<std::size_t>(
                      key.lightProjectionTextureDescriptorIndex) +
-                 0x9e3779b9u + (h << 6) + (h >> 2);
+                  0x9e3779b9u + (h << 6) + (h >> 2);
+            h ^= static_cast<std::size_t>(
+                     key.projectedShadowTextureDescriptorIndex) +
+                  0x9e3779b9u + (h << 6) + (h >> 2);
             return h;
         }
     };

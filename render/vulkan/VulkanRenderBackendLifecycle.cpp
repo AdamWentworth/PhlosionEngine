@@ -329,6 +329,7 @@ void VulkanRenderBackendImpl::initialize(SDL_Window* sdlWindow,
             fallbackWorldLinearTexture,
             fallbackWorldEmissiveTexture,
             neutralPmremTexture,
+            fallbackWorldLinearTexture,
             fallbackWorldLinearTexture);
         if (descriptorIndexingSupported) {
             if (!registerIndexedWorldMaterial(fallbackWorldMaterial)) {

@@ -169,6 +169,18 @@ struct WorldPsConstants {
     float materialFlipbook1Frames = 1.0f;
     float materialFlipbook1Fps = 0.0f;
     float sceneColorPostEnabled = 0.0f;
+    float projectedShadowPadding0 = 0.0f;
+    float projectedShadowPadding1 = 0.0f;
+    float projectedShadowPadding2 = 0.0f;
+    std::array<float, 16> projectedShadowMatrix{
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f};
+    float projectedShadowEnabled = 0.0f;
+    float projectedShadowSamplingScale = 1.0f;
+    float projectedShadowBias = 0.0f;
+    float projectedShadowReserved = 0.0f;
 };
 
 inline WorldPsConstants makeWorldPsConstants(
@@ -210,6 +222,18 @@ inline WorldPsConstants makeWorldPsConstants(
     constants.materialFlipbook1Rows = textureData->materialFlipbook1Rows;
     constants.materialFlipbook1Frames = textureData->materialFlipbook1Frames;
     constants.materialFlipbook1Fps = textureData->materialFlipbook1Fps;
+    constants.projectedShadowMatrix = textureData->projectedShadowMatrix;
+    constants.projectedShadowEnabled =
+        textureData->projectedShadowEnabled != 0u &&
+        textureData->projectedShadowRgba &&
+        textureData->projectedShadowWidth > 0 &&
+        textureData->projectedShadowHeight > 0
+        ? 1.0f
+        : 0.0f;
+    constants.projectedShadowSamplingScale =
+        (std::max)(textureData->projectedShadowSamplingScale, 0.0f);
+    constants.projectedShadowBias =
+        (std::max)(textureData->projectedShadowBias, 0.0f);
     // D3D12 root signature is constrained to 64 DWORD. For lit model mode (materialMode >= 2),
     // repurpose fire-tail payload slots to carry PBR/camera data needed for three-gltf-viewer parity.
     if (textureData->materialMode >= 2u) {

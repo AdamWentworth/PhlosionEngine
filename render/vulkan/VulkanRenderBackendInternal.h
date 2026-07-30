@@ -414,7 +414,8 @@ struct VulkanRenderBackendImpl {
                                       Texture& occlusion,
                                       Texture& emissive,
                                       Texture& environment,
-                                      Texture& lightProjection);
+                                      Texture& lightProjection,
+                                      Texture& projectedShadow);
     bool registerIndexedWorldMaterial(WorldMaterial& material);
     void initializeIndexedWorldMaterialSets();
     bool syncIndexedWorldMaterialSet();

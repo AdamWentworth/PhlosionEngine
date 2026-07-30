@@ -12,7 +12,8 @@ enum class WorldMaterialBinding : std::uint32_t {
     Emissive = 4u,
     Environment = 5u,
     LightProjection = 6u,
-    Count = 7u,
+    ProjectedShadow = 7u,
+    Count = 8u,
 };
 
 inline constexpr std::uint32_t kWorldMaterialTextureCount =

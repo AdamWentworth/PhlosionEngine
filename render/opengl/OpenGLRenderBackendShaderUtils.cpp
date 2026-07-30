@@ -1,5 +1,9 @@
 #include "engine/render/opengl/OpenGLRenderBackendShaderUtils.h"
 
+#include <algorithm>
+#include <iostream>
+#include <string>
+
 namespace opengl_backend_shader_utils {
 
 unsigned int compileShader(GLenum type, const char* source) {
@@ -11,6 +15,20 @@ unsigned int compileShader(GLenum type, const char* source) {
     GLint ok = 0;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
     if (!ok) {
+        GLint logLength = 0;
+        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLength);
+        std::string log(
+            static_cast<std::size_t>(std::max(logLength, 1)),
+            '\0');
+        GLsizei written = 0;
+        glGetShaderInfoLog(
+            shader,
+            static_cast<GLsizei>(log.size()),
+            &written,
+            log.data());
+        std::cerr << "[OpenGL][Shader] compile failed type="
+                  << static_cast<unsigned int>(type)
+                  << " log=" << log.c_str() << '\n';
         glDeleteShader(shader);
         return 0;
     }
@@ -27,6 +45,19 @@ unsigned int linkProgram(unsigned int vs, unsigned int fs) {
     GLint ok = 0;
     glGetProgramiv(program, GL_LINK_STATUS, &ok);
     if (!ok) {
+        GLint logLength = 0;
+        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLength);
+        std::string log(
+            static_cast<std::size_t>(std::max(logLength, 1)),
+            '\0');
+        GLsizei written = 0;
+        glGetProgramInfoLog(
+            program,
+            static_cast<GLsizei>(log.size()),
+            &written,
+            log.data());
+        std::cerr << "[OpenGL][Shader] link failed log="
+                  << log.c_str() << '\n';
         glDeleteProgram(program);
         return 0;
     }

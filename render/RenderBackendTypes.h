@@ -163,6 +163,22 @@ struct WorldTextureData {
     int lightProjectionWrapS = 10497;
     int lightProjectionWrapT = 10497;
     std::uint8_t lightProjectionTextureSrgb = 0u;
+    const char* projectedShadowKey = nullptr;
+    const char* projectedShadowCacheKey = nullptr;
+    const unsigned char* projectedShadowRgba = nullptr;
+    int projectedShadowWidth = 0;
+    int projectedShadowHeight = 0;
+    int projectedShadowWrapS = 33071;
+    int projectedShadowWrapT = 33071;
+    std::uint8_t projectedShadowTextureSrgb = 0u;
+    std::uint8_t projectedShadowEnabled = 0u;
+    float projectedShadowSamplingScale = 1.0f;
+    float projectedShadowBias = 0.0f;
+    std::array<float, 16> projectedShadowMatrix{
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f};
     std::uint8_t alphaMode = 0u;
     std::uint8_t blendMode = 0u;
     std::uint8_t dualSourceBlendEnabled = 0u;
@@ -440,6 +456,22 @@ struct WorldSceneMaterial {
     int lightProjectionTextureWrapS = 10497;
     int lightProjectionTextureWrapT = 10497;
     std::uint8_t lightProjectionTextureSrgb = 0u;
+    std::string projectedShadowTextureKey;
+    std::string projectedShadowTextureCacheKey;
+    const unsigned char* projectedShadowTextureRgba = nullptr;
+    int projectedShadowTextureWidth = 0;
+    int projectedShadowTextureHeight = 0;
+    int projectedShadowTextureWrapS = 33071;
+    int projectedShadowTextureWrapT = 33071;
+    std::uint8_t projectedShadowTextureSrgb = 0u;
+    std::uint8_t projectedShadowEnabled = 0u;
+    float projectedShadowSamplingScale = 1.0f;
+    float projectedShadowBias = 0.0f;
+    std::array<float, 16> projectedShadowMatrix{
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f};
     std::uint8_t alphaMode = 0u;
     std::uint8_t blendMode = 0u;
     std::uint8_t dualSourceBlendEnabled = 0u;

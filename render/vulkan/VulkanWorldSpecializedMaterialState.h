@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <type_traits>
@@ -14,15 +15,25 @@ struct alignas(16) WorldSpecializedMaterialState {
     std::array<float, 4> rect1{0.0f, 0.0f, 1.0f, 1.0f};
     std::array<float, 4> flipbook0{1.0f, 1.0f, 1.0f, 0.0f};
     std::array<float, 4> flipbook1{1.0f, 1.0f, 1.0f, 0.0f};
+    std::array<float, 16> projectedShadowMatrix{
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f};
+    std::array<float, 4> projectedShadowParams{0.0f, 1.0f, 0.0f, 0.0f};
 };
 
 static_assert(std::is_standard_layout_v<WorldSpecializedMaterialState>);
-static_assert(sizeof(WorldSpecializedMaterialState) == 80u);
+static_assert(sizeof(WorldSpecializedMaterialState) == 160u);
 static_assert(offsetof(WorldSpecializedMaterialState, timingFlagsAtlas) == 0u);
 static_assert(offsetof(WorldSpecializedMaterialState, rect0) == 16u);
 static_assert(offsetof(WorldSpecializedMaterialState, rect1) == 32u);
 static_assert(offsetof(WorldSpecializedMaterialState, flipbook0) == 48u);
 static_assert(offsetof(WorldSpecializedMaterialState, flipbook1) == 64u);
+static_assert(
+    offsetof(WorldSpecializedMaterialState, projectedShadowMatrix) == 80u);
+static_assert(
+    offsetof(WorldSpecializedMaterialState, projectedShadowParams) == 144u);
 
 inline WorldSpecializedMaterialState makeWorldSpecializedMaterialState(
     const backend::WorldTextureData* texture) {
@@ -54,6 +65,17 @@ inline WorldSpecializedMaterialState makeWorldSpecializedMaterialState(
         texture->materialFlipbook1Rows,
         texture->materialFlipbook1Frames,
         texture->materialFlipbook1Fps};
+    out.projectedShadowMatrix = texture->projectedShadowMatrix;
+    out.projectedShadowParams = {
+        texture->projectedShadowEnabled != 0u &&
+                texture->projectedShadowRgba &&
+                texture->projectedShadowWidth > 0 &&
+                texture->projectedShadowHeight > 0
+            ? 1.0f
+            : 0.0f,
+        std::max(texture->projectedShadowSamplingScale, 0.0f),
+        std::max(texture->projectedShadowBias, 0.0f),
+        0.0f};
     return out;
 }
 
