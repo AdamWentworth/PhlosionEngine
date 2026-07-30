@@ -19,9 +19,9 @@ struct PreviewCasterAnimationRequest {
     }
 };
 
-struct PreviewPokemonSpeciesSelection {
-    std::string_view attackerSpecies{"charmander"};
-    std::string_view targetSpecies{"bulbasaur"};
+struct PreviewActorSelection {
+    std::string_view emitterActorId{};
+    std::string_view targetActorId{};
 };
 
 class IVfxPreviewEffect {
@@ -41,7 +41,7 @@ public:
     virtual PreviewCasterAnimationRequest casterAnimationRequest() const {
         return {};
     }
-    virtual PreviewPokemonSpeciesSelection previewPokemonSpecies() const {
+    virtual PreviewActorSelection previewActors() const {
         return {};
     }
     virtual bool wantsExactClipMotionPreview() const {
