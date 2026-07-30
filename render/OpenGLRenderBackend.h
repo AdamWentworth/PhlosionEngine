@@ -224,6 +224,8 @@ private:
     int worldEmissiveTextureSamplerLoc_ = -1;
     int worldEnvTextureSamplerLoc_ = -1;
     int worldLightProjectionTextureSamplerLoc_ = -1;
+    int worldLightProjectionUvRowULoc_ = -1;
+    int worldLightProjectionUvRowVLoc_ = -1;
     int worldProjectedShadowTextureSamplerLoc_ = -1;
     int worldProjectedShadowMatrixLoc_ = -1;
     int worldProjectedShadowParamsLoc_ = -1;

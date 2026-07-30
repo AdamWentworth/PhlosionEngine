@@ -108,6 +108,8 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     tex.lightProjectionWrapT = material.lightProjectionTextureWrapT;
     tex.lightProjectionTextureSrgb =
         material.lightProjectionTextureSrgb;
+    tex.lightProjectionUvRowU = material.lightProjectionUvRowU;
+    tex.lightProjectionUvRowV = material.lightProjectionUvRowV;
     tex.projectedShadowKey = material.projectedShadowTextureKey.empty()
         ? ""
         : material.projectedShadowTextureKey.c_str();

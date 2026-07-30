@@ -117,6 +117,8 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     texture.lightProjectionWrapT = material.lightProjectionTextureWrapT;
     texture.lightProjectionTextureSrgb =
         material.lightProjectionTextureSrgb;
+    texture.lightProjectionUvRowU = material.lightProjectionUvRowU;
+    texture.lightProjectionUvRowV = material.lightProjectionUvRowV;
     texture.projectedShadowKey =
         material.projectedShadowTextureKey.empty()
         ? ""

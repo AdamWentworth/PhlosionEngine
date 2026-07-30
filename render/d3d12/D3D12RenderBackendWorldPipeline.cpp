@@ -182,14 +182,14 @@ cbuffer PSConstants : register(b1) {
   float uMaterialFlipbook1Frames;
   float uMaterialFlipbook1Fps;
   float uSceneColorPostEnabled;
-  float uProjectedShadowPadding0;
-  float uProjectedShadowPadding1;
-  float uProjectedShadowPadding2;
-  float4x4 uProjectedShadowMatrix;
   float uProjectedShadowEnabled;
   float uProjectedShadowSamplingScale;
   float uProjectedShadowBias;
-  float uProjectedShadowReserved;
+  float4 uProjectedShadowRowX;
+  float4 uProjectedShadowRowY;
+  float4 uProjectedShadowRowZ;
+  float4 uLightProjectionUvRowU;
+  float4 uLightProjectionUvRowV;
 };
 Texture2D gTex : register(t0);
 Texture2D gNormalTex : register(t1);
@@ -827,17 +827,9 @@ float4 evaluateLgpeFieldGrassSurface(PSIn i, bool withRim) {
 }
 
 float2 lgpeRoute1CloudTextureUv(float3 worldPosition) {
-  const float3 projectionU =
-      float3(-0.00010391304269433f, 0.0f, -0.000276669561862946f);
-  const float3 projectionV =
-      float3(
-          -0.000223165191709995f,
-          -0.000349375866353512f,
-          0.0000838175788521767f);
-  float sourceU =
-      dot(worldPosition, projectionU) + 0.695972776542572f;
-  float sourceV =
-      dot(worldPosition, projectionV) + 0.692474711333548f;
+  float4 position = float4(worldPosition, 1.0f);
+  float sourceU = dot(position, uLightProjectionUvRowU);
+  float sourceV = dot(position, uLightProjectionUvRowV);
   return float2(sourceU, 1.0f - sourceV);
 }
 
@@ -851,9 +843,12 @@ float evaluateLgpeRoute1ProjectedCloud(float3 worldPosition) {
 
 float evaluateLgpeRoute1ProjectedShadow(float3 worldPosition) {
   if (uProjectedShadowEnabled < 0.5f) return 1.0f;
-  float4 shadowClip =
-      mul(uProjectedShadowMatrix, float4(worldPosition, 1.0f));
-  if (abs(shadowClip.w) <= 1e-8f) return 1.0f;
+  float4 position = float4(worldPosition, 1.0f);
+  float4 shadowClip = float4(
+      dot(uProjectedShadowRowX, position),
+      dot(uProjectedShadowRowY, position),
+      dot(uProjectedShadowRowZ, position),
+      1.0f);
   float3 shadowNdc = shadowClip.xyz / shadowClip.w;
   float2 shadowUv = shadowNdc.xy * 0.5f + 0.5f;
   if (any(shadowUv < 0.0f.xx) || any(shadowUv > 1.0f.xx)) {

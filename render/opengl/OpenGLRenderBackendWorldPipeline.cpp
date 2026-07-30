@@ -460,6 +460,8 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         uniform sampler2D uEmissiveTexture;
         uniform sampler2D uEnvTexture;
         uniform sampler2D uLightProjectionTexture;
+        uniform vec4 uLightProjectionUvRowU;
+        uniform vec4 uLightProjectionUvRowV;
         uniform sampler2D uProjectedShadowTexture;
         uniform mat4 uProjectedShadowMatrix;
         uniform vec3 uProjectedShadowParams;
@@ -1052,17 +1054,9 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             return vec4(result, alpha);
         }
         vec2 lgpeRoute1CloudTextureUv(vec3 worldPosition) {
-            const vec3 projectionU =
-                vec3(-0.00010391304269433, 0.0, -0.000276669561862946);
-            const vec3 projectionV =
-                vec3(
-                    -0.000223165191709995,
-                    -0.000349375866353512,
-                    0.0000838175788521767);
-            float sourceU =
-                dot(worldPosition, projectionU) + 0.695972776542572;
-            float sourceV =
-                dot(worldPosition, projectionV) + 0.692474711333548;
+            vec4 position = vec4(worldPosition, 1.0);
+            float sourceU = dot(position, uLightProjectionUvRowU);
+            float sourceV = dot(position, uLightProjectionUvRowV);
             return vec2(sourceU, 1.0 - sourceV);
         }
         float evaluateLgpeRoute1ProjectedCloud() {
@@ -2619,6 +2613,10 @@ __PAC_SHARED_WORLD_PBR_SECTION__
     worldEnvTextureSamplerLoc_ = glGetUniformLocation(worldProgram_, "uEnvTexture");
     worldLightProjectionTextureSamplerLoc_ =
         glGetUniformLocation(worldProgram_, "uLightProjectionTexture");
+    worldLightProjectionUvRowULoc_ =
+        glGetUniformLocation(worldProgram_, "uLightProjectionUvRowU");
+    worldLightProjectionUvRowVLoc_ =
+        glGetUniformLocation(worldProgram_, "uLightProjectionUvRowV");
     worldProjectedShadowTextureSamplerLoc_ =
         glGetUniformLocation(worldProgram_, "uProjectedShadowTexture");
     worldProjectedShadowMatrixLoc_ =
@@ -2669,6 +2667,8 @@ __PAC_SHARED_WORLD_PBR_SECTION__
         worldMaterialModeLoc_ < 0 || worldMaterialTimeLoc_ < 0 || worldMaterialFlagsLoc_ < 0 ||
         worldMaterialAtlasSizeLoc_ < 0 || worldMaterialRect0Loc_ < 0 || worldMaterialRect1Loc_ < 0 ||
         worldMaterialFlipbook0Loc_ < 0 || worldMaterialFlipbook1Loc_ < 0 ||
+        worldLightProjectionUvRowULoc_ < 0 ||
+        worldLightProjectionUvRowVLoc_ < 0 ||
         worldProjectedShadowTextureSamplerLoc_ < 0 ||
         worldProjectedShadowMatrixLoc_ < 0 ||
         worldProjectedShadowParamsLoc_ < 0 ||
@@ -2803,6 +2803,8 @@ void OpenGLRenderBackend::destroyWorldPipeline() {
     worldEmissiveTextureSamplerLoc_ = -1;
     worldEnvTextureSamplerLoc_ = -1;
     worldLightProjectionTextureSamplerLoc_ = -1;
+    worldLightProjectionUvRowULoc_ = -1;
+    worldLightProjectionUvRowVLoc_ = -1;
     worldProjectedShadowTextureSamplerLoc_ = -1;
     worldProjectedShadowMatrixLoc_ = -1;
     worldProjectedShadowParamsLoc_ = -1;

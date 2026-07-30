@@ -28,13 +28,13 @@ struct alignas(16) WorldIndirectPushConstants {
 };
 
 static_assert(std::is_standard_layout_v<WorldIndirectDrawState>);
-static_assert(sizeof(WorldIndirectDrawState) == 240u);
+static_assert(sizeof(WorldIndirectDrawState) == 272u);
 static_assert(offsetof(WorldIndirectDrawState, specializedMaterial) == 0u);
-static_assert(offsetof(WorldIndirectDrawState, materialParams) == 160u);
-static_assert(offsetof(WorldIndirectDrawState, shadingParams) == 176u);
-static_assert(offsetof(WorldIndirectDrawState, pbrFactors) == 192u);
-static_assert(offsetof(WorldIndirectDrawState, emissiveAndCamera) == 208u);
-static_assert(offsetof(WorldIndirectDrawState, drawParams) == 224u);
+static_assert(offsetof(WorldIndirectDrawState, materialParams) == 192u);
+static_assert(offsetof(WorldIndirectDrawState, shadingParams) == 208u);
+static_assert(offsetof(WorldIndirectDrawState, pbrFactors) == 224u);
+static_assert(offsetof(WorldIndirectDrawState, emissiveAndCamera) == 240u);
+static_assert(offsetof(WorldIndirectDrawState, drawParams) == 256u);
 static_assert(std::is_standard_layout_v<WorldIndirectPushConstants>);
 static_assert(sizeof(WorldIndirectPushConstants) == 80u);
 

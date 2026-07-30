@@ -169,19 +169,34 @@ struct WorldPsConstants {
     float materialFlipbook1Frames = 1.0f;
     float materialFlipbook1Fps = 0.0f;
     float sceneColorPostEnabled = 0.0f;
-    float projectedShadowPadding0 = 0.0f;
-    float projectedShadowPadding1 = 0.0f;
-    float projectedShadowPadding2 = 0.0f;
-    std::array<float, 16> projectedShadowMatrix{
-        1.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 1.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 1.0f};
     float projectedShadowEnabled = 0.0f;
     float projectedShadowSamplingScale = 1.0f;
     float projectedShadowBias = 0.0f;
-    float projectedShadowReserved = 0.0f;
+    // Route 1's captured projection is affine/orthographic, so w is exactly
+    // one. Store its three meaningful rows instead of a full float4x4. This
+    // leaves room for the two transformed cloud-projection rows while keeping
+    // the complete root signature below D3D12's 64-DWORD limit.
+    std::array<float, 4> projectedShadowRowX{
+        1.0f, 0.0f, 0.0f, 0.0f};
+    std::array<float, 4> projectedShadowRowY{
+        0.0f, 1.0f, 0.0f, 0.0f};
+    std::array<float, 4> projectedShadowRowZ{
+        0.0f, 0.0f, 1.0f, 0.0f};
+    std::array<float, 4> lightProjectionUvRowU{
+        -0.00010391304269433f,
+        0.0f,
+        -0.000276669561862946f,
+        0.695972776542572f};
+    std::array<float, 4> lightProjectionUvRowV{
+        -0.000223165191709995f,
+        -0.000349375866353512f,
+        0.0000838175788521767f,
+        0.692474711333548f};
 };
+
+static_assert(
+    sizeof(WorldPsConstants) == 56u * sizeof(float),
+    "D3D12 world pixel constants must leave room for the other root parameters.");
 
 inline WorldPsConstants makeWorldPsConstants(
     const IRenderBackend::WorldTextureData* textureData,
@@ -222,7 +237,22 @@ inline WorldPsConstants makeWorldPsConstants(
     constants.materialFlipbook1Rows = textureData->materialFlipbook1Rows;
     constants.materialFlipbook1Frames = textureData->materialFlipbook1Frames;
     constants.materialFlipbook1Fps = textureData->materialFlipbook1Fps;
-    constants.projectedShadowMatrix = textureData->projectedShadowMatrix;
+    const auto& shadowMatrix = textureData->projectedShadowMatrix;
+    constants.projectedShadowRowX = {
+        shadowMatrix[0],
+        shadowMatrix[4],
+        shadowMatrix[8],
+        shadowMatrix[12]};
+    constants.projectedShadowRowY = {
+        shadowMatrix[1],
+        shadowMatrix[5],
+        shadowMatrix[9],
+        shadowMatrix[13]};
+    constants.projectedShadowRowZ = {
+        shadowMatrix[2],
+        shadowMatrix[6],
+        shadowMatrix[10],
+        shadowMatrix[14]};
     constants.projectedShadowEnabled =
         textureData->projectedShadowEnabled != 0u &&
         textureData->projectedShadowRgba &&
@@ -234,6 +264,10 @@ inline WorldPsConstants makeWorldPsConstants(
         (std::max)(textureData->projectedShadowSamplingScale, 0.0f);
     constants.projectedShadowBias =
         (std::max)(textureData->projectedShadowBias, 0.0f);
+    constants.lightProjectionUvRowU =
+        textureData->lightProjectionUvRowU;
+    constants.lightProjectionUvRowV =
+        textureData->lightProjectionUvRowV;
     // D3D12 root signature is constrained to 64 DWORD. For lit model mode (materialMode >= 2),
     // repurpose fire-tail payload slots to carry PBR/camera data needed for three-gltf-viewer parity.
     if (textureData->materialMode >= 2u) {

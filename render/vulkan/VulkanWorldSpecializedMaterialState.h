@@ -21,10 +21,20 @@ struct alignas(16) WorldSpecializedMaterialState {
         0.0f, 0.0f, 1.0f, 0.0f,
         0.0f, 0.0f, 0.0f, 1.0f};
     std::array<float, 4> projectedShadowParams{0.0f, 1.0f, 0.0f, 0.0f};
+    std::array<float, 4> lightProjectionUvRowU{
+        -0.00010391304269433f,
+        0.0f,
+        -0.000276669561862946f,
+        0.695972776542572f};
+    std::array<float, 4> lightProjectionUvRowV{
+        -0.000223165191709995f,
+        -0.000349375866353512f,
+        0.0000838175788521767f,
+        0.692474711333548f};
 };
 
 static_assert(std::is_standard_layout_v<WorldSpecializedMaterialState>);
-static_assert(sizeof(WorldSpecializedMaterialState) == 160u);
+static_assert(sizeof(WorldSpecializedMaterialState) == 192u);
 static_assert(offsetof(WorldSpecializedMaterialState, timingFlagsAtlas) == 0u);
 static_assert(offsetof(WorldSpecializedMaterialState, rect0) == 16u);
 static_assert(offsetof(WorldSpecializedMaterialState, rect1) == 32u);
@@ -34,6 +44,10 @@ static_assert(
     offsetof(WorldSpecializedMaterialState, projectedShadowMatrix) == 80u);
 static_assert(
     offsetof(WorldSpecializedMaterialState, projectedShadowParams) == 144u);
+static_assert(
+    offsetof(WorldSpecializedMaterialState, lightProjectionUvRowU) == 160u);
+static_assert(
+    offsetof(WorldSpecializedMaterialState, lightProjectionUvRowV) == 176u);
 
 inline WorldSpecializedMaterialState makeWorldSpecializedMaterialState(
     const backend::WorldTextureData* texture) {
@@ -76,6 +90,8 @@ inline WorldSpecializedMaterialState makeWorldSpecializedMaterialState(
         std::max(texture->projectedShadowSamplingScale, 0.0f),
         std::max(texture->projectedShadowBias, 0.0f),
         0.0f};
+    out.lightProjectionUvRowU = texture->lightProjectionUvRowU;
+    out.lightProjectionUvRowV = texture->lightProjectionUvRowV;
     return out;
 }
 

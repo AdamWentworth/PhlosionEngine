@@ -762,6 +762,28 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     const bool projectedShadowEnabled =
         texture && texture->projectedShadowEnabled != 0u &&
         authoredProjectedShadowTexture != 0u;
+    static constexpr float kRoute1CloudProjectionU[4] = {
+        -0.00010391304269433f,
+        0.0f,
+        -0.000276669561862946f,
+        0.695972776542572f};
+    static constexpr float kRoute1CloudProjectionV[4] = {
+        -0.000223165191709995f,
+        -0.000349375866353512f,
+        0.0000838175788521767f,
+        0.692474711333548f};
+    glUniform4fv(
+        worldLightProjectionUvRowULoc_,
+        1,
+        texture
+            ? texture->lightProjectionUvRowU.data()
+            : kRoute1CloudProjectionU);
+    glUniform4fv(
+        worldLightProjectionUvRowVLoc_,
+        1,
+        texture
+            ? texture->lightProjectionUvRowV.data()
+            : kRoute1CloudProjectionV);
     glUniformMatrix4fv(
         worldProjectedShadowMatrixLoc_,
         1,
