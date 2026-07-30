@@ -298,6 +298,17 @@ inline WorldPsConstants makeWorldPsConstants(
             constants.materialRect1U = textureData->materialRect1U;
             constants.materialFlipbook0Fps =
                 textureData->materialFlipbook0Fps;
+            if (textureData->materialMode == 6u ||
+                textureData->materialMode == 21u ||
+                textureData->materialMode == 22u ||
+                textureData->materialMode == 25u) {
+                constants.materialFlipbook0Cols =
+                    textureData->emissiveFactorR;
+                constants.materialFlipbook0Rows =
+                    textureData->emissiveFactorG;
+                constants.materialFlipbook0Frames =
+                    textureData->emissiveFactorB;
+            }
         } else if (textureData->materialMode == 8u ||
                    textureData->materialMode == 19u ||
                    textureData->materialMode == 23u ||

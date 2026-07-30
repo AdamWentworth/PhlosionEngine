@@ -855,7 +855,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             vec3 surface =
                 texture01.rgb +
                 texture02 * rim * rimColor +
-                vec3(0.110647157, 0.3070065, 0.0411512256) *
+                max(uEmissiveFactor, vec3(0.0)) *
                     (1.0 - secondary) +
                 texture03 * lightGate * rimColor02;
             return vec4(

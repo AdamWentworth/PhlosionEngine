@@ -21,12 +21,21 @@ inline constexpr std::array<float, 3> kRoute1SunRay{
     0.5533391237f,
     0.2078260481f,
     -0.8066127300f};
-// FieldTreeShader05 omits vector3Constant slot 1 from every audited source
-// material. Route 1's FieldTreeShader04 sibling uses the byte-identical
-// fragment program and the same tree20 Texture01/Texture03 atlases while
-// explicitly supplying this lightColor. Keep the inherited value named and
-// isolated until a correlated guest draw exposes the runtime upload.
-inline constexpr std::array<float, 3> kInheritedSourceLightColor{
+// Exact c5.data[4..6] uploads recovered from the synchronous Route 1 guest
+// frame. The canonical 17,556/40,896/17,556 index sequence correlates the
+// three draws without an appearance fit: the first two share tree002's
+// upload, while the last is tree001.
+inline constexpr std::array<float, 3> kTree001CapturedLightColor{
+    0.11864406615495682f,
+    0.11522667109966278f,
+    0.04083918407559395f};
+inline constexpr std::array<float, 3> kTree002CapturedLightColor{
+    0.05949648097157478f,
+    0.23199999332427979f,
+    0.0387439988553524f};
+// FieldTreeShader04 tree006 serializes this value directly and uses the
+// byte-identical tree002 fragment program.
+inline constexpr std::array<float, 3> kTree006SourceLightColor{
     0.110647157f,
     0.3070065f,
     0.0411512256f};
@@ -39,7 +48,7 @@ struct SurfaceInputs {
     std::array<float, 3> shadowColor{};
     std::array<float, 3> rimColor{};
     std::array<float, 3> rimColor02{};
-    std::array<float, 3> sourceLightColor = kInheritedSourceLightColor;
+    std::array<float, 3> sourceLightColor{};
     float discardThreshold = 0.0f;
     float rimLightMin = 0.0f;
     float rimLightMax = 1.0f;

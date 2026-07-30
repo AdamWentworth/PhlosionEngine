@@ -617,7 +617,12 @@ float4 evaluateLgpeFieldTree05Surface(PSIn i) {
   float3 surface =
       texture01.rgb +
       texture02 * rim * rimColor +
-      float3(0.110647157f, 0.3070065f, 0.0411512256f) *
+      max(
+          float3(
+              uMaterialFlipbook0Cols,
+              uMaterialFlipbook0Rows,
+              uMaterialFlipbook0Frames),
+          0.0f.xxx) *
           (1.0f - secondary) +
       texture03 * lightGate * rimColor02;
   return float4(
