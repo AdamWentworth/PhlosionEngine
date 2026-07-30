@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <SDL2/SDL.h>
 
@@ -29,6 +30,19 @@ struct WorkspaceView {
     std::size_t archiveFileCount = 0u;
 };
 
+struct ProjectBrowserView {
+    std::string_view status;
+    std::string_view error;
+    const std::vector<std::string>* recentProjects = nullptr;
+};
+
+struct EditorShellActions {
+    bool openProject = false;
+    bool closeProject = false;
+    bool exit = false;
+    int recentProjectIndex = -1;
+};
+
 class EditorShell {
 public:
     EditorShell();
@@ -38,12 +52,16 @@ public:
 
     bool initialize(
         SDL_Window* window,
-        std::string* outError = nullptr);
+        std::string* outError = nullptr,
+        const char* settingsIniPath = nullptr);
     void shutdown();
 
     void processEvent(const SDL_Event& event);
     void beginFrame(float deltaSeconds);
-    void drawWorkspace(const WorkspaceView& workspace);
+    EditorShellActions drawProjectBrowser(
+        const ProjectBrowserView& browser);
+    EditorShellActions drawWorkspace(
+        const WorkspaceView& workspace);
     void render();
 
     bool wantsMouseCapture() const;

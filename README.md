@@ -28,6 +28,31 @@ cmake --build --preset debug
 ctest --preset debug
 ```
 
+## Editor
+
+`PhlosionEditor.exe` is an Engine application. Start it without a project to
+open the project browser:
+
+```powershell
+cd D:\Projects\PhlosionEngine
+.\build\Debug\PhlosionEditor.exe
+```
+
+Choose a game's tracked `phlosion.project.json`, select a recent project, drag
+the descriptor onto the window, or pass it directly:
+
+```powershell
+.\build\Debug\PhlosionEditor.exe `
+  D:\Projects\PokemonAutochess\phlosion.project.json
+```
+
+The editor stores its recent-project list, dock layout, and outer-window
+placement in the operating system's local application-data directory. Move it
+to the preferred monitor once and future launches restore that placement.
+Games may provide a generated editor plugin for game-specific loading and
+inspectors; the Engine still owns the executable, project browser, render loop,
+window, and common editor UI.
+
 Consumers can initially use the engine as a CMake subdirectory:
 
 ```cmake

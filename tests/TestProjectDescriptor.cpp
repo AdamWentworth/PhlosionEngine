@@ -20,6 +20,10 @@ bool test_project_descriptor_contract(std::string& outFail) {
             "mount": "cooked",
             "path": "scenes/test.phscene"
         },
+        "editor_plugin": {
+            "library": "TestGameEditorProject",
+            "directory": ".phlosion/editor/{config}"
+        },
         "private_asset_depot": {
             "environment": "PHLOSION_ASSET_DEPOT"
         }
@@ -53,6 +57,33 @@ bool test_project_descriptor_contract(std::string& outFail) {
             "D:/Projects/TestGame/content/phlosion/scenes/test.phscene") {
         outFail = "startup scene resolution failed: " + error +
                   " path=" + scenePath.generic_string();
+        return false;
+    }
+
+    std::filesystem::path pluginPath;
+    if (!engine::editor::resolveEditorPluginPath(
+            "D:/Projects/TestGame/phlosion.project.json",
+            project,
+            "Debug",
+            pluginPath,
+            &error)) {
+        outFail = "editor plugin path resolution failed: " + error;
+        return false;
+    }
+#if defined(_WIN32)
+    const std::string expectedPluginPath =
+        "D:/Projects/TestGame/.phlosion/editor/Debug/TestGameEditorProject.dll";
+#elif defined(__APPLE__)
+    const std::string expectedPluginPath =
+        "D:/Projects/TestGame/.phlosion/editor/Debug/libTestGameEditorProject.dylib";
+#else
+    const std::string expectedPluginPath =
+        "D:/Projects/TestGame/.phlosion/editor/Debug/libTestGameEditorProject.so";
+#endif
+    if (pluginPath.generic_string() != expectedPluginPath) {
+        outFail =
+            "unexpected editor plugin path: " +
+            pluginPath.generic_string();
         return false;
     }
 

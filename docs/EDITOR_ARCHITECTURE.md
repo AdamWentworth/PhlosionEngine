@@ -21,11 +21,13 @@ semantics live below the UI layer.
 ## Ownership
 
 - `PhlosionEngine` owns `Phlosion::EditorCore`, `Phlosion::Editor`, project
-  loading, common panels, editor transactions, viewport integration, and the
-  local-agent tool contract.
+  loading, the `PhlosionEditor` executable and project browser, common panels,
+  editor transactions, viewport integration, and the local-agent tool
+  contract.
 - `PhlosionVFX` owns VFX-specific authoring panels and effect schemas.
 - A game owns its `phlosion.project.json`, game-specific inspectors, startup
-  scene choice, and project-owned scene or prefab overrides.
+  scene choice, project-owned scene or prefab overrides, and an optional
+  generated editor-project plugin.
 - Source assets, model weights, generated candidates, and private evidence
   remain outside public code repositories.
 
@@ -40,11 +42,27 @@ reaching into Engine internals.
 - the project and stable project id;
 - relative cooked-content mounts;
 - the startup scene asset id and path;
+- an optional portable editor-plugin library name and configuration-relative
+  generated output directory;
 - the optional environment variable that locates a private asset depot.
 
 Machine-specific absolute paths do not belong in the descriptor. Asset
 payloads remain ignored and are restored through the project's existing asset
 workflow.
+
+`PhlosionEditor` always starts from the Engine build or installation. Opening a
+project loads its optional editor-project plugin in-process through the
+versioned `IEditorProjectRuntime` contract. That plugin is a transitional and
+extensible adapter: it owns game-specific scene loading and future
+game-specific inspectors, while the Engine owns the process, window, camera,
+render loop, and shell. As generic `.phscene` loading absorbs the remaining
+Route 1-specific code, Pokemon Autochess's basic viewing path should require
+less plugin code.
+
+Recent projects, panel layout, and outer-window placement are machine-local
+editor state under the operating system's application-data directory. They do
+not belong to either the Engine or game repository. Remembering the outer
+window rectangle is intentional support for multi-monitor workstations.
 
 ## First Vertical Slice
 
@@ -118,10 +136,11 @@ Open a small original non-Pokemon project and complete the same import, edit,
 cook, package, and play loop without adding a game-specific runtime format or
 forking the editor.
 
-The current active milestone is M0. The first captured host is intentionally an
-OpenGL editor viewport; Vulkan and D3D12 editor presentation follow through an
-Engine-owned UI submission abstraction rather than leaking backend-specific
-Dear ImGui types into games.
+M0 is complete with an Engine-owned project browser, recent-project workflow,
+dynamic game-project adapter, and OpenGL editor viewport. Vulkan and D3D12
+editor presentation follow through an Engine-owned UI submission abstraction
+rather than leaking backend-specific Dear ImGui types into games. M1 is the
+current active milestone.
 
 The M0 SDL2 bridge currently owns keyboard, mouse, text, focus, and DPI input.
 Clipboard, cursor-shape, accessibility, controller navigation, and detached

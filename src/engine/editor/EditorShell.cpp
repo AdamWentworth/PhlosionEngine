@@ -179,6 +179,7 @@ struct EditorShell::Impl {
     bool ready = false;
     bool firstLayout = true;
     int selectedHierarchyItem = 0;
+    std::string settingsIniPath;
 };
 
 EditorShell::EditorShell()
@@ -192,7 +193,8 @@ EditorShell::~EditorShell() {
 
 bool EditorShell::initialize(
     SDL_Window* window,
-    std::string* outError) {
+    std::string* outError,
+    const char* settingsIniPath) {
     if (impl_->ready) {
         return true;
     }
@@ -209,7 +211,9 @@ bool EditorShell::initialize(
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.BackendPlatformName = "phlosion_sdl2";
-    io.IniFilename = "phlosion_editor.ini";
+    impl_->settingsIniPath =
+        settingsIniPath ? settingsIniPath : "phlosion_editor.ini";
+    io.IniFilename = impl_->settingsIniPath.c_str();
     applyPhlosionStyle();
 
     if (!ImGui_ImplOpenGL3_Init("#version 330")) {
@@ -335,9 +339,156 @@ void EditorShell::beginFrame(float deltaSeconds) {
     ImGui::NewFrame();
 }
 
-void EditorShell::drawWorkspace(const WorkspaceView& workspace) {
+EditorShellActions EditorShell::drawProjectBrowser(
+    const ProjectBrowserView& browser) {
+    EditorShellActions actions;
     if (!impl_->ready) {
-        return;
+        return actions;
+    }
+
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->WorkPos);
+    ImGui::SetNextWindowSize(viewport->WorkSize);
+    ImGui::SetNextWindowViewport(viewport->ID);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(
+        ImGuiStyleVar_WindowPadding,
+        ImVec2(0.0f, 0.0f));
+    constexpr ImGuiWindowFlags hostFlags =
+        ImGuiWindowFlags_MenuBar |
+        ImGuiWindowFlags_NoDocking |
+        ImGuiWindowFlags_NoTitleBar |
+        ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoNavFocus;
+    ImGui::Begin("PhlosionProjectBrowserHost", nullptr, hostFlags);
+    ImGui::PopStyleVar(3);
+    if (ImGui::BeginMenuBar()) {
+        if (ImGui::BeginMenu("File")) {
+            if (ImGui::MenuItem("Open Project...", "Ctrl+O")) {
+                actions.openProject = true;
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Exit", "Alt+F4")) {
+                actions.exit = true;
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Help")) {
+            ImGui::TextUnformatted("Phlosion Editor");
+            ImGui::TextDisabled(
+                "Open a phlosion.project.json to begin.");
+            ImGui::EndMenu();
+        }
+        ImGui::EndMenuBar();
+    }
+
+    const ImVec2 available = ImGui::GetContentRegionAvail();
+    const ImVec2 cardSize(
+        std::min(760.0f, std::max(420.0f, available.x - 80.0f)),
+        std::min(560.0f, std::max(320.0f, available.y - 80.0f)));
+    ImGui::SetCursorPos(ImVec2(
+        std::max(20.0f, (available.x - cardSize.x) * 0.5f),
+        std::max(20.0f, (available.y - cardSize.y) * 0.5f)));
+    ImGui::PushStyleVar(
+        ImGuiStyleVar_ChildRounding,
+        10.0f);
+    ImGui::PushStyleVar(
+        ImGuiStyleVar_WindowPadding,
+        ImVec2(28.0f, 24.0f));
+    ImGui::PushStyleColor(
+        ImGuiCol_ChildBg,
+        ImVec4(0.075f, 0.086f, 0.098f, 1.0f));
+    if (ImGui::BeginChild(
+            "PhlosionProjectBrowserCard",
+            cardSize,
+            true,
+            ImGuiWindowFlags_NoScrollbar)) {
+        ImGui::TextColored(
+            ImVec4(0.35f, 0.90f, 0.58f, 1.0f),
+            "PHLOSION");
+        ImGui::SameLine();
+        ImGui::TextDisabled("EDITOR");
+        ImGui::Spacing();
+        ImGui::SetWindowFontScale(1.45f);
+        ImGui::TextUnformatted("Create worlds. Open projects.");
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::TextDisabled(
+            "The Engine owns this editor; each game remains a separate project.");
+        ImGui::Spacing();
+        ImGui::Spacing();
+
+        if (ImGui::Button(
+                "Open Project...",
+                ImVec2(180.0f, 42.0f))) {
+            actions.openProject = true;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled(
+            "Choose a tracked phlosion.project.json");
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Recent projects");
+        ImGui::Spacing();
+
+        const auto* recent = browser.recentProjects;
+        if (!recent || recent->empty()) {
+            ImGui::TextDisabled(
+                "No recent projects yet. You can also drop a project descriptor onto this window.");
+        } else {
+            for (std::size_t index = 0u;
+                 index < recent->size();
+                 ++index) {
+                const std::string& path = (*recent)[index];
+                ImGui::PushID(static_cast<int>(index));
+                if (ImGui::Selectable(
+                        path.c_str(),
+                        false,
+                        0,
+                        ImVec2(0.0f, 34.0f))) {
+                    actions.recentProjectIndex =
+                        static_cast<int>(index);
+                }
+                ImGui::PopID();
+            }
+        }
+
+        if (!browser.error.empty()) {
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextColored(
+                ImVec4(1.0f, 0.38f, 0.32f, 1.0f),
+                "%s",
+                text(browser.error).c_str());
+        } else if (!browser.status.empty()) {
+            ImGui::Spacing();
+            ImGui::TextDisabled(
+                "%s",
+                text(browser.status).c_str());
+        }
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    ImGui::End();
+
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O, false)) {
+        actions.openProject = true;
+    }
+    return actions;
+}
+
+EditorShellActions EditorShell::drawWorkspace(
+    const WorkspaceView& workspace) {
+    EditorShellActions actions;
+    if (!impl_->ready) {
+        return actions;
     }
 
     ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -401,9 +552,16 @@ void EditorShell::drawWorkspace(const WorkspaceView& workspace) {
 
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("File")) {
-            ImGui::MenuItem("Open Project...", "Ctrl+O", false, false);
+            if (ImGui::MenuItem("Open Project...", "Ctrl+O")) {
+                actions.openProject = true;
+            }
+            if (ImGui::MenuItem("Close Project")) {
+                actions.closeProject = true;
+            }
             ImGui::Separator();
-            ImGui::MenuItem("Exit", "Alt+F4", false, false);
+            if (ImGui::MenuItem("Exit", "Alt+F4")) {
+                actions.exit = true;
+            }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Edit")) {
@@ -412,7 +570,10 @@ void EditorShell::drawWorkspace(const WorkspaceView& workspace) {
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("View")) {
-            ImGui::MenuItem("Reset Layout", nullptr, false, false);
+            if (ImGui::MenuItem("Reset Layout")) {
+                ImGui::DockBuilderRemoveNode(dockspaceId);
+                impl_->firstLayout = true;
+            }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Help")) {
@@ -538,6 +699,12 @@ void EditorShell::drawWorkspace(const WorkspaceView& workspace) {
         "Scene: %s",
         text(workspace.scenePath).c_str());
     ImGui::End();
+
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O, false)) {
+        actions.openProject = true;
+    }
+    return actions;
 }
 
 void EditorShell::render() {

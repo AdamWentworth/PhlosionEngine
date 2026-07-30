@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <fstream>
 #include <sstream>
+#include <string_view>
 #include <system_error>
 
 #include <nlohmann/json.hpp>
@@ -28,6 +29,26 @@ bool isPortableRelativePath(const std::filesystem::path& path) {
         }
     }
     return true;
+}
+
+bool isPortableLibraryName(std::string_view name) {
+    return !name.empty() &&
+           name.find('/') == std::string_view::npos &&
+           name.find('\\') == std::string_view::npos &&
+           name != "." &&
+           name != "..";
+}
+
+std::string replaceConfigurationToken(
+    std::string value,
+    std::string_view buildConfiguration) {
+    constexpr std::string_view token = "{config}";
+    std::size_t offset = 0u;
+    while ((offset = value.find(token, offset)) != std::string::npos) {
+        value.replace(offset, token.size(), buildConfiguration);
+        offset += buildConfiguration.size();
+    }
+    return value;
 }
 
 } // namespace
@@ -96,6 +117,20 @@ bool parseProjectDescriptor(
                 outError);
         }
 
+        if (root.contains("editor_plugin")) {
+            const auto& pluginJson = root.at("editor_plugin");
+            parsed.editorPlugin.library =
+                pluginJson.at("library").get<std::string>();
+            parsed.editorPlugin.directory =
+                pluginJson.at("directory").get<std::string>();
+            if (!isPortableLibraryName(parsed.editorPlugin.library) ||
+                !isPortableRelativePath(parsed.editorPlugin.directory)) {
+                return fail(
+                    "Editor plugin requires a portable library name and relative directory.",
+                    outError);
+            }
+        }
+
         if (root.contains("private_asset_depot")) {
             parsed.privateAssetDepotEnvironment =
                 root.at("private_asset_depot")
@@ -160,6 +195,56 @@ bool resolveStartupScenePath(
     }
     out = (descriptorDirectory / mount->root /
            descriptor.startupScene.path)
+              .lexically_normal();
+    if (outError) {
+        outError->clear();
+    }
+    return true;
+}
+
+bool resolveEditorPluginPath(
+    const std::filesystem::path& descriptorPath,
+    const ProjectDescriptor& descriptor,
+    std::string_view buildConfiguration,
+    std::filesystem::path& out,
+    std::string* outError) {
+    if (descriptor.editorPlugin.library.empty() ||
+        descriptor.editorPlugin.directory.empty()) {
+        return fail(
+            "Project does not declare an editor_plugin.",
+            outError);
+    }
+    if (buildConfiguration.empty()) {
+        return fail(
+            "Editor build configuration must not be empty.",
+            outError);
+    }
+
+    std::error_code error;
+    const auto descriptorDirectory =
+        std::filesystem::absolute(descriptorPath, error).parent_path();
+    if (error) {
+        return fail(
+            "Could not resolve project descriptor directory: " +
+                error.message(),
+            outError);
+    }
+
+    const std::filesystem::path pluginDirectory =
+        replaceConfigurationToken(
+            descriptor.editorPlugin.directory.generic_string(),
+            buildConfiguration);
+#if defined(_WIN32)
+    const std::string libraryFile =
+        descriptor.editorPlugin.library + ".dll";
+#elif defined(__APPLE__)
+    const std::string libraryFile =
+        "lib" + descriptor.editorPlugin.library + ".dylib";
+#else
+    const std::string libraryFile =
+        "lib" + descriptor.editorPlugin.library + ".so";
+#endif
+    out = (descriptorDirectory / pluginDirectory / libraryFile)
               .lexically_normal();
     if (outError) {
         outError->clear();

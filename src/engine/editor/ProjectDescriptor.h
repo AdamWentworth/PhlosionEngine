@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace engine::editor {
@@ -19,12 +20,18 @@ struct StartupScene {
     std::filesystem::path path;
 };
 
+struct EditorPlugin {
+    std::string library;
+    std::filesystem::path directory;
+};
+
 struct ProjectDescriptor {
     std::uint32_t schemaVersion = 0u;
     std::string projectId;
     std::string displayName;
     std::vector<ContentMount> contentMounts;
     StartupScene startupScene;
+    EditorPlugin editorPlugin;
     std::string privateAssetDepotEnvironment;
 };
 
@@ -41,6 +48,13 @@ bool loadProjectDescriptor(
 bool resolveStartupScenePath(
     const std::filesystem::path& descriptorPath,
     const ProjectDescriptor& descriptor,
+    std::filesystem::path& out,
+    std::string* outError = nullptr);
+
+bool resolveEditorPluginPath(
+    const std::filesystem::path& descriptorPath,
+    const ProjectDescriptor& descriptor,
+    std::string_view buildConfiguration,
     std::filesystem::path& out,
     std::string* outError = nullptr);
 

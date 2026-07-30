@@ -20,7 +20,7 @@ if (DEFINED ENV{CI} AND NOT "$ENV{CI}" STREQUAL "" AND NOT "$ENV{CI}" STREQUAL "
 endif()
 
 option(PHLOSION_BUILD_TESTS "Build Phlosion Engine contract tests" ${_phlosion_tests_default})
-option(PHLOSION_BUILD_EDITOR "Build the Phlosion Editor UI framework" ${_phlosion_editor_default})
+option(PHLOSION_BUILD_EDITOR "Build the native Phlosion Editor and UI framework" ${_phlosion_editor_default})
 option(PHLOSION_ENABLE_WARNINGS "Enable compiler warnings for engine sources" ON)
 option(PHLOSION_WARNINGS_AS_ERRORS "Treat engine warnings as errors" ${_phlosion_werror_default})
 option(PHLOSION_VERBOSE_STARTUP "Enable verbose startup and model-load logging" OFF)
@@ -353,6 +353,30 @@ if (PHLOSION_BUILD_EDITOR)
     )
     phlosion_apply_settings(engine_editor)
     add_library(Phlosion::Editor ALIAS engine_editor)
+
+    add_executable(PhlosionEditor
+        src/engine/editor/PhlosionEditorMain.cpp
+    )
+    target_link_libraries(PhlosionEditor
+        PRIVATE
+            engine_editor
+            OpenGL::GL
+            glad::glad
+            glm::glm
+    )
+    target_compile_definitions(PhlosionEditor
+        PRIVATE
+            PHLOSION_EDITOR_BUILD_CONFIGURATION="$<CONFIG>"
+    )
+    if (WIN32)
+        target_link_libraries(PhlosionEditor PRIVATE comdlg32)
+    elseif (CMAKE_DL_LIBS)
+        target_link_libraries(PhlosionEditor PRIVATE ${CMAKE_DL_LIBS})
+    endif()
+    set_target_properties(PhlosionEditor PROPERTIES
+        VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+    phlosion_apply_settings(PhlosionEditor)
 endif()
 
 add_library(engine_tools_vfx_preview STATIC
