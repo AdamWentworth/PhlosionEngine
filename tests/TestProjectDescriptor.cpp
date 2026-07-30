@@ -24,6 +24,20 @@ bool test_project_descriptor_contract(std::string& outFail) {
             "library": "TestGameEditorProject",
             "directory": ".phlosion/editor/{config}"
         },
+        "play_configurations": [
+            {
+                "id": "main-menu",
+                "display_name": "Main Menu",
+                "group": "Frontend",
+                "description": "Run the real game frontend.",
+                "executable": "build/{config}/TestGame.exe",
+                "working_directory": ".",
+                "arguments": ["--editor-preview"],
+                "environment": {
+                    "TEST_GAME_VIEW": "main-menu"
+                }
+            }
+        ],
         "private_asset_depot": {
             "environment": "PHLOSION_ASSET_DEPOT"
         }
@@ -41,6 +55,10 @@ bool test_project_descriptor_contract(std::string& outFail) {
         project.contentMounts.size() != 1u ||
         project.contentMounts.front().id != "cooked" ||
         project.startupScene.assetId != "environments/test" ||
+        project.playConfigurations.size() != 1u ||
+        project.playConfigurations.front().id != "main-menu" ||
+        project.playConfigurations.front().arguments.size() != 1u ||
+        project.playConfigurations.front().environment.size() != 1u ||
         project.privateAssetDepotEnvironment !=
             "PHLOSION_ASSET_DEPOT") {
         outFail = "descriptor fields changed during parsing";
@@ -84,6 +102,36 @@ bool test_project_descriptor_contract(std::string& outFail) {
         outFail =
             "unexpected editor plugin path: " +
             pluginPath.generic_string();
+        return false;
+    }
+
+    std::filesystem::path executablePath;
+    if (!engine::editor::resolvePlayExecutablePath(
+            "D:/Projects/TestGame/phlosion.project.json",
+            project.playConfigurations.front(),
+            "Debug",
+            executablePath,
+            &error) ||
+        executablePath.generic_string() !=
+            "D:/Projects/TestGame/build/Debug/TestGame.exe") {
+        outFail =
+            "play executable resolution failed: " + error +
+            " path=" + executablePath.generic_string();
+        return false;
+    }
+
+    std::filesystem::path workingDirectory;
+    if (!engine::editor::resolvePlayWorkingDirectory(
+            "D:/Projects/TestGame/phlosion.project.json",
+            project.playConfigurations.front(),
+            "Debug",
+            workingDirectory,
+            &error) ||
+        workingDirectory.generic_string() !=
+            "D:/Projects/TestGame/") {
+        outFail =
+            "play working directory resolution failed: " + error +
+            " path=" + workingDirectory.generic_string();
         return false;
     }
 

@@ -44,6 +44,8 @@ reaching into Engine internals.
 - the startup scene asset id and path;
 - an optional portable editor-plugin library name and configuration-relative
   generated output directory;
+- optional named play configurations with a project-relative executable,
+  working directory, arguments, and environment overrides;
 - the optional environment variable that locates a private asset depot.
 
 Machine-specific absolute paths do not belong in the descriptor. Asset
@@ -63,6 +65,26 @@ Recent projects, panel layout, and outer-window placement are machine-local
 editor state under the operating system's application-data directory. They do
 not belong to either the Engine or game repository. Remembering the outer
 window rectangle is intentional support for multi-monitor workstations.
+
+## Scene Mode and Game Views
+
+Opening a project enters Edit mode at simulation time zero. The scene remains
+rendered and camera navigation remains available, but time-dependent material,
+wind, lighting, and vegetation animation do not advance. Play starts the scene
+simulation, Pause freezes it at the current time, Step advances one fixed
+60 Hz frame, and Stop returns to time zero.
+
+Game screens and game states are not falsely represented as `.phscene` files.
+Boot, frontend menus, starter selection, planning, and combat are named play
+configurations owned by the game descriptor. Running one starts the same game
+executable and state implementation used outside the editor. Classic and
+Adventure variants are configuration data over that runtime, not duplicated
+editor scenes.
+
+The first implementation opens a Game View in the game's own window. A future
+docked Game tab will host the real game renderer and input surface inside the
+editor. Until that host exists, the external window is the truthful preview
+boundary and keeps editor scene simulation separate from the game lifecycle.
 
 ## First Vertical Slice
 

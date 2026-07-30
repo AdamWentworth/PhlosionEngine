@@ -179,6 +179,7 @@ struct EditorShell::Impl {
     bool ready = false;
     bool firstLayout = true;
     int selectedHierarchyItem = 0;
+    int selectedPlayConfiguration = 0;
     std::string settingsIniPath;
 };
 
@@ -539,6 +540,7 @@ EditorShellActions EditorShell::drawWorkspace(
         bottom = ImGui::DockBuilderSplitNode(
             center, ImGuiDir_Down, 0.25f, nullptr, &center);
         ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
+        ImGui::DockBuilderDockWindow("Game Views", left);
         ImGui::DockBuilderDockWindow("Inspector", right);
         ImGui::DockBuilderDockWindow("Assets", bottom);
         ImGui::DockBuilderDockWindow("Console", bottom);
@@ -569,6 +571,42 @@ EditorShellActions EditorShell::drawWorkspace(
             ImGui::MenuItem("Redo", "Ctrl+Y", false, false);
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("Play")) {
+            if (workspace.playState ==
+                EditorPlayState::Editing) {
+                if (ImGui::MenuItem(
+                        "Play Scene",
+                        "Ctrl+P")) {
+                    actions.togglePlay = true;
+                }
+            } else {
+                if (ImGui::MenuItem(
+                        "Stop Scene",
+                        "Ctrl+P")) {
+                    actions.togglePlay = true;
+                }
+            }
+            if (ImGui::MenuItem(
+                    workspace.playState ==
+                            EditorPlayState::Paused
+                        ? "Resume"
+                        : "Pause",
+                    "Ctrl+Shift+P",
+                    false,
+                    workspace.playState !=
+                        EditorPlayState::Editing)) {
+                actions.togglePause = true;
+            }
+            if (ImGui::MenuItem(
+                    "Step",
+                    "Ctrl+Alt+P",
+                    false,
+                    workspace.playState ==
+                        EditorPlayState::Paused)) {
+                actions.step = true;
+            }
+            ImGui::EndMenu();
+        }
         if (ImGui::BeginMenu("View")) {
             if (ImGui::MenuItem("Reset Layout")) {
                 ImGui::DockBuilderRemoveNode(dockspaceId);
@@ -595,6 +633,61 @@ EditorShellActions EditorShell::drawWorkspace(
     }
     ImGui::End();
 
+    const ImVec2 toolbarSize(294.0f, 42.0f);
+    ImGui::SetNextWindowPos(
+        ImVec2(
+            viewport->WorkPos.x +
+                (viewport->WorkSize.x - toolbarSize.x) * 0.5f,
+            viewport->WorkPos.y + 28.0f),
+        ImGuiCond_Always);
+    ImGui::SetNextWindowSize(toolbarSize, ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.96f);
+    constexpr ImGuiWindowFlags toolbarFlags =
+        ImGuiWindowFlags_NoTitleBar |
+        ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoDocking |
+        ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoScrollbar;
+    ImGui::Begin("##PhlosionPlayToolbar", nullptr, toolbarFlags);
+    const bool editing =
+        workspace.playState == EditorPlayState::Editing;
+    if (ImGui::Button(
+            editing ? "Play" : "Stop",
+            ImVec2(70.0f, 25.0f))) {
+        actions.togglePlay = true;
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(editing);
+    if (ImGui::Button(
+            workspace.playState == EditorPlayState::Paused
+                ? "Resume"
+                : "Pause",
+            ImVec2(70.0f, 25.0f))) {
+        actions.togglePause = true;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(
+        workspace.playState != EditorPlayState::Paused);
+    if (ImGui::Button("Step", ImVec2(52.0f, 25.0f))) {
+        actions.step = true;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    const char* stateLabel = "EDIT";
+    ImVec4 stateColor(0.68f, 0.72f, 0.76f, 1.0f);
+    if (workspace.playState == EditorPlayState::Playing) {
+        stateLabel = "PLAY";
+        stateColor = ImVec4(0.35f, 0.90f, 0.58f, 1.0f);
+    } else if (
+        workspace.playState == EditorPlayState::Paused) {
+        stateLabel = "PAUSED";
+        stateColor = ImVec4(1.0f, 0.75f, 0.25f, 1.0f);
+    }
+    ImGui::TextColored(stateColor, "%s", stateLabel);
+    ImGui::End();
+
     ImGui::Begin("Scene Hierarchy");
     ImGui::TextDisabled("%s", text(workspace.sceneAssetId).c_str());
     ImGui::Separator();
@@ -612,6 +705,85 @@ EditorShellActions EditorShell::drawWorkspace(
                 impl_->selectedHierarchyItem == index)) {
             impl_->selectedHierarchyItem = index;
         }
+    }
+    ImGui::End();
+
+    ImGui::Begin("Game Views");
+    ImGui::TextDisabled(
+        "Actual game runtime play configurations");
+    ImGui::Separator();
+    const auto* playConfigurations =
+        workspace.playConfigurations;
+    if (!playConfigurations ||
+        playConfigurations->empty()) {
+        ImGui::TextWrapped(
+            "This project has not declared any game views.");
+    } else {
+        impl_->selectedPlayConfiguration = std::clamp(
+            impl_->selectedPlayConfiguration,
+            0,
+            static_cast<int>(
+                playConfigurations->size() - 1u));
+        std::string previousGroup;
+        for (std::size_t index = 0u;
+             index < playConfigurations->size();
+             ++index) {
+            const auto& configuration =
+                (*playConfigurations)[index];
+            if (configuration.group != previousGroup) {
+                if (index != 0u) {
+                    ImGui::Spacing();
+                }
+                ImGui::TextDisabled(
+                    "%s",
+                    configuration.group.empty()
+                        ? "Game"
+                        : configuration.group.c_str());
+                previousGroup = configuration.group;
+            }
+            ImGui::PushID(static_cast<int>(index));
+            const bool selected =
+                impl_->selectedPlayConfiguration ==
+                static_cast<int>(index);
+            if (ImGui::Selectable(
+                    configuration.displayName.c_str(),
+                    selected)) {
+                impl_->selectedPlayConfiguration =
+                    static_cast<int>(index);
+                if (ImGui::IsMouseDoubleClicked(
+                        ImGuiMouseButton_Left) &&
+                    configuration.available) {
+                    actions.launchPlayConfigurationIndex =
+                        static_cast<int>(index);
+                }
+            }
+            ImGui::PopID();
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        const auto& selected = (*playConfigurations)[
+            static_cast<std::size_t>(
+                impl_->selectedPlayConfiguration)];
+        ImGui::TextWrapped(
+            "%s",
+            selected.description.c_str());
+        if (!selected.available) {
+            ImGui::TextColored(
+                ImVec4(1.0f, 0.62f, 0.24f, 1.0f),
+                "Build required: %s",
+                selected.executablePath.c_str());
+        }
+        ImGui::BeginDisabled(!selected.available);
+        if (ImGui::Button(
+                "Run Game View",
+                ImVec2(-1.0f, 32.0f))) {
+            actions.launchPlayConfigurationIndex =
+                impl_->selectedPlayConfiguration;
+        }
+        ImGui::EndDisabled();
+        ImGui::TextDisabled(
+            "Runs the real game in its own window.");
     }
     ImGui::End();
 
@@ -698,11 +870,33 @@ EditorShellActions EditorShell::drawWorkspace(
     ImGui::TextDisabled(
         "Scene: %s",
         text(workspace.scenePath).c_str());
+    ImGui::TextDisabled(
+        "Scene simulation: %s  %.2fs",
+        workspace.playState == EditorPlayState::Editing
+            ? "frozen"
+            : workspace.playState == EditorPlayState::Paused
+                ? "paused"
+                : "running",
+        workspace.simulationSeconds);
     ImGui::End();
 
     ImGuiIO& io = ImGui::GetIO();
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O, false)) {
         actions.openProject = true;
+    }
+    if (io.KeyCtrl && !io.KeyShift && !io.KeyAlt &&
+        ImGui::IsKeyPressed(ImGuiKey_P, false)) {
+        actions.togglePlay = true;
+    }
+    if (io.KeyCtrl && io.KeyShift &&
+        ImGui::IsKeyPressed(ImGuiKey_P, false) &&
+        workspace.playState != EditorPlayState::Editing) {
+        actions.togglePause = true;
+    }
+    if (io.KeyCtrl && io.KeyAlt &&
+        ImGui::IsKeyPressed(ImGuiKey_P, false) &&
+        workspace.playState == EditorPlayState::Paused) {
+        actions.step = true;
     }
     return actions;
 }

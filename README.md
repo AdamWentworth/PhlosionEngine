@@ -53,6 +53,12 @@ Games may provide a generated editor plugin for game-specific loading and
 inspectors; the Engine still owns the executable, project browser, render loop,
 window, and common editor UI.
 
+An opened scene starts in Edit mode with simulation time frozen. Use the
+Play/Pause/Step toolbar (or the Play menu) to inspect scene animation without
+starting the game. Projects may also declare named play configurations in
+`phlosion.project.json`; these appear under Game Views and launch the project's
+real executable with project-owned arguments and environment overrides.
+
 Consumers can initially use the engine as a CMake subdirectory:
 
 ```cmake

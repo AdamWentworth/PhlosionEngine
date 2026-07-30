@@ -131,6 +131,84 @@ bool parseProjectDescriptor(
             }
         }
 
+        if (root.contains("play_configurations")) {
+            for (const auto& playJson :
+                 root.at("play_configurations")) {
+                PlayConfiguration configuration;
+                configuration.id =
+                    playJson.at("id").get<std::string>();
+                configuration.displayName =
+                    playJson.at("display_name").get<std::string>();
+                configuration.group =
+                    playJson.value("group", std::string{});
+                configuration.description =
+                    playJson.value("description", std::string{});
+                configuration.executable =
+                    playJson.at("executable").get<std::string>();
+                configuration.workingDirectory =
+                    playJson.value(
+                        "working_directory",
+                        std::string("."));
+                configuration.arguments =
+                    playJson.value(
+                        "arguments",
+                        std::vector<std::string>{});
+
+                if (configuration.id.empty() ||
+                    configuration.displayName.empty() ||
+                    !isPortableRelativePath(
+                        configuration.executable) ||
+                    !isPortableRelativePath(
+                        configuration.workingDirectory)) {
+                    return fail(
+                        "Play configurations require an id, display name, portable relative executable, and portable relative working directory.",
+                        outError);
+                }
+                const auto duplicate = std::find_if(
+                    parsed.playConfigurations.begin(),
+                    parsed.playConfigurations.end(),
+                    [&](const PlayConfiguration& candidate) {
+                        return candidate.id == configuration.id;
+                    });
+                if (duplicate !=
+                    parsed.playConfigurations.end()) {
+                    return fail(
+                        "Duplicate play configuration id: " +
+                            configuration.id,
+                        outError);
+                }
+
+                if (playJson.contains("environment")) {
+                    const auto& environmentJson =
+                        playJson.at("environment");
+                    if (!environmentJson.is_object()) {
+                        return fail(
+                            "Play configuration environment must be an object.",
+                            outError);
+                    }
+                    for (auto it = environmentJson.begin();
+                         it != environmentJson.end();
+                         ++it) {
+                        if (it.key().empty() ||
+                            it.key().find('=') !=
+                                std::string::npos ||
+                            !it.value().is_string()) {
+                            return fail(
+                                "Play configuration environment names must be non-empty, exclude '=', and map to string values.",
+                                outError);
+                        }
+                        configuration.environment.push_back(
+                            PlayEnvironmentVariable{
+                                .name = it.key(),
+                                .value =
+                                    it.value().get<std::string>()});
+                    }
+                }
+                parsed.playConfigurations.push_back(
+                    std::move(configuration));
+            }
+        }
+
         if (root.contains("private_asset_depot")) {
             parsed.privateAssetDepotEnvironment =
                 root.at("private_asset_depot")
@@ -245,6 +323,85 @@ bool resolveEditorPluginPath(
         "lib" + descriptor.editorPlugin.library + ".so";
 #endif
     out = (descriptorDirectory / pluginDirectory / libraryFile)
+              .lexically_normal();
+    if (outError) {
+        outError->clear();
+    }
+    return true;
+}
+
+bool resolvePlayExecutablePath(
+    const std::filesystem::path& descriptorPath,
+    const PlayConfiguration& configuration,
+    std::string_view buildConfiguration,
+    std::filesystem::path& out,
+    std::string* outError) {
+    if (!isPortableRelativePath(configuration.executable)) {
+        return fail(
+            "Play configuration executable must be a portable relative path.",
+            outError);
+    }
+    if (buildConfiguration.empty()) {
+        return fail(
+            "Editor build configuration must not be empty.",
+            outError);
+    }
+
+    std::error_code error;
+    const auto descriptorDirectory =
+        std::filesystem::absolute(descriptorPath, error)
+            .parent_path();
+    if (error) {
+        return fail(
+            "Could not resolve project descriptor directory: " +
+                error.message(),
+            outError);
+    }
+    out = (
+        descriptorDirectory /
+        replaceConfigurationToken(
+            configuration.executable.generic_string(),
+            buildConfiguration))
+              .lexically_normal();
+    if (outError) {
+        outError->clear();
+    }
+    return true;
+}
+
+bool resolvePlayWorkingDirectory(
+    const std::filesystem::path& descriptorPath,
+    const PlayConfiguration& configuration,
+    std::string_view buildConfiguration,
+    std::filesystem::path& out,
+    std::string* outError) {
+    if (!isPortableRelativePath(
+            configuration.workingDirectory)) {
+        return fail(
+            "Play configuration working directory must be a portable relative path.",
+            outError);
+    }
+    if (buildConfiguration.empty()) {
+        return fail(
+            "Editor build configuration must not be empty.",
+            outError);
+    }
+
+    std::error_code error;
+    const auto descriptorDirectory =
+        std::filesystem::absolute(descriptorPath, error)
+            .parent_path();
+    if (error) {
+        return fail(
+            "Could not resolve project descriptor directory: " +
+                error.message(),
+            outError);
+    }
+    out = (
+        descriptorDirectory /
+        replaceConfigurationToken(
+            configuration.workingDirectory.generic_string(),
+            buildConfiguration))
               .lexically_normal();
     if (outError) {
         outError->clear();

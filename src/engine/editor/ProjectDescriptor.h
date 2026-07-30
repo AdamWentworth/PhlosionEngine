@@ -25,6 +25,22 @@ struct EditorPlugin {
     std::filesystem::path directory;
 };
 
+struct PlayEnvironmentVariable {
+    std::string name;
+    std::string value;
+};
+
+struct PlayConfiguration {
+    std::string id;
+    std::string displayName;
+    std::string group;
+    std::string description;
+    std::filesystem::path executable;
+    std::filesystem::path workingDirectory = ".";
+    std::vector<std::string> arguments;
+    std::vector<PlayEnvironmentVariable> environment;
+};
+
 struct ProjectDescriptor {
     std::uint32_t schemaVersion = 0u;
     std::string projectId;
@@ -32,6 +48,7 @@ struct ProjectDescriptor {
     std::vector<ContentMount> contentMounts;
     StartupScene startupScene;
     EditorPlugin editorPlugin;
+    std::vector<PlayConfiguration> playConfigurations;
     std::string privateAssetDepotEnvironment;
 };
 
@@ -54,6 +71,20 @@ bool resolveStartupScenePath(
 bool resolveEditorPluginPath(
     const std::filesystem::path& descriptorPath,
     const ProjectDescriptor& descriptor,
+    std::string_view buildConfiguration,
+    std::filesystem::path& out,
+    std::string* outError = nullptr);
+
+bool resolvePlayExecutablePath(
+    const std::filesystem::path& descriptorPath,
+    const PlayConfiguration& configuration,
+    std::string_view buildConfiguration,
+    std::filesystem::path& out,
+    std::string* outError = nullptr);
+
+bool resolvePlayWorkingDirectory(
+    const std::filesystem::path& descriptorPath,
+    const PlayConfiguration& configuration,
     std::string_view buildConfiguration,
     std::filesystem::path& out,
     std::string* outError = nullptr);

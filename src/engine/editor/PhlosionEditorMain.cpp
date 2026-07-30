@@ -33,6 +33,8 @@
 #include <commdlg.h>
 #else
 #include <dlfcn.h>
+#include <sys/types.h>
+#include <unistd.h>
 #endif
 
 #ifndef PHLOSION_EDITOR_BUILD_CONFIGURATION
@@ -387,6 +389,15 @@ struct LoadedProject {
     engine::editor::IEditorProjectRuntime* runtime = nullptr;
     engine::editor::DestroyEditorProjectRuntimeFn destroyRuntime =
         nullptr;
+    struct ResolvedPlayConfiguration {
+        const engine::editor::PlayConfiguration* configuration =
+            nullptr;
+        std::filesystem::path executable;
+        std::filesystem::path workingDirectory;
+    };
+    std::vector<ResolvedPlayConfiguration> playConfigurations;
+    std::vector<engine::editor::WorkspacePlayConfiguration>
+        playConfigurationViews;
 };
 
 std::unique_ptr<LoadedProject> loadProject(
@@ -479,6 +490,54 @@ std::unique_ptr<LoadedProject> loadProject(
     loaded->rootText = loaded->root.generic_string();
     loaded->scenePathText =
         loaded->scenePath.generic_string();
+    loaded->playConfigurations.reserve(
+        loaded->descriptor.playConfigurations.size());
+    loaded->playConfigurationViews.reserve(
+        loaded->descriptor.playConfigurations.size());
+    for (const auto& configuration :
+         loaded->descriptor.playConfigurations) {
+        std::filesystem::path executable;
+        std::filesystem::path workingDirectory;
+        if (!engine::editor::resolvePlayExecutablePath(
+                loaded->descriptorPath,
+                configuration,
+                PHLOSION_EDITOR_BUILD_CONFIGURATION,
+                executable,
+                &outError) ||
+            !engine::editor::resolvePlayWorkingDirectory(
+                loaded->descriptorPath,
+                configuration,
+                PHLOSION_EDITOR_BUILD_CONFIGURATION,
+                workingDirectory,
+                &outError)) {
+            return nullptr;
+        }
+        std::error_code executableError;
+        std::error_code directoryError;
+        const bool available =
+            std::filesystem::is_regular_file(
+                executable,
+                executableError) &&
+            !executableError &&
+            std::filesystem::is_directory(
+                workingDirectory,
+                directoryError) &&
+            !directoryError;
+        loaded->playConfigurations.push_back(
+            LoadedProject::ResolvedPlayConfiguration{
+                .configuration = &configuration,
+                .executable = executable,
+                .workingDirectory = workingDirectory});
+        loaded->playConfigurationViews.push_back(
+            engine::editor::WorkspacePlayConfiguration{
+                .id = configuration.id,
+                .displayName = configuration.displayName,
+                .group = configuration.group,
+                .description = configuration.description,
+                .executablePath =
+                    executable.generic_string(),
+                .available = available});
+    }
     const engine::editor::EditorProjectOpenContext openContext{
         .descriptor = &loaded->descriptor,
         .descriptorPath = loaded->descriptorPathText.c_str(),
@@ -502,6 +561,211 @@ std::unique_ptr<LoadedProject> loadProject(
             : "Project loaded.";
     outError.clear();
     return loaded;
+}
+
+#if defined(_WIN32)
+std::wstring quoteWindowsArgument(const std::wstring& argument) {
+    if (argument.empty()) {
+        return L"\"\"";
+    }
+    if (argument.find_first_of(L" \t\n\v\"") ==
+        std::wstring::npos) {
+        return argument;
+    }
+    std::wstring quoted = L"\"";
+    std::size_t backslashes = 0u;
+    for (const wchar_t character : argument) {
+        if (character == L'\\') {
+            ++backslashes;
+            continue;
+        }
+        if (character == L'"') {
+            quoted.append(backslashes * 2u + 1u, L'\\');
+            quoted.push_back(L'"');
+            backslashes = 0u;
+            continue;
+        }
+        quoted.append(backslashes, L'\\');
+        backslashes = 0u;
+        quoted.push_back(character);
+    }
+    quoted.append(backslashes * 2u, L'\\');
+    quoted.push_back(L'"');
+    return quoted;
+}
+
+std::wstring widenUtf8(const std::string& value) {
+    if (value.empty()) {
+        return {};
+    }
+    const int size = MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        value.data(),
+        static_cast<int>(value.size()),
+        nullptr,
+        0);
+    if (size <= 0) {
+        return std::wstring(value.begin(), value.end());
+    }
+    std::wstring result(static_cast<std::size_t>(size), L'\0');
+    MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        value.data(),
+        static_cast<int>(value.size()),
+        result.data(),
+        size);
+    return result;
+}
+#endif
+
+bool launchPlayConfiguration(
+    const LoadedProject::ResolvedPlayConfiguration& resolved,
+    std::string& outError) {
+    if (!resolved.configuration) {
+        outError = "Play configuration is missing.";
+        return false;
+    }
+    if (!std::filesystem::is_regular_file(resolved.executable)) {
+        outError =
+            "Build the game executable first: " +
+            resolved.executable.generic_string();
+        return false;
+    }
+    if (!std::filesystem::is_directory(
+            resolved.workingDirectory)) {
+        outError =
+            "Play configuration working directory is missing: " +
+            resolved.workingDirectory.generic_string();
+        return false;
+    }
+
+#if defined(_WIN32)
+    struct SavedEnvironment {
+        std::wstring name;
+        std::wstring value;
+        bool existed = false;
+    };
+    std::vector<SavedEnvironment> savedEnvironment;
+    savedEnvironment.reserve(
+        resolved.configuration->environment.size());
+    for (const auto& variable :
+         resolved.configuration->environment) {
+        const std::wstring name = widenUtf8(variable.name);
+        SetLastError(ERROR_SUCCESS);
+        const DWORD required =
+            GetEnvironmentVariableW(name.c_str(), nullptr, 0);
+        const bool existed =
+            required != 0u ||
+            GetLastError() != ERROR_ENVVAR_NOT_FOUND;
+        std::wstring previous;
+        if (required > 0u) {
+            previous.resize(required);
+            const DWORD written = GetEnvironmentVariableW(
+                name.c_str(),
+                previous.data(),
+                required);
+            previous.resize(written);
+        }
+        savedEnvironment.push_back(
+            SavedEnvironment{
+                .name = name,
+                .value = std::move(previous),
+                .existed = existed});
+        const std::wstring value = widenUtf8(variable.value);
+        SetEnvironmentVariableW(name.c_str(), value.c_str());
+    }
+
+    const std::wstring executable =
+        resolved.executable.wstring();
+    std::wstring commandLine =
+        quoteWindowsArgument(executable);
+    for (const std::string& argument :
+         resolved.configuration->arguments) {
+        commandLine.push_back(L' ');
+        commandLine += quoteWindowsArgument(
+            widenUtf8(argument));
+    }
+    std::vector<wchar_t> writableCommandLine(
+        commandLine.begin(),
+        commandLine.end());
+    writableCommandLine.push_back(L'\0');
+    STARTUPINFOW startupInfo{};
+    startupInfo.cb = sizeof(startupInfo);
+    PROCESS_INFORMATION processInfo{};
+    const std::wstring workingDirectory =
+        resolved.workingDirectory.wstring();
+    const BOOL created = CreateProcessW(
+        executable.c_str(),
+        writableCommandLine.data(),
+        nullptr,
+        nullptr,
+        FALSE,
+        CREATE_NEW_PROCESS_GROUP,
+        nullptr,
+        workingDirectory.c_str(),
+        &startupInfo,
+        &processInfo);
+    const DWORD createError = created ? ERROR_SUCCESS : GetLastError();
+
+    for (auto it = savedEnvironment.rbegin();
+         it != savedEnvironment.rend();
+         ++it) {
+        SetEnvironmentVariableW(
+            it->name.c_str(),
+            it->existed ? it->value.c_str() : nullptr);
+    }
+    if (!created) {
+        outError =
+            "Could not launch game view (Windows error " +
+            std::to_string(createError) + "): " +
+            resolved.executable.generic_string();
+        return false;
+    }
+    CloseHandle(processInfo.hThread);
+    CloseHandle(processInfo.hProcess);
+#else
+    const pid_t processId = fork();
+    if (processId < 0) {
+        outError = "Could not fork the game view process.";
+        return false;
+    }
+    if (processId == 0) {
+        for (const auto& variable :
+             resolved.configuration->environment) {
+            setenv(
+                variable.name.c_str(),
+                variable.value.c_str(),
+                1);
+        }
+        if (chdir(
+                resolved.workingDirectory.string().c_str()) != 0) {
+            _exit(126);
+        }
+        std::vector<std::string> argumentStorage;
+        argumentStorage.reserve(
+            resolved.configuration->arguments.size() + 1u);
+        argumentStorage.push_back(
+            resolved.executable.string());
+        argumentStorage.insert(
+            argumentStorage.end(),
+            resolved.configuration->arguments.begin(),
+            resolved.configuration->arguments.end());
+        std::vector<char*> arguments;
+        arguments.reserve(argumentStorage.size() + 1u);
+        for (std::string& argument : argumentStorage) {
+            arguments.push_back(argument.data());
+        }
+        arguments.push_back(nullptr);
+        execv(
+            resolved.executable.string().c_str(),
+            arguments.data());
+        _exit(127);
+    }
+#endif
+    outError.clear();
+    return true;
 }
 
 glm::vec3 horizontalDirection(glm::vec3 direction) {
@@ -585,6 +849,8 @@ int main(int argc, char** argv) {
         bool running = true;
         int frameCount = 0;
         float simulationSeconds = 0.0f;
+        engine::editor::EditorPlayState playState =
+            engine::editor::EditorPlayState::Editing;
         using Clock = std::chrono::steady_clock;
         auto previous = Clock::now();
 
@@ -595,7 +861,10 @@ int main(int argc, char** argv) {
                 std::chrono::duration<float>(
                     now - previous).count());
             previous = now;
-            simulationSeconds += deltaSeconds;
+            if (playState ==
+                engine::editor::EditorPlayState::Playing) {
+                simulationSeconds += deltaSeconds;
+            }
 
             float wheelDelta = 0.0f;
             glm::vec2 panPixels(0.0f);
@@ -700,6 +969,8 @@ int main(int argc, char** argv) {
                     browserError.clear();
                     browserStatus = "Project loaded.";
                     simulationSeconds = 0.0f;
+                    playState =
+                        engine::editor::EditorPlayState::Editing;
                     window.setTitle(
                         project->descriptor.displayName +
                         " - Phlosion Editor");
@@ -764,6 +1035,23 @@ int main(int argc, char** argv) {
                 1.0f);
             engine::editor::EditorShellActions actions;
             if (project) {
+                for (std::size_t index = 0u;
+                     index < project->playConfigurations.size();
+                     ++index) {
+                    std::error_code executableError;
+                    std::error_code directoryError;
+                    project->playConfigurationViews[index].available =
+                        std::filesystem::is_regular_file(
+                            project->playConfigurations[index]
+                                .executable,
+                            executableError) &&
+                        !executableError &&
+                        std::filesystem::is_directory(
+                            project->playConfigurations[index]
+                                .workingDirectory,
+                            directoryError) &&
+                        !directoryError;
+                }
                 project->runtime->update(simulationSeconds);
                 const glm::mat4 viewProjection =
                     camera.getProjectionMatrix() *
@@ -805,6 +1093,10 @@ int main(int argc, char** argv) {
                     .backendName =
                         "OpenGL 3.3 / project renderer plugin",
                     .status = project->status,
+                    .playState = playState,
+                    .simulationSeconds = simulationSeconds,
+                    .playConfigurations =
+                        &project->playConfigurationViews,
                     .sceneCount = stats.sceneCount,
                     .materialCount = stats.materialCount,
                     .drawClassCount = stats.drawClassCount,
@@ -835,7 +1127,76 @@ int main(int argc, char** argv) {
             }
             if (actions.closeProject) {
                 project.reset();
+                simulationSeconds = 0.0f;
+                playState =
+                    engine::editor::EditorPlayState::Editing;
                 window.setTitle("Phlosion Editor");
+            }
+            if (project && actions.togglePlay) {
+                if (playState ==
+                    engine::editor::EditorPlayState::Editing) {
+                    simulationSeconds = 0.0f;
+                    project->runtime->update(simulationSeconds);
+                    playState =
+                        engine::editor::EditorPlayState::Playing;
+                    project->status =
+                        "Scene simulation started.";
+                } else {
+                    playState =
+                        engine::editor::EditorPlayState::Editing;
+                    simulationSeconds = 0.0f;
+                    project->runtime->update(simulationSeconds);
+                    project->status =
+                        "Scene simulation stopped; edit view restored.";
+                }
+            }
+            if (project && actions.togglePause &&
+                playState !=
+                    engine::editor::EditorPlayState::Editing) {
+                playState =
+                    playState ==
+                            engine::editor::EditorPlayState::Paused
+                        ? engine::editor::EditorPlayState::Playing
+                        : engine::editor::EditorPlayState::Paused;
+                project->status =
+                    playState ==
+                            engine::editor::EditorPlayState::Paused
+                        ? "Scene simulation paused."
+                        : "Scene simulation resumed.";
+            }
+            if (project && actions.step &&
+                playState ==
+                    engine::editor::EditorPlayState::Paused) {
+                simulationSeconds += 1.0f / 60.0f;
+                project->runtime->update(simulationSeconds);
+                project->status =
+                    "Scene simulation advanced by one 60 Hz frame.";
+            }
+            if (project &&
+                actions.launchPlayConfigurationIndex >= 0 &&
+                static_cast<std::size_t>(
+                    actions.launchPlayConfigurationIndex) <
+                    project->playConfigurations.size()) {
+                const std::size_t configurationIndex =
+                    static_cast<std::size_t>(
+                        actions.launchPlayConfigurationIndex);
+                std::string launchError;
+                if (launchPlayConfiguration(
+                        project->playConfigurations[
+                            configurationIndex],
+                        launchError)) {
+                    project->status =
+                        "Launched game view: " +
+                        project->playConfigurationViews[
+                            configurationIndex].displayName;
+                } else {
+                    project->status =
+                        "Game view launch failed: " +
+                        launchError;
+                    std::cerr
+                        << "[Phlosion Editor] "
+                        << project->status << '\n';
+                }
             }
             if (actions.recentProjectIndex >= 0 &&
                 static_cast<std::size_t>(

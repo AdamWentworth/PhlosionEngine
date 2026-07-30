@@ -12,6 +12,21 @@ struct SDL_Window;
 
 namespace engine::editor {
 
+enum class EditorPlayState {
+    Editing,
+    Playing,
+    Paused,
+};
+
+struct WorkspacePlayConfiguration {
+    std::string id;
+    std::string displayName;
+    std::string group;
+    std::string description;
+    std::string executablePath;
+    bool available = false;
+};
+
 struct WorkspaceView {
     std::string_view projectName;
     std::string_view projectId;
@@ -20,6 +35,10 @@ struct WorkspaceView {
     std::string_view scenePath;
     std::string_view backendName;
     std::string_view status;
+    EditorPlayState playState = EditorPlayState::Editing;
+    float simulationSeconds = 0.0f;
+    const std::vector<WorkspacePlayConfiguration>*
+        playConfigurations = nullptr;
     std::uint32_t sceneCount = 0u;
     std::uint32_t materialCount = 0u;
     std::uint32_t drawClassCount = 0u;
@@ -40,7 +59,11 @@ struct EditorShellActions {
     bool openProject = false;
     bool closeProject = false;
     bool exit = false;
+    bool togglePlay = false;
+    bool togglePause = false;
+    bool step = false;
     int recentProjectIndex = -1;
+    int launchPlayConfigurationIndex = -1;
 };
 
 class EditorShell {
