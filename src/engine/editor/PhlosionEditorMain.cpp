@@ -1092,6 +1092,8 @@ void appendProjectAssets(
                         : "Project Assets",
                 .path = asset.path,
                 .previewable3d = asset.previewable,
+                .sceneInstantiable =
+                    asset.sceneInstantiable,
                 .properties = {
                     {"Asset type", asset.typeName},
                     {"Contains",
@@ -1313,6 +1315,7 @@ struct LoadedProject {
         layoutObjectViews;
     std::vector<engine::editor::WorkspaceAsset>
         assetViews;
+    std::size_t cookedAssetViewCount = 0u;
     std::vector<engine::editor::WorkspaceScene> sceneViews;
     std::vector<engine::editor::WorkspaceGamePreview>
         gamePreviewViews;
@@ -1896,6 +1899,8 @@ std::unique_ptr<LoadedProject> loadProject(
         discoverCookedAssets(
             loaded->root,
             loaded->descriptor);
+    loaded->cookedAssetViewCount =
+        loaded->assetViews.size();
     loaded->sceneViews.reserve(
         loaded->descriptor.scenes.size());
     for (const auto& scene : loaded->descriptor.scenes) {
@@ -3239,9 +3244,14 @@ int main(int argc, char** argv) {
                         *project,
                         activeScene,
                         project->runtime->stats(),
-                        renderer.backendId()
+                            renderer.backendId()
                             ? renderer.backendId()
                             : "unknown");
+                    project->assetViews.resize(
+                        project->cookedAssetViewCount);
+                    appendProjectAssets(
+                        *project->runtime,
+                        project->assetViews);
                 };
             if (project &&
                 (actions.undoSceneEditRequested ||
@@ -3345,6 +3355,36 @@ int main(int argc, char** argv) {
                     project->status =
                         "Scene object command failed: " +
                         commandError;
+                }
+            }
+            if (project &&
+                actions.instantiateAssetIndex >= 0 &&
+                static_cast<std::size_t>(
+                    actions.instantiateAssetIndex) <
+                    project->assetViews.size()) {
+                const auto asset =
+                    project->assetViews[
+                        static_cast<std::size_t>(
+                            actions.instantiateAssetIndex)];
+                std::string createdStableId;
+                std::string instantiateError;
+                if (asset.sceneInstantiable &&
+                    project->runtime->instantiateAsset(
+                        asset.id.c_str(),
+                        &createdStableId,
+                        &instantiateError)) {
+                    refreshSceneAuthoringViews();
+                    if (!createdStableId.empty()) {
+                        project->runtime->selectLayoutObject(
+                            createdStableId.c_str());
+                    }
+                    project->status =
+                        "Prefab instantiated and autosaved: " +
+                        asset.displayName + ".";
+                } else {
+                    project->status =
+                        "Prefab instantiation failed: " +
+                        instantiateError;
                 }
             }
             if (project &&

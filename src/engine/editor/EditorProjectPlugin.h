@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 12u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 13u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -82,6 +82,7 @@ struct EditorProjectAsset {
     const char* path = nullptr;
     const char* description = nullptr;
     bool previewable = false;
+    bool sceneInstantiable = false;
 };
 
 enum class EditorProjectAssetPreviewKind : std::uint8_t {
@@ -253,6 +254,20 @@ public:
         std::size_t index) const noexcept {
         (void)index;
         return {};
+    }
+    virtual bool instantiateAsset(
+        const char* assetId,
+        std::string* outCreatedStableId = nullptr,
+        std::string* outError = nullptr) {
+        (void)assetId;
+        if (outCreatedStableId) {
+            outCreatedStableId->clear();
+        }
+        if (outError) {
+            *outError =
+                "This asset cannot be instantiated in the active scene.";
+        }
+        return false;
     }
     virtual bool selectAssetPreview(
         const char* assetId,

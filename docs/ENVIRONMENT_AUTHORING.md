@@ -74,6 +74,13 @@ centres or replace the source geometry with a generic tree. Source meshes that
 do not yet have an equally strong decomposition proof remain clearly labelled
 as groups.
 
+Route 1 also exposes 23 source terrain assemblies derived from seven coarse
+source meshes. Millimetre-quantized seam connectivity separates the cliff
+body from the cap/transition/fringe component, and source-bounds matching pairs
+those components into one editable unit. The partition validates that every
+source triangle is retained exactly once. This is a parity-first prefab
+boundary, not a replacement parametric mesh.
+
 ## Editing Transactions
 
 Viewport manipulation has two phases:
@@ -140,6 +147,13 @@ Source-specific adapters may supply Game Freak-compatible profile templates,
 material families, fringe placement, and source behavior. The generic Engine
 components do not hard-code Pokemon rules.
 
+The active Route 1 first slice supports selecting, transforming, duplicating,
+and creating from the exact source terrain assemblies. Its Assets browser
+contributes one source-bound prefab alias per hierarchy object; aliases share
+immutable PHLO payloads rather than duplicating geometry. Arbitrary footprint,
+spline-point, attachment, collision, and navigation authoring remains the next
+generic component/cook layer.
+
 ## Cook Boundary
 
 The authored document and referenced `.phlo` resources are tracked game
@@ -164,7 +178,8 @@ recipes remain tracked.
    reparent commands with undo/redo.
 5. **Complete:** persist a generic project-owned scene document rather than a
    Route 1-only delta schema.
-6. Add `RaisedPlatform`, `LedgeSpline`, and `Ramp` creation tools.
+6. **In progress:** exact source terrain assemblies can be created and edited;
+   add arbitrary `RaisedPlatform`, `LedgeSpline`, and `Ramp` parameter tools.
 7. Generate collision/navigation and cook the authored composition.
 8. Qualify editing, undo, recook stability, and renderer parity with Pokemon
    Autochess before applying the workflow to a second game.

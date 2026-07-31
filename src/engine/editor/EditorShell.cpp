@@ -2238,6 +2238,18 @@ EditorShellActions EditorShell::drawWorkspace(
     const bool showAssetPreview =
         inspectedAsset &&
         inspectedAsset->previewable3d;
+    if (inspectedAsset &&
+        inspectedAsset->sceneInstantiable) {
+        if (ImGui::Button(
+                "Add Prefab To Scene",
+                ImVec2(-1.0f, 30.0f))) {
+            actions.instantiateAssetIndex =
+                impl_->selectedAsset;
+        }
+        ImGui::TextDisabled(
+            "Creates a project-owned instance while sharing the cooked PHLO geometry.");
+        ImGui::Spacing();
+    }
     if (inspectedLayout) {
         if (impl_->activeLayoutObjectId !=
                 inspectedLayout->stableId ||

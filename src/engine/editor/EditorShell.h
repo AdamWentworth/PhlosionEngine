@@ -79,6 +79,7 @@ struct WorkspaceAsset {
     std::string category;
     std::string path;
     bool previewable3d = false;
+    bool sceneInstantiable = false;
     std::vector<WorkspaceProperty> properties;
 };
 
@@ -214,6 +215,7 @@ struct EditorShellActions {
     int selectGamePreviewIndex = -1;
     int openSceneIndex = -1;
     int selectAssetIndex = -1;
+    int instantiateAssetIndex = -1;
     int selectLayoutObjectIndex = -1;
     int editLayoutObjectIndex = -1;
     bool layoutObjectEditRequested = false;
