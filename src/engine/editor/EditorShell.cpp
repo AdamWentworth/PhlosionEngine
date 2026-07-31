@@ -1186,18 +1186,41 @@ EditorShellActions EditorShell::drawWorkspace(
                     &impl_->assetPreviewShowMesh)) {
                 optionsChanged = true;
             }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Show or hide the model geometry.");
+            }
             ImGui::SameLine();
             if (ImGui::Checkbox(
                     "Materials",
                     &impl_->assetPreviewShowMaterials)) {
                 optionsChanged = true;
+                if (!impl_->assetPreviewShowMaterials) {
+                    impl_->assetPreviewShowTextures = false;
+                }
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Use the cooked material shaders and factors. "
+                    "Off shows neutral geometry.");
             }
             ImGui::SameLine();
+            ImGui::BeginDisabled(
+                !impl_->assetPreviewShowMaterials);
             if (ImGui::Checkbox(
                     "Textures",
                     &impl_->assetPreviewShowTextures)) {
                 optionsChanged = true;
             }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(
+                    ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip(
+                    "Use the image maps referenced by the cooked "
+                    "materials. Textures require Materials.");
+            }
+            ImGui::TextDisabled(
+                "Materials: shaders/factors   Textures: image maps");
             if (ImGui::Checkbox(
                     "Wireframe",
                     &impl_->assetPreviewShowWireframe)) {
