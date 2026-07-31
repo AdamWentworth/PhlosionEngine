@@ -1893,8 +1893,16 @@ void EditorShell::render() {
             dynamic_cast<D3D12RenderBackend*>(
                 impl_->renderer);
         if (d3d12 &&
-            d3d12->nativeCommandList()) {
+            d3d12->nativeCommandList() &&
+            impl_->d3d12Descriptors &&
+            impl_->d3d12Descriptors->heap) {
             d3d12->bindBackbufferForEditorUi();
+            ID3D12DescriptorHeap* descriptorHeaps[] = {
+                impl_->d3d12Descriptors->heap.Get()};
+            d3d12->nativeCommandList()->
+                SetDescriptorHeaps(
+                    1u,
+                    descriptorHeaps);
             ImGui_ImplDX12_RenderDrawData(
                 ImGui::GetDrawData(),
                 d3d12->nativeCommandList());

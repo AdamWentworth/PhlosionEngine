@@ -218,6 +218,11 @@ next backend bridge and will follow through the same Engine-owned abstraction
 rather than leaking backend-specific Dear ImGui types into games. M1 is the
 current active milestone.
 
+The Direct3D 12 editor path owns a separate shader-visible descriptor heap for
+Dear ImGui and embedded editor-surface textures. It rebinds that heap after
+world rendering and before every ImGui submission because world rendering may
+bind the renderer-owned material heap earlier in the same command list.
+
 The M0 SDL2 bridge currently owns keyboard, mouse, text, focus, and DPI input.
 Clipboard, cursor-shape, accessibility, controller navigation, and detached
 platform windows remain explicit shell work rather than implicit support.
