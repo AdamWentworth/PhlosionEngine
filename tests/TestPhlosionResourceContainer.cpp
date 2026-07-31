@@ -1,5 +1,7 @@
 #include "engine/assets/phlosion/PhlosionResourceContainer.h"
 
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -82,5 +84,29 @@ bool test_phlosion_resource_container_contract(std::string& outFail) {
         outFail = "PHRC corruption diagnostic should identify the hash.";
         return false;
     }
+
+    const std::filesystem::path inspectionPath =
+        std::filesystem::temp_directory_path() /
+        "phlosion_manifest_inspection_test.phlo";
+    {
+        std::ofstream output(
+            inspectionPath,
+            std::ios::binary | std::ios::trunc);
+        output.write(
+            reinterpret_cast<const char*>(encoded.data()),
+            static_cast<std::streamsize>(encoded.size()));
+    }
+    ManifestInspection inspection;
+    if (!inspectFileManifest(inspectionPath, inspection, &error) ||
+        inspection.magic != source.magic ||
+        inspection.schemaVersion != source.schemaVersion ||
+        inspection.manifestJson != source.manifestJson ||
+        inspection.contentHash == 0u) {
+        std::filesystem::remove(inspectionPath);
+        outFail =
+            "PHRC file manifest inspection lost metadata: " + error;
+        return false;
+    }
+    std::filesystem::remove(inspectionPath);
     return true;
 }

@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -38,6 +39,14 @@ struct Document {
     std::uint64_t contentHash = 0u;
 };
 
+struct ManifestInspection {
+    Magic magic{'P', 'H', 'R', 'C'};
+    std::uint32_t schemaVersion = 0u;
+    std::uint32_t flags = 0u;
+    std::string manifestJson;
+    std::uint64_t contentHash = 0u;
+};
+
 Magic magic(std::string_view fourCharacters);
 std::string magicString(const Magic& value);
 std::uint64_t contentHash64(
@@ -54,6 +63,11 @@ bool encode(
 bool decode(
     const std::vector<std::uint8_t>& bytes,
     Document& outDocument,
+    std::string* outError = nullptr);
+
+bool inspectFileManifest(
+    const std::filesystem::path& path,
+    ManifestInspection& outInspection,
     std::string* outError = nullptr);
 
 const Chunk* findChunk(

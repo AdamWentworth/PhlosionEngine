@@ -122,13 +122,32 @@ bool encodePrefabArchive(
     std::vector<SceneArchiveFile> files,
     std::vector<std::uint8_t>& outBytes,
     std::string* outError) {
+    return encodePrefabArchive(
+        prefabId,
+        prefabKind,
+        metadataJson,
+        std::move(files),
+        {},
+        outBytes,
+        outError);
+}
+
+bool encodePrefabArchive(
+    const std::string& prefabId,
+    const std::string& prefabKind,
+    const std::string& metadataJson,
+    std::vector<SceneArchiveFile> files,
+    std::vector<phrc::Dependency> dependencies,
+    std::vector<std::uint8_t>& outBytes,
+    std::string* outError) {
     outBytes.clear();
     if (prefabId.empty() || prefabKind.empty()) {
         return fail(
             outError,
             "PHLO prefab ID and kind must not be empty.");
     }
-    if (files.empty() || files.size() > kMaxArchiveFiles) {
+    if ((files.empty() && dependencies.empty()) ||
+        files.size() > kMaxArchiveFiles) {
         return fail(outError, "PHLO prefab file count is invalid.");
     }
     nlohmann::json metadata;
@@ -165,6 +184,7 @@ bool encodePrefabArchive(
     phrc::Document archive;
     archive.magic = phrc::magic("PHLO");
     archive.schemaVersion = kSchemaVersion;
+    archive.dependencies = std::move(dependencies);
     nlohmann::json manifest{
         {"schema_version", kSchemaVersion},
         {"container", "PHRC-1"},
@@ -352,8 +372,8 @@ bool PrefabArchiveStore::loadBytes(
         }
         const auto& records = manifest.at("files");
         if (!records.is_array() ||
-            records.empty() ||
-            records.size() > kMaxArchiveFiles) {
+            records.size() > kMaxArchiveFiles ||
+            (records.empty() && archive.dependencies.empty())) {
             return fail(
                 outError,
                 "PHLO prefab manifest file count is invalid.");

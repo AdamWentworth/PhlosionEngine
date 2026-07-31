@@ -1,5 +1,6 @@
 #define SDL_MAIN_HANDLED
 
+#include "engine/assets/phlosion/PhlosionResourceContainer.h"
 #include "engine/editor/EditorProjectPlugin.h"
 #include "engine/editor/D3D12EditorRenderSurface.h"
 #include "engine/editor/EditorRenderSurface.h"
@@ -19,6 +20,7 @@
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -751,6 +753,57 @@ std::optional<CookedAssetType> cookedAssetType(
     return std::nullopt;
 }
 
+std::optional<std::string> cookedPrefabKind(
+    const std::filesystem::path& path) {
+    engine::assets::phrc::ManifestInspection inspection;
+    if (!engine::assets::phrc::inspectFileManifest(
+            path,
+            inspection,
+            nullptr) ||
+        inspection.magic != engine::assets::phrc::magic("PHLO")) {
+        return std::nullopt;
+    }
+    try {
+        const nlohmann::json manifest =
+            nlohmann::json::parse(inspection.manifestJson);
+        if (manifest.value("root_type", std::string{}) !=
+            "Prefab") {
+            return std::nullopt;
+        }
+        const std::string kind =
+            manifest.value("prefab_kind", std::string{});
+        return kind.empty()
+            ? std::nullopt
+            : std::optional<std::string>(kind);
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+CookedAssetType cookedPrefabAssetType(
+    std::string_view kind) {
+    if (kind == "Character" ||
+        kind == "CharacterPrefab" ||
+        kind == "Pokemon") {
+        return CookedAssetType{
+            "Character Prefab", "Character Prefabs", 1};
+    }
+    if (kind == "Object" ||
+        kind == "ObjectPrefab" ||
+        kind == "RuntimeObject") {
+        return CookedAssetType{
+            "Object Prefab", "Object Prefabs", 2};
+    }
+    if (kind == "Environment" ||
+        kind == "EnvironmentPrefab" ||
+        kind == "LgpeEnvironment") {
+        return CookedAssetType{
+            "Environment Prefab", "Environment Prefabs", 3};
+    }
+    return CookedAssetType{
+        "Prefab", "Prefabs", 4};
+}
+
 std::string byteCountLabel(std::uintmax_t bytes) {
     constexpr std::uintmax_t kib = 1024u;
     constexpr std::uintmax_t mib = kib * 1024u;
@@ -853,17 +906,26 @@ discoverCookedAssets(
                 typeError) {
                 continue;
             }
-            const auto type =
+            const auto discoveredType =
                 cookedAssetType(
                     entry.path().extension().string());
-            if (!type) {
+            if (!discoveredType) {
                 continue;
             }
-            if (type->typeName != std::string_view("Prefab") &&
-                type->typeName !=
+            if (discoveredType->typeName !=
+                    std::string_view("Prefab") &&
+                discoveredType->typeName !=
                     std::string_view("World Scene")) {
                 continue;
             }
+            const auto prefabKind =
+                entry.path().extension() == ".phlo"
+                ? cookedPrefabKind(entry.path())
+                : std::nullopt;
+            const CookedAssetType type =
+                prefabKind
+                ? cookedPrefabAssetType(*prefabKind)
+                : *discoveredType;
             std::error_code mountRelativeError;
             const std::string mountRelativePath =
                 std::filesystem::relative(
@@ -898,15 +960,19 @@ discoverCookedAssets(
                         .displayName =
                             cookedAssetDisplayName(
                                 entry.path(),
-                                *type),
-                        .typeName = type->typeName,
-                        .category = type->category,
+                                type),
+                        .typeName = type.typeName,
+                        .category = type.category,
                         .path = projectPath,
                         .previewable3d =
                             entry.path().extension() ==
                             ".phlo",
                         .properties = {
-                            {"Asset type", type->typeName},
+                            {"Asset type", type.typeName},
+                            {"Prefab kind",
+                             prefabKind
+                                 ? *prefabKind
+                                 : "Not applicable"},
                             {"Contains",
                              entry.path().extension() ==
                                      ".phlo"
@@ -924,7 +990,7 @@ discoverCookedAssets(
                                  ? "Unavailable"
                                  : byteCountLabel(bytes)},
                         }},
-                .sortOrder = type->sortOrder});
+                .sortOrder = type.sortOrder});
         }
     }
     std::sort(

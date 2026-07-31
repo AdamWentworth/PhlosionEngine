@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <fstream>
 #include <limits>
 #include <utility>
 
@@ -474,6 +475,113 @@ bool decode(
     }
 
     outDocument = std::move(decoded);
+    return true;
+}
+
+bool inspectFileManifest(
+    const std::filesystem::path& path,
+    ManifestInspection& outInspection,
+    std::string* outError) {
+    outInspection = ManifestInspection{};
+    std::ifstream input(path, std::ios::binary | std::ios::ate);
+    if (!input) {
+        return fail(
+            outError,
+            "Could not open PHRC file for manifest inspection: " +
+                path.string());
+    }
+    const std::streamoff fileLength = input.tellg();
+    if (fileLength < static_cast<std::streamoff>(kHeaderBytes)) {
+        return fail(outError, "PHRC file is smaller than its header.");
+    }
+    const std::uint64_t fileBytes =
+        static_cast<std::uint64_t>(fileLength);
+    input.seekg(0, std::ios::beg);
+    std::vector<std::uint8_t> headerBytes(kHeaderBytes);
+    input.read(
+        reinterpret_cast<char*>(headerBytes.data()),
+        static_cast<std::streamsize>(headerBytes.size()));
+    if (!input) {
+        return fail(outError, "PHRC header is truncated.");
+    }
+
+    Reader header{headerBytes, 0u, headerBytes.size()};
+    Magic fileMagic{};
+    std::uint16_t containerVersion = 0u;
+    std::uint16_t declaredHeaderBytes = 0u;
+    std::uint32_t schemaVersion = 0u;
+    std::uint32_t flags = 0u;
+    std::uint32_t dependencyCount = 0u;
+    std::uint32_t chunkCount = 0u;
+    std::uint64_t manifestOffset = 0u;
+    std::uint64_t manifestBytes = 0u;
+    std::uint64_t dependencyOffset = 0u;
+    std::uint64_t dependencyBytes = 0u;
+    std::uint64_t chunkTableOffset = 0u;
+    std::uint64_t payloadOffset = 0u;
+    std::uint64_t payloadBytes = 0u;
+    std::uint64_t storedContentHash = 0u;
+    std::uint64_t reserved = 0u;
+    if (!header.readBytes(fileMagic.data(), fileMagic.size()) ||
+        !header.readU16(containerVersion) ||
+        !header.readU16(declaredHeaderBytes) ||
+        !header.readU32(schemaVersion) ||
+        !header.readU32(flags) ||
+        !header.readU32(dependencyCount) ||
+        !header.readU32(chunkCount) ||
+        !header.readU64(manifestOffset) ||
+        !header.readU64(manifestBytes) ||
+        !header.readU64(dependencyOffset) ||
+        !header.readU64(dependencyBytes) ||
+        !header.readU64(chunkTableOffset) ||
+        !header.readU64(payloadOffset) ||
+        !header.readU64(payloadBytes) ||
+        !header.readU64(storedContentHash) ||
+        !header.readU64(reserved)) {
+        return fail(outError, "PHRC header is truncated.");
+    }
+    if (containerVersion != kContainerVersion ||
+        declaredHeaderBytes != kHeaderBytes) {
+        return fail(outError, "PHRC container version is unsupported.");
+    }
+    if (dependencyCount > kMaxDependencies || chunkCount > kMaxChunks) {
+        return fail(outError, "PHRC table count exceeds the safety limit.");
+    }
+    if (manifestBytes > kMaxManifestBytes ||
+        manifestOffset < declaredHeaderBytes ||
+        manifestOffset > fileBytes ||
+        manifestBytes > fileBytes - manifestOffset) {
+        return fail(outError, "PHRC manifest range is invalid.");
+    }
+    if (manifestBytes >
+        static_cast<std::uint64_t>(
+            std::numeric_limits<std::size_t>::max())) {
+        return fail(outError, "PHRC manifest exceeds the host address space.");
+    }
+
+    std::string manifest(
+        static_cast<std::size_t>(manifestBytes),
+        '\0');
+    input.seekg(
+        static_cast<std::streamoff>(manifestOffset),
+        std::ios::beg);
+    if (!manifest.empty()) {
+        input.read(
+            manifest.data(),
+            static_cast<std::streamsize>(manifest.size()));
+    }
+    if (!input) {
+        return fail(outError, "PHRC manifest is truncated.");
+    }
+
+    outInspection.magic = fileMagic;
+    outInspection.schemaVersion = schemaVersion;
+    outInspection.flags = flags;
+    outInspection.manifestJson = std::move(manifest);
+    outInspection.contentHash = storedContentHash;
+    if (outError) {
+        outError->clear();
+    }
     return true;
 }
 

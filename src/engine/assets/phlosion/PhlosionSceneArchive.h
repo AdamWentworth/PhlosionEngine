@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/core/IAssetStore.h"
+#include "engine/assets/phlosion/PhlosionResourceContainer.h"
 
 #include <cstdint>
 #include <map>
@@ -25,6 +26,15 @@ bool encodePrefabArchive(
     const std::string& prefabKind,
     const std::string& metadataJson,
     std::vector<SceneArchiveFile> files,
+    std::vector<std::uint8_t>& outBytes,
+    std::string* outError = nullptr);
+
+bool encodePrefabArchive(
+    const std::string& prefabId,
+    const std::string& prefabKind,
+    const std::string& metadataJson,
+    std::vector<SceneArchiveFile> files,
+    std::vector<phrc::Dependency> dependencies,
     std::vector<std::uint8_t>& outBytes,
     std::string* outError = nullptr);
 

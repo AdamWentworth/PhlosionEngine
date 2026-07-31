@@ -110,5 +110,26 @@ bool test_phlosion_scene_archive_contract(std::string& outFail) {
         outFail = "prefab archive file bytes did not round-trip";
         return false;
     }
+
+    encoded.clear();
+    if (!engine::assets::phlosion::encodePrefabArchive(
+            "route1/tree001",
+            "LgpeEnvironment",
+            R"({"canonical_storage":"scene_dependency"})",
+            {},
+            {engine::assets::phrc::Dependency{
+                "scenes/route1.phscene",
+                0x1234u,
+                engine::assets::phrc::kDependencyRequired}},
+            encoded,
+            &error) ||
+        !prefab.loadBytes(encoded, &error) ||
+        prefab.prefabId() != "route1/tree001" ||
+        prefab.fileCount() != 0u) {
+        outFail =
+            "dependency-backed prefab archive did not round-trip: " +
+            error;
+        return false;
+    }
     return true;
 }
