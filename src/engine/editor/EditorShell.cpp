@@ -1,3 +1,7 @@
+#if defined(_WIN32) && !defined(NOMINMAX)
+#define NOMINMAX
+#endif
+
 #include "engine/editor/EditorShell.h"
 
 #include <algorithm>
@@ -9,12 +13,100 @@
 #include <string>
 
 #include <imgui.h>
+#if defined(_WIN32)
+#include <imgui_impl_dx12.h>
+#endif
 #include <imgui_impl_opengl3.h>
 #include <imgui_internal.h>
+
+#include "engine/render/D3D12RenderBackend.h"
 
 namespace engine::editor {
 
 namespace {
+
+#if defined(_WIN32)
+struct D3D12DescriptorAllocator {
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> heap;
+    UINT descriptorSize = 0u;
+    std::uint32_t capacity = 0u;
+    std::uint32_t next = 0u;
+    std::vector<std::uint32_t> freeIndices;
+
+    bool allocate(
+        D3D12_CPU_DESCRIPTOR_HANDLE& cpu,
+        D3D12_GPU_DESCRIPTOR_HANDLE& gpu) {
+        if (!heap || descriptorSize == 0u) {
+            return false;
+        }
+        std::uint32_t index = 0u;
+        if (!freeIndices.empty()) {
+            index = freeIndices.back();
+            freeIndices.pop_back();
+        } else {
+            if (next >= capacity) {
+                return false;
+            }
+            index = next++;
+        }
+        cpu = heap->GetCPUDescriptorHandleForHeapStart();
+        gpu = heap->GetGPUDescriptorHandleForHeapStart();
+        cpu.ptr +=
+            static_cast<SIZE_T>(index) *
+            static_cast<SIZE_T>(descriptorSize);
+        gpu.ptr +=
+            static_cast<UINT64>(index) *
+            static_cast<UINT64>(descriptorSize);
+        return true;
+    }
+
+    void release(D3D12_CPU_DESCRIPTOR_HANDLE cpu) {
+        if (!heap || descriptorSize == 0u ||
+            cpu.ptr == 0u) {
+            return;
+        }
+        const SIZE_T start =
+            heap->GetCPUDescriptorHandleForHeapStart().ptr;
+        if (cpu.ptr < start) {
+            return;
+        }
+        const SIZE_T offset = cpu.ptr - start;
+        if (offset % descriptorSize != 0u) {
+            return;
+        }
+        const auto index = static_cast<std::uint32_t>(
+            offset / descriptorSize);
+        if (index < next) {
+            freeIndices.push_back(index);
+        }
+    }
+};
+
+void allocateImGuiD3D12Descriptor(
+    ImGui_ImplDX12_InitInfo* info,
+    D3D12_CPU_DESCRIPTOR_HANDLE* outCpu,
+    D3D12_GPU_DESCRIPTOR_HANDLE* outGpu) {
+    if (!info || !outCpu || !outGpu ||
+        !info->UserData) {
+        return;
+    }
+    auto* allocator =
+        static_cast<D3D12DescriptorAllocator*>(
+            info->UserData);
+    (void)allocator->allocate(*outCpu, *outGpu);
+}
+
+void freeImGuiD3D12Descriptor(
+    ImGui_ImplDX12_InitInfo* info,
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu,
+    D3D12_GPU_DESCRIPTOR_HANDLE) {
+    if (!info || !info->UserData) {
+        return;
+    }
+    static_cast<D3D12DescriptorAllocator*>(
+        info->UserData)->release(cpu);
+}
+#endif
 
 enum class InspectorSelectionDomain {
     Hierarchy,
@@ -239,10 +331,57 @@ void applyPhlosionStyle() {
     colors[ImGuiCol_CheckMark] = ImVec4(0.30f, 0.88f, 0.57f, 1.0f);
 }
 
+bool drawRendererPreferenceMenu(
+    EditorRendererPreference current,
+    EditorShellActions& actions) {
+    bool changed = false;
+    const auto option =
+        [&](const char* label,
+            EditorRendererPreference preference,
+            bool enabled = true) {
+            if (ImGui::MenuItem(
+                    label,
+                    nullptr,
+                    current == preference,
+                    enabled)) {
+                actions.rendererPreferenceChanged = true;
+                actions.rendererPreference = preference;
+                changed = true;
+            }
+        };
+    option(
+        "Auto (recommended)",
+        EditorRendererPreference::Auto);
+#if defined(_WIN32)
+    option(
+        "Direct3D 12",
+        EditorRendererPreference::D3D12);
+#endif
+    option(
+        "Vulkan (runtime available; editor integration pending)",
+        EditorRendererPreference::Vulkan,
+        false);
+    option(
+        "OpenGL (compatibility)",
+        EditorRendererPreference::OpenGL);
+    ImGui::Separator();
+    ImGui::TextDisabled(
+        "Changing API restarts the editor.");
+    return changed;
+}
+
 } // namespace
 
 struct EditorShell::Impl {
+    enum class RendererBackend {
+        OpenGL,
+        D3D12,
+    };
+
     SDL_Window* window = nullptr;
+    IRenderBackend* renderer = nullptr;
+    RendererBackend rendererBackend =
+        RendererBackend::OpenGL;
     bool ready = false;
     bool firstLayout = true;
     int selectedHierarchyItem = 0;
@@ -262,7 +401,12 @@ struct EditorShell::Impl {
     bool assetPreviewShowTextures = true;
     bool assetPreviewShowWireframe = false;
     bool assetPreviewShowSkeleton = false;
+    std::string activeAssetPreviewId;
     std::string settingsIniPath;
+#if defined(_WIN32)
+    std::unique_ptr<D3D12DescriptorAllocator>
+        d3d12Descriptors;
+#endif
 };
 
 EditorShell::EditorShell()
@@ -276,14 +420,16 @@ EditorShell::~EditorShell() {
 
 bool EditorShell::initialize(
     SDL_Window* window,
+    IRenderBackend* renderer,
     std::string* outError,
     const char* settingsIniPath) {
     if (impl_->ready) {
         return true;
     }
-    if (!window) {
+    if (!window || !renderer) {
         if (outError) {
-            *outError = "Editor shell requires a valid SDL window.";
+            *outError =
+                "Editor shell requires a valid SDL window and renderer.";
         }
         return false;
     }
@@ -299,15 +445,103 @@ bool EditorShell::initialize(
     io.IniFilename = impl_->settingsIniPath.c_str();
     applyPhlosionStyle();
 
-    if (!ImGui_ImplOpenGL3_Init("#version 330")) {
+    const std::string_view backendId =
+        renderer->backendId()
+            ? renderer->backendId()
+            : "";
+    if (backendId == "opengl") {
+        if (!ImGui_ImplOpenGL3_Init("#version 330")) {
+            ImGui::DestroyContext();
+            if (outError) {
+                *outError =
+                    "Dear ImGui OpenGL backend initialization failed.";
+            }
+            return false;
+        }
+        impl_->rendererBackend =
+            Impl::RendererBackend::OpenGL;
+#if defined(_WIN32)
+    } else if (backendId == "d3d12") {
+        auto* d3d12 =
+            dynamic_cast<D3D12RenderBackend*>(renderer);
+        if (!d3d12 || !d3d12->nativeDevice() ||
+            !d3d12->nativeCommandQueue()) {
+            ImGui::DestroyContext();
+            if (outError) {
+                *outError =
+                    "The D3D12 editor renderer did not expose a valid native device.";
+            }
+            return false;
+        }
+        auto descriptors =
+            std::make_unique<
+                D3D12DescriptorAllocator>();
+        constexpr std::uint32_t kDescriptorCount = 64u;
+        D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
+        heapDesc.Type =
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        heapDesc.NumDescriptors = kDescriptorCount;
+        heapDesc.Flags =
+            D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        if (FAILED(
+                d3d12->nativeDevice()->
+                    CreateDescriptorHeap(
+                        &heapDesc,
+                        IID_PPV_ARGS(
+                            descriptors->heap
+                                .ReleaseAndGetAddressOf()))) ||
+            !descriptors->heap) {
+            ImGui::DestroyContext();
+            if (outError) {
+                *outError =
+                    "Could not allocate the D3D12 editor texture heap.";
+            }
+            return false;
+        }
+        descriptors->descriptorSize =
+            d3d12->nativeDevice()->
+                GetDescriptorHandleIncrementSize(
+                    D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        descriptors->capacity = kDescriptorCount;
+        ImGui_ImplDX12_InitInfo initInfo{};
+        initInfo.Device = d3d12->nativeDevice();
+        initInfo.CommandQueue =
+            d3d12->nativeCommandQueue();
+        initInfo.NumFramesInFlight = 2;
+        initInfo.RTVFormat =
+            DXGI_FORMAT_R8G8B8A8_UNORM;
+        initInfo.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+        initInfo.UserData = descriptors.get();
+        initInfo.SrvDescriptorHeap =
+            descriptors->heap.Get();
+        initInfo.SrvDescriptorAllocFn =
+            &allocateImGuiD3D12Descriptor;
+        initInfo.SrvDescriptorFreeFn =
+            &freeImGuiD3D12Descriptor;
+        if (!ImGui_ImplDX12_Init(&initInfo)) {
+            ImGui::DestroyContext();
+            if (outError) {
+                *outError =
+                    "Dear ImGui D3D12 backend initialization failed.";
+            }
+            return false;
+        }
+        impl_->d3d12Descriptors =
+            std::move(descriptors);
+        impl_->rendererBackend =
+            Impl::RendererBackend::D3D12;
+#endif
+    } else {
         ImGui::DestroyContext();
         if (outError) {
-            *outError = "Dear ImGui OpenGL backend initialization failed.";
+            *outError =
+                "The selected renderer does not yet provide an editor UI integration.";
         }
         return false;
     }
 
     impl_->window = window;
+    impl_->renderer = renderer;
     impl_->ready = true;
     SDL_StartTextInput();
     if (outError) {
@@ -321,9 +555,20 @@ void EditorShell::shutdown() {
         return;
     }
     SDL_StopTextInput();
-    ImGui_ImplOpenGL3_Shutdown();
+    if (impl_->rendererBackend ==
+        Impl::RendererBackend::OpenGL) {
+        ImGui_ImplOpenGL3_Shutdown();
+#if defined(_WIN32)
+    } else if (
+        impl_->rendererBackend ==
+        Impl::RendererBackend::D3D12) {
+        ImGui_ImplDX12_Shutdown();
+        impl_->d3d12Descriptors.reset();
+#endif
+    }
     ImGui::DestroyContext();
     impl_->window = nullptr;
+    impl_->renderer = nullptr;
     impl_->ready = false;
 }
 
@@ -400,10 +645,16 @@ void EditorShell::beginFrame(float deltaSeconds) {
     int drawableWidth = 0;
     int drawableHeight = 0;
     SDL_GetWindowSize(impl_->window, &windowWidth, &windowHeight);
-    SDL_GL_GetDrawableSize(
-        impl_->window,
-        &drawableWidth,
-        &drawableHeight);
+    if (impl_->rendererBackend ==
+        Impl::RendererBackend::OpenGL) {
+        SDL_GL_GetDrawableSize(
+            impl_->window,
+            &drawableWidth,
+            &drawableHeight);
+    } else {
+        drawableWidth = windowWidth;
+        drawableHeight = windowHeight;
+    }
 
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = ImVec2(
@@ -418,7 +669,16 @@ void EditorShell::beginFrame(float deltaSeconds) {
     }
     io.DeltaTime = std::max(deltaSeconds, 1.0f / 1000.0f);
 
-    ImGui_ImplOpenGL3_NewFrame();
+    if (impl_->rendererBackend ==
+        Impl::RendererBackend::OpenGL) {
+        ImGui_ImplOpenGL3_NewFrame();
+#if defined(_WIN32)
+    } else if (
+        impl_->rendererBackend ==
+        Impl::RendererBackend::D3D12) {
+        ImGui_ImplDX12_NewFrame();
+#endif
+    }
     ImGui::NewFrame();
 }
 
@@ -457,6 +717,15 @@ EditorShellActions EditorShell::drawProjectBrowser(
             ImGui::Separator();
             if (ImGui::MenuItem("Exit", "Alt+F4")) {
                 actions.exit = true;
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Edit")) {
+            if (ImGui::BeginMenu("Rendering API")) {
+                drawRendererPreferenceMenu(
+                    browser.rendererPreference,
+                    actions);
+                ImGui::EndMenu();
             }
             ImGui::EndMenu();
         }
@@ -501,6 +770,9 @@ EditorShellActions EditorShell::drawProjectBrowser(
         ImGui::SetWindowFontScale(1.0f);
         ImGui::TextDisabled(
             "The Engine owns this editor; each game remains a separate project.");
+        ImGui::TextDisabled(
+            "Renderer: %s",
+            text(browser.backendName).c_str());
         ImGui::Spacing();
         ImGui::Spacing();
 
@@ -665,6 +937,13 @@ EditorShellActions EditorShell::drawWorkspace(
         if (ImGui::BeginMenu("Edit")) {
             ImGui::MenuItem("Undo", "Ctrl+Z", false, false);
             ImGui::MenuItem("Redo", "Ctrl+Y", false, false);
+            ImGui::Separator();
+            if (ImGui::BeginMenu("Rendering API")) {
+                drawRendererPreferenceMenu(
+                    workspace.rendererPreference,
+                    actions);
+                ImGui::EndMenu();
+            }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Play")) {
@@ -777,13 +1056,21 @@ EditorShellActions EditorShell::drawWorkspace(
             1,
             static_cast<int>(available.y));
         if (textureId != 0u) {
+            const ImVec2 uv0 =
+                workspace.flipRenderSurfaceTexturesVertically
+                    ? ImVec2(0.0f, 1.0f)
+                    : ImVec2(0.0f, 0.0f);
+            const ImVec2 uv1 =
+                workspace.flipRenderSurfaceTexturesVertically
+                    ? ImVec2(1.0f, 0.0f)
+                    : ImVec2(1.0f, 1.0f);
             ImGui::Image(
                 static_cast<ImTextureID>(textureId),
                 ImVec2(
                     static_cast<float>(viewportWidth),
                     static_cast<float>(viewportHeight)),
-                ImVec2(0.0f, 1.0f),
-                ImVec2(1.0f, 0.0f));
+                uv0,
+                uv1);
         } else {
             ImGui::Dummy(ImVec2(
                 static_cast<float>(viewportWidth),
@@ -1064,6 +1351,20 @@ EditorShellActions EditorShell::drawWorkspace(
         } else {
             const auto& preview =
                 *workspace.assetPreview;
+            if (impl_->activeAssetPreviewId !=
+                preview.assetId) {
+                impl_->activeAssetPreviewId =
+                    preview.assetId;
+                impl_->assetPreviewAnimationIndex =
+                    preview.animationIndex;
+                impl_->assetPreviewPlaybackSpeed = 1.0f;
+                impl_->assetPreviewAnimationPlaying = true;
+                impl_->assetPreviewShowMesh = true;
+                impl_->assetPreviewShowMaterials = true;
+                impl_->assetPreviewShowTextures = true;
+                impl_->assetPreviewShowWireframe = false;
+                impl_->assetPreviewShowSkeleton = false;
+            }
             bool optionsChanged = false;
             if (ImGui::Button(
                     impl_->assetPreviewAnimationPlaying
@@ -1071,6 +1372,12 @@ EditorShellActions EditorShell::drawWorkspace(
                         : "Play")) {
                 impl_->assetPreviewAnimationPlaying =
                     !impl_->assetPreviewAnimationPlaying;
+                optionsChanged = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Restart")) {
+                actions.assetPreviewSeekRequested = true;
+                actions.assetPreviewSeekTimeSeconds = 0.0f;
                 optionsChanged = true;
             }
             ImGui::SameLine();
@@ -1093,12 +1400,20 @@ EditorShellActions EditorShell::drawWorkspace(
             actions.assetPreviewHeight =
                 std::max(1, static_cast<int>(previewHeight));
             if (workspace.assetPreviewTextureId != 0u) {
+                const ImVec2 uv0 =
+                    workspace.flipRenderSurfaceTexturesVertically
+                        ? ImVec2(0.0f, 1.0f)
+                        : ImVec2(0.0f, 0.0f);
+                const ImVec2 uv1 =
+                    workspace.flipRenderSurfaceTexturesVertically
+                        ? ImVec2(1.0f, 0.0f)
+                        : ImVec2(1.0f, 1.0f);
                 ImGui::Image(
                     static_cast<ImTextureID>(
                         workspace.assetPreviewTextureId),
                     ImVec2(previewWidth, previewHeight),
-                    ImVec2(0.0f, 1.0f),
-                    ImVec2(1.0f, 0.0f));
+                    uv0,
+                    uv1);
             } else {
                 ImGui::Dummy(
                     ImVec2(previewWidth, previewHeight));
@@ -1179,6 +1494,29 @@ EditorShellActions EditorShell::drawWorkspace(
                     2.0f,
                     "%.2fx")) {
                 optionsChanged = true;
+            }
+            if (preview.animationDurationSeconds >
+                0.0001f) {
+                float playhead = std::clamp(
+                    preview.animationTimeSeconds,
+                    0.0f,
+                    preview.animationDurationSeconds);
+                ImGui::SetNextItemWidth(-1.0f);
+                if (ImGui::SliderFloat(
+                        "Timeline",
+                        &playhead,
+                        0.0f,
+                        preview.animationDurationSeconds,
+                        "%.3fs")) {
+                    actions.assetPreviewSeekRequested = true;
+                    actions.assetPreviewSeekTimeSeconds =
+                        playhead;
+                    optionsChanged = true;
+                }
+                ImGui::TextDisabled(
+                    "%.3fs / %.3fs",
+                    preview.animationTimeSeconds,
+                    preview.animationDurationSeconds);
             }
 
             if (ImGui::Checkbox(
@@ -1484,6 +1822,9 @@ EditorShellActions EditorShell::drawWorkspace(
         "Scene: %s",
         text(workspace.scenePath).c_str());
     ImGui::TextDisabled(
+        "Renderer: %s",
+        text(workspace.backendName).c_str());
+    ImGui::TextDisabled(
         "Play mode: %s  %.2fs",
         workspace.playState == EditorPlayState::Editing
             ? "frozen"
@@ -1519,7 +1860,71 @@ void EditorShell::render() {
         return;
     }
     ImGui::Render();
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    if (impl_->rendererBackend ==
+        Impl::RendererBackend::OpenGL) {
+        ImGui_ImplOpenGL3_RenderDrawData(
+            ImGui::GetDrawData());
+#if defined(_WIN32)
+    } else if (
+        impl_->rendererBackend ==
+        Impl::RendererBackend::D3D12) {
+        auto* d3d12 =
+            dynamic_cast<D3D12RenderBackend*>(
+                impl_->renderer);
+        if (d3d12 &&
+            d3d12->nativeCommandList()) {
+            d3d12->bindBackbufferForEditorUi();
+            ImGui_ImplDX12_RenderDrawData(
+                ImGui::GetDrawData(),
+                d3d12->nativeCommandList());
+        }
+#endif
+    }
+}
+
+bool EditorShell::allocateTextureDescriptor(
+    EditorTextureDescriptor& outDescriptor) {
+    outDescriptor = {};
+#if defined(_WIN32)
+    if (!impl_ || !impl_->ready ||
+        impl_->rendererBackend !=
+            Impl::RendererBackend::D3D12 ||
+        !impl_->d3d12Descriptors) {
+        return false;
+    }
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu{};
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu{};
+    if (!impl_->d3d12Descriptors->allocate(
+            cpu,
+            gpu)) {
+        return false;
+    }
+    outDescriptor.cpuHandle =
+        static_cast<std::uint64_t>(cpu.ptr);
+    outDescriptor.gpuHandle =
+        static_cast<std::uint64_t>(gpu.ptr);
+    return true;
+#else
+    return false;
+#endif
+}
+
+void EditorShell::selectAsset(int assetIndex) {
+    if (!impl_ || assetIndex < 0) {
+        return;
+    }
+    impl_->selectedAsset = assetIndex;
+    impl_->inspectorSelection =
+        InspectorSelectionDomain::Asset;
+    impl_->activeAssetPreviewId.clear();
+    impl_->assetPreviewAnimationIndex = 0;
+    impl_->assetPreviewPlaybackSpeed = 1.0f;
+    impl_->assetPreviewAnimationPlaying = true;
+    impl_->assetPreviewShowMesh = true;
+    impl_->assetPreviewShowMaterials = true;
+    impl_->assetPreviewShowTextures = true;
+    impl_->assetPreviewShowWireframe = false;
+    impl_->assetPreviewShowSkeleton = false;
 }
 
 bool EditorShell::wantsMouseCapture() const {

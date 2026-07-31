@@ -12,7 +12,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 3u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 4u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -71,6 +71,8 @@ struct EditorProjectGamePreviewContext {
 struct EditorProjectAssetPreviewOptions {
     int animationIndex = -1;
     float playbackSpeed = 1.0f;
+    float seekTimeSeconds = 0.0f;
+    bool seekRequested = false;
     bool animationPlaying = true;
     bool showMesh = true;
     bool showMaterials = true;
@@ -88,6 +90,9 @@ struct EditorProjectAssetPreviewInfo {
     std::uint32_t textureCount = 0u;
     std::uint32_t boneCount = 0u;
     std::size_t animationCount = 0u;
+    int animationIndex = -1;
+    float animationTimeSeconds = 0.0f;
+    float animationDurationSeconds = 0.0f;
     float boundsRadius = 1.0f;
     float boundsCenterY = 0.0f;
     bool ready = false;

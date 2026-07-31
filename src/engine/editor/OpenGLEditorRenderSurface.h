@@ -1,25 +1,28 @@
 #pragma once
 
+#include "engine/editor/EditorRenderSurface.h"
+
 #include <array>
 #include <cstdint>
 
 namespace engine::editor {
 
-class OpenGLEditorRenderSurface {
+class OpenGLEditorRenderSurface final
+    : public EditorRenderSurface {
 public:
     OpenGLEditorRenderSurface() = default;
-    ~OpenGLEditorRenderSurface();
+    ~OpenGLEditorRenderSurface() override;
 
     OpenGLEditorRenderSurface(
         const OpenGLEditorRenderSurface&) = delete;
     OpenGLEditorRenderSurface& operator=(
         const OpenGLEditorRenderSurface&) = delete;
 
-    bool begin(int width, int height);
-    void end();
-    void shutdown();
+    bool begin(int width, int height) override;
+    void end() override;
+    void shutdown() override;
 
-    std::uint32_t textureId() const noexcept {
+    std::uint64_t textureId() const noexcept override {
         return texture_;
     }
     int width() const noexcept {

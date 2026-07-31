@@ -29,6 +29,7 @@ void D3D12RenderBackend::createSpritePipeline() {
     worldMaterialDescriptorBlocks_.clear();
     worldSceneMaterialBindingCache_.clear();
     worldSceneMaterialBindingCacheGeneration_ = 0u;
+    worldSceneMaterialBindingCacheRegistryIdentity_ = nullptr;
     worldFallbackMaterialDescriptorBlockIndex_ = 0xffffffffu;
 
     static constexpr char kVsSource[] =

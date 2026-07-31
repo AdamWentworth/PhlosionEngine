@@ -1,12 +1,17 @@
 #define SDL_MAIN_HANDLED
 
 #include "engine/editor/EditorProjectPlugin.h"
+#include "engine/editor/D3D12EditorRenderSurface.h"
+#include "engine/editor/EditorRenderSurface.h"
+#include "engine/editor/EditorRendererPreference.h"
 #include "engine/editor/EditorShell.h"
 #include "engine/editor/OpenGLEditorRenderSurface.h"
 #include "engine/editor/ProjectDescriptor.h"
 #include "engine/input/SdlKeyMap.h"
 #include "engine/platform/Window.h"
 #include "engine/render/Camera3D.h"
+#include "engine/render/D3D12RenderBackend.h"
+#include "engine/render/IRenderBackend.h"
 #include "engine/render/OpenGLRenderBackend.h"
 
 #include <SDL2/SDL.h>
@@ -49,6 +54,10 @@ namespace {
 struct Arguments {
     std::filesystem::path project;
     std::string gamePreview;
+    std::string assetPreview;
+    std::optional<
+        engine::editor::EditorRendererPreference>
+        rendererPreference;
     int frameLimit = 0;
 };
 
@@ -71,22 +80,56 @@ Arguments parseArguments(int argc, char** argv) {
         constexpr std::string_view projectPrefix = "--project=";
         constexpr std::string_view gamePreviewPrefix =
             "--game-preview=";
+        constexpr std::string_view assetPreviewPrefix =
+            "--asset-preview=";
         constexpr std::string_view framesPrefix = "--frames=";
+        constexpr std::string_view rendererPrefix =
+            "--renderer=";
         if (argument.rfind(projectPrefix, 0u) == 0u) {
             result.project = argument.substr(projectPrefix.size());
         } else if (
             argument.rfind(gamePreviewPrefix, 0u) == 0u) {
             result.gamePreview =
                 argument.substr(gamePreviewPrefix.size());
+        } else if (
+            argument.rfind(assetPreviewPrefix, 0u) == 0u) {
+            result.assetPreview =
+                argument.substr(assetPreviewPrefix.size());
         } else if (argument.rfind(framesPrefix, 0u) == 0u) {
             result.frameLimit = std::max(
                 1,
                 std::stoi(argument.substr(framesPrefix.size())));
+        } else if (
+            argument.rfind(rendererPrefix, 0u) == 0u) {
+            result.rendererPreference =
+                engine::editor::
+                    parseEditorRendererPreference(
+                        argument.substr(
+                            rendererPrefix.size()));
         } else if (!argument.empty() && argument.front() != '-') {
             result.project = argument;
         }
     }
     return result;
+}
+
+bool containsInsensitive(
+    std::string_view text,
+    std::string_view token) {
+    if (token.empty()) {
+        return true;
+    }
+    return std::search(
+               text.begin(),
+               text.end(),
+               token.begin(),
+               token.end(),
+               [](char left, char right) {
+                   return std::tolower(
+                              static_cast<unsigned char>(left)) ==
+                          std::tolower(
+                              static_cast<unsigned char>(right));
+               }) != text.end();
 }
 
 std::filesystem::path editorStateDirectory() {
@@ -98,6 +141,162 @@ std::filesystem::path editorStateDirectory() {
     const std::filesystem::path result(rawPath);
     SDL_free(rawPath);
     return result;
+}
+
+engine::editor::EditorRendererPreference
+loadRendererPreference(
+    const std::filesystem::path& stateDirectory) {
+    std::ifstream input(
+        stateDirectory / "renderer.txt");
+    std::string value;
+    if (input >> value) {
+        return engine::editor::
+            parseEditorRendererPreference(value);
+    }
+    return engine::editor::
+        EditorRendererPreference::Auto;
+}
+
+void saveRendererPreference(
+    const std::filesystem::path& stateDirectory,
+    engine::editor::EditorRendererPreference
+        preference) {
+    std::error_code error;
+    std::filesystem::create_directories(
+        stateDirectory,
+        error);
+    std::ofstream output(
+        stateDirectory / "renderer.txt",
+        std::ios::trunc);
+    output
+        << engine::editor::
+               editorRendererPreferenceName(preference)
+        << '\n';
+}
+
+struct EditorGraphics {
+    std::unique_ptr<Window> window;
+    std::unique_ptr<IRenderBackend> renderer;
+    engine::editor::EditorRendererPreference
+        activePreference =
+            engine::editor::
+                EditorRendererPreference::OpenGL;
+    std::string fallbackReason;
+};
+
+EditorGraphics createEditorGraphics(
+    engine::editor::EditorRendererPreference requested) {
+    using engine::editor::EditorRendererPreference;
+    const auto create =
+        [](EditorRendererPreference preference) {
+            EditorGraphics graphics;
+            if (preference ==
+                EditorRendererPreference::D3D12) {
+#if defined(_WIN32)
+                graphics.window =
+                    std::make_unique<Window>(
+                        "Phlosion Editor",
+                        1440,
+                        900,
+                        Window::GraphicsApi::Native,
+                        true);
+                int width = 0;
+                int height = 0;
+                graphics.window->getDrawableSize(
+                    width,
+                    height);
+                graphics.renderer =
+                    std::make_unique<
+                        D3D12RenderBackend>(
+                        graphics.window->
+                            getSDLWindow(),
+                        std::max(1, width),
+                        std::max(1, height),
+                        true);
+                graphics.activePreference =
+                    EditorRendererPreference::D3D12;
+                return graphics;
+#else
+                throw std::runtime_error(
+                    "D3D12 is only available on Windows.");
+#endif
+            }
+            if (preference ==
+                EditorRendererPreference::Vulkan) {
+                throw std::runtime_error(
+                    "Vulkan editor UI integration is not available yet.");
+            }
+            graphics.window =
+                std::make_unique<Window>(
+                    "Phlosion Editor",
+                    1440,
+                    900,
+                    Window::GraphicsApi::OpenGL,
+                    true);
+            if (!gladLoadGLLoader(
+                    reinterpret_cast<GLADloadproc>(
+                        SDL_GL_GetProcAddress))) {
+                throw std::runtime_error(
+                    "Failed to initialize GLAD.");
+            }
+            graphics.renderer =
+                std::make_unique<
+                    OpenGLRenderBackend>();
+            graphics.activePreference =
+                EditorRendererPreference::OpenGL;
+            return graphics;
+        };
+
+    try {
+        return create(requested);
+    } catch (const std::exception& exception) {
+        if (requested ==
+            EditorRendererPreference::OpenGL) {
+            throw;
+        }
+        EditorGraphics fallback =
+            create(EditorRendererPreference::OpenGL);
+        fallback.fallbackReason =
+            std::string(
+                "Requested editor renderer failed (") +
+            exception.what() +
+            "); using OpenGL compatibility mode.";
+        return fallback;
+    }
+}
+
+std::unique_ptr<engine::editor::EditorRenderSurface>
+createEditorRenderSurface(
+    IRenderBackend& renderer,
+    engine::editor::EditorShell& editor) {
+    if (std::string_view(
+            renderer.backendId()
+                ? renderer.backendId()
+                : "") == "d3d12") {
+#if defined(_WIN32)
+        auto* d3d12 =
+            dynamic_cast<D3D12RenderBackend*>(
+                &renderer);
+        engine::editor::EditorTextureDescriptor
+            descriptor;
+        if (!d3d12 ||
+            !editor.allocateTextureDescriptor(
+                descriptor)) {
+            throw std::runtime_error(
+                "Could not allocate a D3D12 editor surface descriptor.");
+        }
+        return std::make_unique<
+            engine::editor::
+                D3D12EditorRenderSurface>(
+                    *d3d12,
+                    descriptor);
+#else
+        throw std::runtime_error(
+            "D3D12 editor surfaces are only available on Windows.");
+#endif
+    }
+    return std::make_unique<
+        engine::editor::OpenGLEditorRenderSurface>();
 }
 
 std::filesystem::path normalizeDescriptorPath(
@@ -852,6 +1051,11 @@ void refreshAssetPreviewView(LoadedProject& project) {
             .materialCount = info.materialCount,
             .textureCount = info.textureCount,
             .boneCount = info.boneCount,
+            .animationIndex = info.animationIndex,
+            .animationTimeSeconds =
+                info.animationTimeSeconds,
+            .animationDurationSeconds =
+                info.animationDurationSeconds,
             .boundsRadius = info.boundsRadius,
             .boundsCenterY = info.boundsCenterY,
             .ready = info.ready,
@@ -876,6 +1080,44 @@ void resetAssetPreviewCamera(
             radius * 1.35f,
             radius * 0.65f,
             radius * 2.65f));
+}
+
+bool selectAssetPreview(
+    LoadedProject& project,
+    int assetIndex,
+    Camera3D& camera,
+    int& selectedAssetPreviewIndex,
+    std::string& outError) {
+    if (assetIndex < 0 ||
+        static_cast<std::size_t>(assetIndex) >=
+            project.assetViews.size()) {
+        outError = "Prefab asset index is out of range.";
+        return false;
+    }
+    const auto& asset =
+        project.assetViews[static_cast<std::size_t>(
+            assetIndex)];
+    if (!asset.previewable3d) {
+        outError =
+            "Asset is not a previewable cooked prefab: " +
+            asset.displayName;
+        return false;
+    }
+    const std::filesystem::path assetPath =
+        (project.root / asset.path).lexically_normal();
+    if (!project.runtime->selectAssetPreview(
+            asset.id.c_str(),
+            assetPath.string().c_str(),
+            &outError)) {
+        return false;
+    }
+    selectedAssetPreviewIndex = assetIndex;
+    refreshAssetPreviewView(project);
+    resetAssetPreviewCamera(camera, project.assetPreviewView);
+    project.status =
+        "Previewing cooked prefab: " +
+        asset.displayName + ".";
+    return true;
 }
 
 std::unique_ptr<LoadedProject> loadProject(
@@ -1456,26 +1698,87 @@ glm::vec3 horizontalDirection(glm::vec3 direction) {
     return direction / length;
 }
 
+bool relaunchEditor(
+    const std::filesystem::path& projectPath) {
+#if defined(_WIN32)
+    std::wstring executable(32768u, L'\0');
+    const DWORD length = GetModuleFileNameW(
+        nullptr,
+        executable.data(),
+        static_cast<DWORD>(executable.size()));
+    if (length == 0u ||
+        length >= executable.size()) {
+        return false;
+    }
+    executable.resize(length);
+    std::wstring commandLine =
+        L"\"" + executable + L"\"";
+    if (!projectPath.empty()) {
+        commandLine +=
+            L" --project=\"" +
+            projectPath.wstring() +
+            L"\"";
+    }
+    std::vector<wchar_t> writable(
+        commandLine.begin(),
+        commandLine.end());
+    writable.push_back(L'\0');
+    STARTUPINFOW startupInfo{};
+    startupInfo.cb = sizeof(startupInfo);
+    PROCESS_INFORMATION processInfo{};
+    const BOOL created = CreateProcessW(
+        executable.c_str(),
+        writable.data(),
+        nullptr,
+        nullptr,
+        FALSE,
+        0u,
+        nullptr,
+        nullptr,
+        &startupInfo,
+        &processInfo);
+    if (!created) {
+        return false;
+    }
+    CloseHandle(processInfo.hThread);
+    CloseHandle(processInfo.hProcess);
+    return true;
+#else
+    (void)projectPath;
+    return false;
+#endif
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     const Arguments arguments = parseArguments(argc, argv);
     int result = 0;
     try {
-        Window window(
-            "Phlosion Editor",
-            1440,
-            900,
-            Window::GraphicsApi::OpenGL,
-            true);
-        if (!gladLoadGLLoader(
-                reinterpret_cast<GLADloadproc>(
-                    SDL_GL_GetProcAddress))) {
-            throw std::runtime_error("Failed to initialize GLAD.");
+        if (SDL_Init(0) != 0) {
+            throw std::runtime_error(
+                std::string(
+                    "SDL bootstrap failed: ") +
+                SDL_GetError());
         }
-
         const std::filesystem::path stateDirectory =
             editorStateDirectory();
+        const auto rendererPreference =
+            arguments.rendererPreference.value_or(
+                loadRendererPreference(
+                    stateDirectory));
+        const auto resolvedRendererPreference =
+            engine::editor::
+                resolveEditorRendererPreference(
+                    rendererPreference,
+                    engine::editor::
+                        currentEditorHostPlatform());
+        EditorGraphics graphics =
+            createEditorGraphics(
+                resolvedRendererPreference);
+        Window& window = *graphics.window;
+        IRenderBackend& renderer =
+            *graphics.renderer;
         WindowPlacement windowPlacement =
             loadWindowPlacement(stateDirectory);
         applyWindowPlacement(
@@ -1490,9 +1793,9 @@ int main(int argc, char** argv) {
         window.getDrawableSize(width, height);
         width = std::max(width, 1);
         height = std::max(height, 1);
-        glViewport(0, 0, width, height);
-
-        OpenGLRenderBackend renderer;
+        if (renderer.requiresOpenGLContext()) {
+            glViewport(0, 0, width, height);
+        }
         renderer.onResize(width, height);
         renderer.prewarmWorldRenderAssets();
 
@@ -1516,23 +1819,29 @@ int main(int argc, char** argv) {
             glm::vec3(2.6f, 1.6f, 4.8f));
         assetPreviewCamera.lookAt(
             glm::vec3(0.0f, 0.8f, 0.0f));
-        engine::editor::OpenGLEditorRenderSurface
-            sceneSurface;
-        engine::editor::OpenGLEditorRenderSurface
-            gameSurface;
-        engine::editor::OpenGLEditorRenderSurface
-            assetPreviewSurface;
-
         std::string error;
         const std::string layoutPath =
             (stateDirectory / "layout.ini").string();
         engine::editor::EditorShell editor;
         if (!editor.initialize(
                 window.getSDLWindow(),
+                &renderer,
                 &error,
                 layoutPath.c_str())) {
             throw std::runtime_error(error);
         }
+        auto sceneSurface =
+            createEditorRenderSurface(
+                renderer,
+                editor);
+        auto gameSurface =
+            createEditorRenderSurface(
+                renderer,
+                editor);
+        auto assetPreviewSurface =
+            createEditorRenderSurface(
+                renderer,
+                editor);
 
         std::vector<std::string> recentProjects =
             loadRecentProjects(stateDirectory);
@@ -1542,7 +1851,9 @@ int main(int argc, char** argv) {
             pendingProject = arguments.project;
         }
         std::string browserStatus =
-            "Open a project or drop phlosion.project.json onto this window.";
+            graphics.fallbackReason.empty()
+                ? "Open a project or drop phlosion.project.json onto this window."
+                : graphics.fallbackReason;
         std::string browserError;
 
         bool running = true;
@@ -1564,6 +1875,9 @@ int main(int argc, char** argv) {
         int selectedAssetPreviewIndex = -1;
         float gameFixedAccumulator = 0.0f;
         bool commandLinePreviewApplied = false;
+        bool commandLineAssetPreviewApplied = false;
+        bool restartRequested = false;
+        std::filesystem::path restartProjectPath;
         using Clock = std::chrono::steady_clock;
         auto previous = Clock::now();
 
@@ -1602,7 +1916,9 @@ int main(int argc, char** argv) {
                     window.getDrawableSize(width, height);
                     width = std::max(width, 1);
                     height = std::max(height, 1);
-                    glViewport(0, 0, width, height);
+                    if (renderer.requiresOpenGLContext()) {
+                        glViewport(0, 0, width, height);
+                    }
                     renderer.onResize(width, height);
                     camera.setAspectRatio(
                         static_cast<float>(width) /
@@ -1738,6 +2054,50 @@ int main(int argc, char** argv) {
                             std::cerr
                                 << "[Phlosion Editor] "
                                 << project->status << '\n';
+                        }
+                    }
+                    if (!commandLineAssetPreviewApplied &&
+                        !arguments.assetPreview.empty()) {
+                        commandLineAssetPreviewApplied = true;
+                        const auto match = std::find_if(
+                            project->assetViews.begin(),
+                            project->assetViews.end(),
+                            [&](const auto& asset) {
+                                return asset.previewable3d &&
+                                    (containsInsensitive(
+                                         asset.id,
+                                         arguments.assetPreview) ||
+                                     containsInsensitive(
+                                         asset.displayName,
+                                         arguments.assetPreview) ||
+                                     containsInsensitive(
+                                         asset.path,
+                                         arguments.assetPreview));
+                            });
+                        if (match !=
+                            project->assetViews.end()) {
+                            const int assetIndex =
+                                static_cast<int>(
+                                    std::distance(
+                                        project->assetViews.begin(),
+                                        match));
+                            std::string previewError;
+                            if (selectAssetPreview(
+                                    *project,
+                                    assetIndex,
+                                    assetPreviewCamera,
+                                    selectedAssetPreviewIndex,
+                                    previewError)) {
+                                editor.selectAsset(assetIndex);
+                            } else {
+                                project->status =
+                                    "Command-line prefab preview selection failed: " +
+                                    previewError;
+                            }
+                        } else {
+                            project->status =
+                                "Command-line prefab preview was not found: " +
+                                arguments.assetPreview;
                         }
                     }
                     window.setTitle(
@@ -1880,7 +2240,7 @@ int main(int argc, char** argv) {
                             glm::value_ptr(cameraTarget)};
                 if (activeViewport ==
                     engine::editor::EditorViewportKind::Scene) {
-                    if (sceneSurface.begin(
+                    if (sceneSurface->begin(
                             surfaceWidth,
                             surfaceHeight)) {
                         renderer.beginWorldSceneColorPass(
@@ -1888,9 +2248,9 @@ int main(int argc, char** argv) {
                             surfaceHeight);
                         project->runtime->render(renderContext);
                         renderer.endWorldSceneColorPass();
-                        sceneSurface.end();
+                        sceneSurface->end();
                     }
-                } else if (gameSurface.begin(
+                } else if (gameSurface->begin(
                                surfaceWidth,
                                surfaceHeight)) {
                     gameCamera.setAspectRatio(
@@ -1898,7 +2258,7 @@ int main(int argc, char** argv) {
                         static_cast<float>(surfaceHeight));
                     project->runtime->renderGamePreview(
                         renderContext);
-                    gameSurface.end();
+                    gameSurface->end();
                 }
 
                 if (selectedAssetPreviewIndex >= 0) {
@@ -1944,13 +2304,13 @@ int main(int argc, char** argv) {
                                     .cameraTarget3 =
                                         glm::value_ptr(
                                             previewTarget)};
-                        if (assetPreviewSurface.begin(
+                        if (assetPreviewSurface->begin(
                                 previewWidth,
                                 previewHeight)) {
                             project->runtime->
                                 renderAssetPreview(
                                     assetRenderContext);
-                            assetPreviewSurface.end();
+                            assetPreviewSurface->end();
                         }
                     }
                 }
@@ -1967,7 +2327,11 @@ int main(int argc, char** argv) {
                         project->descriptor.startupScene.assetId,
                     .scenePath = project->scenePathText,
                     .backendName =
-                        "OpenGL 3.3 / project renderer plugin",
+                        renderer.backendId()
+                            ? renderer.backendId()
+                            : "unknown",
+                    .rendererPreference =
+                        rendererPreference,
                     .status = project->status,
                     .playState = playState,
                     .simulationSeconds = simulationSeconds,
@@ -1989,11 +2353,13 @@ int main(int argc, char** argv) {
                     .focusActiveViewport =
                         focusActiveViewport,
                     .sceneTextureId =
-                        sceneSurface.textureId(),
+                        sceneSurface->textureId(),
                     .gameTextureId =
-                        gameSurface.textureId(),
+                        gameSurface->textureId(),
                     .assetPreviewTextureId =
-                        assetPreviewSurface.textureId(),
+                        assetPreviewSurface->textureId(),
+                    .flipRenderSurfaceTexturesVertically =
+                        renderer.requiresOpenGLContext(),
                     .sceneCount = stats.sceneCount,
                     .materialCount = stats.materialCount,
                     .drawClassCount = stats.drawClassCount,
@@ -2030,7 +2396,13 @@ int main(int argc, char** argv) {
                 const engine::editor::ProjectBrowserView browser{
                     .status = browserStatus,
                     .error = browserError,
-                    .recentProjects = &recentProjects};
+                    .recentProjects = &recentProjects,
+                    .backendName =
+                        renderer.backendId()
+                            ? renderer.backendId()
+                            : "unknown",
+                    .rendererPreference =
+                        rendererPreference};
                 actions = editor.drawProjectBrowser(browser);
             }
             editor.render();
@@ -2051,32 +2423,13 @@ int main(int argc, char** argv) {
                         static_cast<std::size_t>(
                             actions.selectAssetIndex)];
                 if (asset.previewable3d) {
-                    const std::filesystem::path assetPath =
-                        (project->root / asset.path)
-                            .lexically_normal();
                     std::string previewError;
-                    if (project->runtime->
-                            selectAssetPreview(
-                                asset.id.c_str(),
-                                assetPath.string().c_str(),
-                                &previewError)) {
-                        selectedAssetPreviewIndex =
-                            actions.selectAssetIndex;
-                        const engine::editor::
-                            EditorProjectAssetPreviewOptions
-                                defaultOptions{
-                                    .animationIndex = 0};
-                        project->runtime->
-                            setAssetPreviewOptions(
-                                defaultOptions);
-                        refreshAssetPreviewView(*project);
-                        resetAssetPreviewCamera(
+                    if (!selectAssetPreview(
+                            *project,
+                            actions.selectAssetIndex,
                             assetPreviewCamera,
-                            project->assetPreviewView);
-                        project->status =
-                            "Previewing cooked prefab: " +
-                            asset.displayName + ".";
-                    } else {
+                            selectedAssetPreviewIndex,
+                            previewError)) {
                         selectedAssetPreviewIndex = -1;
                         project->status =
                             "Cooked prefab preview failed: " +
@@ -2098,6 +2451,12 @@ int main(int argc, char** argv) {
                             .playbackSpeed =
                                 actions
                                     .assetPreviewPlaybackSpeed,
+                            .seekTimeSeconds =
+                                actions
+                                    .assetPreviewSeekTimeSeconds,
+                            .seekRequested =
+                                actions
+                                    .assetPreviewSeekRequested,
                             .animationPlaying =
                                 actions
                                     .assetPreviewAnimationPlaying,
@@ -2154,6 +2513,17 @@ int main(int argc, char** argv) {
             }
 
             if (actions.exit) {
+                running = false;
+            }
+            if (actions.rendererPreferenceChanged) {
+                saveRendererPreference(
+                    stateDirectory,
+                    actions.rendererPreference);
+                restartRequested = true;
+                if (project) {
+                    restartProjectPath =
+                        project->descriptorPath;
+                }
                 running = false;
             }
             if (actions.closeProject) {
@@ -2365,11 +2735,17 @@ int main(int argc, char** argv) {
             stateDirectory,
             windowPlacement);
         project.reset();
-        sceneSurface.shutdown();
-        gameSurface.shutdown();
-        assetPreviewSurface.shutdown();
+        sceneSurface->shutdown();
+        gameSurface->shutdown();
+        assetPreviewSurface->shutdown();
         editor.shutdown();
         renderer.shutdown();
+        if (restartRequested &&
+            !relaunchEditor(restartProjectPath)) {
+            std::cerr
+                << "[Phlosion Editor] Could not restart after changing the renderer. "
+                << "Please open the editor again manually.\n";
+        }
     } catch (const std::exception& exception) {
         std::cerr
             << "[Phlosion Editor] "

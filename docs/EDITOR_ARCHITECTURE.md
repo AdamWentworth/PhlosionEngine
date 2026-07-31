@@ -125,15 +125,18 @@ model.
 The viewer provides:
 
 - right-mouse orbit, middle-mouse pan, wheel zoom, and reset view;
-- animation selection, pause/play, and playback speed;
+- animation selection, pause/play, restart, playback speed, and timeline
+  scrubbing;
 - mesh, material, texture, wireframe, and skeleton inspection modes;
 - cooked vertex, triangle, material, texture, bone, and clip counts.
 
-The preview uses an Engine-owned offscreen surface and a project-owned renderer
-instance isolated from the open scene. Preview animation and diagnostic state
-therefore cannot mutate or blank the Scene or Game surface. This is an
-inspection tool, not a second model editor: source authoring remains in Blender
-and later asset changes go through Forge.
+The preview uses an Engine-owned offscreen surface and the editor host's active
+renderer. Scene, Game, and prefab surfaces remain isolated render targets while
+sharing one device, command stream, shader/material implementation, and
+backend selection. The project plugin supplies content and animation state; it
+does not create a hidden renderer of its own. This is an inspection tool, not a
+second model editor: source authoring remains in Blender and later asset
+changes go through Forge.
 
 ## First Vertical Slice
 
@@ -208,10 +211,12 @@ cook, package, and play loop without adding a game-specific runtime format or
 forking the editor.
 
 M0 is complete with an Engine-owned project browser, recent-project workflow,
-dynamic game-project adapter, OpenGL Scene viewport, and an embedded persistent
-Game runtime surface. Vulkan and D3D12 editor presentation follow through an
-Engine-owned UI submission abstraction rather than leaking backend-specific
-Dear ImGui types into games. M1 is the current active milestone.
+dynamic game-project adapter, an embedded persistent Game runtime surface, and
+shared OpenGL/Direct3D 12 editor presentation. Windows `Auto` uses Direct3D 12;
+OpenGL is the compatibility option. Vulkan editor presentation remains the
+next backend bridge and will follow through the same Engine-owned abstraction
+rather than leaking backend-specific Dear ImGui types into games. M1 is the
+current active milestone.
 
 The M0 SDL2 bridge currently owns keyboard, mouse, text, focus, and DPI input.
 Clipboard, cursor-shape, accessibility, controller navigation, and detached

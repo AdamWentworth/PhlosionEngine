@@ -10,6 +10,9 @@
 struct SDL_Window;
 
 #if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <d3d12.h>
 #include <wrl/client.h>
 
@@ -143,6 +146,37 @@ public:
     void prewarmDebugSpriteTextures(const char* const* texturePaths,
                                     std::size_t textureCount) override;
     void shutdown() override;
+
+#if defined(_WIN32)
+    struct EditorSurfaceTarget {
+        ID3D12Resource* linearColor = nullptr;
+        ID3D12Resource* displayColor = nullptr;
+        D3D12_CPU_DESCRIPTOR_HANDLE linearRtv{};
+        D3D12_CPU_DESCRIPTOR_HANDLE displayRtv{};
+        D3D12_CPU_DESCRIPTOR_HANDLE depthDsv{};
+        std::uint32_t linearSrvDescriptorIndex = 0xffffffffu;
+        int width = 0;
+        int height = 0;
+    };
+
+    ID3D12Device* nativeDevice() const noexcept {
+        return device_.Get();
+    }
+    ID3D12CommandQueue* nativeCommandQueue() const noexcept {
+        return commandQueue_.Get();
+    }
+    ID3D12GraphicsCommandList* nativeCommandList() const noexcept {
+        return commandList_.Get();
+    }
+    std::uint32_t reserveEditorSceneColorDescriptor();
+    bool writeEditorSceneColorDescriptor(
+        std::uint32_t descriptorIndex,
+        ID3D12Resource* resource);
+    bool beginEditorSurface(const EditorSurfaceTarget& target);
+    void endEditorSurface();
+    void bindBackbufferForEditorUi();
+    void waitUntilIdle();
+#endif
 
 private:
     void configureScreenshotCapture();
@@ -411,6 +445,9 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldSceneColorPipelineState_;
     std::uint32_t worldSceneColorSrvDescriptorIndex_ = 0xffffffffu;
     bool worldSceneColorPassActive_ = false;
+    EditorSurfaceTarget editorSurfaceTarget_{};
+    bool editorSurfaceActive_ = false;
+    bool editorSurfaceScenePassActive_ = false;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, kFrameCount> depthBuffers_;
     std::array<Microsoft::WRL::ComPtr<ID3D12CommandAllocator>, kFrameCount> commandAllocators_;
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList_;
@@ -525,6 +562,7 @@ private:
     };
     std::vector<WorldSceneMaterialBindingCacheEntry> worldSceneMaterialBindingCache_;
     std::uint32_t worldSceneMaterialBindingCacheGeneration_ = 0u;
+    const void* worldSceneMaterialBindingCacheRegistryIdentity_ = nullptr;
     std::unordered_map<std::string, CachedWorldMesh> cachedWorldMeshes_;
 #endif
 };

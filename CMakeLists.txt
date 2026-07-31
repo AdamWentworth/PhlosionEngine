@@ -213,6 +213,7 @@ add_library(engine_render STATIC
     src/engine/render/D3D12RenderBackend.cpp
     src/engine/render/d3d12/D3D12RenderBackendPipelineCompile.cpp
     src/engine/render/d3d12/D3D12RenderBackendDebugPipeline.cpp
+    src/engine/render/d3d12/D3D12RenderBackendEditor.cpp
     src/engine/render/d3d12/D3D12RenderBackendSpritePipeline.cpp
     src/engine/render/d3d12/D3D12RenderBackendWorldPipeline.cpp
     src/engine/render/d3d12/D3D12RenderBackendDebugDraw.cpp
@@ -331,6 +332,7 @@ target_link_libraries(engine_runtime PUBLIC Engine)
 phlosion_apply_settings(engine_runtime)
 
 add_library(engine_editor_core STATIC
+    src/engine/editor/EditorRendererPreference.cpp
     src/engine/editor/ProjectDescriptor.cpp
 )
 target_link_libraries(engine_editor_core
@@ -342,6 +344,7 @@ phlosion_apply_settings(engine_editor_core)
 
 if (PHLOSION_BUILD_EDITOR)
     add_library(engine_editor STATIC
+        src/engine/editor/D3D12EditorRenderSurface.cpp
         src/engine/editor/EditorShell.cpp
         src/engine/editor/OpenGLEditorRenderSurface.cpp
     )
@@ -430,6 +433,7 @@ if (PHLOSION_BUILD_TESTS)
     include(CTest)
     add_executable(PhlosionEngineTests
         tests/TestMain.cpp
+        tests/TestEditorRendererPreference.cpp
         tests/TestProjectDescriptor.cpp
         tests/TestPhlosionResourceContainer.cpp
         tests/TestPhlosionSceneArchive.cpp

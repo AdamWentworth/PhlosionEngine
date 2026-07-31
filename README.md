@@ -53,6 +53,12 @@ Games may provide a generated editor plugin for game-specific loading and
 inspectors; the Engine still owns the executable, project browser, render loop,
 window, and common editor UI.
 
+On Windows, `Auto` selects Direct3D 12 for both the editor shell and its
+embedded render surfaces. OpenGL remains available as a compatibility backend
+from `Edit > Rendering API`; changing the selection persists the preference
+and restarts the editor with the open project restored. Vulkan remains a
+runtime backend while its native editor presentation bridge is completed.
+
 An opened scene starts in Edit mode with simulation time frozen. The central
 Viewport switches between Scene and Game surfaces. Scene shows the editable
 asset view; Game hosts one persistent project runtime in-process. A project

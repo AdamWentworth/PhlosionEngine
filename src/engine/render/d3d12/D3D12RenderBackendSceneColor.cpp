@@ -274,16 +274,18 @@ void D3D12RenderBackend::beginWorldSceneColorPass(
     int surfaceWidth,
     int surfaceHeight) {
 #if defined(_WIN32)
-    (void)surfaceWidth;
-    (void)surfaceHeight;
-    if (!recording_ || !commandList_ || !worldSceneColorTarget_ ||
+    ID3D12Resource* sceneColorTarget =
+        editorSurfaceActive_
+            ? editorSurfaceTarget_.linearColor
+            : worldSceneColorTarget_.Get();
+    if (!recording_ || !commandList_ || !sceneColorTarget ||
         worldSceneColorPassActive_) {
         return;
     }
 
     D3D12_RESOURCE_BARRIER barrier{};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = worldSceneColorTarget_.Get();
+    barrier.Transition.pResource = sceneColorTarget;
     barrier.Transition.Subresource =
         D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     barrier.Transition.StateBefore =
@@ -291,20 +293,25 @@ void D3D12RenderBackend::beginWorldSceneColorPass(
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
     commandList_->ResourceBarrier(1u, &barrier);
 
-    D3D12_CPU_DESCRIPTOR_HANDLE rtv =
-        rtvHeap_->GetCPUDescriptorHandleForHeapStart();
-    rtv.ptr += static_cast<SIZE_T>(kFrameCount) *
-        static_cast<SIZE_T>(rtvDescriptorSize_);
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv{};
     D3D12_CPU_DESCRIPTOR_HANDLE dsv{};
-    if (dsvHeap_) {
-        dsv = dsvHeap_->GetCPUDescriptorHandleForHeapStart();
-        dsv.ptr += static_cast<SIZE_T>(frameIndex_) *
-            static_cast<SIZE_T>(dsvDescriptorSize_);
+    if (editorSurfaceActive_) {
+        rtv = editorSurfaceTarget_.linearRtv;
+        dsv = editorSurfaceTarget_.depthDsv;
+    } else {
+        rtv = rtvHeap_->GetCPUDescriptorHandleForHeapStart();
+        rtv.ptr += static_cast<SIZE_T>(kFrameCount) *
+            static_cast<SIZE_T>(rtvDescriptorSize_);
+        if (dsvHeap_) {
+            dsv = dsvHeap_->GetCPUDescriptorHandleForHeapStart();
+            dsv.ptr += static_cast<SIZE_T>(frameIndex_) *
+                static_cast<SIZE_T>(dsvDescriptorSize_);
+        }
     }
     commandList_->OMSetRenderTargets(
-        1u, &rtv, FALSE, dsvHeap_ ? &dsv : nullptr);
+        1u, &rtv, FALSE, dsv.ptr != 0u ? &dsv : nullptr);
     commandList_->ClearRenderTargetView(rtv, clearColor_, 0u, nullptr);
-    if (dsvHeap_) {
+    if (dsv.ptr != 0u) {
         commandList_->ClearDepthStencilView(
             dsv,
             D3D12_CLEAR_FLAG_DEPTH,
@@ -314,6 +321,10 @@ void D3D12RenderBackend::beginWorldSceneColorPass(
             nullptr);
     }
     worldSceneColorPassActive_ = true;
+    editorSurfaceScenePassActive_ =
+        editorSurfaceActive_;
+    (void)surfaceWidth;
+    (void)surfaceHeight;
 #else
     (void)surfaceWidth;
     (void)surfaceHeight;
@@ -322,16 +333,21 @@ void D3D12RenderBackend::beginWorldSceneColorPass(
 
 void D3D12RenderBackend::endWorldSceneColorPass() {
 #if defined(_WIN32)
+    ID3D12Resource* sceneColorTarget =
+        editorSurfaceScenePassActive_
+            ? editorSurfaceTarget_.linearColor
+            : worldSceneColorTarget_.Get();
     if (!worldSceneColorPassActive_ || !commandList_ ||
-        !worldSceneColorTarget_ || !worldSceneColorPipelineState_ ||
+        !sceneColorTarget || !worldSceneColorPipelineState_ ||
         !worldSceneColorRootSignature_) {
         worldSceneColorPassActive_ = false;
+        editorSurfaceScenePassActive_ = false;
         return;
     }
 
     D3D12_RESOURCE_BARRIER barrier{};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = worldSceneColorTarget_.Get();
+    barrier.Transition.pResource = sceneColorTarget;
     barrier.Transition.Subresource =
         D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
@@ -339,23 +355,40 @@ void D3D12RenderBackend::endWorldSceneColorPass() {
         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
     commandList_->ResourceBarrier(1u, &barrier);
 
-    D3D12_CPU_DESCRIPTOR_HANDLE backbufferRtv =
-        rtvHeap_->GetCPUDescriptorHandleForHeapStart();
-    backbufferRtv.ptr += static_cast<SIZE_T>(frameIndex_) *
-        static_cast<SIZE_T>(rtvDescriptorSize_);
+    D3D12_CPU_DESCRIPTOR_HANDLE outputRtv{};
+    int outputWidth = width_;
+    int outputHeight = height_;
+    std::uint32_t sceneColorDescriptorIndex =
+        worldSceneColorSrvDescriptorIndex_;
+    if (editorSurfaceScenePassActive_) {
+        outputRtv = editorSurfaceTarget_.displayRtv;
+        outputWidth = editorSurfaceTarget_.width;
+        outputHeight = editorSurfaceTarget_.height;
+        sceneColorDescriptorIndex =
+            editorSurfaceTarget_
+                .linearSrvDescriptorIndex;
+    } else {
+        outputRtv =
+            rtvHeap_->GetCPUDescriptorHandleForHeapStart();
+        outputRtv.ptr +=
+            static_cast<SIZE_T>(frameIndex_) *
+            static_cast<SIZE_T>(rtvDescriptorSize_);
+    }
     commandList_->OMSetRenderTargets(
-        1u, &backbufferRtv, FALSE, nullptr);
+        1u, &outputRtv, FALSE, nullptr);
 
     D3D12_VIEWPORT viewport{};
-    viewport.Width = static_cast<float>((std::max)(1, width_));
-    viewport.Height = static_cast<float>((std::max)(1, height_));
+    viewport.Width = static_cast<float>(
+        (std::max)(1, outputWidth));
+    viewport.Height = static_cast<float>(
+        (std::max)(1, outputHeight));
     viewport.MinDepth = 0.0f;
     viewport.MaxDepth = 1.0f;
     D3D12_RECT scissor{
         0,
         0,
-        static_cast<LONG>((std::max)(1, width_)),
-        static_cast<LONG>((std::max)(1, height_))};
+        static_cast<LONG>((std::max)(1, outputWidth)),
+        static_cast<LONG>((std::max)(1, outputHeight))};
     commandList_->RSSetViewports(1u, &viewport);
     commandList_->RSSetScissorRects(1u, &scissor);
     commandList_->SetPipelineState(
@@ -367,7 +400,7 @@ void D3D12RenderBackend::endWorldSceneColorPass() {
     D3D12_GPU_DESCRIPTOR_HANDLE sceneSrv =
         srvHeap_->GetGPUDescriptorHandleForHeapStart();
     sceneSrv.ptr +=
-        static_cast<UINT64>(worldSceneColorSrvDescriptorIndex_) *
+        static_cast<UINT64>(sceneColorDescriptorIndex) *
         static_cast<UINT64>(srvDescriptorSize_);
     commandList_->SetGraphicsRootDescriptorTable(0u, sceneSrv);
     commandList_->IASetPrimitiveTopology(
@@ -377,16 +410,19 @@ void D3D12RenderBackend::endWorldSceneColorPass() {
     ++frameTriangles_;
 
     D3D12_CPU_DESCRIPTOR_HANDLE dsv{};
-    if (dsvHeap_) {
+    if (editorSurfaceScenePassActive_) {
+        dsv = editorSurfaceTarget_.depthDsv;
+    } else if (dsvHeap_) {
         dsv = dsvHeap_->GetCPUDescriptorHandleForHeapStart();
         dsv.ptr += static_cast<SIZE_T>(frameIndex_) *
             static_cast<SIZE_T>(dsvDescriptorSize_);
     }
     commandList_->OMSetRenderTargets(
         1u,
-        &backbufferRtv,
+        &outputRtv,
         FALSE,
-        dsvHeap_ ? &dsv : nullptr);
+        dsv.ptr != 0u ? &dsv : nullptr);
     worldSceneColorPassActive_ = false;
+    editorSurfaceScenePassActive_ = false;
 #endif
 }

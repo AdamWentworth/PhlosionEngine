@@ -191,8 +191,15 @@ void D3D12RenderBackend::submitWorldScene(const WorldSceneFrame& frame,
     }
 
     static thread_local std::vector<WorldMeshInstance> instances;
-    if (worldSceneMaterialBindingCacheGeneration_ != view.registryGeneration) {
+    const void* registryIdentity =
+        static_cast<const void*>(view.materials);
+    if (worldSceneMaterialBindingCacheRegistryIdentity_ !=
+            registryIdentity ||
+        worldSceneMaterialBindingCacheGeneration_ !=
+            view.registryGeneration) {
         worldSceneMaterialBindingCache_.clear();
+        worldSceneMaterialBindingCacheRegistryIdentity_ =
+            registryIdentity;
         worldSceneMaterialBindingCacheGeneration_ = view.registryGeneration;
     }
     std::uint32_t previousGeometryId = 0u;

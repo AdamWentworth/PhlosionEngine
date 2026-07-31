@@ -185,6 +185,9 @@ void D3D12RenderBackend::endFrame() {
     if (worldSceneColorPassActive_) {
         endWorldSceneColorPass();
     }
+    if (editorSurfaceActive_) {
+        endEditorSurface();
+    }
 
     lastPresentWaitMs_ = 0.0f;
 
@@ -538,6 +541,7 @@ void D3D12RenderBackend::shutdown() {
     worldMaterialDescriptorBlocks_.clear();
     worldSceneMaterialBindingCache_.clear();
     worldSceneMaterialBindingCacheGeneration_ = 0u;
+    worldSceneMaterialBindingCacheRegistryIdentity_ = nullptr;
     worldSceneColorTarget_.Reset();
     worldSceneColorPipelineState_.Reset();
     worldSceneColorRootSignature_.Reset();

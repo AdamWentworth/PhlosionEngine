@@ -1,5 +1,7 @@
 #pragma once
 
+#include "engine/editor/EditorRendererPreference.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -9,6 +11,7 @@
 #include <SDL2/SDL.h>
 
 struct SDL_Window;
+class IRenderBackend;
 
 namespace engine::editor {
 
@@ -59,6 +62,9 @@ struct WorkspaceAssetPreview {
     std::uint32_t materialCount = 0u;
     std::uint32_t textureCount = 0u;
     std::uint32_t boneCount = 0u;
+    int animationIndex = -1;
+    float animationTimeSeconds = 0.0f;
+    float animationDurationSeconds = 0.0f;
     float boundsRadius = 1.0f;
     float boundsCenterY = 0.0f;
     bool ready = false;
@@ -100,6 +106,8 @@ struct WorkspaceView {
     std::string_view sceneAssetId;
     std::string_view scenePath;
     std::string_view backendName;
+    EditorRendererPreference rendererPreference =
+        EditorRendererPreference::Auto;
     std::string_view status;
     EditorPlayState playState = EditorPlayState::Editing;
     float simulationSeconds = 0.0f;
@@ -119,6 +127,7 @@ struct WorkspaceView {
     std::uint64_t sceneTextureId = 0u;
     std::uint64_t gameTextureId = 0u;
     std::uint64_t assetPreviewTextureId = 0u;
+    bool flipRenderSurfaceTexturesVertically = false;
     std::uint32_t sceneCount = 0u;
     std::uint32_t materialCount = 0u;
     std::uint32_t drawClassCount = 0u;
@@ -133,12 +142,18 @@ struct ProjectBrowserView {
     std::string_view status;
     std::string_view error;
     const std::vector<std::string>* recentProjects = nullptr;
+    std::string_view backendName;
+    EditorRendererPreference rendererPreference =
+        EditorRendererPreference::Auto;
 };
 
 struct EditorShellActions {
     bool openProject = false;
     bool closeProject = false;
     bool exit = false;
+    bool rendererPreferenceChanged = false;
+    EditorRendererPreference rendererPreference =
+        EditorRendererPreference::Auto;
     bool togglePlay = false;
     bool togglePause = false;
     bool step = false;
@@ -156,6 +171,8 @@ struct EditorShellActions {
     float assetPreviewZoom = 0.0f;
     bool resetAssetPreviewCamera = false;
     bool assetPreviewOptionsChanged = false;
+    bool assetPreviewSeekRequested = false;
+    float assetPreviewSeekTimeSeconds = 0.0f;
     int assetPreviewAnimationIndex = -1;
     float assetPreviewPlaybackSpeed = 1.0f;
     bool assetPreviewAnimationPlaying = true;
@@ -174,6 +191,15 @@ struct EditorShellActions {
     bool viewportFocused = false;
 };
 
+struct EditorTextureDescriptor {
+    std::uint64_t cpuHandle = 0u;
+    std::uint64_t gpuHandle = 0u;
+
+    bool valid() const noexcept {
+        return cpuHandle != 0u && gpuHandle != 0u;
+    }
+};
+
 class EditorShell {
 public:
     EditorShell();
@@ -183,6 +209,7 @@ public:
 
     bool initialize(
         SDL_Window* window,
+        IRenderBackend* renderer,
         std::string* outError = nullptr,
         const char* settingsIniPath = nullptr);
     void shutdown();
@@ -194,6 +221,9 @@ public:
     EditorShellActions drawWorkspace(
         const WorkspaceView& workspace);
     void render();
+    bool allocateTextureDescriptor(
+        EditorTextureDescriptor& outDescriptor);
+    void selectAsset(int assetIndex);
 
     bool wantsMouseCapture() const;
     bool wantsKeyboardCapture() const;
