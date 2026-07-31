@@ -1380,6 +1380,10 @@ void refreshLayoutObjectViews(LoadedProject& project) {
                 .rotationDegrees =
                     object.rotationDegrees,
                 .scale = object.scale,
+                .boundsMinimum =
+                    object.boundsMinimum,
+                .boundsMaximum =
+                    object.boundsMaximum,
                 .viewportPosition =
                     object.viewportPosition,
                 .viewportAxisDirections =
@@ -3144,6 +3148,9 @@ int main(int argc, char** argv) {
                     .layoutOverlayVisible =
                         project->runtime->
                             layoutOverlayVisible(),
+                    .boardClearanceSupported =
+                        project->runtime->
+                            supportsBoardClearance(),
                     .canUndoSceneEdit =
                         project->runtime->
                             canUndoSceneEdit(),
@@ -3276,6 +3283,97 @@ int main(int argc, char** argv) {
                 }
             }
             if (project &&
+                actions.resetSceneToSourceRequested) {
+                std::string resetError;
+                if (project->runtime->resetSceneToSource(
+                        &resetError)) {
+                    refreshSceneAuthoringViews();
+                    project->status =
+                        "Scene restored to its imported source baseline and autosaved.";
+                } else {
+                    project->status =
+                        "Source-scene reset failed: " +
+                        resetError;
+                }
+            }
+            if (project &&
+                actions.applyBoardClearanceRequested) {
+                engine::editor::
+                    EditorProjectBoardClearanceResult clearanceResult;
+                std::string clearanceError;
+                if (project->runtime->applyBoardClearance(
+                        actions.boardClearanceRequest,
+                        clearanceResult,
+                        &clearanceError)) {
+                    refreshSceneAuthoringViews();
+                    project->status =
+                        "Board clearing autosaved: " +
+                        std::to_string(
+                            clearanceResult.suppressedTerrainCount) +
+                        " terrain, " +
+                        std::to_string(
+                            clearanceResult.suppressedVegetationCount) +
+                        " vegetation, " +
+                        std::to_string(
+                            clearanceResult.suppressedObjectCount) +
+                        " object obstructions suppressed" +
+                        (clearanceResult.groundInfillCreated
+                             ? "; ground infill created."
+                             : ".") +
+                        (clearanceResult.
+                                 skippedUnsafeAggregateCount > 0u
+                             ? " " + std::to_string(
+                                   clearanceResult.
+                                       skippedUnsafeAggregateCount) +
+                                   " broad source foliage layers were preserved because their editable boundaries are not yet safe."
+                             : "");
+                } else {
+                    project->status =
+                        "Board clearing failed: " +
+                        clearanceError;
+                }
+            }
+            if (project &&
+                actions.layoutObjectDeleteRequested &&
+                actions.editLayoutObjectIndices.size() > 1u) {
+                std::vector<std::string> stableIds;
+                stableIds.reserve(
+                    actions.editLayoutObjectIndices.size());
+                for (const int index :
+                     actions.editLayoutObjectIndices) {
+                    if (index < 0 ||
+                        static_cast<std::size_t>(index) >=
+                            project->layoutObjectViews.size()) {
+                        continue;
+                    }
+                    stableIds.push_back(
+                        project->layoutObjectViews[
+                            static_cast<std::size_t>(index)]
+                            .stableId);
+                }
+                std::vector<const char*> stableIdPointers;
+                stableIdPointers.reserve(stableIds.size());
+                for (const auto& stableId : stableIds) {
+                    stableIdPointers.push_back(
+                        stableId.c_str());
+                }
+                std::string deleteError;
+                if (!stableIdPointers.empty() &&
+                    project->runtime->deleteLayoutObjects(
+                        stableIdPointers.data(),
+                        stableIdPointers.size(),
+                        &deleteError)) {
+                    refreshSceneAuthoringViews();
+                    project->status =
+                        std::to_string(stableIdPointers.size()) +
+                        " scene objects suppressed or deleted in one autosaved edit.";
+                } else {
+                    project->status =
+                        "Batch scene-object deletion failed: " +
+                        deleteError;
+                }
+            }
+            if (project &&
                 actions.selectLayoutObjectIndex >= 0 &&
                 static_cast<std::size_t>(
                     actions.selectLayoutObjectIndex) <
@@ -3295,7 +3393,9 @@ int main(int argc, char** argv) {
                 (actions.layoutObjectDuplicateRequested ||
                  actions.layoutObjectDeleteRequested ||
                  actions.layoutObjectRenameRequested ||
-                 actions.layoutObjectReparentRequested)) {
+                 actions.layoutObjectReparentRequested) &&
+                !(actions.layoutObjectDeleteRequested &&
+                  actions.editLayoutObjectIndices.size() > 1u)) {
                 const auto object =
                     project->layoutObjectViews[
                         static_cast<std::size_t>(

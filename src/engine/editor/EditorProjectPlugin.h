@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 13u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 14u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -150,6 +150,11 @@ struct EditorProjectLayoutObject {
     std::array<float, 3> translation{};
     std::array<float, 3> rotationDegrees{};
     std::array<float, 3> scale{1.0f, 1.0f, 1.0f};
+    // Current source-space AABB used by project-owned clearance tools. The
+    // project adapter derives this from the exact prefab geometry rather than
+    // asking the editor shell to guess an obstruction radius.
+    std::array<float, 3> boundsMinimum{};
+    std::array<float, 3> boundsMaximum{};
     // Scene-viewport projection supplied by the project adapter. Positions
     // are local to the rendered scene surface rather than desktop pixels.
     std::array<float, 2> viewportPosition{};
@@ -174,6 +179,24 @@ struct EditorProjectLayoutEdit {
 struct EditorProjectLayoutObjectCommand {
     const char* stableId = nullptr;
     const char* value = nullptr;
+};
+
+struct EditorProjectBoardClearanceRequest {
+    float paddingCells = 0.35f;
+    bool clearTerrain = true;
+    bool clearVegetation = true;
+    bool clearObjects = true;
+    bool retainRamps = true;
+    bool addGroundInfill = true;
+};
+
+struct EditorProjectBoardClearanceResult {
+    std::uint32_t suppressedTerrainCount = 0u;
+    std::uint32_t suppressedVegetationCount = 0u;
+    std::uint32_t suppressedObjectCount = 0u;
+    std::uint32_t retainedRampCount = 0u;
+    std::uint32_t skippedUnsafeAggregateCount = 0u;
+    bool groundInfillCreated = false;
 };
 
 class IEditorProjectRuntime {
@@ -381,6 +404,25 @@ public:
         }
         return false;
     }
+    virtual bool deleteLayoutObjects(
+        const char* const* stableIds,
+        std::size_t stableIdCount,
+        std::string* outError = nullptr) {
+        if (!stableIds || stableIdCount == 0u) {
+            if (outError) {
+                *outError = "At least one scene object is required.";
+            }
+            return false;
+        }
+        for (std::size_t index = 0u;
+             index < stableIdCount;
+             ++index) {
+            if (!deleteLayoutObject(stableIds[index], outError)) {
+                return false;
+            }
+        }
+        return true;
+    }
     virtual bool renameLayoutObject(
         const EditorProjectLayoutObjectCommand& command,
         std::string* outError = nullptr) {
@@ -429,6 +471,29 @@ public:
     }
     virtual void setLayoutOverlayVisible(bool visible) {
         (void)visible;
+    }
+    virtual bool supportsBoardClearance() const noexcept {
+        return false;
+    }
+    virtual bool applyBoardClearance(
+        const EditorProjectBoardClearanceRequest& request,
+        EditorProjectBoardClearanceResult& outResult,
+        std::string* outError = nullptr) {
+        (void)request;
+        outResult = {};
+        if (outError) {
+            *outError =
+                "This project does not provide a board-clearance operation.";
+        }
+        return false;
+    }
+    virtual bool resetSceneToSource(
+        std::string* outError = nullptr) {
+        if (outError) {
+            *outError =
+                "This project does not provide a source-scene reset.";
+        }
+        return false;
     }
 };
 

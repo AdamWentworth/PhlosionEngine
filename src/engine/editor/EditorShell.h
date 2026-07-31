@@ -1,5 +1,6 @@
 #pragma once
 
+#include "engine/editor/EditorProjectPlugin.h"
 #include "engine/editor/EditorRendererPreference.h"
 
 #include <array>
@@ -64,6 +65,8 @@ struct WorkspaceLayoutObject {
     std::array<float, 3> translation{};
     std::array<float, 3> rotationDegrees{};
     std::array<float, 3> scale{1.0f, 1.0f, 1.0f};
+    std::array<float, 3> boundsMinimum{};
+    std::array<float, 3> boundsMaximum{};
     std::array<float, 2> viewportPosition{};
     std::array<float, 6> viewportAxisDirections{};
     std::array<float, 3> viewportSourceUnitsPerPixel{};
@@ -165,6 +168,7 @@ struct WorkspaceView {
     const std::vector<WorkspaceLayoutObject>*
         layoutObjects = nullptr;
     bool layoutOverlayVisible = false;
+    bool boardClearanceSupported = false;
     bool canUndoSceneEdit = false;
     bool canRedoSceneEdit = false;
     const std::vector<WorkspaceAsset>* assets = nullptr;
@@ -218,6 +222,7 @@ struct EditorShellActions {
     int instantiateAssetIndex = -1;
     int selectLayoutObjectIndex = -1;
     int editLayoutObjectIndex = -1;
+    std::vector<int> editLayoutObjectIndices;
     bool layoutObjectEditRequested = false;
     bool layoutObjectPreviewRequested = false;
     bool layoutObjectCommitRequested = false;
@@ -229,9 +234,12 @@ struct EditorShellActions {
     bool layoutObjectReparentRequested = false;
     bool undoSceneEditRequested = false;
     bool redoSceneEditRequested = false;
+    bool applyBoardClearanceRequested = false;
+    bool resetSceneToSourceRequested = false;
     std::string layoutObjectText;
     bool layoutOverlayVisibilityChanged = false;
     bool layoutOverlayVisible = false;
+    EditorProjectBoardClearanceRequest boardClearanceRequest{};
     std::array<float, 3> layoutTranslation{};
     std::array<float, 3> layoutRotationDegrees{};
     std::array<float, 3> layoutScale{1.0f, 1.0f, 1.0f};

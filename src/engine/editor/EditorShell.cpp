@@ -539,6 +539,7 @@ struct EditorShell::Impl {
     std::array<float, 3> layoutScale{1.0f, 1.0f, 1.0f};
     bool layoutSuppressed = false;
     int selectedLayoutObject = -1;
+    std::vector<std::string> selectedLayoutObjectIds;
     LayoutGizmoOperation layoutGizmoOperation =
         LayoutGizmoOperation::Translate;
     bool layoutGizmoDragging = false;
@@ -550,6 +551,14 @@ struct EditorShell::Impl {
     std::array<float, 3> layoutGizmoStartRotation{};
     std::array<float, 3> layoutGizmoStartScale{
         1.0f, 1.0f, 1.0f};
+    bool layoutBoxSelecting = false;
+    ImVec2 layoutBoxSelectStart{};
+    float boardClearancePaddingCells = 0.35f;
+    bool boardClearanceClearTerrain = true;
+    bool boardClearanceClearVegetation = true;
+    bool boardClearanceClearObjects = true;
+    bool boardClearanceRetainRamps = true;
+    bool boardClearanceAddGroundInfill = true;
     std::string settingsIniPath;
 #if defined(_WIN32)
     std::unique_ptr<D3D12DescriptorAllocator>
@@ -1063,6 +1072,119 @@ EditorShellActions EditorShell::drawWorkspace(
     actions.assetPreviewShowSkeleton =
         impl_->assetPreviewShowSkeleton;
 
+    const auto layoutObjectIdAt =
+        [&](int index) -> const std::string* {
+            if (!workspace.layoutObjects || index < 0 ||
+                static_cast<std::size_t>(index) >=
+                    workspace.layoutObjects->size()) {
+                return nullptr;
+            }
+            return &(*workspace.layoutObjects)[
+                static_cast<std::size_t>(index)]
+                .stableId;
+        };
+    const auto layoutIndexSelected =
+        [&](int index) {
+            const auto* id = layoutObjectIdAt(index);
+            return id && std::find(
+                impl_->selectedLayoutObjectIds.begin(),
+                impl_->selectedLayoutObjectIds.end(),
+                *id) !=
+                impl_->selectedLayoutObjectIds.end();
+        };
+    const auto selectOnlyLayoutIndex =
+        [&](int index) {
+            impl_->selectedLayoutObjectIds.clear();
+            if (const auto* id = layoutObjectIdAt(index)) {
+                impl_->selectedLayoutObjectIds.push_back(*id);
+                impl_->selectedLayoutObject = index;
+            } else {
+                impl_->selectedLayoutObject = -1;
+            }
+        };
+    const auto toggleLayoutIndex =
+        [&](int index) {
+            const auto* id = layoutObjectIdAt(index);
+            if (!id) {
+                return;
+            }
+            const auto found = std::find(
+                impl_->selectedLayoutObjectIds.begin(),
+                impl_->selectedLayoutObjectIds.end(),
+                *id);
+            if (found ==
+                impl_->selectedLayoutObjectIds.end()) {
+                impl_->selectedLayoutObjectIds.push_back(*id);
+                impl_->selectedLayoutObject = index;
+            } else {
+                impl_->selectedLayoutObjectIds.erase(found);
+                if (impl_->selectedLayoutObject == index) {
+                    impl_->selectedLayoutObject = -1;
+                    if (!impl_->selectedLayoutObjectIds.empty() &&
+                        workspace.layoutObjects) {
+                        const auto next = std::find_if(
+                            workspace.layoutObjects->begin(),
+                            workspace.layoutObjects->end(),
+                            [&](const WorkspaceLayoutObject& object) {
+                                return object.stableId ==
+                                    impl_->selectedLayoutObjectIds.back();
+                            });
+                        if (next !=
+                            workspace.layoutObjects->end()) {
+                            impl_->selectedLayoutObject =
+                                static_cast<int>(std::distance(
+                                    workspace.layoutObjects->begin(),
+                                    next));
+                        }
+                    }
+                }
+            }
+        };
+    const auto writeSelectedLayoutIndices = [&]() {
+        actions.editLayoutObjectIndices.clear();
+        if (!workspace.layoutObjects) {
+            return;
+        }
+        for (std::size_t index = 0u;
+             index < workspace.layoutObjects->size();
+             ++index) {
+            if (layoutIndexSelected(
+                    static_cast<int>(index))) {
+                actions.editLayoutObjectIndices.push_back(
+                    static_cast<int>(index));
+            }
+        }
+    };
+    if (workspace.layoutObjects) {
+        std::erase_if(
+            impl_->selectedLayoutObjectIds,
+            [&](const std::string& id) {
+                return std::none_of(
+                    workspace.layoutObjects->begin(),
+                    workspace.layoutObjects->end(),
+                    [&](const WorkspaceLayoutObject& object) {
+                        return object.stableId == id;
+                    });
+            });
+        if (impl_->selectedLayoutObject >= 0 &&
+            !layoutIndexSelected(
+                impl_->selectedLayoutObject)) {
+            const auto* primary = layoutObjectIdAt(
+                impl_->selectedLayoutObject);
+            if (!primary ||
+                std::find(
+                    impl_->selectedLayoutObjectIds.begin(),
+                    impl_->selectedLayoutObjectIds.end(),
+                    *primary) ==
+                    impl_->selectedLayoutObjectIds.end()) {
+                impl_->selectedLayoutObject = -1;
+            }
+        }
+    } else {
+        impl_->selectedLayoutObjectIds.clear();
+        impl_->selectedLayoutObject = -1;
+    }
+
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize(viewport->WorkSize);
@@ -1152,6 +1274,7 @@ EditorShellActions EditorShell::drawWorkspace(
             }
             ImGui::Separator();
             const bool hasLayoutSelection =
+                !impl_->selectedLayoutObjectIds.empty() &&
                 impl_->selectedLayoutObject >= 0 &&
                 workspace.layoutObjects &&
                 static_cast<std::size_t>(
@@ -1167,12 +1290,15 @@ EditorShellActions EditorShell::drawWorkspace(
                 actions.layoutObjectDuplicateRequested = true;
             }
             if (ImGui::MenuItem(
-                    "Delete Selected Object",
+                    impl_->selectedLayoutObjectIds.size() > 1u
+                        ? "Delete Selected Objects"
+                        : "Delete Selected Object",
                     "Delete",
                     false,
                     hasLayoutSelection)) {
                 actions.editLayoutObjectIndex =
                     impl_->selectedLayoutObject;
+                writeSelectedLayoutIndices();
                 actions.layoutObjectDeleteRequested = true;
             }
             ImGui::Separator();
@@ -1246,6 +1372,7 @@ EditorShellActions EditorShell::drawWorkspace(
     {
         const ImGuiIO& io = ImGui::GetIO();
         const bool hasLayoutSelection =
+            !impl_->selectedLayoutObjectIds.empty() &&
             impl_->selectedLayoutObject >= 0 &&
             workspace.layoutObjects &&
             static_cast<std::size_t>(
@@ -1278,6 +1405,7 @@ EditorShellActions EditorShell::drawWorkspace(
             hasLayoutSelection) {
             actions.editLayoutObjectIndex =
                 impl_->selectedLayoutObject;
+            writeSelectedLayoutIndices();
             actions.layoutObjectDeleteRequested = true;
         }
     }
@@ -1444,8 +1572,8 @@ EditorShellActions EditorShell::drawWorkspace(
                     hoveredObjectDistance = distance;
                 }
                 const bool selected =
-                    impl_->selectedLayoutObject ==
-                    static_cast<int>(index);
+                    layoutIndexSelected(
+                        static_cast<int>(index));
                 const bool hovered =
                     hoveredObject ==
                     static_cast<int>(index);
@@ -1684,13 +1812,19 @@ EditorShellActions EditorShell::drawWorkspace(
                     impl_->layoutGizmoStartScale =
                         selected->scale;
                 } else if (hoveredObject >= 0) {
-                    impl_->selectedLayoutObject =
-                        hoveredObject;
+                    const ImGuiIO& io = ImGui::GetIO();
+                    if (io.KeyCtrl || io.KeyShift) {
+                        toggleLayoutIndex(hoveredObject);
+                    } else {
+                        selectOnlyLayoutIndex(hoveredObject);
+                    }
                     impl_->inspectorSelection =
                         InspectorSelectionDomain::Hierarchy;
                     impl_->activeLayoutObjectId.clear();
-                    actions.selectLayoutObjectIndex =
-                        hoveredObject;
+                    if (layoutIndexSelected(hoveredObject)) {
+                        actions.selectLayoutObjectIndex =
+                            hoveredObject;
+                    }
                     if (workspace.hierarchyItems) {
                         for (std::size_t hierarchyIndex = 0u;
                              hierarchyIndex <
@@ -1706,6 +1840,75 @@ EditorShellActions EditorShell::drawWorkspace(
                                 break;
                             }
                         }
+                    }
+                } else {
+                    impl_->layoutBoxSelecting = true;
+                    impl_->layoutBoxSelectStart = mouse;
+                    if (!ImGui::GetIO().KeyCtrl &&
+                        !ImGui::GetIO().KeyShift) {
+                        impl_->selectedLayoutObjectIds.clear();
+                        impl_->selectedLayoutObject = -1;
+                    }
+                }
+            }
+
+            if (impl_->layoutBoxSelecting) {
+                const ImVec2 minimum(
+                    std::min(
+                        impl_->layoutBoxSelectStart.x,
+                        mouse.x),
+                    std::min(
+                        impl_->layoutBoxSelectStart.y,
+                        mouse.y));
+                const ImVec2 maximum(
+                    std::max(
+                        impl_->layoutBoxSelectStart.x,
+                        mouse.x),
+                    std::max(
+                        impl_->layoutBoxSelectStart.y,
+                        mouse.y));
+                drawList->AddRectFilled(
+                    minimum,
+                    maximum,
+                    IM_COL32(50, 170, 120, 36));
+                drawList->AddRect(
+                    minimum,
+                    maximum,
+                    IM_COL32(90, 235, 170, 230),
+                    0.0f,
+                    0,
+                    1.5f);
+                if (ImGui::IsMouseReleased(
+                        ImGuiMouseButton_Left)) {
+                    for (std::size_t index = 0u;
+                         index < objects.size();
+                         ++index) {
+                        const auto& object = objects[index];
+                        if (!object.viewportVisible) {
+                            continue;
+                        }
+                        const ImVec2 position(
+                            origin.x +
+                                object.viewportPosition[0],
+                            origin.y +
+                                object.viewportPosition[1]);
+                        if (position.x < minimum.x ||
+                            position.x > maximum.x ||
+                            position.y < minimum.y ||
+                            position.y > maximum.y) {
+                            continue;
+                        }
+                        if (!layoutIndexSelected(
+                                static_cast<int>(index))) {
+                            toggleLayoutIndex(
+                                static_cast<int>(index));
+                        }
+                    }
+                    impl_->layoutBoxSelecting = false;
+                    impl_->activeLayoutObjectId.clear();
+                    if (impl_->selectedLayoutObject >= 0) {
+                        actions.selectLayoutObjectIndex =
+                            impl_->selectedLayoutObject;
                     }
                 }
             }
@@ -1808,10 +2011,14 @@ EditorShellActions EditorShell::drawWorkspace(
                 IM_COL32(235, 245, 240, 220),
                 impl_->layoutGizmoDragging
                     ? "LIVE EDIT - release to autosave, Esc to cancel"
-                    : "EDIT MODE - click a marker, then drag W/E/R gizmos");
+                    : impl_->layoutBoxSelecting
+                    ? "BOX SELECT - release to select enclosed objects"
+                    : "EDIT MODE - click, Ctrl/Shift-click, or drag empty space; W/E/R edits primary");
         } else if (
-            impl_->layoutGizmoDragging) {
+            impl_->layoutGizmoDragging ||
+            impl_->layoutBoxSelecting) {
             impl_->layoutGizmoDragging = false;
+            impl_->layoutBoxSelecting = false;
         }
         actions.activeViewport = kind;
         actions.viewportWidth = viewportWidth;
@@ -1934,24 +2141,38 @@ EditorShellActions EditorShell::drawWorkspace(
                 ImGui::Dummy(ImVec2(12.0f, 1.0f));
                 ImGui::SameLine();
             }
+            const bool rowSelected =
+                item.layoutObjectIndex >= 0
+                ? layoutIndexSelected(
+                      item.layoutObjectIndex)
+                : impl_->inspectorSelection ==
+                          InspectorSelectionDomain::Hierarchy &&
+                      impl_->selectedHierarchyItem ==
+                          static_cast<int>(index);
             if (ImGui::Selectable(
                     item.displayName.c_str(),
-                    impl_->inspectorSelection ==
-                            InspectorSelectionDomain::
-                                Hierarchy &&
-                        impl_->selectedHierarchyItem ==
-                            static_cast<int>(index))) {
+                    rowSelected)) {
                 impl_->selectedHierarchyItem =
                     static_cast<int>(index);
                 impl_->inspectorSelection =
                     InspectorSelectionDomain::Hierarchy;
                 if (item.layoutObjectIndex >= 0) {
-                    impl_->selectedLayoutObject =
-                        item.layoutObjectIndex;
+                    const ImGuiIO& io = ImGui::GetIO();
+                    if (io.KeyCtrl || io.KeyShift) {
+                        toggleLayoutIndex(
+                            item.layoutObjectIndex);
+                    } else {
+                        selectOnlyLayoutIndex(
+                            item.layoutObjectIndex);
+                    }
                     impl_->activeLayoutObjectId.clear();
-                    actions.selectLayoutObjectIndex =
-                        item.layoutObjectIndex;
+                    if (layoutIndexSelected(
+                            item.layoutObjectIndex)) {
+                        actions.selectLayoutObjectIndex =
+                            item.layoutObjectIndex;
+                    }
                 } else {
+                    impl_->selectedLayoutObjectIds.clear();
                     impl_->selectedLayoutObject = -1;
                 }
             }
@@ -2234,6 +2455,90 @@ EditorShellActions EditorShell::drawWorkspace(
         ImGui::TextDisabled(
             "Canonical source stays locked; edits are saved as project-owned overrides.");
         ImGui::Spacing();
+        if (workspace.boardClearanceSupported &&
+            ImGui::CollapsingHeader(
+                "Autochess Board Clearing",
+                ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::TextWrapped(
+                "Suppress exact source objects intersecting the orange clearance boundary and place a matched flat ground patch beneath the board.");
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::DragFloat(
+                "Clearance padding (cells)",
+                &impl_->boardClearancePaddingCells,
+                0.05f,
+                0.0f,
+                3.0f,
+                "%.2f");
+            ImGui::Checkbox(
+                "Clear ledges and raised terrain",
+                &impl_->boardClearanceClearTerrain);
+            ImGui::Checkbox(
+                "Clear vegetation",
+                &impl_->boardClearanceClearVegetation);
+            ImGui::Checkbox(
+                "Clear props and other obstructions",
+                &impl_->boardClearanceClearObjects);
+            ImGui::Checkbox(
+                "Retain ramps as entrances",
+                &impl_->boardClearanceRetainRamps);
+            ImGui::Checkbox(
+                "Create ground infill",
+                &impl_->boardClearanceAddGroundInfill);
+            const bool canClear =
+                impl_->boardClearanceClearTerrain ||
+                impl_->boardClearanceClearVegetation ||
+                impl_->boardClearanceClearObjects ||
+                impl_->boardClearanceAddGroundInfill;
+            ImGui::BeginDisabled(!canClear);
+            if (ImGui::Button(
+                    "Clear Board Footprint",
+                    ImVec2(-1.0f, 30.0f))) {
+                actions.applyBoardClearanceRequested = true;
+                actions.boardClearanceRequest = {
+                    .paddingCells =
+                        impl_->boardClearancePaddingCells,
+                    .clearTerrain =
+                        impl_->boardClearanceClearTerrain,
+                    .clearVegetation =
+                        impl_->boardClearanceClearVegetation,
+                    .clearObjects =
+                        impl_->boardClearanceClearObjects,
+                    .retainRamps =
+                        impl_->boardClearanceRetainRamps,
+                    .addGroundInfill =
+                        impl_->boardClearanceAddGroundInfill};
+            }
+            ImGui::EndDisabled();
+            if (ImGui::Button(
+                    "Reset Entire Scene To Imported Source",
+                    ImVec2(-1.0f, 28.0f))) {
+                actions.resetSceneToSourceRequested = true;
+                impl_->selectedLayoutObjectIds.clear();
+                impl_->selectedLayoutObject = -1;
+                impl_->activeLayoutObjectId.clear();
+            }
+            ImGui::TextDisabled(
+                "Both operations are autosaved and undoable with Ctrl+Z.");
+            ImGui::Separator();
+            ImGui::Spacing();
+        }
+        if (impl_->selectedLayoutObjectIds.size() > 1u) {
+            ImGui::Text(
+                "%zu layout objects selected",
+                impl_->selectedLayoutObjectIds.size());
+            if (ImGui::Button(
+                    "Suppress/Delete Selected Objects",
+                    ImVec2(-1.0f, 28.0f))) {
+                actions.editLayoutObjectIndex =
+                    impl_->selectedLayoutObject;
+                writeSelectedLayoutIndices();
+                actions.layoutObjectDeleteRequested = true;
+            }
+            ImGui::TextDisabled(
+                "Ctrl/Shift-click or drag an empty viewport area to change the selection.");
+            ImGui::Separator();
+            ImGui::Spacing();
+        }
     }
     const bool showAssetPreview =
         inspectedAsset &&
@@ -2330,10 +2635,13 @@ EditorShellActions EditorShell::drawWorkspace(
         }
         ImGui::SameLine();
         if (ImGui::Button(
-                "Delete",
+                impl_->selectedLayoutObjectIds.size() > 1u
+                    ? "Delete Selected"
+                    : "Delete",
                 ImVec2(-1.0f, 28.0f))) {
             actions.editLayoutObjectIndex =
                 inspectedLayoutIndex;
+            writeSelectedLayoutIndices();
             actions.layoutObjectDeleteRequested = true;
         }
         ImGui::Spacing();

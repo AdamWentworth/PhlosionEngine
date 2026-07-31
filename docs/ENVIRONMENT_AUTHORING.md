@@ -104,8 +104,20 @@ The first command implementation is now active in Pokemon Autochess Route 1:
 - rename and hierarchy-folder changes are persistent metadata edits;
 - transform, duplicate, delete, rename, and reparent commits share one bounded
   undo/redo history and atomic-save path;
+- Ctrl/Shift selection, viewport rectangle selection, and batch Delete commit
+  several stable object IDs as one atomic undo step;
 - hierarchy labels use natural numeric ordering, so numbered objects are shown
   as `1, 2, ... 10, 11`.
+
+The project-plugin contract also supports a project-owned board-clearance
+operation. The generic shell owns the controls and result reporting; the game
+adapter owns the authoritative board dimensions, source-to-world transform,
+object classification, exact bounds tests, retained traversal pieces, and
+source-compatible infill prefab. This keeps Pokemon-specific terrain semantics
+out of the Engine while still providing a Unity-style one-click scene tool.
+Imported objects are suppressed rather than destroyed, and a project adapter
+may expose a whole-scene source reset when its composition model can do so
+safely.
 
 Route 1 now persists these records in the Engine-owned
 `phlosion_authored_scene` schema version 1. Its tracked
@@ -179,7 +191,9 @@ recipes remain tracked.
 5. **Complete:** persist a generic project-owned scene document rather than a
    Route 1-only delta schema.
 6. **In progress:** exact source terrain assemblies can be created and edited;
-   add arbitrary `RaisedPlatform`, `LedgeSpline`, and `Ramp` parameter tools.
+   Route 1 has an undoable board-footprint clearance/infill workflow, while
+   arbitrary `RaisedPlatform`, `LedgeSpline`, and `Ramp` parameter tools remain
+   to be added.
 7. Generate collision/navigation and cook the authored composition.
 8. Qualify editing, undo, recook stability, and renderer parity with Pokemon
    Autochess before applying the workflow to a second game.
