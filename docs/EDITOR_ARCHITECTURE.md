@@ -198,8 +198,15 @@ pickable object markers and source-local Move, Rotate, and Scale gizmos.
 Dragging applies an in-memory preview every frame, releasing autosaves through
 the project adapter, and Escape restores the pre-drag layout. The Inspector
 uses the same preview/commit path. Canonical cooked scenes remain read-only.
-Command history, undo/redo, and editable baked scene components remain later
-M1 work.
+The Route 1 adapter now presents stable source records in semantic,
+collapsible hierarchy folders and uses a lightweight preview path so drag
+frames do not rebuild projected shadows, material catalogs, or runtime
+statistics. Command history, undo/redo, individual extraction of repeated
+source batches, and creation of new scene components remain later M1 work.
+
+The generic authored-environment component model and the path from imported
+source groups to prefab instances, ramps, ledges, and raised platforms are
+defined in `ENVIRONMENT_AUTHORING.md`.
 
 ### M2: Forge and asset registry
 

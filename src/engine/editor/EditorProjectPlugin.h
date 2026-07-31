@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 9u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 10u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -139,6 +139,9 @@ struct EditorProjectLayoutObject {
     const char* typeName = nullptr;
     const char* coordinateSystem = nullptr;
     const char* reason = nullptr;
+    const char* targetKind = nullptr;
+    const char* categoryPath = nullptr;
+    const char* prefabAssetId = nullptr;
     std::array<float, 3> sourceTranslation{};
     std::array<float, 3> sourceRotationDegrees{};
     std::array<float, 3> sourceScale{1.0f, 1.0f, 1.0f};

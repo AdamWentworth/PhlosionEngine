@@ -13,6 +13,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include <imgui.h>
 #if defined(_WIN32)
@@ -506,6 +507,8 @@ struct EditorShell::Impl {
     bool ready = false;
     bool firstLayout = true;
     int selectedHierarchyItem = 0;
+    std::unordered_map<std::string, bool>
+        hierarchyFolderExpanded;
     int selectedAsset = 0;
     int selectedScene = 0;
     int selectedGamePreview = 0;
@@ -1814,16 +1817,44 @@ EditorShellActions EditorShell::drawWorkspace(
             0,
             static_cast<int>(
                 workspace.hierarchyItems->size() - 1u));
+        int collapsedDepth = -1;
         for (std::size_t index = 0u;
              index < workspace.hierarchyItems->size();
              ++index) {
             const auto& item =
                 (*workspace.hierarchyItems)[index];
+            if (collapsedDepth >= 0) {
+                if (item.depth > collapsedDepth) {
+                    continue;
+                }
+                collapsedDepth = -1;
+            }
             ImGui::PushID(static_cast<int>(index));
             if (item.depth > 0) {
                 ImGui::Indent(
                     static_cast<float>(item.depth) *
                     16.0f);
+            }
+            bool folderExpanded = true;
+            if (item.folder) {
+                const auto [state, inserted] =
+                    impl_->hierarchyFolderExpanded.emplace(
+                        item.id,
+                        item.expandedByDefault);
+                (void)inserted;
+                folderExpanded = state->second;
+                if (ImGui::ArrowButton(
+                        "##folder",
+                        folderExpanded
+                            ? ImGuiDir_Down
+                            : ImGuiDir_Right)) {
+                    state->second = !state->second;
+                    folderExpanded = state->second;
+                }
+                ImGui::SameLine();
+            } else {
+                ImGui::Dummy(ImVec2(12.0f, 1.0f));
+                ImGui::SameLine();
             }
             if (ImGui::Selectable(
                     item.displayName.c_str(),
@@ -1851,6 +1882,10 @@ EditorShellActions EditorShell::drawWorkspace(
                     "%s\n%s",
                     item.typeName.c_str(),
                     item.id.c_str());
+            }
+            if (item.folder &&
+                !folderExpanded) {
+                collapsedDepth = item.depth;
             }
             if (item.depth > 0) {
                 ImGui::Unindent(
@@ -2145,6 +2180,13 @@ EditorShellActions EditorShell::drawWorkspace(
         ImGui::TextDisabled(
             "%s",
             inspectedLayout->coordinateSystem.c_str());
+        ImGui::TextDisabled(
+            "%s",
+            inspectedLayout->prefabAssetId.empty()
+                ? "Editable source mesh group"
+                : ("Prefab: " +
+                   inspectedLayout->prefabAssetId)
+                      .c_str());
         ImGui::TextWrapped(
             "Values update live. Releasing a field or viewport gizmo autosaves the project override.");
         bool liveEditChanged = false;

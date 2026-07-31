@@ -44,6 +44,8 @@ struct WorkspaceHierarchyItem {
     std::string typeName;
     int depth = 0;
     int layoutObjectIndex = -1;
+    bool folder = false;
+    bool expandedByDefault = false;
     std::vector<WorkspaceProperty> properties;
 };
 
@@ -53,6 +55,9 @@ struct WorkspaceLayoutObject {
     std::string typeName;
     std::string coordinateSystem;
     std::string reason;
+    std::string targetKind;
+    std::string categoryPath;
+    std::string prefabAssetId;
     std::array<float, 3> sourceTranslation{};
     std::array<float, 3> sourceRotationDegrees{};
     std::array<float, 3> sourceScale{1.0f, 1.0f, 1.0f};

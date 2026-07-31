@@ -1135,6 +1135,8 @@ buildReadOnlyHierarchy(
             .displayName = scene.displayName,
             .typeName = "Game Scene",
             .depth = 0,
+            .folder = true,
+            .expandedByDefault = true,
             .properties = {
                 Property{
                     "Scene id",
@@ -1163,6 +1165,8 @@ buildReadOnlyHierarchy(
             .displayName = scene.environmentDisplayName,
             .typeName = "Environment Backdrop",
             .depth = 1,
+            .folder = true,
+            .expandedByDefault = true,
             .properties = {
                 Property{
                     "Asset id",
@@ -1345,6 +1349,18 @@ void refreshLayoutObjectViews(LoadedProject& project) {
                     object.reason
                         ? object.reason
                         : "",
+                .targetKind =
+                    object.targetKind
+                        ? object.targetKind
+                        : "",
+                .categoryPath =
+                    object.categoryPath
+                        ? object.categoryPath
+                        : "Environment/Objects",
+                .prefabAssetId =
+                    object.prefabAssetId
+                        ? object.prefabAssetId
+                        : "",
                 .sourceTranslation =
                     object.sourceTranslation,
                 .sourceRotationDegrees =
@@ -1384,57 +1400,199 @@ void rebuildProjectHierarchy(
     if (project.layoutObjectViews.empty()) {
         return;
     }
-    project.hierarchyViews.push_back(
-        engine::editor::WorkspaceHierarchyItem{
-            .id = "environment/autochess-layout",
-            .displayName =
-                "Extracted placements (grass + flowers)",
-            .typeName =
-                "Non-destructive Layout Layer",
-            .depth = 2,
-            .properties = {
-                {"Source environment",
-                 "Locked canonical asset"},
-                {"Editable targets",
-                 std::to_string(
-                     project.layoutObjectViews.size())},
-                {"Scope",
-                 "Source placement records; baked trees and terrain remain locked"},
-                {"Persistence",
-                 "Live preview; autosave on release"},
-            }});
+    // Replace the old diagnostic pseudo-groups with a real project object
+    // tree. The scene and environment roots from buildReadOnlyHierarchy()
+    // remain, while project adapters provide semantic folder paths.
+    if (project.hierarchyViews.size() > 2u) {
+        project.hierarchyViews.resize(2u);
+    }
+
+    struct FolderNode {
+        std::string name;
+        std::string path;
+        std::vector<std::unique_ptr<FolderNode>> children;
+        std::vector<std::size_t> objects;
+    };
+    FolderNode root{
+        .name = "Environment",
+        .path = "Environment"};
+    const auto splitPath =
+        [](std::string_view path) {
+            std::vector<std::string> segments;
+            std::size_t start = 0u;
+            while (start < path.size()) {
+                const std::size_t slash =
+                    path.find('/', start);
+                const std::size_t end =
+                    slash == std::string_view::npos
+                    ? path.size()
+                    : slash;
+                if (end > start) {
+                    segments.emplace_back(
+                        path.substr(start, end - start));
+                }
+                if (slash == std::string_view::npos) {
+                    break;
+                }
+                start = slash + 1u;
+            }
+            return segments;
+        };
     for (std::size_t index = 0u;
          index < project.layoutObjectViews.size();
          ++index) {
         const auto& object =
             project.layoutObjectViews[index];
-        project.hierarchyViews.push_back(
-            engine::editor::WorkspaceHierarchyItem{
-                .id = object.stableId,
-                .displayName =
-                    object.displayName +
-                    (object.hasOverride
-                         ? "  [override]"
-                         : ""),
-                .typeName = object.typeName,
-                .depth = 3,
-                .layoutObjectIndex =
-                    static_cast<int>(index),
-                .properties = {
-                    {"Stable source target",
-                     object.stableId},
-                    {"State",
-                     object.hasOverride
-                         ? (object.suppressed
-                                ? "Suppressed by layout"
-                                : "Transformed by layout")
-                         : "Canonical"},
-                    {"Reason",
-                     object.reason.empty()
-                         ? "None"
-                         : object.reason},
-                }});
+        auto segments =
+            splitPath(object.categoryPath);
+        FolderNode* folder = &root;
+        std::size_t first =
+            !segments.empty() &&
+                    segments.front() == "Environment"
+            ? 1u
+            : 0u;
+        for (std::size_t segmentIndex = first;
+             segmentIndex < segments.size();
+             ++segmentIndex) {
+            const auto found = std::find_if(
+                folder->children.begin(),
+                folder->children.end(),
+                [&](const std::unique_ptr<FolderNode>& child) {
+                    return child->name ==
+                        segments[segmentIndex];
+                });
+            if (found != folder->children.end()) {
+                folder = found->get();
+                continue;
+            }
+            auto child =
+                std::make_unique<FolderNode>();
+            child->name = segments[segmentIndex];
+            child->path =
+                folder->path + "/" + child->name;
+            folder->children.push_back(
+                std::move(child));
+            folder = folder->children.back().get();
+        }
+        folder->objects.push_back(index);
     }
+
+    const auto folderRank =
+        [](std::string_view name) {
+            if (name == "Terrain") return 0;
+            if (name == "Vegetation") return 1;
+            if (name == "Props") return 2;
+            if (name == "Lighting") return 3;
+            return 10;
+        };
+    const auto objectCount =
+        [](const auto& self,
+           const FolderNode& folder) -> std::size_t {
+            std::size_t count = folder.objects.size();
+            for (const auto& child : folder.children) {
+                count += self(self, *child);
+            }
+            return count;
+        };
+    const auto appendFolder =
+        [&](const auto& self,
+            FolderNode& folder,
+            int depth) -> void {
+            std::sort(
+                folder.children.begin(),
+                folder.children.end(),
+                [&](const auto& left,
+                    const auto& right) {
+                    const int leftRank =
+                        folderRank(left->name);
+                    const int rightRank =
+                        folderRank(right->name);
+                    return leftRank != rightRank
+                        ? leftRank < rightRank
+                        : left->name < right->name;
+                });
+            for (auto& child : folder.children) {
+                project.hierarchyViews.push_back(
+                    engine::editor::WorkspaceHierarchyItem{
+                        .id = "folder/" + child->path,
+                        .displayName = child->name,
+                        .typeName = "Scene Folder",
+                        .depth = depth,
+                        .folder = true,
+                        .expandedByDefault =
+                            depth <= 3,
+                        .properties = {
+                            {"Path", child->path},
+                            {"Objects",
+                             std::to_string(
+                                 objectCount(
+                                     objectCount,
+                                     *child))},
+                        }});
+                self(self, *child, depth + 1);
+            }
+            std::sort(
+                folder.objects.begin(),
+                folder.objects.end(),
+                [&](std::size_t left,
+                    std::size_t right) {
+                    return project.layoutObjectViews[left]
+                               .displayName <
+                        project.layoutObjectViews[right]
+                            .displayName;
+                });
+            for (const std::size_t index :
+                 folder.objects) {
+                const auto& object =
+                    project.layoutObjectViews[index];
+                project.hierarchyViews.push_back(
+                    engine::editor::WorkspaceHierarchyItem{
+                        .id = object.stableId,
+                        .displayName =
+                            object.displayName +
+                            (object.hasOverride
+                                 ? "  [override]"
+                                 : ""),
+                        .typeName = object.typeName,
+                        .depth = depth,
+                        .layoutObjectIndex =
+                            static_cast<int>(index),
+                        .properties = {
+                            {"Stable source target",
+                             object.stableId},
+                            {"Prefab asset",
+                             object.prefabAssetId.empty()
+                                 ? "Source mesh group"
+                                 : object.prefabAssetId},
+                            {"State",
+                             object.hasOverride
+                                 ? (object.suppressed
+                                        ? "Suppressed by layout"
+                                        : "Transformed by layout")
+                                 : "Canonical"},
+                            {"Reason",
+                             object.reason.empty()
+                                 ? "None"
+                                 : object.reason},
+                        }});
+            }
+        };
+    appendFolder(appendFolder, root, 2);
+    project.hierarchyViews.push_back(
+        engine::editor::WorkspaceHierarchyItem{
+            .id = "environment/lighting",
+            .displayName = "Lighting and Atmosphere",
+            .typeName = "Scene Folder",
+            .depth = 2,
+            .folder = true,
+            .expandedByDefault = false,
+            .properties = {
+                {"Projected shadow triangles",
+                 std::to_string(
+                     stats.shadowTriangleCount)},
+                {"Editing",
+                 "Scene-level lighting controls are a later component adapter"},
+            }});
 }
 
 void refreshAssetPreviewView(LoadedProject& project) {
