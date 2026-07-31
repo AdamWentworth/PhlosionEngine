@@ -55,6 +55,7 @@ struct Arguments {
     std::filesystem::path project;
     std::string gamePreview;
     std::string assetPreview;
+    std::optional<int> assetPreviewAnimation;
     std::optional<
         engine::editor::EditorRendererPreference>
         rendererPreference;
@@ -82,6 +83,9 @@ Arguments parseArguments(int argc, char** argv) {
             "--game-preview=";
         constexpr std::string_view assetPreviewPrefix =
             "--asset-preview=";
+        constexpr std::string_view
+            assetPreviewAnimationPrefix =
+                "--asset-preview-animation=";
         constexpr std::string_view framesPrefix = "--frames=";
         constexpr std::string_view rendererPrefix =
             "--renderer=";
@@ -95,6 +99,17 @@ Arguments parseArguments(int argc, char** argv) {
             argument.rfind(assetPreviewPrefix, 0u) == 0u) {
             result.assetPreview =
                 argument.substr(assetPreviewPrefix.size());
+        } else if (
+            argument.rfind(
+                assetPreviewAnimationPrefix,
+                0u) == 0u) {
+            const std::string value =
+                argument.substr(
+                    assetPreviewAnimationPrefix.size());
+            result.assetPreviewAnimation =
+                value == "bind" || value == "Bind"
+                    ? -1
+                    : std::stoi(value);
         } else if (argument.rfind(framesPrefix, 0u) == 0u) {
             result.frameLimit = std::max(
                 1,
@@ -2088,6 +2103,20 @@ int main(int argc, char** argv) {
                                     assetPreviewCamera,
                                     selectedAssetPreviewIndex,
                                     previewError)) {
+                                if (arguments
+                                        .assetPreviewAnimation) {
+                                    project->runtime->
+                                        setAssetPreviewOptions(
+                                            engine::editor::
+                                                EditorProjectAssetPreviewOptions{
+                                                    .animationIndex =
+                                                        *arguments
+                                                             .assetPreviewAnimation,
+                                                    .animationPlaying =
+                                                        false});
+                                    refreshAssetPreviewView(
+                                        *project);
+                                }
                                 editor.selectAsset(assetIndex);
                             } else {
                                 project->status =
