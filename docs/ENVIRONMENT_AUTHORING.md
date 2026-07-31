@@ -34,8 +34,9 @@ The initial component vocabulary is:
   overrides;
 - `ImportedSourceBinding`: immutable source object identity, source transform,
   provenance hash, and recook guard;
-- `TerrainPatch`: authored top surface, material set, UV policy, collision, and
-  navigation participation;
+- `TerrainTile`: compact grid coordinate, elevation level, surface role, shape,
+  and tile-set asset binding. Top surfaces, ramps, ledge walls, transition
+  strips, collision, and navigation seams are derived from neighboring cells;
 - `RaisedPlatform`: editable footprint and elevation with separate top,
   transition stripe, fringe, and cliff-side material roles;
 - `LedgeSpline`: path, height, thickness, corner/cap policy, fringe rules,
@@ -120,13 +121,13 @@ may expose a whole-scene source reset when its composition model can do so
 safely.
 
 Route 1 now persists these records in the Engine-owned
-`phlosion_authored_scene` schema version 1. Its tracked
+`phlosion_authored_scene` schema version 2. Its tracked
 `scenes/route1.scene.json` composes over the immutable cooked Route 1
 environment. `phlosion.project.json` declares that document with
 `authored_scene_path`; the editor passes the resolved path through the generic
 project-plugin scene context.
 
-The implemented version-1 component vocabulary is deliberately narrow:
+The implemented component vocabulary is deliberately narrow:
 
 - folder nodes have no components;
 - object nodes have `transform` plus exactly one of
@@ -134,7 +135,11 @@ The implemented version-1 component vocabulary is deliberately narrow:
 - imported bindings include immutable target kind, logical name, record index,
   and expected source transform;
 - prefab bindings include prototype node ID, `.phlo` asset ID, and creation
-  transform.
+  transform;
+- terrain-tile bindings contain no free transform. They reference one tile set
+  and store integer grid X/Z, an integer elevation level, a surface role, and
+  one of flat/north/east/south/west ramp shapes. Schema-1 documents remain
+  readable.
 
 The Engine parser rejects duplicate IDs, invalid transforms, missing or
 non-folder parents, hierarchy cycles, missing prefab prototypes, and malformed
@@ -159,12 +164,16 @@ Source-specific adapters may supply Game Freak-compatible profile templates,
 material families, fringe placement, and source behavior. The generic Engine
 components do not hard-code Pokemon rules.
 
-The active Route 1 first slice supports selecting, transforming, duplicating,
-and creating from the exact source terrain assemblies. Its Assets browser
-contributes one source-bound prefab alias per hierarchy object; aliases share
-immutable PHLO payloads rather than duplicating geometry. Arbitrary footprint,
-spline-point, attachment, collision, and navigation authoring remains the next
-generic component/cook layer.
+The active Route 1 slice supports selecting, transforming, duplicating, and
+creating from the exact source terrain assemblies, plus a cell-authoring mode
+over the complete route. Route 1 cells are 100 source centimetres wide and use
+50-centimetre elevation steps recovered from the source geometry. Rectangle
+selection can create/fill, raise, lower, paint light/dark lawn, assign a ramp
+direction, or restore cells to their exact imported state. The adapter masks
+only source triangles claimed by authored cells and derives replacement tops,
+ramps, and exposed ledge walls from neighbor heights. All selected cells save
+as one undoable transaction. Arbitrary footprint/spline-point, collision, and
+navigation authoring remains a later generic layer above this grid contract.
 
 ## Cook Boundary
 
@@ -190,10 +199,10 @@ recipes remain tracked.
    reparent commands with undo/redo.
 5. **Complete:** persist a generic project-owned scene document rather than a
    Route 1-only delta schema.
-6. **In progress:** exact source terrain assemblies can be created and edited;
-   Route 1 has an undoable board-footprint clearance/infill workflow, while
-   arbitrary `RaisedPlatform`, `LedgeSpline`, and `Ramp` parameter tools remain
-   to be added.
+6. **Complete first slice:** exact source terrain assemblies can be edited and
+   Route 1 has cell-based lawn, elevation, ramp, derived-ledge, restore-source,
+   and board-footprint authoring. Arbitrary spline/platform profiles remain a
+   later optional layer for environments that are not naturally tile-aligned.
 7. Generate collision/navigation and cook the authored composition.
 8. Qualify editing, undo, recook stability, and renderer parity with Pokemon
    Autochess before applying the workflow to a second game.

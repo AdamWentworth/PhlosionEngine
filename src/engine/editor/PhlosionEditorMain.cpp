@@ -1313,6 +1313,10 @@ struct LoadedProject {
         hierarchyViews;
     std::vector<engine::editor::WorkspaceLayoutObject>
         layoutObjectViews;
+    std::vector<engine::editor::WorkspaceTerrainTile>
+        terrainTileViews;
+    std::vector<engine::editor::WorkspaceTerrainSurface>
+        terrainSurfaceViews;
     std::vector<engine::editor::WorkspaceAsset>
         assetViews;
     std::size_t cookedAssetViewCount = 0u;
@@ -1396,6 +1400,54 @@ void refreshLayoutObjectViews(LoadedProject& project) {
                     object.suppressed,
                 .hasOverride =
                     object.hasOverride});
+    }
+}
+
+void refreshTerrainTileViews(LoadedProject& project) {
+    project.terrainTileViews.clear();
+    project.terrainSurfaceViews.clear();
+    const std::size_t tileCount =
+        project.runtime->terrainTileCount();
+    project.terrainTileViews.reserve(tileCount);
+    for (std::size_t index = 0u;
+         index < tileCount;
+         ++index) {
+        const auto tile = project.runtime->terrainTile(index);
+        project.terrainTileViews.push_back(
+            engine::editor::WorkspaceTerrainTile{
+                .coordinate = tile.coordinate,
+                .sourceElevationLevel =
+                    tile.sourceElevationLevel,
+                .elevationLevel = tile.elevationLevel,
+                .sourceSurface = tile.sourceSurface
+                    ? tile.sourceSurface
+                    : "",
+                .surface = tile.surface
+                    ? tile.surface
+                    : "",
+                .shape = tile.shape
+                    ? tile.shape
+                    : "flat",
+                .viewportCorners = tile.viewportCorners,
+                .viewportVisible = tile.viewportVisible,
+                .sourceOccupied = tile.sourceOccupied,
+                .authored = tile.authored});
+    }
+    const std::size_t surfaceCount =
+        project.runtime->terrainSurfaceCount();
+    project.terrainSurfaceViews.reserve(surfaceCount);
+    for (std::size_t index = 0u;
+         index < surfaceCount;
+         ++index) {
+        const auto surface =
+            project.runtime->terrainSurface(index);
+        if (!surface.id || !surface.displayName) {
+            continue;
+        }
+        project.terrainSurfaceViews.push_back(
+            engine::editor::WorkspaceTerrainSurface{
+                .id = surface.id,
+                .displayName = surface.displayName});
     }
 }
 
@@ -2096,6 +2148,7 @@ std::unique_ptr<LoadedProject> loadProject(
         .cameraTarget3 = glm::value_ptr(cameraTarget)};
     loaded->runtime->prewarm(renderer, cameraContext);
     refreshLayoutObjectViews(*loaded);
+    refreshTerrainTileViews(*loaded);
     rebuildProjectHierarchy(
         *loaded,
         loaded->sceneViews[
@@ -3050,6 +3103,7 @@ int main(int argc, char** argv) {
                         // render() updates project-owned viewport
                         // projections used by picking and transform gizmos.
                         refreshLayoutObjectViews(*project);
+                        refreshTerrainTileViews(*project);
                     }
                 } else if (gameSurface->begin(
                                surfaceWidth,
@@ -3151,6 +3205,9 @@ int main(int argc, char** argv) {
                     .boardClearanceSupported =
                         project->runtime->
                             supportsBoardClearance(),
+                    .terrainTileEditingSupported =
+                        project->runtime->
+                            supportsTerrainTileEditing(),
                     .canUndoSceneEdit =
                         project->runtime->
                             canUndoSceneEdit(),
@@ -3158,6 +3215,10 @@ int main(int argc, char** argv) {
                         project->runtime->
                             canRedoSceneEdit(),
                     .assets = &project->assetViews,
+                    .terrainTiles =
+                        &project->terrainTileViews,
+                    .terrainSurfaces =
+                        &project->terrainSurfaceViews,
                     .assetPreview =
                         selectedAssetPreviewIndex >= 0
                             ? &project->assetPreviewView
@@ -3244,6 +3305,7 @@ int main(int argc, char** argv) {
                         return;
                     }
                     refreshLayoutObjectViews(*project);
+                    refreshTerrainTileViews(*project);
                     const auto& activeScene =
                         project->sceneViews[
                             project->activeSceneIndex];
@@ -3331,6 +3393,34 @@ int main(int argc, char** argv) {
                     project->status =
                         "Board clearing failed: " +
                         clearanceError;
+                }
+            }
+            if (project && actions.terrainTileEditRequested) {
+                std::string tileError;
+                const engine::editor::
+                    EditorProjectTerrainTileEditRequest request{
+                        .coordinates =
+                            actions.terrainTileCoordinates.data(),
+                        .coordinateCount =
+                            actions.terrainTileCoordinates.size(),
+                        .operation =
+                            actions.terrainTileOperation.c_str(),
+                        .surface =
+                            actions.terrainTileSurface.c_str(),
+                        .shape =
+                            actions.terrainTileShape.c_str()};
+                if (project->runtime->applyTerrainTileEdit(
+                        request,
+                        &tileError)) {
+                    refreshSceneAuthoringViews();
+                    project->status =
+                        std::to_string(
+                            actions.terrainTileCoordinates.size()) +
+                        " terrain tile(s) updated and autosaved.";
+                } else {
+                    project->status =
+                        "Terrain-tile edit failed: " +
+                        tileError;
                 }
             }
             if (project &&
@@ -3568,6 +3658,7 @@ int main(int argc, char** argv) {
                 }
                 if (applied) {
                     refreshLayoutObjectViews(*project);
+                    refreshTerrainTileViews(*project);
                     const auto& activeScene =
                         project->sceneViews[
                             project->activeSceneIndex];

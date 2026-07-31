@@ -39,7 +39,20 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
                     .prototypeNodeId = "source/tree-1",
                     .prefabAssetId = "route/test_tree",
                     .creationTransform = AuthoredSceneTransform{
-                        .translation = {4.0f, 2.0f, 3.0f}}}}}};
+                        .translation = {4.0f, 2.0f, 3.0f}}}},
+            AuthoredSceneNode{
+                .id = "terrain-tile/12/-7",
+                .displayName = "Terrain Tile (12, -7)",
+                .parentId = "folder/environment",
+                .siblingOrder = 2u,
+                .reason = "terrain_authoring",
+                .terrainTile = TerrainTileBinding{
+                    .tileSetAssetId = "route/test_tileset",
+                    .gridX = 12,
+                    .gridZ = -7,
+                    .elevationLevel = 3,
+                    .surface = "dark_lawn",
+                    .shape = "ramp_north"}}}};
     std::string error;
     if (!validateAuthoredSceneDocument(source, &error)) {
         outFail = "valid document failed: " + error;
@@ -53,18 +66,34 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
         return false;
     }
     if (decoded.sceneId != source.sceneId ||
-        decoded.nodes.size() != 3u ||
+        decoded.nodes.size() != 4u ||
         !decoded.nodes[1].importedSource ||
         decoded.nodes[1].transform->translation[2] != 3.0f ||
         !decoded.nodes[2].prefabInstance ||
         decoded.nodes[2].prefabInstance->prototypeNodeId !=
-            "source/tree-1") {
+            "source/tree-1" ||
+        !decoded.nodes[3].terrainTile ||
+        decoded.nodes[3].terrainTile->gridX != 12 ||
+        decoded.nodes[3].terrainTile->shape != "ramp_north") {
         outFail = "document fields changed during round trip";
         return false;
     }
     decoded.nodes[1].parentId = "authored/tree-copy";
     if (validateAuthoredSceneDocument(decoded, nullptr)) {
         outFail = "document accepted a non-folder parent";
+        return false;
+    }
+    const std::string schemaOne = R"json({
+        "schema_version": 1,
+        "kind": "phlosion_authored_scene",
+        "scene_id": "routes/legacy",
+        "base_environment_asset_id": "environments/legacy",
+        "coordinate_system": "centimetres_xyz_y_up",
+        "nodes": []
+    })json";
+    if (!parseAuthoredSceneDocument(schemaOne, decoded, &error) ||
+        decoded.sceneId != "routes/legacy") {
+        outFail = "schema-1 authored scene compatibility failed: " + error;
         return false;
     }
     return true;

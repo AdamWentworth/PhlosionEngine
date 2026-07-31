@@ -464,6 +464,44 @@ float screenDistanceToSegmentSquared(
             start.y + segmentY * projection));
 }
 
+float screenEdge(
+    const ImVec2& first,
+    const ImVec2& second,
+    const ImVec2& point) {
+    return (point.x - first.x) * (second.y - first.y) -
+        (point.y - first.y) * (second.x - first.x);
+}
+
+bool screenPointInTriangle(
+    const ImVec2& point,
+    const ImVec2& first,
+    const ImVec2& second,
+    const ImVec2& third) {
+    const float edge0 = screenEdge(first, second, point);
+    const float edge1 = screenEdge(second, third, point);
+    const float edge2 = screenEdge(third, first, point);
+    const bool negative =
+        edge0 < 0.0f || edge1 < 0.0f || edge2 < 0.0f;
+    const bool positive =
+        edge0 > 0.0f || edge1 > 0.0f || edge2 > 0.0f;
+    return !(negative && positive);
+}
+
+bool screenPointInQuad(
+    const ImVec2& point,
+    const std::array<ImVec2, 4>& corners) {
+    return screenPointInTriangle(
+               point,
+               corners[0],
+               corners[1],
+               corners[2]) ||
+        screenPointInTriangle(
+               point,
+               corners[0],
+               corners[2],
+               corners[3]);
+}
+
 ImVec2 normalizedScreenDirection(
     float x,
     float y) {
@@ -559,6 +597,14 @@ struct EditorShell::Impl {
     bool boardClearanceClearObjects = true;
     bool boardClearanceRetainRamps = true;
     bool boardClearanceAddGroundInfill = true;
+    bool terrainTileEditing = false;
+    bool terrainTileDragging = false;
+    EditorProjectTerrainTileCoordinate
+        terrainTileDragStart{};
+    std::vector<EditorProjectTerrainTileCoordinate>
+        selectedTerrainTiles;
+    int terrainSurfaceIndex = 0;
+    int terrainShapeIndex = 0;
     std::string settingsIniPath;
 #if defined(_WIN32)
     std::unique_ptr<D3D12DescriptorAllocator>
@@ -1442,6 +1488,33 @@ EditorShellActions EditorShell::drawWorkspace(
         }
         if (impl_->selectedViewport ==
                 EditorViewportKind::Scene &&
+            workspace.terrainTileEditingSupported) {
+            ImGui::SameLine();
+            ImGui::Dummy(ImVec2(12.0f, 0.0f));
+            ImGui::SameLine();
+            if (impl_->terrainTileEditing) {
+                ImGui::PushStyleColor(
+                    ImGuiCol_Button,
+                    ImVec4(0.52f, 0.31f, 0.08f, 1.0f));
+            }
+            if (ImGui::Button(
+                    impl_->terrainTileEditing
+                        ? "Tiles: ON"
+                        : "Tiles: OFF",
+                    ImVec2(88.0f, 22.0f))) {
+                impl_->terrainTileEditing =
+                    !impl_->terrainTileEditing;
+                impl_->terrainTileDragging = false;
+                impl_->layoutBoxSelecting = false;
+                impl_->layoutGizmoDragging = false;
+            }
+            if (impl_->terrainTileEditing) {
+                ImGui::PopStyleColor();
+            }
+        }
+        if (impl_->selectedViewport ==
+                EditorViewportKind::Scene &&
+            !impl_->terrainTileEditing &&
             workspace.layoutObjects &&
             !workspace.layoutObjects->empty()) {
             ImGui::SameLine();
@@ -1540,6 +1613,192 @@ EditorShellActions EditorShell::drawWorkspace(
         const bool imageHovered = ImGui::IsItemHovered();
         if (kind == EditorViewportKind::Scene &&
             workspace.playState == EditorPlayState::Editing &&
+            impl_->terrainTileEditing &&
+            workspace.terrainTiles &&
+            !workspace.terrainTiles->empty()) {
+            const auto& tiles = *workspace.terrainTiles;
+            const auto sameCoordinate =
+                [](const EditorProjectTerrainTileCoordinate& left,
+                   const EditorProjectTerrainTileCoordinate& right) {
+                    return left.gridX == right.gridX &&
+                        left.gridZ == right.gridZ;
+                };
+            std::erase_if(
+                impl_->selectedTerrainTiles,
+                [&](const auto& selected) {
+                    return std::none_of(
+                        tiles.begin(),
+                        tiles.end(),
+                        [&](const WorkspaceTerrainTile& tile) {
+                            return sameCoordinate(
+                                tile.coordinate,
+                                selected);
+                        });
+                });
+            const auto selectedCoordinate =
+                [&](const auto& coordinate) {
+                    return std::any_of(
+                        impl_->selectedTerrainTiles.begin(),
+                        impl_->selectedTerrainTiles.end(),
+                        [&](const auto& selected) {
+                            return sameCoordinate(
+                                selected,
+                                coordinate);
+                        });
+                };
+            ImDrawList* drawList =
+                ImGui::GetWindowDrawList();
+            drawList->PushClipRect(
+                origin,
+                ImVec2(
+                    origin.x + static_cast<float>(viewportWidth),
+                    origin.y + static_cast<float>(viewportHeight)),
+                true);
+            const ImVec2 mouse = ImGui::GetMousePos();
+            int hoveredTile = -1;
+            for (std::size_t index = 0u;
+                 index < tiles.size();
+                 ++index) {
+                const auto& tile = tiles[index];
+                if (!tile.viewportVisible) {
+                    continue;
+                }
+                std::array<ImVec2, 4> corners{};
+                for (std::size_t corner = 0u;
+                     corner < corners.size();
+                     ++corner) {
+                    corners[corner] = ImVec2(
+                        origin.x +
+                            tile.viewportCorners[corner * 2u],
+                        origin.y +
+                            tile.viewportCorners[corner * 2u + 1u]);
+                }
+                if (screenPointInQuad(mouse, corners)) {
+                    hoveredTile = static_cast<int>(index);
+                }
+                const bool selected =
+                    selectedCoordinate(tile.coordinate);
+                const ImU32 outline = selected
+                    ? IM_COL32(255, 220, 72, 245)
+                    : tile.authored
+                    ? IM_COL32(255, 154, 48, 220)
+                    : tile.sourceOccupied
+                    ? IM_COL32(75, 218, 162, 125)
+                    : IM_COL32(135, 148, 158, 70);
+                if (selected || tile.authored) {
+                    drawList->AddQuadFilled(
+                        corners[0],
+                        corners[1],
+                        corners[2],
+                        corners[3],
+                        selected
+                            ? IM_COL32(255, 205, 45, 38)
+                            : IM_COL32(255, 130, 35, 22));
+                }
+                drawList->AddQuad(
+                    corners[0],
+                    corners[1],
+                    corners[2],
+                    corners[3],
+                    outline,
+                    selected ? 2.2f : 1.0f);
+            }
+            if (hoveredTile >= 0) {
+                const auto& tile = tiles[
+                    static_cast<std::size_t>(hoveredTile)];
+                std::array<ImVec2, 4> corners{};
+                for (std::size_t corner = 0u;
+                     corner < corners.size();
+                     ++corner) {
+                    corners[corner] = ImVec2(
+                        origin.x +
+                            tile.viewportCorners[corner * 2u],
+                        origin.y +
+                            tile.viewportCorners[corner * 2u + 1u]);
+                }
+                drawList->AddQuad(
+                    corners[0],
+                    corners[1],
+                    corners[2],
+                    corners[3],
+                    IM_COL32(255, 255, 255, 235),
+                    2.0f);
+            }
+            const bool canInteract =
+                imageHovered && !ImGui::GetIO().WantTextInput;
+            if (canInteract && hoveredTile >= 0 &&
+                ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                impl_->terrainTileDragging = true;
+                impl_->terrainTileDragStart =
+                    tiles[static_cast<std::size_t>(hoveredTile)]
+                        .coordinate;
+            }
+            if (impl_->terrainTileDragging &&
+                ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+                const auto end = hoveredTile >= 0
+                    ? tiles[static_cast<std::size_t>(hoveredTile)]
+                          .coordinate
+                    : impl_->terrainTileDragStart;
+                const std::int32_t minimumX = std::min(
+                    impl_->terrainTileDragStart.gridX,
+                    end.gridX);
+                const std::int32_t maximumX = std::max(
+                    impl_->terrainTileDragStart.gridX,
+                    end.gridX);
+                const std::int32_t minimumZ = std::min(
+                    impl_->terrainTileDragStart.gridZ,
+                    end.gridZ);
+                const std::int32_t maximumZ = std::max(
+                    impl_->terrainTileDragStart.gridZ,
+                    end.gridZ);
+                if (!ImGui::GetIO().KeyCtrl &&
+                    !ImGui::GetIO().KeyShift) {
+                    impl_->selectedTerrainTiles.clear();
+                }
+                for (const auto& tile : tiles) {
+                    if (!tile.viewportVisible ||
+                        tile.coordinate.gridX < minimumX ||
+                        tile.coordinate.gridX > maximumX ||
+                        tile.coordinate.gridZ < minimumZ ||
+                        tile.coordinate.gridZ > maximumZ) {
+                        continue;
+                    }
+                    const auto found = std::find_if(
+                        impl_->selectedTerrainTiles.begin(),
+                        impl_->selectedTerrainTiles.end(),
+                        [&](const auto& selected) {
+                            return sameCoordinate(
+                                selected,
+                                tile.coordinate);
+                        });
+                    if (ImGui::GetIO().KeyCtrl &&
+                        minimumX == maximumX &&
+                        minimumZ == maximumZ &&
+                        found !=
+                            impl_->selectedTerrainTiles.end()) {
+                        impl_->selectedTerrainTiles.erase(found);
+                    } else if (
+                        found ==
+                        impl_->selectedTerrainTiles.end()) {
+                        impl_->selectedTerrainTiles.push_back(
+                            tile.coordinate);
+                    }
+                }
+                impl_->terrainTileDragging = false;
+            }
+            drawList->AddText(
+                ImVec2(origin.x + 12.0f, origin.y + 12.0f),
+                IM_COL32(255, 240, 205, 235),
+                impl_->terrainTileDragging
+                    ? "TERRAIN TILES - drag across cells to select a rectangle"
+                    : "TERRAIN TILES - click or drag cells; Ctrl/Shift adds to selection");
+            drawList->PopClipRect();
+        } else if (impl_->terrainTileDragging) {
+            impl_->terrainTileDragging = false;
+        }
+        if (kind == EditorViewportKind::Scene &&
+            workspace.playState == EditorPlayState::Editing &&
+            !impl_->terrainTileEditing &&
             workspace.layoutObjects &&
             !workspace.layoutObjects->empty()) {
             const auto& objects = *workspace.layoutObjects;
@@ -2455,6 +2714,165 @@ EditorShellActions EditorShell::drawWorkspace(
         ImGui::TextDisabled(
             "Canonical source stays locked; edits are saved as project-owned overrides.");
         ImGui::Spacing();
+        if (workspace.terrainTileEditingSupported &&
+            ImGui::CollapsingHeader(
+                "Terrain Tile Editor",
+                ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Checkbox(
+                "Enable tile selection in Scene view",
+                &impl_->terrainTileEditing);
+            ImGui::TextWrapped(
+                "Each cell is one source metre. Elevation changes use the source 50 cm level step; ledge faces are derived from neighboring cells.");
+            ImGui::Text(
+                "%zu tile(s) selected",
+                impl_->selectedTerrainTiles.size());
+            const bool hasTileSelection =
+                !impl_->selectedTerrainTiles.empty();
+            const auto queueTileEdit =
+                [&](const char* operation,
+                    const char* surface,
+                    const char* shape) {
+                    actions.terrainTileEditRequested = true;
+                    actions.terrainTileCoordinates =
+                        impl_->selectedTerrainTiles;
+                    actions.terrainTileOperation = operation;
+                    actions.terrainTileSurface =
+                        surface ? surface : "";
+                    actions.terrainTileShape =
+                        shape ? shape : "";
+                };
+            ImGui::BeginDisabled(!hasTileSelection);
+            if (ImGui::Button(
+                    "Create / Fill Selected",
+                    ImVec2(-1.0f, 28.0f))) {
+                queueTileEdit("create", "", "flat");
+            }
+            if (ImGui::Button(
+                    "Lower 50 cm",
+                    ImVec2(0.0f, 28.0f))) {
+                queueTileEdit("lower", "", "");
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(
+                    "Raise 50 cm",
+                    ImVec2(-1.0f, 28.0f))) {
+                queueTileEdit("raise", "", "");
+            }
+
+            if (workspace.terrainSurfaces &&
+                !workspace.terrainSurfaces->empty()) {
+                impl_->terrainSurfaceIndex = std::clamp(
+                    impl_->terrainSurfaceIndex,
+                    0,
+                    static_cast<int>(
+                        workspace.terrainSurfaces->size() - 1u));
+                const auto& selectedSurface =
+                    (*workspace.terrainSurfaces)[
+                        static_cast<std::size_t>(
+                            impl_->terrainSurfaceIndex)];
+                if (ImGui::BeginCombo(
+                        "Surface",
+                        selectedSurface.displayName.c_str())) {
+                    for (std::size_t index = 0u;
+                         index < workspace.terrainSurfaces->size();
+                         ++index) {
+                        const auto& surface =
+                            (*workspace.terrainSurfaces)[index];
+                        const bool selected =
+                            static_cast<int>(index) ==
+                            impl_->terrainSurfaceIndex;
+                        if (ImGui::Selectable(
+                                surface.displayName.c_str(),
+                                selected)) {
+                            impl_->terrainSurfaceIndex =
+                                static_cast<int>(index);
+                        }
+                        if (selected) {
+                            ImGui::SetItemDefaultFocus();
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                if (ImGui::Button(
+                        "Paint Surface",
+                        ImVec2(-1.0f, 28.0f))) {
+                    const auto& surface =
+                        (*workspace.terrainSurfaces)[
+                            static_cast<std::size_t>(
+                                impl_->terrainSurfaceIndex)];
+                    queueTileEdit(
+                        "paint_surface",
+                        surface.id.c_str(),
+                        "");
+                }
+            }
+
+            constexpr std::array<const char*, 5> kShapeIds{{
+                "flat",
+                "ramp_north",
+                "ramp_east",
+                "ramp_south",
+                "ramp_west",
+            }};
+            constexpr std::array<const char*, 5> kShapeNames{{
+                "Flat",
+                "Ramp North (+1 level)",
+                "Ramp East (+1 level)",
+                "Ramp South (+1 level)",
+                "Ramp West (+1 level)",
+            }};
+            impl_->terrainShapeIndex = std::clamp(
+                impl_->terrainShapeIndex,
+                0,
+                static_cast<int>(kShapeIds.size() - 1u));
+            if (ImGui::BeginCombo(
+                    "Tile shape",
+                    kShapeNames[static_cast<std::size_t>(
+                        impl_->terrainShapeIndex)])) {
+                for (std::size_t index = 0u;
+                     index < kShapeIds.size();
+                     ++index) {
+                    const bool selected =
+                        static_cast<int>(index) ==
+                        impl_->terrainShapeIndex;
+                    if (ImGui::Selectable(
+                            kShapeNames[index],
+                            selected)) {
+                        impl_->terrainShapeIndex =
+                            static_cast<int>(index);
+                    }
+                    if (selected) {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (ImGui::Button(
+                    "Apply Tile Shape",
+                    ImVec2(-1.0f, 28.0f))) {
+                queueTileEdit(
+                    "set_shape",
+                    "",
+                    kShapeIds[static_cast<std::size_t>(
+                        impl_->terrainShapeIndex)]);
+            }
+            if (ImGui::Button(
+                    "Restore Selected From Source",
+                    ImVec2(-1.0f, 28.0f))) {
+                queueTileEdit(
+                    "restore_source", "", "");
+            }
+            ImGui::EndDisabled();
+            if (ImGui::Button(
+                    "Clear Tile Selection",
+                    ImVec2(-1.0f, 24.0f))) {
+                impl_->selectedTerrainTiles.clear();
+            }
+            ImGui::TextDisabled(
+                "Click or drag cells in Scene view. Ctrl/Shift adds cells; all edits autosave and use Ctrl+Z history.");
+            ImGui::Separator();
+            ImGui::Spacing();
+        }
         if (workspace.boardClearanceSupported &&
             ImGui::CollapsingHeader(
                 "Autochess Board Clearing",

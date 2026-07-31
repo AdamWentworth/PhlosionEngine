@@ -75,6 +75,24 @@ struct WorkspaceLayoutObject {
     bool hasOverride = false;
 };
 
+struct WorkspaceTerrainTile {
+    EditorProjectTerrainTileCoordinate coordinate{};
+    std::int32_t sourceElevationLevel = 0;
+    std::int32_t elevationLevel = 0;
+    std::string sourceSurface;
+    std::string surface;
+    std::string shape;
+    std::array<float, 8> viewportCorners{};
+    bool viewportVisible = false;
+    bool sourceOccupied = false;
+    bool authored = false;
+};
+
+struct WorkspaceTerrainSurface {
+    std::string id;
+    std::string displayName;
+};
+
 struct WorkspaceAsset {
     std::string id;
     std::string displayName;
@@ -169,9 +187,12 @@ struct WorkspaceView {
         layoutObjects = nullptr;
     bool layoutOverlayVisible = false;
     bool boardClearanceSupported = false;
+    bool terrainTileEditingSupported = false;
     bool canUndoSceneEdit = false;
     bool canRedoSceneEdit = false;
     const std::vector<WorkspaceAsset>* assets = nullptr;
+    const std::vector<WorkspaceTerrainTile>* terrainTiles = nullptr;
+    const std::vector<WorkspaceTerrainSurface>* terrainSurfaces = nullptr;
     const WorkspaceAssetPreview* assetPreview = nullptr;
     const std::vector<WorkspaceScene>* scenes = nullptr;
     std::string_view activeSceneId;
@@ -240,6 +261,12 @@ struct EditorShellActions {
     bool layoutOverlayVisibilityChanged = false;
     bool layoutOverlayVisible = false;
     EditorProjectBoardClearanceRequest boardClearanceRequest{};
+    bool terrainTileEditRequested = false;
+    std::vector<EditorProjectTerrainTileCoordinate>
+        terrainTileCoordinates;
+    std::string terrainTileOperation;
+    std::string terrainTileSurface;
+    std::string terrainTileShape;
     std::array<float, 3> layoutTranslation{};
     std::array<float, 3> layoutRotationDegrees{};
     std::array<float, 3> layoutScale{1.0f, 1.0f, 1.0f};

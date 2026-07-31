@@ -103,13 +103,17 @@ bool validateAuthoredSceneDocument(
         }
         const std::uint32_t bindingCount =
             static_cast<std::uint32_t>(node.importedSource.has_value()) +
-            static_cast<std::uint32_t>(node.prefabInstance.has_value());
+            static_cast<std::uint32_t>(node.prefabInstance.has_value()) +
+            static_cast<std::uint32_t>(node.terrainTile.has_value());
+        const bool tileNode = node.terrainTile.has_value();
         if (bindingCount > 1u ||
             (bindingCount == 0u && node.transform.has_value()) ||
-            (bindingCount == 1u && !node.transform.has_value())) {
+            (!tileNode && bindingCount == 1u &&
+             !node.transform.has_value()) ||
+            (tileNode && node.transform.has_value())) {
             return fail(
                 outError,
-                "Each authored scene node must be a folder or have one binding and one transform: " +
+                "Each authored scene node must be a folder, a transformed object binding, or one tile-set-derived terrain tile: " +
                     node.id);
         }
         if (node.transform && !validTransform(*node.transform)) {
@@ -137,6 +141,24 @@ bool validateAuthoredSceneDocument(
                 return fail(
                     outError,
                     "Authored scene prefab-instance binding is invalid: " +
+                        node.id);
+            }
+        }
+        if (node.terrainTile) {
+            const auto& binding = *node.terrainTile;
+            const bool validShape =
+                binding.shape == "flat" ||
+                binding.shape == "ramp_north" ||
+                binding.shape == "ramp_east" ||
+                binding.shape == "ramp_south" ||
+                binding.shape == "ramp_west";
+            if (binding.tileSetAssetId.empty() ||
+                binding.surface.empty() || !validShape ||
+                binding.elevationLevel < -128 ||
+                binding.elevationLevel > 128) {
+                return fail(
+                    outError,
+                    "Authored scene terrain-tile binding is invalid: " +
                         node.id);
             }
         }
@@ -200,8 +222,10 @@ bool parseAuthoredSceneDocument(
     try {
         const nlohmann::json root =
             nlohmann::json::parse(jsonText);
-        if (root.at("schema_version").get<std::uint32_t>() !=
-                kAuthoredSceneSchemaVersion ||
+        const std::uint32_t schemaVersion =
+            root.at("schema_version").get<std::uint32_t>();
+        if (schemaVersion < kMinimumAuthoredSceneSchemaVersion ||
+            schemaVersion > kAuthoredSceneSchemaVersion ||
             root.at("kind").get<std::string>() !=
                 kAuthoredSceneKind) {
             return fail(
@@ -272,6 +296,25 @@ bool parseAuthoredSceneDocument(
                                     prefab->at("creation_transform"),
                                     "creation")};
                 }
+                if (const auto terrainTile =
+                        components->find("terrain_tile");
+                    terrainTile != components->end()) {
+                    node.terrainTile = TerrainTileBinding{
+                        .tileSetAssetId =
+                            terrainTile->at("tile_set_asset_id")
+                                .get<std::string>(),
+                        .gridX = terrainTile->at("grid_x")
+                            .get<std::int32_t>(),
+                        .gridZ = terrainTile->at("grid_z")
+                            .get<std::int32_t>(),
+                        .elevationLevel =
+                            terrainTile->at("elevation_level")
+                                .get<std::int32_t>(),
+                        .surface = terrainTile->at("surface")
+                            .get<std::string>(),
+                        .shape = terrainTile->value(
+                            "shape", std::string("flat"))};
+                }
             }
             decoded.nodes.push_back(std::move(node));
         }
@@ -341,6 +384,16 @@ std::string serializeAuthoredSceneDocument(
                 {"prefab_asset_id", binding.prefabAssetId},
                 {"creation_transform",
                  transformJson(binding.creationTransform)}};
+        }
+        if (node.terrainTile) {
+            const auto& binding = *node.terrainTile;
+            record["components"]["terrain_tile"] = {
+                {"tile_set_asset_id", binding.tileSetAssetId},
+                {"grid_x", binding.gridX},
+                {"grid_z", binding.gridZ},
+                {"elevation_level", binding.elevationLevel},
+                {"surface", binding.surface},
+                {"shape", binding.shape}};
         }
         root["nodes"].push_back(std::move(record));
     }

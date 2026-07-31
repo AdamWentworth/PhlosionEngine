@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 14u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 15u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -197,6 +197,38 @@ struct EditorProjectBoardClearanceResult {
     std::uint32_t retainedRampCount = 0u;
     std::uint32_t skippedUnsafeAggregateCount = 0u;
     bool groundInfillCreated = false;
+};
+
+struct EditorProjectTerrainTileCoordinate {
+    std::int32_t gridX = 0;
+    std::int32_t gridZ = 0;
+};
+
+struct EditorProjectTerrainTile {
+    EditorProjectTerrainTileCoordinate coordinate{};
+    std::int32_t sourceElevationLevel = 0;
+    std::int32_t elevationLevel = 0;
+    const char* sourceSurface = nullptr;
+    const char* surface = nullptr;
+    const char* shape = nullptr;
+    std::array<float, 8> viewportCorners{};
+    bool viewportVisible = false;
+    bool sourceOccupied = false;
+    bool authored = false;
+};
+
+struct EditorProjectTerrainSurface {
+    const char* id = nullptr;
+    const char* displayName = nullptr;
+};
+
+struct EditorProjectTerrainTileEditRequest {
+    const EditorProjectTerrainTileCoordinate* coordinates = nullptr;
+    std::size_t coordinateCount = 0u;
+    // create, raise, lower, paint_surface, set_shape, or restore_source.
+    const char* operation = nullptr;
+    const char* surface = nullptr;
+    const char* shape = nullptr;
 };
 
 class IEditorProjectRuntime {
@@ -492,6 +524,35 @@ public:
         if (outError) {
             *outError =
                 "This project does not provide a source-scene reset.";
+        }
+        return false;
+    }
+    virtual bool supportsTerrainTileEditing() const noexcept {
+        return false;
+    }
+    virtual std::size_t terrainTileCount() const noexcept {
+        return 0u;
+    }
+    virtual EditorProjectTerrainTile terrainTile(
+        std::size_t index) const noexcept {
+        (void)index;
+        return {};
+    }
+    virtual std::size_t terrainSurfaceCount() const noexcept {
+        return 0u;
+    }
+    virtual EditorProjectTerrainSurface terrainSurface(
+        std::size_t index) const noexcept {
+        (void)index;
+        return {};
+    }
+    virtual bool applyTerrainTileEdit(
+        const EditorProjectTerrainTileEditRequest& request,
+        std::string* outError = nullptr) {
+        (void)request;
+        if (outError) {
+            *outError =
+                "This project does not provide terrain-tile authoring.";
         }
         return false;
     }

@@ -10,7 +10,8 @@
 
 namespace engine::assets::phlosion {
 
-inline constexpr std::uint32_t kAuthoredSceneSchemaVersion = 1u;
+inline constexpr std::uint32_t kAuthoredSceneSchemaVersion = 2u;
+inline constexpr std::uint32_t kMinimumAuthoredSceneSchemaVersion = 1u;
 inline constexpr char kAuthoredSceneKind[] =
     "phlosion_authored_scene";
 
@@ -33,6 +34,18 @@ struct PrefabInstanceBinding {
     AuthoredSceneTransform creationTransform;
 };
 
+// A compact, grid-authored terrain cell. Geometry at seams is deliberately
+// derived by the owning tile-set runtime so top surfaces, ramps, ledge walls,
+// transition strips, collision, and navigation cannot drift apart.
+struct TerrainTileBinding {
+    std::string tileSetAssetId;
+    std::int32_t gridX = 0;
+    std::int32_t gridZ = 0;
+    std::int32_t elevationLevel = 0;
+    std::string surface;
+    std::string shape = "flat";
+};
+
 struct AuthoredSceneNode {
     std::string id;
     std::string displayName;
@@ -43,9 +56,11 @@ struct AuthoredSceneNode {
     std::optional<AuthoredSceneTransform> transform;
     std::optional<ImportedSourceBinding> importedSource;
     std::optional<PrefabInstanceBinding> prefabInstance;
+    std::optional<TerrainTileBinding> terrainTile;
 
     bool folder() const noexcept {
-        return !transform && !importedSource && !prefabInstance;
+        return !transform && !importedSource && !prefabInstance &&
+            !terrainTile;
     }
 };
 
