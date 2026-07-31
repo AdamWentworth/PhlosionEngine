@@ -1534,7 +1534,7 @@ EditorShellActions EditorShell::drawWorkspace(
                 static_cast<std::size_t>(
                     impl_->selectedScene)];
         inspectedName = selected.displayName.c_str();
-        inspectedType = "Cooked World Scene";
+        inspectedType = "Game Scene";
         inspectedProperties = &selected.properties;
     }
     ImGui::TextWrapped("%s", inspectedName);
@@ -1956,11 +1956,11 @@ EditorShellActions EditorShell::drawWorkspace(
 
     ImGui::Begin("Scenes");
     ImGui::TextDisabled(
-        "Project scene asset catalog");
+        "Game scene catalog");
     ImGui::Separator();
     if (!workspace.scenes || workspace.scenes->empty()) {
         ImGui::TextWrapped(
-            "This project has not declared scene assets.");
+            "This project has not declared game scenes.");
     } else {
         impl_->selectedScene = std::clamp(
             impl_->selectedScene,

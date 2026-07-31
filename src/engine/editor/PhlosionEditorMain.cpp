@@ -151,6 +151,16 @@ bool containsInsensitive(
                }) != text.end();
 }
 
+std::string humanizeIdentifier(std::string value) {
+    std::replace(value.begin(), value.end(), '_', ' ');
+    if (!value.empty()) {
+        value.front() = static_cast<char>(
+            std::toupper(
+                static_cast<unsigned char>(value.front())));
+    }
+    return value;
+}
+
 std::filesystem::path editorStateDirectory() {
     char* rawPath = SDL_GetPrefPath("Phlosion", "Editor");
     if (!rawPath) {
@@ -1557,7 +1567,8 @@ std::unique_ptr<LoadedProject> loadProject(
                 .path = resolvedScenePath.generic_string(),
                 .runtimePath =
                     scene.runtimePath.generic_string(),
-                .status = scene.status,
+                .status =
+                    humanizeIdentifier(scene.status),
                 .startup =
                     scene.sceneId ==
                     loaded->descriptor.startupSceneId,
@@ -1568,7 +1579,7 @@ std::unique_ptr<LoadedProject> loadProject(
                     },
                     {
                         "Status",
-                        scene.status,
+                        humanizeIdentifier(scene.status),
                     },
                     {
                         "Environment",
