@@ -79,6 +79,10 @@ bool parseProjectDescriptor(
             ContentMount mount;
             mount.id = mountJson.at("id").get<std::string>();
             mount.root = mountJson.at("root").get<std::string>();
+            mount.assetBrowserExcludePatterns =
+                mountJson.value(
+                    "asset_browser_exclude",
+                    std::vector<std::string>{});
             mount.required = mountJson.value("required", true);
             if (mount.id.empty() || !isPortableRelativePath(mount.root)) {
                 return fail(
@@ -95,6 +99,14 @@ bool parseProjectDescriptor(
                 return fail(
                     "Duplicate content mount id: " + mount.id,
                     outError);
+            }
+            for (const auto& pattern :
+                 mount.assetBrowserExcludePatterns) {
+                if (!isPortableRelativePath(pattern)) {
+                    return fail(
+                        "Asset-browser exclusions must be portable paths relative to their content mount.",
+                        outError);
+                }
             }
             parsed.contentMounts.push_back(std::move(mount));
         }

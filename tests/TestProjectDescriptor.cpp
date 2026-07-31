@@ -12,6 +12,9 @@ bool test_project_descriptor_contract(std::string& outFail) {
             {
                 "id": "cooked",
                 "root": "content/phlosion",
+                "asset_browser_exclude": [
+                    "objects/internal-*/*.phlo"
+                ],
                 "required": true
             }
         ],
@@ -72,6 +75,12 @@ bool test_project_descriptor_contract(std::string& outFail) {
         project.displayName != "Test Game" ||
         project.contentMounts.size() != 1u ||
         project.contentMounts.front().id != "cooked" ||
+        project.contentMounts.front().
+                assetBrowserExcludePatterns.size() !=
+            1u ||
+        project.contentMounts.front().
+                assetBrowserExcludePatterns.front() !=
+            "objects/internal-*/*.phlo" ||
         project.startupScene.assetId != "environments/test" ||
         project.scenes.size() != 2u ||
         project.scenes.front().displayName != "Test World" ||

@@ -11,6 +11,8 @@ namespace engine::editor {
 struct ContentMount {
     std::string id;
     std::filesystem::path root;
+    std::vector<std::string>
+        assetBrowserExcludePatterns;
     bool required = true;
 };
 

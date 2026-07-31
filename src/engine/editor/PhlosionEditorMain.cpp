@@ -773,6 +773,56 @@ std::string byteCountLabel(std::uintmax_t bytes) {
     return std::to_string(bytes) + " bytes";
 }
 
+bool wildcardPathMatch(
+    std::string_view pattern,
+    std::string_view path) {
+    std::size_t patternIndex = 0u;
+    std::size_t pathIndex = 0u;
+    std::size_t starIndex =
+        std::string_view::npos;
+    std::size_t starPathIndex = 0u;
+    while (pathIndex < path.size()) {
+        if (patternIndex < pattern.size() &&
+            (pattern[patternIndex] == '?' ||
+             pattern[patternIndex] ==
+                 path[pathIndex])) {
+            ++patternIndex;
+            ++pathIndex;
+            continue;
+        }
+        if (patternIndex < pattern.size() &&
+            pattern[patternIndex] == '*') {
+            starIndex = patternIndex++;
+            starPathIndex = pathIndex;
+            continue;
+        }
+        if (starIndex != std::string_view::npos) {
+            patternIndex = starIndex + 1u;
+            pathIndex = ++starPathIndex;
+            continue;
+        }
+        return false;
+    }
+    while (patternIndex < pattern.size() &&
+           pattern[patternIndex] == '*') {
+        ++patternIndex;
+    }
+    return patternIndex == pattern.size();
+}
+
+bool hiddenFromAssetBrowser(
+    const engine::editor::ContentMount& mount,
+    std::string_view mountRelativePath) {
+    return std::any_of(
+        mount.assetBrowserExcludePatterns.begin(),
+        mount.assetBrowserExcludePatterns.end(),
+        [&](const std::string& pattern) {
+            return wildcardPathMatch(
+                pattern,
+                mountRelativePath);
+        });
+}
+
 std::vector<engine::editor::WorkspaceAsset>
 discoverCookedAssets(
     const std::filesystem::path& projectRoot,
@@ -812,6 +862,19 @@ discoverCookedAssets(
             if (type->typeName != std::string_view("Prefab") &&
                 type->typeName !=
                     std::string_view("World Scene")) {
+                continue;
+            }
+            std::error_code mountRelativeError;
+            const std::string mountRelativePath =
+                std::filesystem::relative(
+                    entry.path(),
+                    mountRoot,
+                    mountRelativeError)
+                    .generic_string();
+            if (mountRelativeError ||
+                hiddenFromAssetBrowser(
+                    mount,
+                    mountRelativePath)) {
                 continue;
             }
             std::error_code relativeError;
