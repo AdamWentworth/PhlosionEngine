@@ -240,6 +240,7 @@ add_library(engine_render STATIC
     src/engine/render/vulkan/VulkanRenderBackendLifecycle.cpp
     src/engine/render/vulkan/VulkanRenderBackendSceneColor.cpp
     src/engine/render/vulkan/VulkanRenderBackendDraw.cpp
+    src/engine/render/vulkan/VulkanRenderBackendEditor.cpp
     src/engine/render/vulkan/VulkanRenderBackendSprites.cpp
     src/engine/render/vulkan/VulkanGeometryArenaLayout.cpp
     src/engine/render/vulkan/VulkanRenderBackendGeometry.cpp
@@ -347,6 +348,7 @@ if (PHLOSION_BUILD_EDITOR)
         src/engine/editor/D3D12EditorRenderSurface.cpp
         src/engine/editor/EditorShell.cpp
         src/engine/editor/OpenGLEditorRenderSurface.cpp
+        src/engine/editor/VulkanEditorRenderSurface.cpp
     )
     target_link_libraries(engine_editor
         PUBLIC

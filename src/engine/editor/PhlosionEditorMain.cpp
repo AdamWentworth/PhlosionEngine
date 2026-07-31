@@ -7,6 +7,7 @@
 #include "engine/editor/EditorRendererPreference.h"
 #include "engine/editor/EditorShell.h"
 #include "engine/editor/OpenGLEditorRenderSurface.h"
+#include "engine/editor/VulkanEditorRenderSurface.h"
 #include "engine/editor/ProjectDescriptor.h"
 #include "engine/input/SdlKeyMap.h"
 #include "engine/platform/Window.h"
@@ -14,6 +15,7 @@
 #include "engine/render/D3D12RenderBackend.h"
 #include "engine/render/IRenderBackend.h"
 #include "engine/render/OpenGLRenderBackend.h"
+#include "engine/render/VulkanRenderBackend.h"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_syswm.h>
@@ -240,8 +242,29 @@ EditorGraphics createEditorGraphics(
             }
             if (preference ==
                 EditorRendererPreference::Vulkan) {
-                throw std::runtime_error(
-                    "Vulkan editor UI integration is not available yet.");
+                graphics.window =
+                    std::make_unique<Window>(
+                        "Phlosion Editor",
+                        1440,
+                        900,
+                        Window::GraphicsApi::Vulkan,
+                        true);
+                int width = 0;
+                int height = 0;
+                graphics.window->getDrawableSize(
+                    width,
+                    height);
+                graphics.renderer =
+                    std::make_unique<
+                        VulkanRenderBackend>(
+                        graphics.window->
+                            getSDLWindow(),
+                        std::max(1, width),
+                        std::max(1, height),
+                        true);
+                graphics.activePreference =
+                    EditorRendererPreference::Vulkan;
+                return graphics;
             }
             graphics.window =
                 std::make_unique<Window>(
@@ -311,6 +334,21 @@ createEditorRenderSurface(
         throw std::runtime_error(
             "D3D12 editor surfaces are only available on Windows.");
 #endif
+    }
+    if (std::string_view(
+            renderer.backendId()
+                ? renderer.backendId()
+                : "") == "vulkan") {
+        auto* vulkan =
+            dynamic_cast<VulkanRenderBackend*>(
+                &renderer);
+        if (!vulkan) {
+            throw std::runtime_error(
+                "Could not resolve the Vulkan editor renderer.");
+        }
+        return std::make_unique<
+            engine::editor::
+                VulkanEditorRenderSurface>(*vulkan);
     }
     return std::make_unique<
         engine::editor::OpenGLEditorRenderSurface>();

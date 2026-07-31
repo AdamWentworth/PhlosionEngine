@@ -21,7 +21,8 @@
       "features": [
         "docking-experimental",
         "dx12-binding",
-        "opengl3-binding"
+        "opengl3-binding",
+        "vulkan-binding"
       ]
     },
     "stb",

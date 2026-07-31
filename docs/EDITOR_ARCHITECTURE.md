@@ -212,16 +212,23 @@ forking the editor.
 
 M0 is complete with an Engine-owned project browser, recent-project workflow,
 dynamic game-project adapter, an embedded persistent Game runtime surface, and
-shared OpenGL/Direct3D 12 editor presentation. Windows `Auto` uses Direct3D 12;
-OpenGL is the compatibility option. Vulkan editor presentation remains the
-next backend bridge and will follow through the same Engine-owned abstraction
-rather than leaking backend-specific Dear ImGui types into games. M1 is the
-current active milestone.
+shared Direct3D 12, Vulkan, and OpenGL editor presentation. Windows `Auto` uses
+Direct3D 12; Vulkan is the explicit modern cross-platform option, and OpenGL
+is the broad compatibility option. All three use the same Engine-owned editor
+surface abstraction, so backend-specific Dear ImGui types do not leak into
+games. M1 is the current active milestone.
 
 The Direct3D 12 editor path owns a separate shader-visible descriptor heap for
 Dear ImGui and embedded editor-surface textures. It rebinds that heap after
 world rendering and before every ImGui submission because world rendering may
 bind the renderer-owned material heap earlier in the same command list.
+
+The Vulkan editor path exposes only a native device/queue/render-pass context
+to the Engine shell. Scene, Game, and prefab previews use double-buffered
+renderer-owned color and depth targets, the same linear scene-color composite
+as the game, and per-frame sampled descriptors registered with Dear ImGui.
+Swapchain recreation rebuilds those targets without changing the editor
+surface handles held by the shell.
 
 The M0 SDL2 bridge currently owns keyboard, mouse, text, focus, and DPI input.
 Clipboard, cursor-shape, accessibility, controller navigation, and detached

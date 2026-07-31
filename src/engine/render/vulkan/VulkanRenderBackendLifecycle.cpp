@@ -963,6 +963,7 @@ void VulkanRenderBackendImpl::createSwapchainResources() {
     createWorldSceneColorResources();
     createFramebuffers();
     createPipelines();
+    recreateEditorSurfaceResources();
 }
 
 void VulkanRenderBackendImpl::createRenderPass() {
@@ -1453,6 +1454,9 @@ void VulkanRenderBackendImpl::destroySwapchainResources() {
     if (device == VK_NULL_HANDLE) return;
     mainRenderPassActive = false;
     worldSceneColorPassActive = false;
+    editorSurfacePassActive = false;
+    activeEditorSurface = 0u;
+    destroyAllEditorSurfaceResources();
     destroyPipelines();
     destroyWorldSceneColorResources();
     for (VkFramebuffer framebuffer : framebuffers) {
@@ -1495,6 +1499,8 @@ void VulkanRenderBackendImpl::beginFrame(float r, float g, float b, float a) {
     frameActive = false;
     mainRenderPassActive = false;
     worldSceneColorPassActive = false;
+    editorSurfacePassActive = false;
+    activeEditorSurface = 0u;
     if (!initialized || device == VK_NULL_HANDLE) return;
     ++frameCounter;
     if ((swapchainDirty || swapchain == VK_NULL_HANDLE) && !recreateSwapchain()) return;
@@ -1600,6 +1606,9 @@ void VulkanRenderBackendImpl::beginFrame(float r, float g, float b, float a) {
 
 void VulkanRenderBackendImpl::endFrame() {
     if (!frameActive || device == VK_NULL_HANDLE) return;
+    if (activeEditorSurface != 0u) {
+        endEditorSurface();
+    }
     if (worldSceneColorPassActive) {
         endWorldSceneColorPass();
     }
@@ -1825,6 +1834,14 @@ void VulkanRenderBackendImpl::shutdown() {
         destroyTexture(fallbackSpriteTexture);
         fallbackWorldMaterial = {};
         destroySwapchainResources();
+        editorSurfaces.clear();
+        if (editorSurfaceSampler != VK_NULL_HANDLE) {
+            vkDestroySampler(
+                device,
+                editorSurfaceSampler,
+                nullptr);
+        }
+        editorSurfaceSampler = VK_NULL_HANDLE;
 
         for (FrameResources& frame : frames) {
             destroyBuffer(frame.transient);
@@ -1891,6 +1908,8 @@ void VulkanRenderBackendImpl::shutdown() {
     worldStateSetLayout = VK_NULL_HANDLE;
     worldSceneColorSetLayout = VK_NULL_HANDLE;
     worldSceneColorDescriptorSets.fill(VK_NULL_HANDLE);
+    editorSurfaceSampler = VK_NULL_HANDLE;
+    editorSurfaces.clear();
     descriptorIndexingSupported = false;
     indirectWorldBatchingSupported = false;
     if (surface != VK_NULL_HANDLE && instance != VK_NULL_HANDLE) {

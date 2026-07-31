@@ -59,6 +59,30 @@ struct VulkanRenderBackendImpl {
         int height = 0;
     };
 
+    struct EditorSurfaceFrame {
+        VkImage linearColor = VK_NULL_HANDLE;
+        VkDeviceMemory linearColorMemory = VK_NULL_HANDLE;
+        VkImageView linearColorView = VK_NULL_HANDLE;
+        VkImage displayColor = VK_NULL_HANDLE;
+        VkDeviceMemory displayColorMemory = VK_NULL_HANDLE;
+        VkImageView displayColorView = VK_NULL_HANDLE;
+        VkImage depth = VK_NULL_HANDLE;
+        VkDeviceMemory depthMemory = VK_NULL_HANDLE;
+        VkImageView depthView = VK_NULL_HANDLE;
+        VkFramebuffer linearFramebuffer = VK_NULL_HANDLE;
+        VkFramebuffer displayFramebuffer = VK_NULL_HANDLE;
+        VkDescriptorSet linearDescriptorSet = VK_NULL_HANDLE;
+    };
+
+    struct EditorSurface {
+        std::uint64_t id = 0u;
+        int width = 0;
+        int height = 0;
+        std::array<
+            EditorSurfaceFrame,
+            kFramesInFlight> frames{};
+    };
+
     struct WorldMaterial {
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
         std::array<
@@ -175,6 +199,7 @@ struct VulkanRenderBackendImpl {
     VkDescriptorSetLayout worldStateSetLayout = VK_NULL_HANDLE;
     VkDescriptorSetLayout worldSceneColorSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+    VkSampler editorSurfaceSampler = VK_NULL_HANDLE;
     VkPipelineLayout debugPipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout texturedPipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout indirectWorldPipelineLayout = VK_NULL_HANDLE;
@@ -225,6 +250,12 @@ struct VulkanRenderBackendImpl {
     bool boundViewportValid = false;
     bool mainRenderPassActive = false;
     bool worldSceneColorPassActive = false;
+    bool editorSurfacePassActive = false;
+    std::uint64_t activeEditorSurface = 0u;
+    std::uint64_t nextEditorSurface = 1u;
+    std::unordered_map<
+        std::uint64_t,
+        EditorSurface> editorSurfaces;
     std::array<float, 4> frameClearColor{0.0f, 0.0f, 0.0f, 1.0f};
 
     std::string gpuName;
@@ -279,6 +310,25 @@ struct VulkanRenderBackendImpl {
     void requestResize(int width, int height);
     void requestVSync(bool enabled);
     void recordSubmissionStats(const IRenderBackend::WorldIndexedSubmissionStats& stats);
+    std::uint64_t createEditorSurface(int width, int height);
+    bool resizeEditorSurface(
+        std::uint64_t surface,
+        int width,
+        int height);
+    void destroyEditorSurface(std::uint64_t surface);
+    bool beginEditorSurface(std::uint64_t surface);
+    void endEditorSurface();
+    bool getEditorSurfaceTexture(
+        std::uint64_t surface,
+        std::uint32_t frameIndex,
+        VkSampler& outSampler,
+        VkImageView& outImageView) const;
+    bool createEditorSurfaceResources(EditorSurface& surface);
+    void destroyEditorSurfaceResources(EditorSurface& surface);
+    void recreateEditorSurfaceResources();
+    void destroyAllEditorSurfaceResources();
+    void beginEditorSurfaceDisplayPass(EditorSurface& surface);
+    void resumeMainRenderPass();
 
     void createInstance();
     void selectPhysicalDevice(const std::string& preferredAdapterName);

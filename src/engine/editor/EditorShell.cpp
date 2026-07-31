@@ -17,9 +17,11 @@
 #include <imgui_impl_dx12.h>
 #endif
 #include <imgui_impl_opengl3.h>
+#include <imgui_impl_vulkan.h>
 #include <imgui_internal.h>
 
 #include "engine/render/D3D12RenderBackend.h"
+#include "engine/render/VulkanRenderBackend.h"
 
 namespace engine::editor {
 
@@ -358,9 +360,8 @@ bool drawRendererPreferenceMenu(
         EditorRendererPreference::D3D12);
 #endif
     option(
-        "Vulkan (runtime available; editor integration pending)",
-        EditorRendererPreference::Vulkan,
-        false);
+        "Vulkan",
+        EditorRendererPreference::Vulkan);
     option(
         "OpenGL (compatibility)",
         EditorRendererPreference::OpenGL);
@@ -376,6 +377,7 @@ struct EditorShell::Impl {
     enum class RendererBackend {
         OpenGL,
         D3D12,
+        Vulkan,
     };
 
     SDL_Window* window = nullptr;
@@ -531,6 +533,47 @@ bool EditorShell::initialize(
         impl_->rendererBackend =
             Impl::RendererBackend::D3D12;
 #endif
+    } else if (backendId == "vulkan") {
+        auto* vulkan =
+            dynamic_cast<VulkanRenderBackend*>(renderer);
+        VulkanRenderBackend::EditorUiContext context;
+        if (!vulkan ||
+            !vulkan->getEditorUiContext(context)) {
+            ImGui::DestroyContext();
+            if (outError) {
+                *outError =
+                    "The Vulkan editor renderer did not expose a valid native context.";
+            }
+            return false;
+        }
+        ImGui_ImplVulkan_InitInfo initInfo{};
+        initInfo.ApiVersion = VK_API_VERSION_1_0;
+        initInfo.Instance = context.instance;
+        initInfo.PhysicalDevice =
+            context.physicalDevice;
+        initInfo.Device = context.device;
+        initInfo.QueueFamily =
+            context.graphicsQueueFamily;
+        initInfo.Queue = context.graphicsQueue;
+        initInfo.DescriptorPoolSize = 64u;
+        initInfo.RenderPass = context.renderPass;
+        initInfo.MinImageCount =
+            context.minimumImageCount;
+        initInfo.ImageCount = context.imageCount;
+        initInfo.MSAASamples =
+            VK_SAMPLE_COUNT_1_BIT;
+        if (!ImGui_ImplVulkan_Init(&initInfo) ||
+            !ImGui_ImplVulkan_CreateFontsTexture()) {
+            ImGui_ImplVulkan_Shutdown();
+            ImGui::DestroyContext();
+            if (outError) {
+                *outError =
+                    "Dear ImGui Vulkan backend initialization failed.";
+            }
+            return false;
+        }
+        impl_->rendererBackend =
+            Impl::RendererBackend::Vulkan;
     } else {
         ImGui::DestroyContext();
         if (outError) {
@@ -565,6 +608,10 @@ void EditorShell::shutdown() {
         ImGui_ImplDX12_Shutdown();
         impl_->d3d12Descriptors.reset();
 #endif
+    } else if (
+        impl_->rendererBackend ==
+        Impl::RendererBackend::Vulkan) {
+        ImGui_ImplVulkan_Shutdown();
     }
     ImGui::DestroyContext();
     impl_->window = nullptr;
@@ -678,6 +725,10 @@ void EditorShell::beginFrame(float deltaSeconds) {
         Impl::RendererBackend::D3D12) {
         ImGui_ImplDX12_NewFrame();
 #endif
+    } else if (
+        impl_->rendererBackend ==
+        Impl::RendererBackend::Vulkan) {
+        ImGui_ImplVulkan_NewFrame();
     }
     ImGui::NewFrame();
 }
@@ -1908,6 +1959,21 @@ void EditorShell::render() {
                 d3d12->nativeCommandList());
         }
 #endif
+    } else if (
+        impl_->rendererBackend ==
+        Impl::RendererBackend::Vulkan) {
+        auto* vulkan =
+            dynamic_cast<VulkanRenderBackend*>(
+                impl_->renderer);
+        if (vulkan) {
+            const VkCommandBuffer commandBuffer =
+                vulkan->currentEditorCommandBuffer();
+            if (commandBuffer != VK_NULL_HANDLE) {
+                ImGui_ImplVulkan_RenderDrawData(
+                    ImGui::GetDrawData(),
+                    commandBuffer);
+            }
+        }
     }
 }
 

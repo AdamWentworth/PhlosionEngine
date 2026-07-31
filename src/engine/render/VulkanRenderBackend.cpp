@@ -2,6 +2,7 @@
 
 #include "engine/render/vulkan/VulkanRenderBackendInternal.h"
 
+#include <algorithm>
 #include <stdexcept>
 
 VulkanRenderBackend::VulkanRenderBackend(SDL_Window* window,
@@ -76,6 +77,93 @@ void VulkanRenderBackend::shutdown() {
 void VulkanRenderBackend::recordWorldIndexedSubmissionStats(
     const WorldIndexedSubmissionStats& stats) {
     if (impl_) impl_->recordSubmissionStats(stats);
+}
+
+bool VulkanRenderBackend::getEditorUiContext(
+    EditorUiContext& outContext) const {
+    outContext = {};
+    if (!impl_ || !impl_->initialized) {
+        return false;
+    }
+    outContext.instance = impl_->instance;
+    outContext.physicalDevice = impl_->physicalDevice;
+    outContext.device = impl_->device;
+    outContext.graphicsQueueFamily =
+        impl_->graphicsQueueFamily;
+    outContext.graphicsQueue = impl_->graphicsQueue;
+    outContext.renderPass = impl_->renderPass;
+    outContext.colorFormat = impl_->swapchainFormat;
+    outContext.minimumImageCount = 2u;
+    outContext.imageCount = std::max<std::uint32_t>(
+        2u,
+        static_cast<std::uint32_t>(
+            impl_->swapchainImages.size()));
+    return outContext.instance != VK_NULL_HANDLE &&
+        outContext.physicalDevice != VK_NULL_HANDLE &&
+        outContext.device != VK_NULL_HANDLE &&
+        outContext.graphicsQueue != VK_NULL_HANDLE &&
+        outContext.renderPass != VK_NULL_HANDLE;
+}
+
+VkCommandBuffer
+VulkanRenderBackend::currentEditorCommandBuffer() const {
+    if (!impl_ || !impl_->frameActive) {
+        return VK_NULL_HANDLE;
+    }
+    return impl_->frames[impl_->currentFrame].commandBuffer;
+}
+
+std::uint32_t
+VulkanRenderBackend::currentEditorFrameIndex() const {
+    return impl_ ? impl_->currentFrame : 0u;
+}
+
+VulkanRenderBackend::EditorSurfaceHandle
+VulkanRenderBackend::createEditorSurface(
+    int width,
+    int height) {
+    return impl_
+        ? impl_->createEditorSurface(width, height)
+        : kInvalidEditorSurface;
+}
+
+bool VulkanRenderBackend::resizeEditorSurface(
+    EditorSurfaceHandle surface,
+    int width,
+    int height) {
+    return impl_ &&
+        impl_->resizeEditorSurface(surface, width, height);
+}
+
+void VulkanRenderBackend::destroyEditorSurface(
+    EditorSurfaceHandle surface) {
+    if (impl_) {
+        impl_->destroyEditorSurface(surface);
+    }
+}
+
+bool VulkanRenderBackend::beginEditorSurface(
+    EditorSurfaceHandle surface) {
+    return impl_ && impl_->beginEditorSurface(surface);
+}
+
+void VulkanRenderBackend::endEditorSurface() {
+    if (impl_) {
+        impl_->endEditorSurface();
+    }
+}
+
+bool VulkanRenderBackend::getEditorSurfaceTexture(
+    EditorSurfaceHandle surface,
+    std::uint32_t frameIndex,
+    VkSampler& outSampler,
+    VkImageView& outImageView) const {
+    return impl_ &&
+        impl_->getEditorSurfaceTexture(
+            surface,
+            frameIndex,
+            outSampler,
+            outImageView);
 }
 
 void VulkanRenderBackend::drawWorldTriangles(const WorldTriangle* triangles,

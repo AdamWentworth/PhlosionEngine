@@ -1,5 +1,6 @@
 #include "engine/render/vulkan/VulkanRenderBackendInternal.h"
 
+#include <algorithm>
 #include <array>
 #include <stdexcept>
 #include <string>
@@ -196,6 +197,58 @@ void VulkanRenderBackendImpl::destroyWorldSceneColorResources() {
 void VulkanRenderBackendImpl::beginWorldSceneColorPass(
     int surfaceWidth,
     int surfaceHeight) {
+    if (activeEditorSurface != 0u) {
+        const auto iterator =
+            editorSurfaces.find(activeEditorSurface);
+        if (!frameActive ||
+            iterator == editorSurfaces.end() ||
+            !editorSurfacePassActive ||
+            worldSceneColorPassActive ||
+            worldSceneColorRenderPass == VK_NULL_HANDLE ||
+            worldSceneColorPipeline == VK_NULL_HANDLE) {
+            return;
+        }
+        EditorSurface& editorSurface =
+            iterator->second;
+        FrameResources& frame = frames[currentFrame];
+        vkCmdEndRenderPass(frame.commandBuffer);
+        editorSurfacePassActive = false;
+
+        const std::array<VkClearValue, 2> clearValues{
+            VkClearValue{{{
+                frameClearColor[0],
+                frameClearColor[1],
+                frameClearColor[2],
+                frameClearColor[3]}}},
+            VkClearValue{{{1.0f, 0u}}},
+        };
+        VkRenderPassBeginInfo passInfo{
+            VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+        passInfo.renderPass = worldSceneColorRenderPass;
+        passInfo.framebuffer =
+            editorSurface.frames[currentFrame]
+                .linearFramebuffer;
+        passInfo.renderArea.extent = {
+            static_cast<std::uint32_t>(
+                editorSurface.width),
+            static_cast<std::uint32_t>(
+                editorSurface.height)};
+        passInfo.clearValueCount =
+            static_cast<std::uint32_t>(
+                clearValues.size());
+        passInfo.pClearValues = clearValues.data();
+        vkCmdBeginRenderPass(
+            frame.commandBuffer,
+            &passInfo,
+            VK_SUBPASS_CONTENTS_INLINE);
+        invalidateSceneColorBindings(*this);
+        setViewportAndScissor(
+            frame.commandBuffer,
+            std::max(1, surfaceWidth),
+            std::max(1, surfaceHeight));
+        worldSceneColorPassActive = true;
+        return;
+    }
     (void)surfaceWidth;
     (void)surfaceHeight;
     if (!frameActive ||
@@ -251,6 +304,66 @@ void VulkanRenderBackendImpl::endWorldSceneColorPass() {
     FrameResources& frame = frames[currentFrame];
     vkCmdEndRenderPass(frame.commandBuffer);
     worldSceneColorPassActive = false;
+
+    if (activeEditorSurface != 0u) {
+        const auto iterator =
+            editorSurfaces.find(activeEditorSurface);
+        if (iterator == editorSurfaces.end()) {
+            return;
+        }
+        EditorSurface& editorSurface =
+            iterator->second;
+        beginEditorSurfaceDisplayPass(editorSurface);
+        vkCmdBindPipeline(
+            frame.commandBuffer,
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            worldSceneColorPipeline);
+        const VkDescriptorSet descriptorSet =
+            editorSurface.frames[currentFrame]
+                .linearDescriptorSet;
+        vkCmdBindDescriptorSets(
+            frame.commandBuffer,
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            worldSceneColorPipelineLayout,
+            0u,
+            1u,
+            &descriptorSet,
+            0u,
+            nullptr);
+        VkViewport viewport{};
+        viewport.width =
+            static_cast<float>(
+                editorSurface.width);
+        viewport.height =
+            static_cast<float>(
+                editorSurface.height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        VkRect2D scissor{};
+        scissor.extent = {
+            static_cast<std::uint32_t>(
+                editorSurface.width),
+            static_cast<std::uint32_t>(
+                editorSurface.height)};
+        vkCmdSetViewport(
+            frame.commandBuffer,
+            0u,
+            1u,
+            &viewport);
+        vkCmdSetScissor(
+            frame.commandBuffer,
+            0u,
+            1u,
+            &scissor);
+        vkCmdDraw(
+            frame.commandBuffer,
+            3u,
+            1u,
+            0u,
+            0u);
+        invalidateSceneColorBindings(*this);
+        return;
+    }
 
     VkRenderPassBeginInfo renderPassInfo{
         VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};

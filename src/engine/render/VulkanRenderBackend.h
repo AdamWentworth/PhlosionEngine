@@ -5,6 +5,8 @@
 #include <memory>
 #include <string>
 
+#include <vulkan/vulkan.h>
+
 #include "engine/render/IRenderBackend.h"
 
 struct SDL_Window;
@@ -12,6 +14,22 @@ struct VulkanRenderBackendImpl;
 
 class VulkanRenderBackend final : public IRenderBackend {
 public:
+    using EditorSurfaceHandle = std::uint64_t;
+    static constexpr EditorSurfaceHandle
+        kInvalidEditorSurface = 0u;
+
+    struct EditorUiContext {
+        VkInstance instance = VK_NULL_HANDLE;
+        VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+        VkDevice device = VK_NULL_HANDLE;
+        std::uint32_t graphicsQueueFamily = UINT32_MAX;
+        VkQueue graphicsQueue = VK_NULL_HANDLE;
+        VkRenderPass renderPass = VK_NULL_HANDLE;
+        VkFormat colorFormat = VK_FORMAT_UNDEFINED;
+        std::uint32_t minimumImageCount = 2u;
+        std::uint32_t imageCount = 2u;
+    };
+
     VulkanRenderBackend(SDL_Window* window,
                         int width,
                         int height,
@@ -126,6 +144,28 @@ public:
                           int surfaceWidth,
                           int surfaceHeight) override;
     void prewarmDebugSpriteTexture(const char* texturePath) override;
+
+    bool getEditorUiContext(
+        EditorUiContext& outContext) const;
+    VkCommandBuffer currentEditorCommandBuffer() const;
+    std::uint32_t currentEditorFrameIndex() const;
+    EditorSurfaceHandle createEditorSurface(
+        int width,
+        int height);
+    bool resizeEditorSurface(
+        EditorSurfaceHandle surface,
+        int width,
+        int height);
+    void destroyEditorSurface(
+        EditorSurfaceHandle surface);
+    bool beginEditorSurface(
+        EditorSurfaceHandle surface);
+    void endEditorSurface();
+    bool getEditorSurfaceTexture(
+        EditorSurfaceHandle surface,
+        std::uint32_t frameIndex,
+        VkSampler& outSampler,
+        VkImageView& outImageView) const;
 
 private:
     std::unique_ptr<VulkanRenderBackendImpl> impl_;
