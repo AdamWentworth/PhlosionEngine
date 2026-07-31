@@ -25,8 +25,17 @@ bool test_project_descriptor_contract(std::string& outFail) {
                 "asset_id": "environments/test",
                 "display_name": "Test World",
                 "category": "Worlds",
+                "kind": "cooked_world",
                 "mount": "cooked",
                 "path": "scenes/test.phscene"
+            },
+            {
+                "asset_id": "stages/test-route",
+                "display_name": "Test Route",
+                "category": "Gameplay Stages",
+                "kind": "runtime_stage",
+                "path": "scripts/states/test_route.lua",
+                "preview_id": "test-route-classic"
             }
         ],
         "editor_plugin": {
@@ -64,8 +73,11 @@ bool test_project_descriptor_contract(std::string& outFail) {
         project.contentMounts.size() != 1u ||
         project.contentMounts.front().id != "cooked" ||
         project.startupScene.assetId != "environments/test" ||
-        project.scenes.size() != 1u ||
+        project.scenes.size() != 2u ||
         project.scenes.front().displayName != "Test World" ||
+        project.scenes.back().kind != "runtime_stage" ||
+        project.scenes.back().previewId !=
+            "test-route-classic" ||
         project.playConfigurations.size() != 1u ||
         project.playConfigurations.front().id != "main-menu" ||
         project.playConfigurations.front().arguments.size() != 1u ||
@@ -73,6 +85,21 @@ bool test_project_descriptor_contract(std::string& outFail) {
         project.privateAssetDepotEnvironment !=
             "PHLOSION_ASSET_DEPOT") {
         outFail = "descriptor fields changed during parsing";
+        return false;
+    }
+
+    std::filesystem::path runtimeScenePath;
+    if (!engine::editor::resolveScenePath(
+            "D:/Projects/TestGame/phlosion.project.json",
+            project,
+            project.scenes.back(),
+            runtimeScenePath,
+            &error) ||
+        runtimeScenePath.generic_string() !=
+            "D:/Projects/TestGame/scripts/states/test_route.lua") {
+        outFail =
+            "runtime scene path resolution failed: " + error +
+            " path=" + runtimeScenePath.generic_string();
         return false;
     }
 

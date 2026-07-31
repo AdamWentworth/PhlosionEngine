@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -377,6 +378,347 @@ private:
 #endif
 };
 
+struct CookedAssetType {
+    const char* typeName;
+    const char* category;
+    int sortOrder;
+};
+
+std::string friendlyAssetToken(std::string value) {
+    std::replace(
+        value.begin(),
+        value.end(),
+        '_',
+        ' ');
+    return value;
+}
+
+std::string cookedObjectOwner(
+    const std::filesystem::path& path) {
+    std::filesystem::path ownerPath =
+        path.parent_path();
+    if (ownerPath.filename() == "textures") {
+        ownerPath = ownerPath.parent_path();
+    }
+    std::string owner =
+        ownerPath.filename().string();
+    const std::size_t hashSeparator =
+        owner.rfind('-');
+    if (hashSeparator != std::string::npos) {
+        const std::string_view suffix(
+            owner.data() + hashSeparator + 1u,
+            owner.size() - hashSeparator - 1u);
+        const bool looksLikeHash =
+            suffix.size() >= 8u &&
+            std::all_of(
+                suffix.begin(),
+                suffix.end(),
+                [](unsigned char character) {
+                    return std::isxdigit(character) != 0;
+                });
+        if (looksLikeHash) {
+            owner.erase(hashSeparator);
+        }
+    }
+    return friendlyAssetToken(std::move(owner));
+}
+
+std::string cookedAssetDisplayName(
+    const std::filesystem::path& path,
+    const CookedAssetType& type) {
+    const std::string extension =
+        path.extension().string();
+    if (extension == ".phlo") {
+        return friendlyAssetToken(
+            path.stem().string());
+    }
+    const std::string owner =
+        cookedObjectOwner(path);
+    if ((extension == ".phmesh" ||
+         extension == ".phmat" ||
+         extension == ".phanim" ||
+         extension == ".phskel") &&
+        !owner.empty()) {
+        return owner + " / " + type.typeName;
+    }
+    if (extension == ".ktx2" && !owner.empty()) {
+        return owner + " / " +
+               path.filename().string();
+    }
+    return path.filename().string();
+}
+
+std::optional<CookedAssetType> cookedAssetType(
+    std::string extension) {
+    std::transform(
+        extension.begin(),
+        extension.end(),
+        extension.begin(),
+        [](unsigned char character) {
+            return static_cast<char>(
+                std::tolower(character));
+        });
+    if (extension == ".phscene") {
+        return CookedAssetType{
+            "World Scene", "Scenes", 0};
+    }
+    if (extension == ".phlo") {
+        return CookedAssetType{
+            "Prefab", "Prefabs", 1};
+    }
+    if (extension == ".phmesh") {
+        return CookedAssetType{
+            "Mesh", "Meshes", 2};
+    }
+    if (extension == ".phmat") {
+        return CookedAssetType{
+            "Material", "Materials", 3};
+    }
+    if (extension == ".phanim") {
+        return CookedAssetType{
+            "Animation Set", "Animations", 4};
+    }
+    if (extension == ".phskel") {
+        return CookedAssetType{
+            "Skeleton", "Skeletons", 5};
+    }
+    if (extension == ".ktx2") {
+        return CookedAssetType{
+            "Texture", "Textures", 6};
+    }
+    if (extension == ".json") {
+        return CookedAssetType{
+            "Metadata", "Metadata", 7};
+    }
+    return std::nullopt;
+}
+
+std::string byteCountLabel(std::uintmax_t bytes) {
+    constexpr std::uintmax_t kib = 1024u;
+    constexpr std::uintmax_t mib = kib * 1024u;
+    if (bytes >= mib) {
+        const std::uintmax_t tenths =
+            (bytes * 10u) / mib;
+        return std::to_string(tenths / 10u) +
+               "." +
+               std::to_string(tenths % 10u) +
+               " MiB";
+    }
+    if (bytes >= kib) {
+        const std::uintmax_t tenths =
+            (bytes * 10u) / kib;
+        return std::to_string(tenths / 10u) +
+               "." +
+               std::to_string(tenths % 10u) +
+               " KiB";
+    }
+    return std::to_string(bytes) + " bytes";
+}
+
+std::vector<engine::editor::WorkspaceAsset>
+discoverCookedAssets(
+    const std::filesystem::path& projectRoot,
+    const engine::editor::ProjectDescriptor& descriptor) {
+    struct PendingAsset {
+        engine::editor::WorkspaceAsset view;
+        int sortOrder = 0;
+    };
+    std::vector<PendingAsset> pending;
+    for (const auto& mount : descriptor.contentMounts) {
+        const std::filesystem::path mountRoot =
+            (projectRoot / mount.root)
+                .lexically_normal();
+        std::error_code iteratorError;
+        std::filesystem::recursive_directory_iterator
+            iterator(
+                mountRoot,
+                std::filesystem::
+                    directory_options::skip_permission_denied,
+                iteratorError);
+        const std::filesystem::
+            recursive_directory_iterator end;
+        while (!iteratorError && iterator != end) {
+            const auto entry = *iterator;
+            iterator.increment(iteratorError);
+            std::error_code typeError;
+            if (!entry.is_regular_file(typeError) ||
+                typeError) {
+                continue;
+            }
+            const auto type =
+                cookedAssetType(
+                    entry.path().extension().string());
+            if (!type) {
+                continue;
+            }
+            std::error_code relativeError;
+            const auto relativeToProject =
+                std::filesystem::relative(
+                    entry.path(),
+                    projectRoot,
+                    relativeError);
+            if (relativeError) {
+                continue;
+            }
+            std::error_code sizeError;
+            const std::uintmax_t bytes =
+                entry.file_size(sizeError);
+            const std::string projectPath =
+                relativeToProject.generic_string();
+            pending.push_back(PendingAsset{
+                .view =
+                    engine::editor::WorkspaceAsset{
+                        .id = projectPath,
+                        .displayName =
+                            cookedAssetDisplayName(
+                                entry.path(),
+                                *type),
+                        .typeName = type->typeName,
+                        .category = type->category,
+                        .path = projectPath,
+                        .properties = {
+                            {"Asset type", type->typeName},
+                            {"Format",
+                             entry.path()
+                                 .extension()
+                                 .string()},
+                            {"Content mount", mount.id},
+                            {"Project path", projectPath},
+                            {"Cooked size",
+                             sizeError
+                                 ? "Unavailable"
+                                 : byteCountLabel(bytes)},
+                        }},
+                .sortOrder = type->sortOrder});
+        }
+    }
+    std::sort(
+        pending.begin(),
+        pending.end(),
+        [](const PendingAsset& left,
+           const PendingAsset& right) {
+            if (left.sortOrder != right.sortOrder) {
+                return left.sortOrder < right.sortOrder;
+            }
+            if (left.view.displayName !=
+                right.view.displayName) {
+                return left.view.displayName <
+                       right.view.displayName;
+            }
+            return left.view.path < right.view.path;
+        });
+    std::vector<engine::editor::WorkspaceAsset>
+        assets;
+    assets.reserve(pending.size());
+    for (auto& asset : pending) {
+        assets.push_back(std::move(asset.view));
+    }
+    return assets;
+}
+
+std::vector<engine::editor::WorkspaceHierarchyItem>
+buildReadOnlyHierarchy(
+    const engine::editor::ProjectDescriptor& descriptor,
+    const engine::editor::EditorProjectStats& stats,
+    std::string_view backendName) {
+    using Item =
+        engine::editor::WorkspaceHierarchyItem;
+    using Property =
+        engine::editor::WorkspaceProperty;
+    const auto number = [](auto value) {
+        return std::to_string(value);
+    };
+    return {
+        Item{
+            .id = descriptor.startupScene.assetId,
+            .displayName =
+                descriptor.scenes.empty()
+                    ? descriptor.startupScene.assetId
+                    : descriptor.scenes.front()
+                          .displayName,
+            .typeName = "Scene Root",
+            .depth = 0,
+            .properties = {
+                Property{
+                    "Asset id",
+                    descriptor.startupScene.assetId},
+                Property{
+                    "Backing",
+                    "Cooked .phscene"},
+                Property{
+                    "Scene nodes",
+                    number(stats.sceneCount)},
+                Property{
+                    "Renderer",
+                    std::string(backendName)},
+            }},
+        Item{
+            .id = "environment/composition",
+            .displayName = "Canonical environment",
+            .typeName = "Scene Composition",
+            .depth = 1,
+            .properties = {
+                Property{
+                    "Materials",
+                    number(stats.materialCount)},
+                Property{
+                    "Draw classes",
+                    number(stats.drawClassCount)},
+                Property{
+                    "Visible triangles",
+                    number(stats.visibleTriangleCount)},
+            }},
+        Item{
+            .id = "environment/encounter-grass",
+            .displayName = "Encounter grass",
+            .typeName = "Instanced Vegetation",
+            .depth = 1,
+            .properties = {
+                Property{
+                    "Instances",
+                    number(
+                        stats.encounterGrassInstanceCount)},
+                Property{
+                    "Simulation",
+                    "Wind-animated"},
+                Property{
+                    "Source",
+                    "Cooked scene composition"},
+            }},
+        Item{
+            .id = "environment/placed-vegetation",
+            .displayName = "Placed vegetation",
+            .typeName = "Instanced Vegetation",
+            .depth = 1,
+            .properties = {
+                Property{
+                    "Instances",
+                    number(
+                        stats.vegetationInstanceCount)},
+                Property{
+                    "Includes",
+                    "Trees, shrubs, flowers, and ground vegetation"},
+                Property{
+                    "Source",
+                    "Cooked scene composition"},
+            }},
+        Item{
+            .id = "environment/projected-lighting",
+            .displayName =
+                "Projected lighting and shadows",
+            .typeName = "Lighting Group",
+            .depth = 1,
+            .properties = {
+                Property{
+                    "Shadow triangles",
+                    number(stats.shadowTriangleCount)},
+                Property{
+                    "Evaluation",
+                    "Shared world renderer"},
+            }},
+    };
+}
+
 struct LoadedProject {
     ~LoadedProject() {
         if (runtime && destroyRuntime) {
@@ -407,6 +749,10 @@ struct LoadedProject {
     std::vector<ResolvedPlayConfiguration> playConfigurations;
     std::vector<engine::editor::WorkspacePlayConfiguration>
         playConfigurationViews;
+    std::vector<engine::editor::WorkspaceHierarchyItem>
+        hierarchyViews;
+    std::vector<engine::editor::WorkspaceAsset>
+        assetViews;
     std::vector<engine::editor::WorkspaceScene> sceneViews;
     std::vector<engine::editor::WorkspaceGamePreview>
         gamePreviewViews;
@@ -504,6 +850,10 @@ std::unique_ptr<LoadedProject> loadProject(
     loaded->rootText = loaded->root.generic_string();
     loaded->scenePathText =
         loaded->scenePath.generic_string();
+    loaded->assetViews =
+        discoverCookedAssets(
+            loaded->root,
+            loaded->descriptor);
     loaded->sceneViews.reserve(
         loaded->descriptor.scenes.size());
     for (const auto& scene : loaded->descriptor.scenes) {
@@ -521,10 +871,42 @@ std::unique_ptr<LoadedProject> loadProject(
                 .assetId = scene.assetId,
                 .displayName = scene.displayName,
                 .category = scene.category,
+                .kind = scene.kind,
                 .path = resolvedScenePath.generic_string(),
+                .previewId = scene.previewId,
                 .startup =
                     scene.assetId ==
-                    loaded->descriptor.startupScene.assetId});
+                    loaded->descriptor.startupScene.assetId,
+                .properties = {
+                    {
+                        "Asset id",
+                        scene.assetId,
+                    },
+                    {
+                        "Scene kind",
+                        scene.kind == "runtime_stage"
+                            ? "Runtime stage"
+                            : "Cooked world scene",
+                    },
+                    {
+                        "Backing path",
+                        resolvedScenePath.generic_string(),
+                    },
+                    {
+                        "Game preview",
+                        scene.previewId.empty()
+                            ? "None"
+                            : scene.previewId,
+                    },
+                    {
+                        "Startup scene",
+                        scene.assetId ==
+                                loaded->descriptor
+                                    .startupScene.assetId
+                            ? "Yes"
+                            : "No",
+                    },
+                }});
     }
     loaded->playConfigurations.reserve(
         loaded->descriptor.playConfigurations.size());
@@ -591,6 +973,11 @@ std::unique_ptr<LoadedProject> loadProject(
         .cameraForward3 = glm::value_ptr(cameraForward),
         .cameraTarget3 = glm::value_ptr(cameraTarget)};
     loaded->runtime->prewarm(renderer, cameraContext);
+    loaded->hierarchyViews =
+        buildReadOnlyHierarchy(
+            loaded->descriptor,
+            loaded->runtime->stats(),
+            "OpenGL 3.3 / project renderer plugin");
     const std::size_t gamePreviewCount =
         loaded->runtime->gamePreviewCount();
     loaded->gamePreviewViews.reserve(gamePreviewCount);
@@ -1398,6 +1785,9 @@ int main(int argc, char** argv) {
                     .simulationSeconds = simulationSeconds,
                     .playConfigurations =
                         &project->playConfigurationViews,
+                    .hierarchyItems =
+                        &project->hierarchyViews,
+                    .assets = &project->assetViews,
                     .scenes = &project->sceneViews,
                     .gamePreviews =
                         &project->gamePreviewViews,
@@ -1544,6 +1934,63 @@ int main(int argc, char** argv) {
                     std::cerr
                         << "[Phlosion Editor] "
                         << project->status << '\n';
+                }
+            }
+            if (project &&
+                actions.openSceneIndex >= 0 &&
+                static_cast<std::size_t>(
+                    actions.openSceneIndex) <
+                    project->sceneViews.size()) {
+                const auto& scene =
+                    project->sceneViews[
+                        static_cast<std::size_t>(
+                            actions.openSceneIndex)];
+                if (scene.kind != "runtime_stage") {
+                    activeViewport =
+                        engine::editor::
+                            EditorViewportKind::Scene;
+                    focusActiveViewport = true;
+                    project->status =
+                        "Opened cooked world scene: " +
+                        scene.displayName + ".";
+                } else {
+                    const auto preview =
+                        std::find_if(
+                            project->gamePreviewViews.begin(),
+                            project->gamePreviewViews.end(),
+                            [&](const auto& candidate) {
+                                return candidate.id ==
+                                       scene.previewId;
+                            });
+                    if (preview ==
+                        project->gamePreviewViews.end()) {
+                        project->status =
+                            "Runtime stage has no matching game preview: " +
+                            scene.previewId;
+                    } else {
+                        std::string previewError;
+                        if (project->runtime->
+                                selectGamePreview(
+                                    preview->id.c_str(),
+                                    &previewError)) {
+                            project->
+                                activeGamePreviewId =
+                                    preview->id;
+                            activeViewport =
+                                engine::editor::
+                                    EditorViewportKind::Game;
+                            focusActiveViewport = true;
+                            gameFixedAccumulator = 0.0f;
+                            project->status =
+                                "Opened runtime stage: " +
+                                scene.displayName +
+                                " (warm game state).";
+                        } else {
+                            project->status =
+                                "Runtime stage open failed: " +
+                                previewError;
+                        }
+                    }
                 }
             }
             if (project &&

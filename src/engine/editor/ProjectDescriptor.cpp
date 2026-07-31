@@ -126,16 +126,30 @@ bool parseProjectDescriptor(
                     sceneJson.at("display_name").get<std::string>();
                 scene.category =
                     sceneJson.value("category", std::string{});
+                scene.kind =
+                    sceneJson.value(
+                        "kind",
+                        std::string("cooked_world"));
                 scene.mountId =
-                    sceneJson.at("mount").get<std::string>();
+                    sceneJson.value("mount", std::string{});
                 scene.path =
                     sceneJson.at("path").get<std::string>();
+                scene.previewId =
+                    sceneJson.value(
+                        "preview_id",
+                        std::string{});
+                const bool cookedWorld =
+                    scene.kind == "cooked_world";
+                const bool runtimeStage =
+                    scene.kind == "runtime_stage";
                 if (scene.assetId.empty() ||
                     scene.displayName.empty() ||
-                    scene.mountId.empty() ||
+                    (!cookedWorld && !runtimeStage) ||
+                    (cookedWorld && scene.mountId.empty()) ||
+                    (runtimeStage && scene.previewId.empty()) ||
                     !isPortableRelativePath(scene.path)) {
                     return fail(
-                        "Project scenes require an asset id, display name, mount id, and portable relative path.",
+                        "Project scenes require an asset id, display name, supported kind, portable relative path, and either a cooked mount or runtime preview id.",
                         outError);
                 }
                 const auto duplicate = std::find_if(
@@ -158,6 +172,7 @@ bool parseProjectDescriptor(
                 .assetId = parsed.startupScene.assetId,
                 .displayName = parsed.startupScene.assetId,
                 .category = "Scenes",
+                .kind = "cooked_world",
                 .mountId = parsed.startupScene.mountId,
                 .path = parsed.startupScene.path});
         }
@@ -331,19 +346,6 @@ bool resolveScenePath(
     const ProjectScene& scene,
     std::filesystem::path& out,
     std::string* outError) {
-    const auto mount = std::find_if(
-        descriptor.contentMounts.begin(),
-        descriptor.contentMounts.end(),
-        [&](const ContentMount& candidate) {
-            return candidate.id == scene.mountId;
-        });
-    if (mount == descriptor.contentMounts.end()) {
-        return fail(
-            "Scene references unknown mount: " +
-                scene.mountId,
-            outError);
-    }
-
     std::error_code error;
     const auto descriptorDirectory =
         std::filesystem::absolute(descriptorPath, error)
@@ -354,8 +356,26 @@ bool resolveScenePath(
                 error.message(),
             outError);
     }
-    out = (descriptorDirectory / mount->root / scene.path)
-              .lexically_normal();
+    if (scene.kind == "runtime_stage") {
+        out = (descriptorDirectory / scene.path)
+                  .lexically_normal();
+    } else {
+        const auto mount = std::find_if(
+            descriptor.contentMounts.begin(),
+            descriptor.contentMounts.end(),
+            [&](const ContentMount& candidate) {
+                return candidate.id == scene.mountId;
+            });
+        if (mount == descriptor.contentMounts.end()) {
+            return fail(
+                "Scene references unknown mount: " +
+                    scene.mountId,
+                outError);
+        }
+        out = (descriptorDirectory / mount->root /
+               scene.path)
+                  .lexically_normal();
+    }
     if (outError) {
         outError->clear();
     }

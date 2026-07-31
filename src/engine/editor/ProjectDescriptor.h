@@ -24,8 +24,10 @@ struct ProjectScene {
     std::string assetId;
     std::string displayName;
     std::string category;
+    std::string kind = "cooked_world";
     std::string mountId;
     std::filesystem::path path;
+    std::string previewId;
 };
 
 struct EditorPlugin {

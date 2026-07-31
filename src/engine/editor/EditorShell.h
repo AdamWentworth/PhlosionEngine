@@ -23,12 +23,37 @@ enum class EditorViewportKind {
     Game,
 };
 
+struct WorkspaceProperty {
+    std::string name;
+    std::string value;
+};
+
+struct WorkspaceHierarchyItem {
+    std::string id;
+    std::string displayName;
+    std::string typeName;
+    int depth = 0;
+    std::vector<WorkspaceProperty> properties;
+};
+
+struct WorkspaceAsset {
+    std::string id;
+    std::string displayName;
+    std::string typeName;
+    std::string category;
+    std::string path;
+    std::vector<WorkspaceProperty> properties;
+};
+
 struct WorkspaceScene {
     std::string assetId;
     std::string displayName;
     std::string category;
+    std::string kind;
     std::string path;
+    std::string previewId;
     bool startup = false;
+    std::vector<WorkspaceProperty> properties;
 };
 
 struct WorkspaceGamePreview {
@@ -59,6 +84,9 @@ struct WorkspaceView {
     float simulationSeconds = 0.0f;
     const std::vector<WorkspacePlayConfiguration>*
         playConfigurations = nullptr;
+    const std::vector<WorkspaceHierarchyItem>*
+        hierarchyItems = nullptr;
+    const std::vector<WorkspaceAsset>* assets = nullptr;
     const std::vector<WorkspaceScene>* scenes = nullptr;
     const std::vector<WorkspaceGamePreview>*
         gamePreviews = nullptr;
@@ -94,6 +122,7 @@ struct EditorShellActions {
     int recentProjectIndex = -1;
     int launchPlayConfigurationIndex = -1;
     int selectGamePreviewIndex = -1;
+    int openSceneIndex = -1;
     EditorViewportKind activeViewport =
         EditorViewportKind::Scene;
     int viewportWidth = 1280;

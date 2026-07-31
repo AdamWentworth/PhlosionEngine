@@ -42,7 +42,8 @@ reaching into Engine internals.
 - the project and stable project id;
 - relative cooked-content mounts;
 - the startup scene asset id and path;
-- an optional catalog of named scene assets for the Scenes panel;
+- an optional catalog of named cooked-world scenes and runtime stages for the
+  Scenes panel;
 - an optional portable editor-plugin library name and configuration-relative
   generated output directory;
 - optional named play configurations with a project-relative executable,
@@ -71,11 +72,21 @@ window rectangle is intentional support for multi-monitor workstations.
 
 These editor concepts are deliberately separate:
 
-- **Scenes** are reusable world or presentation assets listed in the project
-  catalog. Opening one chooses the document being inspected.
+- **Scenes** is the project catalog. A `cooked_world` entry opens a reusable
+  source-backed scene document. A `runtime_stage` entry opens a named state in
+  the persistent Game runtime and is explicitly labeled as not being an
+  independently cooked environment.
 - **Scene Hierarchy** is the object/component tree inside the open scene. The
-  current read-only adapter exposes source-backed groups; stable object
-  identities and component editing belong to M1.
+  current read-only adapter exposes source-backed groups with
+  selection-specific properties; stable object identities and component
+  editing belong to M1.
+- **Inspector** displays the properties of the selected hierarchy object,
+  scene, or asset. It is read-only until the command/transaction layer can
+  make edits safely.
+- **Assets** enumerates cooked resources from the project's content mounts.
+  `.phlo` files appear as high-level prefabs, while meshes, materials,
+  animations, skeletons, textures, and scenes remain inspectable as their
+  dependent runtime resources.
 - **Scene view** renders the open asset with editor camera and simulation
   controls.
 - **Game view** renders the project's real runtime state over its loaded

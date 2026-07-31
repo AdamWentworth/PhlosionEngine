@@ -1,6 +1,8 @@
 #include "engine/editor/EditorShell.h"
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <cfloat>
 #include <iterator>
 #include <memory>
@@ -13,6 +15,71 @@
 namespace engine::editor {
 
 namespace {
+
+enum class InspectorSelectionDomain {
+    Hierarchy,
+    Asset,
+    Scene,
+};
+
+bool containsInsensitive(
+    std::string_view value,
+    std::string_view query) {
+    if (query.empty()) {
+        return true;
+    }
+    std::string foldedValue(value);
+    std::string foldedQuery(query);
+    const auto fold = [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    };
+    std::transform(
+        foldedValue.begin(),
+        foldedValue.end(),
+        foldedValue.begin(),
+        fold);
+    std::transform(
+        foldedQuery.begin(),
+        foldedQuery.end(),
+        foldedQuery.begin(),
+        fold);
+    return foldedValue.find(foldedQuery) !=
+           std::string::npos;
+}
+
+void drawInspectorProperties(
+    const std::vector<WorkspaceProperty>& properties) {
+    if (properties.empty()) {
+        ImGui::TextDisabled(
+            "No properties are available for this item.");
+        return;
+    }
+    if (!ImGui::BeginTable(
+            "InspectorProperties",
+            2,
+            ImGuiTableFlags_RowBg |
+                ImGuiTableFlags_BordersInnerH |
+                ImGuiTableFlags_SizingStretchProp)) {
+        return;
+    }
+    ImGui::TableSetupColumn(
+        "Property",
+        ImGuiTableColumnFlags_WidthFixed,
+        125.0f);
+    ImGui::TableSetupColumn("Value");
+    for (const auto& property : properties) {
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextDisabled(
+            "%s",
+            property.name.c_str());
+        ImGui::TableSetColumnIndex(1);
+        ImGui::TextWrapped(
+            "%s",
+            property.value.c_str());
+    }
+    ImGui::EndTable();
+}
 
 ImGuiKey imguiKey(SDL_Keycode key) {
     switch (key) {
@@ -179,7 +246,12 @@ struct EditorShell::Impl {
     bool ready = false;
     bool firstLayout = true;
     int selectedHierarchyItem = 0;
+    int selectedAsset = 0;
+    int selectedScene = 0;
     int selectedPlayConfiguration = 0;
+    InspectorSelectionDomain inspectorSelection =
+        InspectorSelectionDomain::Hierarchy;
+    std::array<char, 256> assetFilter{};
     EditorViewportKind selectedViewport =
         EditorViewportKind::Scene;
     std::string settingsIniPath;
@@ -765,19 +837,51 @@ EditorShellActions EditorShell::drawWorkspace(
     ImGui::Begin("Scene Hierarchy");
     ImGui::TextDisabled("%s", text(workspace.sceneAssetId).c_str());
     ImGui::Separator();
-    constexpr const char* hierarchyItems[] = {
-        "Route 1",
-        "Canonical environment",
-        "Encounter grass",
-        "Placed vegetation",
-        "Projected lighting and shadows"};
-    for (int index = 0;
-         index < static_cast<int>(std::size(hierarchyItems));
-         ++index) {
-        if (ImGui::Selectable(
-                hierarchyItems[index],
-                impl_->selectedHierarchyItem == index)) {
-            impl_->selectedHierarchyItem = index;
+    if (!workspace.hierarchyItems ||
+        workspace.hierarchyItems->empty()) {
+        ImGui::TextWrapped(
+            "The scene adapter has not exposed hierarchy items.");
+    } else {
+        impl_->selectedHierarchyItem = std::clamp(
+            impl_->selectedHierarchyItem,
+            0,
+            static_cast<int>(
+                workspace.hierarchyItems->size() - 1u));
+        for (std::size_t index = 0u;
+             index < workspace.hierarchyItems->size();
+             ++index) {
+            const auto& item =
+                (*workspace.hierarchyItems)[index];
+            ImGui::PushID(static_cast<int>(index));
+            if (item.depth > 0) {
+                ImGui::Indent(
+                    static_cast<float>(item.depth) *
+                    16.0f);
+            }
+            if (ImGui::Selectable(
+                    item.displayName.c_str(),
+                    impl_->inspectorSelection ==
+                            InspectorSelectionDomain::
+                                Hierarchy &&
+                        impl_->selectedHierarchyItem ==
+                            static_cast<int>(index))) {
+                impl_->selectedHierarchyItem =
+                    static_cast<int>(index);
+                impl_->inspectorSelection =
+                    InspectorSelectionDomain::Hierarchy;
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "%s\n%s",
+                    item.typeName.c_str(),
+                    item.id.c_str());
+            }
+            if (item.depth > 0) {
+                ImGui::Unindent(
+                    static_cast<float>(item.depth) *
+                    16.0f);
+            }
+            ImGui::PopID();
         }
     }
     ImGui::End();
@@ -851,74 +955,173 @@ EditorShellActions EditorShell::drawWorkspace(
     ImGui::End();
 
     ImGui::Begin("Inspector");
-    ImGui::Text("%s", hierarchyItems[impl_->selectedHierarchyItem]);
+    const char* inspectedName = "Nothing selected";
+    const char* inspectedType = "";
+    const std::vector<WorkspaceProperty>*
+        inspectedProperties = nullptr;
+    if (impl_->inspectorSelection ==
+            InspectorSelectionDomain::Hierarchy &&
+        workspace.hierarchyItems &&
+        !workspace.hierarchyItems->empty()) {
+        impl_->selectedHierarchyItem = std::clamp(
+            impl_->selectedHierarchyItem,
+            0,
+            static_cast<int>(
+                workspace.hierarchyItems->size() - 1u));
+        const auto& selected =
+            (*workspace.hierarchyItems)[
+                static_cast<std::size_t>(
+                    impl_->selectedHierarchyItem)];
+        inspectedName = selected.displayName.c_str();
+        inspectedType = selected.typeName.c_str();
+        inspectedProperties = &selected.properties;
+    } else if (
+        impl_->inspectorSelection ==
+            InspectorSelectionDomain::Asset &&
+        workspace.assets &&
+        !workspace.assets->empty()) {
+        impl_->selectedAsset = std::clamp(
+            impl_->selectedAsset,
+            0,
+            static_cast<int>(
+                workspace.assets->size() - 1u));
+        const auto& selected =
+            (*workspace.assets)[
+                static_cast<std::size_t>(
+                    impl_->selectedAsset)];
+        inspectedName = selected.displayName.c_str();
+        inspectedType = selected.typeName.c_str();
+        inspectedProperties = &selected.properties;
+    } else if (
+        impl_->inspectorSelection ==
+            InspectorSelectionDomain::Scene &&
+        workspace.scenes &&
+        !workspace.scenes->empty()) {
+        impl_->selectedScene = std::clamp(
+            impl_->selectedScene,
+            0,
+            static_cast<int>(
+                workspace.scenes->size() - 1u));
+        const auto& selected =
+            (*workspace.scenes)[
+                static_cast<std::size_t>(
+                    impl_->selectedScene)];
+        inspectedName = selected.displayName.c_str();
+        inspectedType =
+            selected.kind == "runtime_stage"
+                ? "Runtime Stage"
+                : "Cooked World Scene";
+        inspectedProperties = &selected.properties;
+    }
+    ImGui::TextWrapped("%s", inspectedName);
+    if (inspectedType[0] != '\0') {
+        ImGui::TextDisabled("%s", inspectedType);
+    }
     ImGui::Separator();
-    ImGui::TextDisabled("Read-only source-backed view");
     ImGui::Spacing();
-    ImGui::Text("Scenes");
-    ImGui::SameLine(140.0f);
-    ImGui::Text("%u", workspace.sceneCount);
-    ImGui::Text("Materials");
-    ImGui::SameLine(140.0f);
-    ImGui::Text("%u", workspace.materialCount);
-    ImGui::Text("Draw classes");
-    ImGui::SameLine(140.0f);
-    ImGui::Text("%u", workspace.drawClassCount);
-    ImGui::Text("Encounter grass");
-    ImGui::SameLine(140.0f);
-    ImGui::Text("%u", workspace.encounterGrassInstanceCount);
-    ImGui::Text("Vegetation");
-    ImGui::SameLine(140.0f);
-    ImGui::Text("%u", workspace.vegetationInstanceCount);
-    ImGui::Text("Visible triangles");
-    ImGui::SameLine(140.0f);
-    ImGui::Text("%llu",
-                static_cast<unsigned long long>(
-                    workspace.visibleTriangleCount));
-    ImGui::Text("Shadow triangles");
-    ImGui::SameLine(140.0f);
-    ImGui::Text("%llu",
-                static_cast<unsigned long long>(
-                    workspace.shadowTriangleCount));
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::TextDisabled(
-        "Backend: %s",
-        text(workspace.backendName).c_str());
+    if (inspectedProperties) {
+        drawInspectorProperties(
+            *inspectedProperties);
+    } else {
+        ImGui::TextDisabled(
+            "Select a hierarchy object, asset, or scene.");
+    }
     ImGui::End();
 
     ImGui::Begin("Assets");
-    if (ImGui::BeginTable(
-            "AssetTable",
-            3,
-            ImGuiTableFlags_RowBg |
-                ImGuiTableFlags_BordersInnerV |
-                ImGuiTableFlags_Resizable)) {
-        ImGui::TableSetupColumn("Asset");
-        ImGui::TableSetupColumn("Type");
-        ImGui::TableSetupColumn("Status");
+    ImGui::SetNextItemWidth(-1.0f);
+    ImGui::InputTextWithHint(
+        "##AssetFilter",
+        "Filter cooked assets...",
+        impl_->assetFilter.data(),
+        impl_->assetFilter.size());
+    ImGui::Separator();
+    if (!workspace.assets || workspace.assets->empty()) {
+        ImGui::TextWrapped(
+            "No cooked assets were discovered in the project content mounts.");
+    } else if (ImGui::BeginTable(
+                   "AssetTable",
+                   2,
+                   ImGuiTableFlags_RowBg |
+                       ImGuiTableFlags_BordersInnerV |
+                       ImGuiTableFlags_Resizable |
+                       ImGuiTableFlags_ScrollY,
+                   ImVec2(0.0f, -22.0f))) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn(
+            "Asset",
+            ImGuiTableColumnFlags_WidthStretch,
+            0.7f);
+        ImGui::TableSetupColumn(
+            "Type",
+            ImGuiTableColumnFlags_WidthStretch,
+            0.3f);
         ImGui::TableHeadersRow();
 
-        ImGui::TableNextRow();
-        ImGui::TableSetColumnIndex(0);
-        ImGui::TextUnformatted(text(workspace.sceneAssetId).c_str());
-        ImGui::TableSetColumnIndex(1);
-        ImGui::TextUnformatted(".phscene");
-        ImGui::TableSetColumnIndex(2);
-        ImGui::TextColored(
-            ImVec4(0.35f, 0.90f, 0.58f, 1.0f),
-            "Mounted (%zu files)",
-            workspace.archiveFileCount);
-
-        ImGui::TableNextRow();
-        ImGui::TableSetColumnIndex(0);
-        ImGui::TextUnformatted(text(workspace.projectId).c_str());
-        ImGui::TableSetColumnIndex(1);
-        ImGui::TextUnformatted("Project");
-        ImGui::TableSetColumnIndex(2);
-        ImGui::TextUnformatted("Loaded");
+        const std::string_view filter(
+            impl_->assetFilter.data());
+        std::string previousCategory;
+        for (std::size_t index = 0u;
+             index < workspace.assets->size();
+             ++index) {
+            const auto& asset =
+                (*workspace.assets)[index];
+            if (!containsInsensitive(
+                    asset.displayName,
+                    filter) &&
+                !containsInsensitive(
+                    asset.typeName,
+                    filter) &&
+                !containsInsensitive(
+                    asset.category,
+                    filter) &&
+                !containsInsensitive(
+                    asset.path,
+                    filter)) {
+                continue;
+            }
+            if (asset.category != previousCategory) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextDisabled(
+                    "%s",
+                    asset.category.c_str());
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextDisabled("Category");
+                previousCategory = asset.category;
+            }
+            ImGui::PushID(static_cast<int>(index));
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            if (ImGui::Selectable(
+                    asset.displayName.c_str(),
+                    impl_->inspectorSelection ==
+                            InspectorSelectionDomain::Asset &&
+                        impl_->selectedAsset ==
+                            static_cast<int>(index),
+                    ImGuiSelectableFlags_SpanAllColumns)) {
+                impl_->selectedAsset =
+                    static_cast<int>(index);
+                impl_->inspectorSelection =
+                    InspectorSelectionDomain::Asset;
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "%s",
+                    asset.path.c_str());
+            }
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextUnformatted(
+                asset.typeName.c_str());
+            ImGui::PopID();
+        }
         ImGui::EndTable();
     }
+    ImGui::TextDisabled(
+        "%zu cooked resources",
+        workspace.assets
+            ? workspace.assets->size()
+            : 0u);
     ImGui::End();
 
     ImGui::Begin("Scenes");
@@ -929,8 +1132,17 @@ EditorShellActions EditorShell::drawWorkspace(
         ImGui::TextWrapped(
             "This project has not declared scene assets.");
     } else {
+        impl_->selectedScene = std::clamp(
+            impl_->selectedScene,
+            0,
+            static_cast<int>(
+                workspace.scenes->size() - 1u));
         std::string previousCategory;
-        for (const auto& scene : *workspace.scenes) {
+        for (std::size_t index = 0u;
+             index < workspace.scenes->size();
+             ++index) {
+            const auto& scene =
+                (*workspace.scenes)[index];
             if (scene.category != previousCategory) {
                 ImGui::TextDisabled(
                     "%s",
@@ -939,16 +1151,62 @@ EditorShellActions EditorShell::drawWorkspace(
                         : scene.category.c_str());
                 previousCategory = scene.category;
             }
-            ImGui::BulletText(
+            ImGui::PushID(static_cast<int>(index));
+            const std::string sceneLabel =
+                scene.displayName +
+                (scene.startup ? "  [startup]" : "");
+            if (ImGui::Selectable(
+                    sceneLabel.c_str(),
+                    impl_->inspectorSelection ==
+                            InspectorSelectionDomain::Scene &&
+                        impl_->selectedScene ==
+                            static_cast<int>(index))) {
+                impl_->selectedScene =
+                    static_cast<int>(index);
+                impl_->inspectorSelection =
+                    InspectorSelectionDomain::Scene;
+                if (ImGui::IsMouseDoubleClicked(
+                        ImGuiMouseButton_Left)) {
+                    actions.openSceneIndex =
+                        static_cast<int>(index);
+                }
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled(
                 "%s%s",
-                scene.displayName.c_str(),
-                scene.startup ? "  [startup]" : "");
+                scene.kind == "runtime_stage"
+                    ? "runtime stage"
+                    : "cooked world",
+                scene.previewId.empty()
+                    ? ""
+                    : " / preview");
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip(
-                    "%s\n%s",
+                    "%s\n%s\n%s",
                     scene.assetId.c_str(),
+                    scene.kind.c_str(),
                     scene.path.c_str());
             }
+            ImGui::PopID();
+        }
+        ImGui::Spacing();
+        ImGui::Separator();
+        const auto& selected =
+            (*workspace.scenes)[
+                static_cast<std::size_t>(
+                    impl_->selectedScene)];
+        ImGui::TextWrapped(
+            "%s",
+            selected.kind == "runtime_stage"
+                ? "Runtime stage: opens the real game state. It is not yet a standalone cooked environment."
+                : "Cooked world scene: opens the source-backed Scene view.");
+        if (ImGui::Button(
+                selected.kind == "runtime_stage"
+                    ? "Open Runtime Stage"
+                    : "Open Scene",
+                ImVec2(-1.0f, 30.0f))) {
+            actions.openSceneIndex =
+                impl_->selectedScene;
         }
     }
     ImGui::End();
