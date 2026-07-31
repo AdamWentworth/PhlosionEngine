@@ -1356,6 +1356,14 @@ void refreshLayoutObjectViews(LoadedProject& project) {
                 .rotationDegrees =
                     object.rotationDegrees,
                 .scale = object.scale,
+                .viewportPosition =
+                    object.viewportPosition,
+                .viewportAxisDirections =
+                    object.viewportAxisDirections,
+                .viewportSourceUnitsPerPixel =
+                    object.viewportSourceUnitsPerPixel,
+                .viewportVisible =
+                    object.viewportVisible,
                 .suppressed =
                     object.suppressed,
                 .hasOverride =
@@ -1380,7 +1388,7 @@ void rebuildProjectHierarchy(
         engine::editor::WorkspaceHierarchyItem{
             .id = "environment/autochess-layout",
             .displayName =
-                "Autochess board layout",
+                "Extracted placements (grass + flowers)",
             .typeName =
                 "Non-destructive Layout Layer",
             .depth = 2,
@@ -1390,8 +1398,10 @@ void rebuildProjectHierarchy(
                 {"Editable targets",
                  std::to_string(
                      project.layoutObjectViews.size())},
+                {"Scope",
+                 "Source placement records; baked trees and terrain remain locked"},
                 {"Persistence",
-                 "Project-owned layout manifest"},
+                 "Live preview; autosave on release"},
             }});
     for (std::size_t index = 0u;
          index < project.layoutObjectViews.size();
@@ -2476,16 +2486,13 @@ int main(int argc, char** argv) {
                     editorViewportHovered) {
                     const bool shift =
                         (SDL_GetModState() & KMOD_SHIFT) != 0;
-                    const bool left =
-                        (event.motion.state &
-                         SDL_BUTTON_LMASK) != 0u;
                     const bool middle =
                         (event.motion.state &
                          SDL_BUTTON_MMASK) != 0u;
                     const bool right =
                         (event.motion.state &
                          SDL_BUTTON_RMASK) != 0u;
-                    if (left || (middle && shift)) {
+                    if (middle && shift) {
                         panPixels += glm::vec2(
                             static_cast<float>(
                                 event.motion.xrel),
@@ -2636,6 +2643,9 @@ int main(int argc, char** argv) {
                 activeViewport ==
                     engine::editor::EditorViewportKind::Scene &&
                 editorViewportFocused &&
+                (SDL_GetMouseState(nullptr, nullptr) &
+                 (SDL_BUTTON_RMASK |
+                  SDL_BUTTON_MMASK)) != 0u &&
                 !editor.wantsKeyboardCapture()) {
                 const Uint8* keys =
                     SDL_GetKeyboardState(nullptr);
@@ -2766,6 +2776,9 @@ int main(int argc, char** argv) {
                         project->runtime->render(renderContext);
                         renderer.endWorldSceneColorPass();
                         sceneSurface->end();
+                        // render() updates project-owned viewport
+                        // projections used by picking and transform gizmos.
+                        refreshLayoutObjectViews(*project);
                     }
                 } else if (gameSurface->begin(
                                surfaceWidth,
@@ -2963,36 +2976,79 @@ int main(int argc, char** argv) {
                     actions.editLayoutObjectIndex) <
                     project->layoutObjectViews.size() &&
                 (actions.layoutObjectEditRequested ||
+                 actions.layoutObjectPreviewRequested ||
+                 actions.layoutObjectCommitRequested ||
+                 actions.layoutObjectCancelRequested ||
                  actions.layoutObjectResetRequested)) {
                 const auto& object =
                     project->layoutObjectViews[
                         static_cast<std::size_t>(
                             actions.editLayoutObjectIndex)];
                 std::string layoutError;
-                const bool applied =
-                    actions.layoutObjectResetRequested
-                    ? project->runtime->
-                          resetLayoutObjectOverride(
-                              object.stableId.c_str(),
-                              &layoutError)
-                    : project->runtime->
-                          setLayoutObjectOverride(
-                              engine::editor::
-                                  EditorProjectLayoutEdit{
-                                      .stableId =
-                                          object.stableId.c_str(),
-                                      .translation =
-                                          actions.layoutTranslation,
-                                      .rotationDegrees =
-                                          actions
-                                              .layoutRotationDegrees,
-                                      .scale =
-                                          actions.layoutScale,
-                                      .suppressed =
-                                          actions.layoutSuppressed,
-                                      .reason =
-                                          "autochess_board_clearance"},
-                              &layoutError);
+                bool applied = true;
+                if (actions.layoutObjectCancelRequested) {
+                    project->runtime->
+                        cancelLayoutObjectOverride(
+                            object.stableId.c_str());
+                } else if (
+                    actions.layoutObjectResetRequested) {
+                    applied = project->runtime->
+                        resetLayoutObjectOverride(
+                            object.stableId.c_str(),
+                            &layoutError);
+                } else if (
+                    actions.layoutObjectPreviewRequested) {
+                    applied = project->runtime->
+                        previewLayoutObjectOverride(
+                            engine::editor::
+                                EditorProjectLayoutEdit{
+                                    .stableId =
+                                        object.stableId.c_str(),
+                                    .translation =
+                                        actions.layoutTranslation,
+                                    .rotationDegrees =
+                                        actions
+                                            .layoutRotationDegrees,
+                                    .scale =
+                                        actions.layoutScale,
+                                    .suppressed =
+                                        actions.layoutSuppressed,
+                                    .reason =
+                                        "autochess_board_clearance"},
+                            &layoutError);
+                    if (applied &&
+                        actions.layoutObjectCommitRequested) {
+                        applied = project->runtime->
+                            commitLayoutObjectOverride(
+                                object.stableId.c_str(),
+                                &layoutError);
+                    }
+                } else if (
+                    actions.layoutObjectCommitRequested) {
+                    applied = project->runtime->
+                        commitLayoutObjectOverride(
+                            object.stableId.c_str(),
+                            &layoutError);
+                } else {
+                    applied = project->runtime->
+                        setLayoutObjectOverride(
+                            engine::editor::
+                                EditorProjectLayoutEdit{
+                                    .stableId =
+                                        object.stableId.c_str(),
+                                    .translation =
+                                        actions.layoutTranslation,
+                                    .rotationDegrees =
+                                        actions
+                                            .layoutRotationDegrees,
+                                    .scale =
+                                        actions.layoutScale,
+                                    .suppressed =
+                                        actions.layoutSuppressed,
+                                    .reason =
+                                        "autochess_board_clearance"},
+                            &layoutError);
+                }
                 if (applied) {
                     refreshLayoutObjectViews(*project);
                     const auto& activeScene =
@@ -3008,6 +3064,12 @@ int main(int argc, char** argv) {
                     project->status =
                         actions.layoutObjectResetRequested
                         ? "Layout override reset to canonical source."
+                        : actions.layoutObjectCancelRequested
+                        ? "Live layout edit cancelled."
+                        : actions.layoutObjectCommitRequested
+                        ? "Layout override autosaved."
+                        : actions.layoutObjectPreviewRequested
+                        ? "Live layout edit preview."
                         : "Layout override applied, saved, and hot-reloaded.";
                 } else {
                     project->status =

@@ -192,6 +192,15 @@ undo/redo, transform gizmos, and saveable project-owned overrides. Qualify by
 editing only the Pokemon Autochess board-layout delta while canonical Route 1
 remains byte-identical.
 
+The first M1 interaction slice is active for project adapters that expose
+source-backed layout records. In `EDIT` mode the Scene viewport projects
+pickable object markers and source-local Move, Rotate, and Scale gizmos.
+Dragging applies an in-memory preview every frame, releasing autosaves through
+the project adapter, and Escape restores the pre-drag layout. The Inspector
+uses the same preview/commit path. Canonical cooked scenes remain read-only.
+Command history, undo/redo, and editable baked scene components remain later
+M1 work.
+
 ### M2: Forge and asset registry
 
 Expose import state, dependencies, deterministic cook results, thumbnails,

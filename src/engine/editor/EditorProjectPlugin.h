@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 8u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 9u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -145,6 +145,14 @@ struct EditorProjectLayoutObject {
     std::array<float, 3> translation{};
     std::array<float, 3> rotationDegrees{};
     std::array<float, 3> scale{1.0f, 1.0f, 1.0f};
+    // Scene-viewport projection supplied by the project adapter. Positions
+    // are local to the rendered scene surface rather than desktop pixels.
+    std::array<float, 2> viewportPosition{};
+    // Normalized screen directions for the source-local X, Y and Z axes.
+    std::array<float, 6> viewportAxisDirections{};
+    // Source translation units represented by one screen pixel per axis.
+    std::array<float, 3> viewportSourceUnitsPerPixel{};
+    bool viewportVisible = false;
     bool suppressed = false;
     bool hasOverride = false;
 };
@@ -288,6 +296,32 @@ public:
                 "This project does not provide editable scene layout objects.";
         }
         return false;
+    }
+    // Applies an in-memory edit for responsive viewport/inspector feedback.
+    // The project must not persist it until commitLayoutObjectOverride().
+    virtual bool previewLayoutObjectOverride(
+        const EditorProjectLayoutEdit& edit,
+        std::string* outError = nullptr) {
+        (void)edit;
+        if (outError) {
+            *outError =
+                "This project does not support live layout previews.";
+        }
+        return false;
+    }
+    virtual bool commitLayoutObjectOverride(
+        const char* stableId,
+        std::string* outError = nullptr) {
+        (void)stableId;
+        if (outError) {
+            *outError =
+                "This project does not support committing live layout previews.";
+        }
+        return false;
+    }
+    virtual void cancelLayoutObjectOverride(
+        const char* stableId) {
+        (void)stableId;
     }
     virtual bool resetLayoutObjectOverride(
         const char* stableId,

@@ -8,7 +8,9 @@
 #include <array>
 #include <cctype>
 #include <cfloat>
+#include <cmath>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <string>
 
@@ -427,6 +429,67 @@ void drawPreferencesWindow(
     ImGui::End();
 }
 
+float screenDistanceSquared(
+    const ImVec2& a,
+    const ImVec2& b) {
+    const float x = a.x - b.x;
+    const float y = a.y - b.y;
+    return x * x + y * y;
+}
+
+float screenDistanceToSegmentSquared(
+    const ImVec2& point,
+    const ImVec2& start,
+    const ImVec2& end) {
+    const float segmentX = end.x - start.x;
+    const float segmentY = end.y - start.y;
+    const float lengthSquared =
+        segmentX * segmentX +
+        segmentY * segmentY;
+    if (lengthSquared <= 0.0001f) {
+        return screenDistanceSquared(point, start);
+    }
+    const float projection = std::clamp(
+        ((point.x - start.x) * segmentX +
+         (point.y - start.y) * segmentY) /
+            lengthSquared,
+        0.0f,
+        1.0f);
+    return screenDistanceSquared(
+        point,
+        ImVec2(
+            start.x + segmentX * projection,
+            start.y + segmentY * projection));
+}
+
+ImVec2 normalizedScreenDirection(
+    float x,
+    float y) {
+    const float length =
+        std::sqrt(x * x + y * y);
+    if (length <= 0.0001f) {
+        return ImVec2(1.0f, 0.0f);
+    }
+    return ImVec2(x / length, y / length);
+}
+
+ImU32 gizmoAxisColor(int axis, bool highlighted) {
+    constexpr std::array<ImVec4, 3> colors{{
+        ImVec4(0.96f, 0.22f, 0.20f, 1.0f),
+        ImVec4(0.30f, 0.88f, 0.30f, 1.0f),
+        ImVec4(0.24f, 0.52f, 1.0f, 1.0f),
+    }};
+    ImVec4 color = colors[
+        static_cast<std::size_t>(
+            std::clamp(axis, 0, 2))];
+    if (highlighted) {
+        color.x = std::min(1.0f, color.x + 0.28f);
+        color.y = std::min(1.0f, color.y + 0.28f);
+        color.z = std::min(1.0f, color.z + 0.28f);
+    }
+    return ImGui::ColorConvertFloat4ToU32(color);
+}
+
 } // namespace
 
 struct EditorShell::Impl {
@@ -469,6 +532,18 @@ struct EditorShell::Impl {
     std::array<float, 3> layoutRotationDegrees{};
     std::array<float, 3> layoutScale{1.0f, 1.0f, 1.0f};
     bool layoutSuppressed = false;
+    int selectedLayoutObject = -1;
+    LayoutGizmoOperation layoutGizmoOperation =
+        LayoutGizmoOperation::Translate;
+    bool layoutGizmoDragging = false;
+    int layoutGizmoAxis = -1;
+    ImVec2 layoutGizmoDragStart{};
+    ImVec2 layoutGizmoDragDirection{1.0f, 0.0f};
+    float layoutGizmoSourceUnitsPerPixel = 1.0f;
+    std::array<float, 3> layoutGizmoStartTranslation{};
+    std::array<float, 3> layoutGizmoStartRotation{};
+    std::array<float, 3> layoutGizmoStartScale{
+        1.0f, 1.0f, 1.0f};
     std::string settingsIniPath;
 #if defined(_WIN32)
     std::unique_ptr<D3D12DescriptorAllocator>
@@ -1156,6 +1231,64 @@ EditorShellActions EditorShell::drawWorkspace(
             impl_->selectedViewport =
                 EditorViewportKind::Game;
         }
+        if (impl_->selectedViewport ==
+                EditorViewportKind::Scene &&
+            workspace.layoutObjects &&
+            !workspace.layoutObjects->empty()) {
+            ImGui::SameLine();
+            ImGui::Dummy(ImVec2(12.0f, 0.0f));
+            ImGui::SameLine();
+            const auto gizmoButton =
+                [&](const char* label,
+                    LayoutGizmoOperation operation) {
+                    const bool selected =
+                        impl_->layoutGizmoOperation ==
+                        operation;
+                    if (selected) {
+                        ImGui::PushStyleColor(
+                            ImGuiCol_Button,
+                            ImVec4(
+                                0.12f, 0.42f, 0.30f, 1.0f));
+                    }
+                    if (ImGui::Button(
+                            label,
+                            ImVec2(70.0f, 22.0f))) {
+                        impl_->layoutGizmoOperation =
+                            operation;
+                    }
+                    if (selected) {
+                        ImGui::PopStyleColor();
+                    }
+                };
+            gizmoButton(
+                "W  Move",
+                LayoutGizmoOperation::Translate);
+            ImGui::SameLine();
+            gizmoButton(
+                "E  Rotate",
+                LayoutGizmoOperation::Rotate);
+            ImGui::SameLine();
+            gizmoButton(
+                "R  Scale",
+                LayoutGizmoOperation::Scale);
+            const ImGuiIO& io = ImGui::GetIO();
+            if (ImGui::IsWindowFocused(
+                    ImGuiFocusedFlags_RootAndChildWindows) &&
+                !io.WantTextInput) {
+                if (ImGui::IsKeyPressed(ImGuiKey_W, false)) {
+                    impl_->layoutGizmoOperation =
+                        LayoutGizmoOperation::Translate;
+                } else if (
+                    ImGui::IsKeyPressed(ImGuiKey_E, false)) {
+                    impl_->layoutGizmoOperation =
+                        LayoutGizmoOperation::Rotate;
+                } else if (
+                    ImGui::IsKeyPressed(ImGuiKey_R, false)) {
+                    impl_->layoutGizmoOperation =
+                        LayoutGizmoOperation::Scale;
+                }
+            }
+        }
         ImGui::Separator();
 
         const EditorViewportKind kind =
@@ -1194,6 +1327,410 @@ EditorShellActions EditorShell::drawWorkspace(
             ImGui::Dummy(ImVec2(
                 static_cast<float>(viewportWidth),
                 static_cast<float>(viewportHeight)));
+        }
+        const bool imageHovered = ImGui::IsItemHovered();
+        if (kind == EditorViewportKind::Scene &&
+            workspace.playState == EditorPlayState::Editing &&
+            workspace.layoutObjects &&
+            !workspace.layoutObjects->empty()) {
+            const auto& objects = *workspace.layoutObjects;
+            impl_->selectedLayoutObject = std::clamp(
+                impl_->selectedLayoutObject,
+                -1,
+                static_cast<int>(objects.size() - 1u));
+            ImDrawList* drawList =
+                ImGui::GetWindowDrawList();
+            const ImVec2 mouse = ImGui::GetMousePos();
+            int hoveredObject = -1;
+            float hoveredObjectDistance =
+                std::numeric_limits<float>::max();
+            for (std::size_t index = 0u;
+                 index < objects.size();
+                 ++index) {
+                const auto& object = objects[index];
+                if (!object.viewportVisible) {
+                    continue;
+                }
+                const ImVec2 position(
+                    origin.x + object.viewportPosition[0],
+                    origin.y + object.viewportPosition[1]);
+                const float distance =
+                    screenDistanceSquared(mouse, position);
+                if (distance < 16.0f * 16.0f &&
+                    distance < hoveredObjectDistance) {
+                    hoveredObject =
+                        static_cast<int>(index);
+                    hoveredObjectDistance = distance;
+                }
+                const bool selected =
+                    impl_->selectedLayoutObject ==
+                    static_cast<int>(index);
+                const bool hovered =
+                    hoveredObject ==
+                    static_cast<int>(index);
+                const ImU32 markerColor =
+                    object.suppressed
+                    ? IM_COL32(255, 90, 70, 230)
+                    : selected
+                    ? IM_COL32(255, 225, 72, 245)
+                    : hovered
+                    ? IM_COL32(255, 255, 255, 235)
+                    : IM_COL32(70, 220, 155, 180);
+                drawList->AddCircle(
+                    position,
+                    selected ? 8.0f : 5.0f,
+                    markerColor,
+                    16,
+                    selected ? 2.5f : 1.5f);
+                if (object.suppressed) {
+                    drawList->AddLine(
+                        ImVec2(
+                            position.x - 4.0f,
+                            position.y - 4.0f),
+                        ImVec2(
+                            position.x + 4.0f,
+                            position.y + 4.0f),
+                        markerColor,
+                        1.5f);
+                    drawList->AddLine(
+                        ImVec2(
+                            position.x + 4.0f,
+                            position.y - 4.0f),
+                        ImVec2(
+                            position.x - 4.0f,
+                            position.y + 4.0f),
+                        markerColor,
+                        1.5f);
+                }
+            }
+
+            int hoveredAxis = -1;
+            const WorkspaceLayoutObject* selected = nullptr;
+            ImVec2 gizmoCenter{};
+            std::array<ImVec2, 3> axisDirections{};
+            if (impl_->selectedLayoutObject >= 0 &&
+                static_cast<std::size_t>(
+                    impl_->selectedLayoutObject) <
+                    objects.size()) {
+                selected =
+                    &objects[static_cast<std::size_t>(
+                        impl_->selectedLayoutObject)];
+                if (selected->viewportVisible) {
+                    gizmoCenter = ImVec2(
+                        origin.x +
+                            selected->viewportPosition[0],
+                        origin.y +
+                            selected->viewportPosition[1]);
+                    for (int axis = 0; axis < 3; ++axis) {
+                        axisDirections[
+                            static_cast<std::size_t>(axis)] =
+                            normalizedScreenDirection(
+                                selected->
+                                    viewportAxisDirections[
+                                        static_cast<
+                                            std::size_t>(
+                                            axis * 2)],
+                                selected->
+                                    viewportAxisDirections[
+                                        static_cast<
+                                            std::size_t>(
+                                            axis * 2 + 1)]);
+                    }
+                    constexpr float axisLength = 62.0f;
+                    if (impl_->layoutGizmoOperation ==
+                        LayoutGizmoOperation::Rotate) {
+                        constexpr float ringRadius = 50.0f;
+                        constexpr int segments = 40;
+                        float closest =
+                            std::numeric_limits<float>::max();
+                        for (int axis = 0;
+                             axis < 3;
+                             ++axis) {
+                            const int first = (axis + 1) % 3;
+                            const int second = (axis + 2) % 3;
+                            ImVec2 previous{};
+                            for (int segment = 0;
+                                 segment <= segments;
+                                 ++segment) {
+                                const float angle =
+                                    static_cast<float>(segment) /
+                                    static_cast<float>(segments) *
+                                    6.283185307f;
+                                const ImVec2 current(
+                                    gizmoCenter.x +
+                                        (axisDirections[
+                                             static_cast<
+                                                 std::size_t>(
+                                                 first)]
+                                                 .x *
+                                             std::cos(angle) +
+                                         axisDirections[
+                                             static_cast<
+                                                 std::size_t>(
+                                                 second)]
+                                                 .x *
+                                             std::sin(angle)) *
+                                            ringRadius,
+                                    gizmoCenter.y +
+                                        (axisDirections[
+                                             static_cast<
+                                                 std::size_t>(
+                                                 first)]
+                                                 .y *
+                                             std::cos(angle) +
+                                         axisDirections[
+                                             static_cast<
+                                                 std::size_t>(
+                                                 second)]
+                                                 .y *
+                                             std::sin(angle)) *
+                                            ringRadius);
+                                if (segment > 0) {
+                                    const float distance =
+                                        screenDistanceToSegmentSquared(
+                                            mouse,
+                                            previous,
+                                            current);
+                                    if (distance < closest) {
+                                        closest = distance;
+                                        hoveredAxis = axis;
+                                    }
+                                    drawList->AddLine(
+                                        previous,
+                                        current,
+                                        gizmoAxisColor(
+                                            axis,
+                                            false),
+                                        2.0f);
+                                }
+                                previous = current;
+                            }
+                        }
+                        if (closest > 9.0f * 9.0f) {
+                            hoveredAxis = -1;
+                        }
+                    } else {
+                        float closest =
+                            std::numeric_limits<float>::max();
+                        for (int axis = 0;
+                             axis < 3;
+                             ++axis) {
+                            const ImVec2 direction =
+                                axisDirections[
+                                    static_cast<std::size_t>(
+                                        axis)];
+                            const ImVec2 endpoint(
+                                gizmoCenter.x +
+                                    direction.x * axisLength,
+                                gizmoCenter.y +
+                                    direction.y * axisLength);
+                            const float distance =
+                                screenDistanceToSegmentSquared(
+                                    mouse,
+                                    gizmoCenter,
+                                    endpoint);
+                            if (distance < closest) {
+                                closest = distance;
+                                hoveredAxis = axis;
+                            }
+                            drawList->AddLine(
+                                gizmoCenter,
+                                endpoint,
+                                gizmoAxisColor(axis, false),
+                                3.0f);
+                            if (impl_->layoutGizmoOperation ==
+                                LayoutGizmoOperation::Scale) {
+                                drawList->AddRectFilled(
+                                    ImVec2(
+                                        endpoint.x - 5.0f,
+                                        endpoint.y - 5.0f),
+                                    ImVec2(
+                                        endpoint.x + 5.0f,
+                                        endpoint.y + 5.0f),
+                                    gizmoAxisColor(
+                                        axis,
+                                        hoveredAxis == axis));
+                            } else {
+                                drawList->AddCircleFilled(
+                                    endpoint,
+                                    5.0f,
+                                    gizmoAxisColor(
+                                        axis,
+                                        hoveredAxis == axis),
+                                    12);
+                            }
+                        }
+                        if (closest > 10.0f * 10.0f) {
+                            hoveredAxis = -1;
+                        }
+                    }
+                    drawList->AddCircleFilled(
+                        gizmoCenter,
+                        4.0f,
+                        IM_COL32(245, 245, 245, 240),
+                        12);
+                }
+            }
+
+            const bool canInteract =
+                imageHovered &&
+                !ImGui::GetIO().WantTextInput;
+            if (!impl_->layoutGizmoDragging &&
+                canInteract &&
+                ImGui::IsMouseClicked(
+                    ImGuiMouseButton_Left)) {
+                if (selected && hoveredAxis >= 0) {
+                    impl_->layoutGizmoDragging = true;
+                    impl_->layoutGizmoAxis =
+                        hoveredAxis;
+                    impl_->layoutGizmoDragStart = mouse;
+                    impl_->layoutGizmoDragDirection =
+                        axisDirections[
+                            static_cast<std::size_t>(
+                                hoveredAxis)];
+                    impl_->
+                        layoutGizmoSourceUnitsPerPixel =
+                        std::max(
+                            0.0001f,
+                            selected->
+                                viewportSourceUnitsPerPixel[
+                                    static_cast<std::size_t>(
+                                        hoveredAxis)]);
+                    impl_->layoutGizmoStartTranslation =
+                        selected->translation;
+                    impl_->layoutGizmoStartRotation =
+                        selected->rotationDegrees;
+                    impl_->layoutGizmoStartScale =
+                        selected->scale;
+                } else if (hoveredObject >= 0) {
+                    impl_->selectedLayoutObject =
+                        hoveredObject;
+                    impl_->inspectorSelection =
+                        InspectorSelectionDomain::Hierarchy;
+                    impl_->activeLayoutObjectId.clear();
+                    actions.selectLayoutObjectIndex =
+                        hoveredObject;
+                    if (workspace.hierarchyItems) {
+                        for (std::size_t hierarchyIndex = 0u;
+                             hierarchyIndex <
+                                 workspace.hierarchyItems->size();
+                             ++hierarchyIndex) {
+                            if ((*workspace.hierarchyItems)[
+                                    hierarchyIndex]
+                                    .layoutObjectIndex ==
+                                hoveredObject) {
+                                impl_->selectedHierarchyItem =
+                                    static_cast<int>(
+                                        hierarchyIndex);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (impl_->layoutGizmoDragging &&
+                selected) {
+                actions.editLayoutObjectIndex =
+                    impl_->selectedLayoutObject;
+                if (ImGui::IsKeyPressed(
+                        ImGuiKey_Escape,
+                        false)) {
+                    actions.layoutObjectCancelRequested = true;
+                    impl_->layoutGizmoDragging = false;
+                    impl_->activeLayoutObjectId.clear();
+                } else {
+                    const ImVec2 delta(
+                        mouse.x -
+                            impl_->layoutGizmoDragStart.x,
+                        mouse.y -
+                            impl_->layoutGizmoDragStart.y);
+                    const float projectedPixels =
+                        delta.x *
+                            impl_->layoutGizmoDragDirection.x +
+                        delta.y *
+                            impl_->layoutGizmoDragDirection.y;
+                    actions.layoutTranslation =
+                        impl_->
+                            layoutGizmoStartTranslation;
+                    actions.layoutRotationDegrees =
+                        impl_->layoutGizmoStartRotation;
+                    actions.layoutScale =
+                        impl_->layoutGizmoStartScale;
+                    actions.layoutSuppressed =
+                        selected->suppressed;
+                    const std::size_t axis =
+                        static_cast<std::size_t>(
+                            impl_->layoutGizmoAxis);
+                    if (impl_->layoutGizmoOperation ==
+                        LayoutGizmoOperation::Translate) {
+                        float sourceDelta =
+                            projectedPixels *
+                            impl_->
+                                layoutGizmoSourceUnitsPerPixel;
+                        if (ImGui::GetIO().KeyCtrl) {
+                            sourceDelta =
+                                std::round(sourceDelta / 5.0f) *
+                                5.0f;
+                        }
+                        actions.layoutTranslation[axis] +=
+                            sourceDelta;
+                    } else if (
+                        impl_->layoutGizmoOperation ==
+                        LayoutGizmoOperation::Rotate) {
+                        float degrees =
+                            projectedPixels * 0.6f;
+                        if (ImGui::GetIO().KeyCtrl) {
+                            degrees =
+                                std::round(degrees / 15.0f) *
+                                15.0f;
+                        }
+                        actions.layoutRotationDegrees[axis] +=
+                            degrees;
+                    } else {
+                        float scaleDelta =
+                            projectedPixels * 0.0125f;
+                        if (ImGui::GetIO().KeyCtrl) {
+                            scaleDelta =
+                                std::round(
+                                    scaleDelta / 0.1f) *
+                                0.1f;
+                        }
+                        actions.layoutScale[axis] =
+                            std::max(
+                                0.01f,
+                                actions.layoutScale[axis] +
+                                    scaleDelta);
+                    }
+                    impl_->layoutTranslation =
+                        actions.layoutTranslation;
+                    impl_->layoutRotationDegrees =
+                        actions.layoutRotationDegrees;
+                    impl_->layoutScale =
+                        actions.layoutScale;
+                    impl_->layoutSuppressed =
+                        actions.layoutSuppressed;
+                    actions.layoutObjectPreviewRequested =
+                        true;
+                    if (ImGui::IsMouseReleased(
+                            ImGuiMouseButton_Left)) {
+                        actions.layoutObjectCommitRequested =
+                            true;
+                        impl_->layoutGizmoDragging = false;
+                        impl_->activeLayoutObjectId.clear();
+                    }
+                }
+            }
+
+            drawList->AddText(
+                ImVec2(origin.x + 12.0f, origin.y + 12.0f),
+                IM_COL32(235, 245, 240, 220),
+                impl_->layoutGizmoDragging
+                    ? "LIVE EDIT - release to autosave, Esc to cancel"
+                    : "EDIT MODE - click a marker, then drag W/E/R gizmos");
+        } else if (
+            impl_->layoutGizmoDragging) {
+            impl_->layoutGizmoDragging = false;
         }
         actions.activeViewport = kind;
         actions.viewportWidth = viewportWidth;
@@ -1300,8 +1837,13 @@ EditorShellActions EditorShell::drawWorkspace(
                 impl_->inspectorSelection =
                     InspectorSelectionDomain::Hierarchy;
                 if (item.layoutObjectIndex >= 0) {
+                    impl_->selectedLayoutObject =
+                        item.layoutObjectIndex;
+                    impl_->activeLayoutObjectId.clear();
                     actions.selectLayoutObjectIndex =
                         item.layoutObjectIndex;
+                } else {
+                    impl_->selectedLayoutObject = -1;
                 }
             }
             if (ImGui::IsItemHovered()) {
@@ -1585,7 +2127,9 @@ EditorShellActions EditorShell::drawWorkspace(
         inspectedAsset->previewable3d;
     if (inspectedLayout) {
         if (impl_->activeLayoutObjectId !=
-            inspectedLayout->stableId) {
+                inspectedLayout->stableId ||
+            (!impl_->layoutGizmoDragging &&
+             !ImGui::IsAnyItemActive())) {
             impl_->activeLayoutObjectId =
                 inspectedLayout->stableId;
             impl_->layoutTranslation =
@@ -1601,40 +2145,53 @@ EditorShellActions EditorShell::drawWorkspace(
         ImGui::TextDisabled(
             "%s",
             inspectedLayout->coordinateSystem.c_str());
+        ImGui::TextWrapped(
+            "Values update live. Releasing a field or viewport gizmo autosaves the project override.");
+        bool liveEditChanged = false;
+        bool liveEditFinished = false;
         ImGui::SetNextItemWidth(-1.0f);
-        ImGui::DragFloat3(
+        liveEditChanged |= ImGui::DragFloat3(
             "Translation",
             impl_->layoutTranslation.data(),
             1.0f,
             -100000.0f,
             100000.0f,
             "%.2f");
+        liveEditFinished |=
+            ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SetNextItemWidth(-1.0f);
-        ImGui::DragFloat3(
+        liveEditChanged |= ImGui::DragFloat3(
             "Rotation",
             impl_->layoutRotationDegrees.data(),
             0.25f,
             -360.0f,
             360.0f,
             "%.2f deg");
+        liveEditFinished |=
+            ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SetNextItemWidth(-1.0f);
-        ImGui::DragFloat3(
+        liveEditChanged |= ImGui::DragFloat3(
             "Scale",
             impl_->layoutScale.data(),
             0.01f,
             0.01f,
             100.0f,
             "%.3f");
-        ImGui::Checkbox(
-            "Suppress in gameplay layout",
-            &impl_->layoutSuppressed);
-        ImGui::Spacing();
-        if (ImGui::Button(
-                "Apply and Save Override",
-                ImVec2(-1.0f, 32.0f))) {
+        liveEditFinished |=
+            ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox(
+                "Suppress in gameplay layout",
+                &impl_->layoutSuppressed)) {
+            liveEditChanged = true;
+            liveEditFinished = true;
+        }
+        if (liveEditChanged || liveEditFinished) {
             actions.editLayoutObjectIndex =
                 inspectedLayoutIndex;
-            actions.layoutObjectEditRequested = true;
+            actions.layoutObjectPreviewRequested =
+                liveEditChanged;
+            actions.layoutObjectCommitRequested =
+                liveEditFinished;
             actions.layoutTranslation =
                 impl_->layoutTranslation;
             actions.layoutRotationDegrees =
@@ -1643,6 +2200,12 @@ EditorShellActions EditorShell::drawWorkspace(
                 impl_->layoutScale;
             actions.layoutSuppressed =
                 impl_->layoutSuppressed;
+        }
+        ImGui::Spacing();
+        ImGui::TextDisabled(
+            "Viewport: click the green marker, then use Move [W], Rotate [E], or Scale [R].");
+        ImGui::Spacing();
+        if (liveEditFinished) {
             impl_->activeLayoutObjectId.clear();
         }
         ImGui::BeginDisabled(

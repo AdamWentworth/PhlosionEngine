@@ -27,6 +27,12 @@ enum class EditorViewportKind {
     Game,
 };
 
+enum class LayoutGizmoOperation {
+    Translate,
+    Rotate,
+    Scale,
+};
+
 struct WorkspaceProperty {
     std::string name;
     std::string value;
@@ -53,6 +59,10 @@ struct WorkspaceLayoutObject {
     std::array<float, 3> translation{};
     std::array<float, 3> rotationDegrees{};
     std::array<float, 3> scale{1.0f, 1.0f, 1.0f};
+    std::array<float, 2> viewportPosition{};
+    std::array<float, 6> viewportAxisDirections{};
+    std::array<float, 3> viewportSourceUnitsPerPixel{};
+    bool viewportVisible = false;
     bool suppressed = false;
     bool hasOverride = false;
 };
@@ -199,6 +209,9 @@ struct EditorShellActions {
     int selectLayoutObjectIndex = -1;
     int editLayoutObjectIndex = -1;
     bool layoutObjectEditRequested = false;
+    bool layoutObjectPreviewRequested = false;
+    bool layoutObjectCommitRequested = false;
+    bool layoutObjectCancelRequested = false;
     bool layoutObjectResetRequested = false;
     bool layoutOverlayVisibilityChanged = false;
     bool layoutOverlayVisible = false;
@@ -206,6 +219,8 @@ struct EditorShellActions {
     std::array<float, 3> layoutRotationDegrees{};
     std::array<float, 3> layoutScale{1.0f, 1.0f, 1.0f};
     bool layoutSuppressed = false;
+    LayoutGizmoOperation layoutGizmoOperation =
+        LayoutGizmoOperation::Translate;
     int assetPreviewWidth = 400;
     int assetPreviewHeight = 300;
     float assetPreviewOrbitYaw = 0.0f;
