@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 10u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 11u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -167,6 +167,11 @@ struct EditorProjectLayoutEdit {
     std::array<float, 3> scale{1.0f, 1.0f, 1.0f};
     bool suppressed = false;
     const char* reason = nullptr;
+};
+
+struct EditorProjectLayoutObjectCommand {
+    const char* stableId = nullptr;
+    const char* value = nullptr;
 };
 
 class IEditorProjectRuntime {
@@ -333,6 +338,70 @@ public:
         if (outError) {
             *outError =
                 "This project does not provide editable scene layout objects.";
+        }
+        return false;
+    }
+    virtual bool duplicateLayoutObject(
+        const char* stableId,
+        std::string* outCreatedStableId = nullptr,
+        std::string* outError = nullptr) {
+        (void)stableId;
+        if (outCreatedStableId) {
+            outCreatedStableId->clear();
+        }
+        if (outError) {
+            *outError =
+                "This project does not support prefab duplication.";
+        }
+        return false;
+    }
+    virtual bool deleteLayoutObject(
+        const char* stableId,
+        std::string* outError = nullptr) {
+        (void)stableId;
+        if (outError) {
+            *outError =
+                "This project does not support deleting scene objects.";
+        }
+        return false;
+    }
+    virtual bool renameLayoutObject(
+        const EditorProjectLayoutObjectCommand& command,
+        std::string* outError = nullptr) {
+        (void)command;
+        if (outError) {
+            *outError =
+                "This project does not support renaming scene objects.";
+        }
+        return false;
+    }
+    virtual bool reparentLayoutObject(
+        const EditorProjectLayoutObjectCommand& command,
+        std::string* outError = nullptr) {
+        (void)command;
+        if (outError) {
+            *outError =
+                "This project does not support hierarchy reparenting.";
+        }
+        return false;
+    }
+    virtual bool canUndoSceneEdit() const noexcept {
+        return false;
+    }
+    virtual bool canRedoSceneEdit() const noexcept {
+        return false;
+    }
+    virtual bool undoSceneEdit(
+        std::string* outError = nullptr) {
+        if (outError) {
+            *outError = "There is no scene edit to undo.";
+        }
+        return false;
+    }
+    virtual bool redoSceneEdit(
+        std::string* outError = nullptr) {
+        if (outError) {
+            *outError = "There is no scene edit to redo.";
         }
         return false;
     }

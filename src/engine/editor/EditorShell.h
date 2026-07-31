@@ -163,6 +163,8 @@ struct WorkspaceView {
     const std::vector<WorkspaceLayoutObject>*
         layoutObjects = nullptr;
     bool layoutOverlayVisible = false;
+    bool canUndoSceneEdit = false;
+    bool canRedoSceneEdit = false;
     const std::vector<WorkspaceAsset>* assets = nullptr;
     const WorkspaceAssetPreview* assetPreview = nullptr;
     const std::vector<WorkspaceScene>* scenes = nullptr;
@@ -218,6 +220,13 @@ struct EditorShellActions {
     bool layoutObjectCommitRequested = false;
     bool layoutObjectCancelRequested = false;
     bool layoutObjectResetRequested = false;
+    bool layoutObjectDuplicateRequested = false;
+    bool layoutObjectDeleteRequested = false;
+    bool layoutObjectRenameRequested = false;
+    bool layoutObjectReparentRequested = false;
+    bool undoSceneEditRequested = false;
+    bool redoSceneEditRequested = false;
+    std::string layoutObjectText;
     bool layoutOverlayVisibilityChanged = false;
     bool layoutOverlayVisible = false;
     std::array<float, 3> layoutTranslation{};

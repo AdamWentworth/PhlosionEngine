@@ -89,6 +89,22 @@ Inspector fields, gizmos, duplication, reparenting, and local-agent commands
 must all use the same typed transaction API. A tool must never mutate a private
 runtime representation that cannot be undone or serialized.
 
+The first command implementation is now active in Pokemon Autochess Route 1:
+
+- Duplicate creates a project-owned prefab instance bound to an immutable
+  imported prototype identity;
+- Delete suppresses an imported source object or removes an authored instance;
+- rename and hierarchy-folder changes are persistent metadata edits;
+- transform, duplicate, delete, rename, and reparent commits share one bounded
+  undo/redo history and atomic-save path;
+- hierarchy labels use natural numeric ordering, so numbered objects are shown
+  as `1, 2, ... 10, 11`.
+
+Route 1 currently serializes these records in version 3 of its project-owned
+layout overlay. This is a working adapter contract, not the final generic
+Phlosion scene document described below; migrating it is the next delivery
+step and must preserve the stable imported bindings and authored instance IDs.
+
 ## Parametric Terrain Workflow
 
 Raised platforms, ledges, and ramps should be authored as connected parametric
@@ -124,7 +140,8 @@ recipes remain tracked.
 2. Expose every stable imported prefab placement and honest source mesh group.
 3. Split the remaining evidence-backed repeated prop or foliage batches into
    individual stable instances. Route 1's 47 trees satisfy this step.
-4. Add create, duplicate, delete, rename, and reparent commands with undo/redo.
+4. **Complete:** add create-from-selected/duplicate, delete, rename, and
+   reparent commands with undo/redo.
 5. Persist a generic project-owned scene document rather than a Route 1-only
    delta schema.
 6. Add `RaisedPlatform`, `LedgeSpline`, and `Ramp` creation tools.

@@ -1387,6 +1387,86 @@ void refreshLayoutObjectViews(LoadedProject& project) {
     }
 }
 
+bool naturalNameLess(
+    std::string_view left,
+    std::string_view right) {
+    std::size_t leftIndex = 0u;
+    std::size_t rightIndex = 0u;
+    while (leftIndex < left.size() &&
+           rightIndex < right.size()) {
+        const unsigned char leftCharacter =
+            static_cast<unsigned char>(left[leftIndex]);
+        const unsigned char rightCharacter =
+            static_cast<unsigned char>(right[rightIndex]);
+        if (std::isdigit(leftCharacter) &&
+            std::isdigit(rightCharacter)) {
+            std::size_t leftEnd = leftIndex;
+            std::size_t rightEnd = rightIndex;
+            while (leftEnd < left.size() &&
+                   std::isdigit(
+                       static_cast<unsigned char>(
+                           left[leftEnd]))) {
+                ++leftEnd;
+            }
+            while (rightEnd < right.size() &&
+                   std::isdigit(
+                       static_cast<unsigned char>(
+                           right[rightEnd]))) {
+                ++rightEnd;
+            }
+            std::size_t leftDigits = leftIndex;
+            std::size_t rightDigits = rightIndex;
+            while (leftDigits < leftEnd &&
+                   left[leftDigits] == '0') {
+                ++leftDigits;
+            }
+            while (rightDigits < rightEnd &&
+                   right[rightDigits] == '0') {
+                ++rightDigits;
+            }
+            const std::size_t leftLength =
+                leftEnd - leftDigits;
+            const std::size_t rightLength =
+                rightEnd - rightDigits;
+            if (leftLength != rightLength) {
+                return leftLength < rightLength;
+            }
+            const int numericComparison =
+                left.substr(leftDigits, leftLength).compare(
+                    right.substr(rightDigits, rightLength));
+            if (numericComparison != 0) {
+                return numericComparison < 0;
+            }
+            const std::size_t leftRunLength =
+                leftEnd - leftIndex;
+            const std::size_t rightRunLength =
+                rightEnd - rightIndex;
+            if (leftRunLength != rightRunLength) {
+                return leftRunLength < rightRunLength;
+            }
+            leftIndex = leftEnd;
+            rightIndex = rightEnd;
+            continue;
+        }
+        const unsigned char leftFolded =
+            static_cast<unsigned char>(
+                std::tolower(leftCharacter));
+        const unsigned char rightFolded =
+            static_cast<unsigned char>(
+                std::tolower(rightCharacter));
+        if (leftFolded != rightFolded) {
+            return leftFolded < rightFolded;
+        }
+        ++leftIndex;
+        ++rightIndex;
+    }
+    if (leftIndex != left.size() ||
+        rightIndex != right.size()) {
+        return leftIndex == left.size();
+    }
+    return left < right;
+}
+
 void rebuildProjectHierarchy(
     LoadedProject& project,
     const engine::editor::WorkspaceScene& scene,
@@ -1509,7 +1589,9 @@ void rebuildProjectHierarchy(
                         folderRank(right->name);
                     return leftRank != rightRank
                         ? leftRank < rightRank
-                        : left->name < right->name;
+                        : naturalNameLess(
+                              left->name,
+                              right->name);
                 });
             for (auto& child : folder.children) {
                 project.hierarchyViews.push_back(
@@ -1536,10 +1618,11 @@ void rebuildProjectHierarchy(
                 folder.objects.end(),
                 [&](std::size_t left,
                     std::size_t right) {
-                    return project.layoutObjectViews[left]
-                               .displayName <
+                    return naturalNameLess(
+                        project.layoutObjectViews[left]
+                            .displayName,
                         project.layoutObjectViews[right]
-                            .displayName;
+                            .displayName);
                 });
             for (const std::size_t index :
                  folder.objects) {
@@ -3035,6 +3118,12 @@ int main(int argc, char** argv) {
                     .layoutOverlayVisible =
                         project->runtime->
                             layoutOverlayVisible(),
+                    .canUndoSceneEdit =
+                        project->runtime->
+                            canUndoSceneEdit(),
+                    .canRedoSceneEdit =
+                        project->runtime->
+                            canRedoSceneEdit(),
                     .assets = &project->assetViews,
                     .assetPreview =
                         selectedAssetPreviewIndex >= 0
@@ -3116,6 +3205,45 @@ int main(int argc, char** argv) {
                 project->runtime->setLayoutOverlayVisible(
                     actions.layoutOverlayVisible);
             }
+            const auto refreshSceneAuthoringViews =
+                [&]() {
+                    if (!project) {
+                        return;
+                    }
+                    refreshLayoutObjectViews(*project);
+                    const auto& activeScene =
+                        project->sceneViews[
+                            project->activeSceneIndex];
+                    rebuildProjectHierarchy(
+                        *project,
+                        activeScene,
+                        project->runtime->stats(),
+                        renderer.backendId()
+                            ? renderer.backendId()
+                            : "unknown");
+                };
+            if (project &&
+                (actions.undoSceneEditRequested ||
+                 actions.redoSceneEditRequested)) {
+                std::string sceneEditError;
+                const bool applied =
+                    actions.undoSceneEditRequested
+                    ? project->runtime->undoSceneEdit(
+                          &sceneEditError)
+                    : project->runtime->redoSceneEdit(
+                          &sceneEditError);
+                if (applied) {
+                    refreshSceneAuthoringViews();
+                    project->status =
+                        actions.undoSceneEditRequested
+                        ? "Scene edit undone and autosaved."
+                        : "Scene edit redone and autosaved.";
+                } else {
+                    project->status =
+                        "Scene history command failed: " +
+                        sceneEditError;
+                }
+            }
             if (project &&
                 actions.selectLayoutObjectIndex >= 0 &&
                 static_cast<std::size_t>(
@@ -3127,6 +3255,76 @@ int main(int argc, char** argv) {
                             actions.selectLayoutObjectIndex)];
                 project->runtime->selectLayoutObject(
                     object.stableId.c_str());
+            }
+            if (project &&
+                actions.editLayoutObjectIndex >= 0 &&
+                static_cast<std::size_t>(
+                    actions.editLayoutObjectIndex) <
+                    project->layoutObjectViews.size() &&
+                (actions.layoutObjectDuplicateRequested ||
+                 actions.layoutObjectDeleteRequested ||
+                 actions.layoutObjectRenameRequested ||
+                 actions.layoutObjectReparentRequested)) {
+                const auto object =
+                    project->layoutObjectViews[
+                        static_cast<std::size_t>(
+                            actions.editLayoutObjectIndex)];
+                std::string commandError;
+                std::string createdStableId;
+                bool applied = false;
+                if (actions.layoutObjectDuplicateRequested) {
+                    applied = project->runtime->
+                        duplicateLayoutObject(
+                            object.stableId.c_str(),
+                            &createdStableId,
+                            &commandError);
+                } else if (
+                    actions.layoutObjectDeleteRequested) {
+                    applied = project->runtime->
+                        deleteLayoutObject(
+                            object.stableId.c_str(),
+                            &commandError);
+                } else if (
+                    actions.layoutObjectRenameRequested) {
+                    applied = project->runtime->
+                        renameLayoutObject(
+                            engine::editor::
+                                EditorProjectLayoutObjectCommand{
+                                    .stableId =
+                                        object.stableId.c_str(),
+                                    .value =
+                                        actions.layoutObjectText.c_str()},
+                            &commandError);
+                } else {
+                    applied = project->runtime->
+                        reparentLayoutObject(
+                            engine::editor::
+                                EditorProjectLayoutObjectCommand{
+                                    .stableId =
+                                        object.stableId.c_str(),
+                                    .value =
+                                        actions.layoutObjectText.c_str()},
+                            &commandError);
+                }
+                if (applied) {
+                    refreshSceneAuthoringViews();
+                    if (!createdStableId.empty()) {
+                        project->runtime->selectLayoutObject(
+                            createdStableId.c_str());
+                    }
+                    project->status =
+                        actions.layoutObjectDuplicateRequested
+                        ? "Prefab instance duplicated and autosaved."
+                        : actions.layoutObjectDeleteRequested
+                        ? "Scene object deleted and autosaved."
+                        : actions.layoutObjectRenameRequested
+                        ? "Scene object renamed and autosaved."
+                        : "Scene object moved to a hierarchy folder and autosaved.";
+                } else {
+                    project->status =
+                        "Scene object command failed: " +
+                        commandError;
+                }
             }
             if (project &&
                 actions.editLayoutObjectIndex >= 0 &&

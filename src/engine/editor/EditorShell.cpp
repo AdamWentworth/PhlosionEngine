@@ -9,6 +9,7 @@
 #include <cctype>
 #include <cfloat>
 #include <cmath>
+#include <cstdio>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -531,6 +532,8 @@ struct EditorShell::Impl {
     bool assetPreviewShowSkeleton = false;
     std::string activeAssetPreviewId;
     std::string activeLayoutObjectId;
+    std::array<char, 256> layoutObjectName{};
+    std::array<char, 512> layoutObjectCategoryPath{};
     std::array<float, 3> layoutTranslation{};
     std::array<float, 3> layoutRotationDegrees{};
     std::array<float, 3> layoutScale{1.0f, 1.0f, 1.0f};
@@ -1133,8 +1136,45 @@ EditorShellActions EditorShell::drawWorkspace(
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Edit")) {
-            ImGui::MenuItem("Undo", "Ctrl+Z", false, false);
-            ImGui::MenuItem("Redo", "Ctrl+Y", false, false);
+            if (ImGui::MenuItem(
+                    "Undo Scene Edit",
+                    "Ctrl+Z",
+                    false,
+                    workspace.canUndoSceneEdit)) {
+                actions.undoSceneEditRequested = true;
+            }
+            if (ImGui::MenuItem(
+                    "Redo Scene Edit",
+                    "Ctrl+Y",
+                    false,
+                    workspace.canRedoSceneEdit)) {
+                actions.redoSceneEditRequested = true;
+            }
+            ImGui::Separator();
+            const bool hasLayoutSelection =
+                impl_->selectedLayoutObject >= 0 &&
+                workspace.layoutObjects &&
+                static_cast<std::size_t>(
+                    impl_->selectedLayoutObject) <
+                    workspace.layoutObjects->size();
+            if (ImGui::MenuItem(
+                    "Duplicate Selected Object",
+                    "Ctrl+D",
+                    false,
+                    hasLayoutSelection)) {
+                actions.editLayoutObjectIndex =
+                    impl_->selectedLayoutObject;
+                actions.layoutObjectDuplicateRequested = true;
+            }
+            if (ImGui::MenuItem(
+                    "Delete Selected Object",
+                    "Delete",
+                    false,
+                    hasLayoutSelection)) {
+                actions.editLayoutObjectIndex =
+                    impl_->selectedLayoutObject;
+                actions.layoutObjectDeleteRequested = true;
+            }
             ImGui::Separator();
             if (ImGui::MenuItem("Preferences...")) {
                 impl_->pendingRendererPreference =
@@ -1202,6 +1242,44 @@ EditorShellActions EditorShell::drawWorkspace(
         }
         ImGui::TextDisabled("%s", title.c_str());
         ImGui::EndMenuBar();
+    }
+    {
+        const ImGuiIO& io = ImGui::GetIO();
+        const bool hasLayoutSelection =
+            impl_->selectedLayoutObject >= 0 &&
+            workspace.layoutObjects &&
+            static_cast<std::size_t>(
+                impl_->selectedLayoutObject) <
+                workspace.layoutObjects->size();
+        if (!io.WantTextInput && io.KeyCtrl &&
+            ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
+            if (io.KeyShift) {
+                actions.redoSceneEditRequested =
+                    workspace.canRedoSceneEdit;
+            } else {
+                actions.undoSceneEditRequested =
+                    workspace.canUndoSceneEdit;
+            }
+        }
+        if (!io.WantTextInput && io.KeyCtrl &&
+            ImGui::IsKeyPressed(ImGuiKey_Y, false)) {
+            actions.redoSceneEditRequested =
+                workspace.canRedoSceneEdit;
+        }
+        if (!io.WantTextInput && io.KeyCtrl &&
+            ImGui::IsKeyPressed(ImGuiKey_D, false) &&
+            hasLayoutSelection) {
+            actions.editLayoutObjectIndex =
+                impl_->selectedLayoutObject;
+            actions.layoutObjectDuplicateRequested = true;
+        }
+        if (!io.WantTextInput &&
+            ImGui::IsKeyPressed(ImGuiKey_Delete, false) &&
+            hasLayoutSelection) {
+            actions.editLayoutObjectIndex =
+                impl_->selectedLayoutObject;
+            actions.layoutObjectDeleteRequested = true;
+        }
     }
     ImGui::End();
 
@@ -2165,6 +2243,9 @@ EditorShellActions EditorShell::drawWorkspace(
                 inspectedLayout->stableId ||
             (!impl_->layoutGizmoDragging &&
              !ImGui::IsAnyItemActive())) {
+            const bool changedSelection =
+                impl_->activeLayoutObjectId !=
+                    inspectedLayout->stableId;
             impl_->activeLayoutObjectId =
                 inspectedLayout->stableId;
             impl_->layoutTranslation =
@@ -2175,6 +2256,18 @@ EditorShellActions EditorShell::drawWorkspace(
                 inspectedLayout->scale;
             impl_->layoutSuppressed =
                 inspectedLayout->suppressed;
+            if (changedSelection) {
+                std::snprintf(
+                    impl_->layoutObjectName.data(),
+                    impl_->layoutObjectName.size(),
+                    "%s",
+                    inspectedLayout->displayName.c_str());
+                std::snprintf(
+                    impl_->layoutObjectCategoryPath.data(),
+                    impl_->layoutObjectCategoryPath.size(),
+                    "%s",
+                    inspectedLayout->categoryPath.c_str());
+            }
         }
         ImGui::TextUnformatted("Layout Override");
         ImGui::TextDisabled(
@@ -2189,6 +2282,49 @@ EditorShellActions EditorShell::drawWorkspace(
                       .c_str());
         ImGui::TextWrapped(
             "Values update live. Releasing a field or viewport gizmo autosaves the project override.");
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::InputText(
+            "Name",
+            impl_->layoutObjectName.data(),
+            impl_->layoutObjectName.size());
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            actions.editLayoutObjectIndex =
+                inspectedLayoutIndex;
+            actions.layoutObjectRenameRequested = true;
+            actions.layoutObjectText =
+                impl_->layoutObjectName.data();
+        }
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::InputText(
+            "Hierarchy folder",
+            impl_->layoutObjectCategoryPath.data(),
+            impl_->layoutObjectCategoryPath.size());
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            actions.editLayoutObjectIndex =
+                inspectedLayoutIndex;
+            actions.layoutObjectReparentRequested = true;
+            actions.layoutObjectText =
+                impl_->layoutObjectCategoryPath.data();
+        }
+        ImGui::Spacing();
+        if (ImGui::Button(
+                "Duplicate",
+                ImVec2(
+                    ImGui::GetContentRegionAvail().x * 0.5f - 4.0f,
+                    28.0f))) {
+            actions.editLayoutObjectIndex =
+                inspectedLayoutIndex;
+            actions.layoutObjectDuplicateRequested = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(
+                "Delete",
+                ImVec2(-1.0f, 28.0f))) {
+            actions.editLayoutObjectIndex =
+                inspectedLayoutIndex;
+            actions.layoutObjectDeleteRequested = true;
+        }
+        ImGui::Spacing();
         bool liveEditChanged = false;
         bool liveEditFinished = false;
         ImGui::SetNextItemWidth(-1.0f);
