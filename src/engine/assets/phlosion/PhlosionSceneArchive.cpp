@@ -115,6 +115,90 @@ bool encodeSceneArchive(
     return phrc::encode(archive, outBytes, outError);
 }
 
+bool encodePrefabArchive(
+    const std::string& prefabId,
+    const std::string& prefabKind,
+    const std::string& metadataJson,
+    std::vector<SceneArchiveFile> files,
+    std::vector<std::uint8_t>& outBytes,
+    std::string* outError) {
+    outBytes.clear();
+    if (prefabId.empty() || prefabKind.empty()) {
+        return fail(
+            outError,
+            "PHLO prefab ID and kind must not be empty.");
+    }
+    if (files.empty() || files.size() > kMaxArchiveFiles) {
+        return fail(outError, "PHLO prefab file count is invalid.");
+    }
+    nlohmann::json metadata;
+    try {
+        metadata = nlohmann::json::parse(metadataJson);
+    } catch (const std::exception& exception) {
+        return fail(
+            outError,
+            "PHLO prefab metadata is invalid: " +
+                std::string(exception.what()));
+    }
+    if (!metadata.is_object()) {
+        return fail(
+            outError,
+            "PHLO prefab metadata must be a JSON object.");
+    }
+    for (SceneArchiveFile& file : files) {
+        std::string path;
+        if (!normalizedVirtualPath(file.virtualPath, path)) {
+            return fail(
+                outError,
+                "PHLO contains an invalid virtual path: " +
+                    file.virtualPath);
+        }
+        file.virtualPath = std::move(path);
+    }
+    std::sort(
+        files.begin(),
+        files.end(),
+        [](const SceneArchiveFile& left, const SceneArchiveFile& right) {
+            return left.virtualPath < right.virtualPath;
+        });
+
+    phrc::Document archive;
+    archive.magic = phrc::magic("PHLO");
+    archive.schemaVersion = kSchemaVersion;
+    nlohmann::json manifest{
+        {"schema_version", kSchemaVersion},
+        {"container", "PHRC-1"},
+        {"cooker", "PhlosionForge"},
+        {"target_profile", "desktop-canonical-prefab"},
+        {"root_type", "Prefab"},
+        {"prefab_id", prefabId},
+        {"prefab_kind", prefabKind},
+        {"metadata", std::move(metadata)},
+        {"files", nlohmann::json::array()}};
+    std::string previousPath;
+    for (std::size_t index = 0u; index < files.size(); ++index) {
+        const std::string& path = files[index].virtualPath;
+        if (path == previousPath) {
+            return fail(
+                outError,
+                "PHLO contains a duplicate virtual path: " + path);
+        }
+        previousPath = path;
+        phrc::Chunk chunk;
+        chunk.type = phrc::magic("FILE");
+        chunk.alignment = 16u;
+        chunk.bytes = std::move(files[index].bytes);
+        manifest["files"].push_back({
+            {"path", path},
+            {"chunk", index},
+            {"bytes", chunk.bytes.size()},
+            {"content_hash", phrc::contentHash64(chunk.bytes)}});
+        archive.chunks.push_back(std::move(chunk));
+    }
+    archive.manifestJson = manifest.dump();
+    return phrc::encode(archive, outBytes, outError);
+}
+
 bool SceneArchiveStore::load(
     const IAssetStore& hostStore,
     const std::string& archiveVirtualPath,
@@ -228,6 +312,142 @@ bool SceneArchiveStore::readBytes(
 }
 
 bool SceneArchiveStore::exists(
+    const std::string& virtualPath) const {
+    std::string path;
+    return normalizedVirtualPath(virtualPath, path) &&
+        files_.contains(path);
+}
+
+bool PrefabArchiveStore::load(
+    const IAssetStore& hostStore,
+    const std::string& archiveVirtualPath,
+    std::string* outError) {
+    std::vector<std::uint8_t> bytes;
+    if (!hostStore.readBytes(archiveVirtualPath, bytes, outError)) {
+        return false;
+    }
+    return loadBytes(bytes, outError);
+}
+
+bool PrefabArchiveStore::loadBytes(
+    const std::vector<std::uint8_t>& archiveBytes,
+    std::string* outError) {
+    phrc::Document archive;
+    if (!phrc::decode(archiveBytes, archive, outError)) {
+        return false;
+    }
+    if (archive.magic != phrc::magic("PHLO") ||
+        archive.schemaVersion != kSchemaVersion) {
+        return fail(outError, "PHLO type or schema is unsupported.");
+    }
+    try {
+        const nlohmann::json manifest =
+            nlohmann::json::parse(archive.manifestJson);
+        if (manifest.at("schema_version").get<std::uint32_t>() !=
+                kSchemaVersion ||
+            manifest.at("root_type") != "Prefab") {
+            return fail(
+                outError,
+                "PHLO prefab archive manifest contract is unsupported.");
+        }
+        const auto& records = manifest.at("files");
+        if (!records.is_array() ||
+            records.empty() ||
+            records.size() > kMaxArchiveFiles) {
+            return fail(
+                outError,
+                "PHLO prefab manifest file count is invalid.");
+        }
+        std::map<std::string, std::vector<std::uint8_t>> loadedFiles;
+        for (const auto& record : records) {
+            std::string path;
+            const std::string storedPath =
+                record.at("path").get<std::string>();
+            const std::size_t chunkIndex =
+                record.at("chunk").get<std::size_t>();
+            const std::uint64_t expectedBytes =
+                record.at("bytes").get<std::uint64_t>();
+            const std::uint64_t expectedHash =
+                record.at("content_hash").get<std::uint64_t>();
+            if (!normalizedVirtualPath(storedPath, path) ||
+                chunkIndex >= archive.chunks.size() ||
+                archive.chunks[chunkIndex].type !=
+                    phrc::magic("FILE") ||
+                archive.chunks[chunkIndex].bytes.size() !=
+                    expectedBytes ||
+                phrc::contentHash64(
+                    archive.chunks[chunkIndex].bytes) != expectedHash ||
+                loadedFiles.contains(path)) {
+                return fail(
+                    outError,
+                    "PHLO prefab manifest contains an invalid file record.");
+            }
+            loadedFiles.emplace(
+                std::move(path),
+                archive.chunks[chunkIndex].bytes);
+        }
+        const std::string prefabId =
+            manifest.at("prefab_id").get<std::string>();
+        const std::string prefabKind =
+            manifest.at("prefab_kind").get<std::string>();
+        const auto& metadata = manifest.at("metadata");
+        if (prefabId.empty() ||
+            prefabKind.empty() ||
+            !metadata.is_object()) {
+            return fail(
+                outError,
+                "PHLO prefab identity or metadata is invalid.");
+        }
+        prefabId_ = prefabId;
+        prefabKind_ = prefabKind;
+        metadataJson_ = metadata.dump();
+        files_ = std::move(loadedFiles);
+        return true;
+    } catch (const std::exception& exception) {
+        return fail(
+            outError,
+            "Could not decode PHLO prefab manifest: " +
+                std::string(exception.what()));
+    }
+}
+
+bool PrefabArchiveStore::readText(
+    const std::string& virtualPath,
+    std::string& outText,
+    std::string* outError) const {
+    std::vector<std::uint8_t> bytes;
+    if (!readBytes(virtualPath, bytes, outError)) {
+        return false;
+    }
+    if (bytes.empty()) {
+        outText.clear();
+    } else {
+        outText.assign(
+            reinterpret_cast<const char*>(bytes.data()),
+            bytes.size());
+    }
+    return true;
+}
+
+bool PrefabArchiveStore::readBytes(
+    const std::string& virtualPath,
+    std::vector<std::uint8_t>& outBytes,
+    std::string* outError) const {
+    std::string path;
+    if (!normalizedVirtualPath(virtualPath, path)) {
+        return fail(outError, "Invalid PHLO virtual path.");
+    }
+    const auto found = files_.find(path);
+    if (found == files_.end()) {
+        return fail(
+            outError,
+            "PHLO asset does not exist: " + path);
+    }
+    outBytes = found->second;
+    return true;
+}
+
+bool PrefabArchiveStore::exists(
     const std::string& virtualPath) const {
     std::string path;
     return normalizedVirtualPath(virtualPath, path) &&

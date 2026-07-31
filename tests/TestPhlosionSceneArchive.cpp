@@ -68,5 +68,47 @@ bool test_phlosion_scene_archive_contract(std::string& outFail) {
         outFail = "archive integrity check accepted corruption";
         return false;
     }
+
+    files.clear();
+    files.push_back(
+        SceneArchiveFile{
+            "canonical/scene.json",
+            std::vector<std::uint8_t>{
+                '{', '}', '\n'}});
+    files.push_back(
+        SceneArchiveFile{
+            "canonical/geometry.bin",
+            {1u, 2u, 3u, 4u}});
+    encoded.clear();
+    if (!engine::assets::phlosion::encodePrefabArchive(
+            "route1/flower02",
+            "LgpeEnvironment",
+            R"({"canonical_root":"canonical","motion":"wind"})",
+            std::move(files),
+            encoded,
+            &error)) {
+        outFail = "prefab archive encode failed: " + error;
+        return false;
+    }
+    engine::assets::phlosion::PrefabArchiveStore prefab;
+    if (!prefab.loadBytes(encoded, &error) ||
+        prefab.prefabId() != "route1/flower02" ||
+        prefab.prefabKind() != "LgpeEnvironment" ||
+        prefab.fileCount() != 2u ||
+        prefab.metadataJson().find("canonical_root") ==
+            std::string::npos) {
+        outFail = "prefab archive identity did not round-trip: " + error;
+        return false;
+    }
+    decodedGeometry.clear();
+    if (!prefab.readBytes(
+            "canonical/geometry.bin",
+            decodedGeometry,
+            &error) ||
+        decodedGeometry !=
+            std::vector<std::uint8_t>({1u, 2u, 3u, 4u})) {
+        outFail = "prefab archive file bytes did not round-trip";
+        return false;
+    }
     return true;
 }
