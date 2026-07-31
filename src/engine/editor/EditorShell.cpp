@@ -3004,19 +3004,28 @@ EditorShellActions EditorShell::drawWorkspace(
                     inspectedLayout->categoryPath.c_str());
             }
         }
-        ImGui::TextUnformatted("Layout Override");
+        const bool gameplayBoard =
+            inspectedLayout->targetKind ==
+            "gameplay_board";
+        ImGui::TextUnformatted(
+            gameplayBoard
+                ? "Gameplay Board Layout"
+                : "Layout Override");
         ImGui::TextDisabled(
             "%s",
             inspectedLayout->coordinateSystem.c_str());
         ImGui::TextDisabled(
             "%s",
-            inspectedLayout->prefabAssetId.empty()
-                ? "Editable source mesh group"
-                : ("Prefab: " +
-                   inspectedLayout->prefabAssetId)
-                      .c_str());
+            gameplayBoard
+                ? "8x8 board with north and south bench rows"
+                : inspectedLayout->prefabAssetId.empty()
+                    ? "Editable source mesh group"
+                    : ("Prefab: " +
+                       inspectedLayout->prefabAssetId)
+                          .c_str());
         ImGui::TextWrapped(
             "Values update live. Releasing a field or viewport gizmo autosaves the project override.");
+        ImGui::BeginDisabled(gameplayBoard);
         ImGui::SetNextItemWidth(-1.0f);
         ImGui::InputText(
             "Name",
@@ -3041,7 +3050,9 @@ EditorShellActions EditorShell::drawWorkspace(
             actions.layoutObjectText =
                 impl_->layoutObjectCategoryPath.data();
         }
+        ImGui::EndDisabled();
         ImGui::Spacing();
+        ImGui::BeginDisabled(gameplayBoard);
         if (ImGui::Button(
                 "Duplicate",
                 ImVec2(
@@ -3062,12 +3073,15 @@ EditorShellActions EditorShell::drawWorkspace(
             writeSelectedLayoutIndices();
             actions.layoutObjectDeleteRequested = true;
         }
+        ImGui::EndDisabled();
         ImGui::Spacing();
         bool liveEditChanged = false;
         bool liveEditFinished = false;
         ImGui::SetNextItemWidth(-1.0f);
         liveEditChanged |= ImGui::DragFloat3(
-            "Translation",
+            gameplayBoard
+                ? "Board center (source cm)"
+                : "Translation",
             impl_->layoutTranslation.data(),
             1.0f,
             -100000.0f,
@@ -3075,6 +3089,7 @@ EditorShellActions EditorShell::drawWorkspace(
             "%.2f");
         liveEditFinished |=
             ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::BeginDisabled(gameplayBoard);
         ImGui::SetNextItemWidth(-1.0f);
         liveEditChanged |= ImGui::DragFloat3(
             "Rotation",
@@ -3085,22 +3100,68 @@ EditorShellActions EditorShell::drawWorkspace(
             "%.2f deg");
         liveEditFinished |=
             ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::EndDisabled();
         ImGui::SetNextItemWidth(-1.0f);
-        liveEditChanged |= ImGui::DragFloat3(
-            "Scale",
-            impl_->layoutScale.data(),
-            0.01f,
-            0.01f,
-            100.0f,
-            "%.3f");
-        liveEditFinished |=
-            ImGui::IsItemDeactivatedAfterEdit();
+        if (gameplayBoard) {
+            float tileSize = impl_->layoutScale[0];
+            if (ImGui::DragFloat(
+                    "Board tile size (m)",
+                    &tileSize,
+                    0.01f,
+                    0.25f,
+                    4.0f,
+                    "%.2f m")) {
+                impl_->layoutScale = {
+                    tileSize, tileSize, tileSize};
+                liveEditChanged = true;
+            }
+            liveEditFinished |=
+                ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::Button(
+                    "Match Route 1 Tiles (1.00 m)",
+                    ImVec2(-1.0f, 28.0f))) {
+                impl_->layoutScale =
+                    {1.0f, 1.0f, 1.0f};
+                liveEditChanged = true;
+                liveEditFinished = true;
+            }
+            if (ImGui::Button(
+                    "Snap Board Center To 100 cm Grid",
+                    ImVec2(-1.0f, 28.0f))) {
+                impl_->layoutTranslation[0] =
+                    std::round(
+                        impl_->layoutTranslation[0] /
+                        100.0f) *
+                    100.0f;
+                impl_->layoutTranslation[2] =
+                    std::round(
+                        impl_->layoutTranslation[2] /
+                        100.0f) *
+                    100.0f;
+                liveEditChanged = true;
+                liveEditFinished = true;
+            }
+            ImGui::TextWrapped(
+                "Move with the viewport gizmo or source-centimetre fields. One Route 1 terrain tile is 100 cm / 1.00 m.");
+        } else {
+            liveEditChanged |= ImGui::DragFloat3(
+                "Scale",
+                impl_->layoutScale.data(),
+                0.01f,
+                0.01f,
+                100.0f,
+                "%.3f");
+            liveEditFinished |=
+                ImGui::IsItemDeactivatedAfterEdit();
+        }
+        ImGui::BeginDisabled(gameplayBoard);
         if (ImGui::Checkbox(
                 "Suppress in gameplay layout",
                 &impl_->layoutSuppressed)) {
             liveEditChanged = true;
             liveEditFinished = true;
         }
+        ImGui::EndDisabled();
         if (liveEditChanged || liveEditFinished) {
             actions.editLayoutObjectIndex =
                 inspectedLayoutIndex;
@@ -3119,7 +3180,9 @@ EditorShellActions EditorShell::drawWorkspace(
         }
         ImGui::Spacing();
         ImGui::TextDisabled(
-            "Viewport: click the green marker, then use Move [W], Rotate [E], or Scale [R].");
+            gameplayBoard
+                ? "Viewport: select the board marker and use Move [W]; Scale [R] changes tile size."
+                : "Viewport: click the green marker, then use Move [W], Rotate [E], or Scale [R].");
         ImGui::Spacing();
         if (liveEditFinished) {
             impl_->activeLayoutObjectId.clear();
@@ -3127,7 +3190,9 @@ EditorShellActions EditorShell::drawWorkspace(
         ImGui::BeginDisabled(
             !inspectedLayout->hasOverride);
         if (ImGui::Button(
-                "Reset To Canonical Source",
+                gameplayBoard
+                    ? "Reset Board Registration"
+                    : "Reset To Canonical Source",
                 ImVec2(-1.0f, 28.0f))) {
             actions.editLayoutObjectIndex =
                 inspectedLayoutIndex;
