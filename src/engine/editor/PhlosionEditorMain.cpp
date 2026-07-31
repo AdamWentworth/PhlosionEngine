@@ -888,6 +888,58 @@ discoverCookedAssets(
     return assets;
 }
 
+void appendProjectAssets(
+    engine::editor::IEditorProjectRuntime& runtime,
+    std::vector<engine::editor::WorkspaceAsset>& assets) {
+    const std::size_t projectAssetCount =
+        runtime.assetCount();
+    assets.reserve(assets.size() + projectAssetCount);
+    for (std::size_t index = 0u;
+         index < projectAssetCount;
+         ++index) {
+        const auto asset = runtime.asset(index);
+        if (!asset.id || !asset.displayName ||
+            !asset.typeName || !asset.path) {
+            continue;
+        }
+        const std::string description =
+            asset.description ? asset.description : "";
+        assets.push_back(
+            engine::editor::WorkspaceAsset{
+                .id = asset.id,
+                .displayName = asset.displayName,
+                .typeName = asset.typeName,
+                .category =
+                    asset.category
+                        ? asset.category
+                        : "Project Assets",
+                .path = asset.path,
+                .previewable3d = asset.previewable,
+                .properties = {
+                    {"Asset type", asset.typeName},
+                    {"Contains",
+                     description.empty()
+                         ? "Project-defined runtime asset"
+                         : description},
+                    {"Format", "Project runtime"},
+                    {"Project path", asset.path},
+                }});
+    }
+    std::stable_sort(
+        assets.begin(),
+        assets.end(),
+        [](const engine::editor::WorkspaceAsset& left,
+           const engine::editor::WorkspaceAsset& right) {
+            if (left.category != right.category) {
+                return left.category < right.category;
+            }
+            if (left.displayName != right.displayName) {
+                return left.displayName < right.displayName;
+            }
+            return left.path < right.path;
+        });
+}
+
 std::vector<engine::editor::WorkspaceHierarchyItem>
 buildReadOnlyHierarchy(
     const engine::editor::ProjectDescriptor& descriptor,
@@ -1057,6 +1109,16 @@ void refreshAssetPreviewView(LoadedProject& project) {
     }
     project.assetPreviewView =
         engine::editor::WorkspaceAssetPreview{
+            .kind =
+                info.kind ==
+                        engine::editor::
+                            EditorProjectAssetPreviewKind::
+                                VisualEffect
+                    ? engine::editor::
+                          WorkspaceAssetPreviewKind::
+                              VisualEffect
+                    : engine::editor::
+                          WorkspaceAssetPreviewKind::Model,
             .assetId =
                 info.assetId ? info.assetId : "",
             .status =
@@ -1066,6 +1128,8 @@ void refreshAssetPreviewView(LoadedProject& project) {
             .materialCount = info.materialCount,
             .textureCount = info.textureCount,
             .boneCount = info.boneCount,
+            .activeElementCount =
+                info.activeElementCount,
             .animationIndex = info.animationIndex,
             .animationTimeSeconds =
                 info.animationTimeSeconds,
@@ -1106,7 +1170,7 @@ bool selectAssetPreview(
     if (assetIndex < 0 ||
         static_cast<std::size_t>(assetIndex) >=
             project.assetViews.size()) {
-        outError = "Prefab asset index is out of range.";
+        outError = "Asset index is out of range.";
         return false;
     }
     const auto& asset =
@@ -1114,15 +1178,21 @@ bool selectAssetPreview(
             assetIndex)];
     if (!asset.previewable3d) {
         outError =
-            "Asset is not a previewable cooked prefab: " +
+            "Asset does not provide an inspector preview: " +
             asset.displayName;
         return false;
     }
-    const std::filesystem::path assetPath =
-        (project.root / asset.path).lexically_normal();
+    const bool virtualPath =
+        asset.path.find("://") != std::string::npos;
+    const std::string resolvedAssetPath =
+        virtualPath
+            ? asset.path
+            : (project.root / asset.path)
+                  .lexically_normal()
+                  .string();
     if (!project.runtime->selectAssetPreview(
             asset.id.c_str(),
-            assetPath.string().c_str(),
+            resolvedAssetPath.c_str(),
             &outError)) {
         return false;
     }
@@ -1130,7 +1200,7 @@ bool selectAssetPreview(
     refreshAssetPreviewView(project);
     resetAssetPreviewCamera(camera, project.assetPreviewView);
     project.status =
-        "Previewing cooked prefab: " +
+        "Previewing " + asset.typeName + ": " +
         asset.displayName + ".";
     return true;
 }
@@ -1340,6 +1410,9 @@ std::unique_ptr<LoadedProject> loadProject(
     if (!loaded->runtime->open(openContext, &outError)) {
         return nullptr;
     }
+    appendProjectAssets(
+        *loaded->runtime,
+        loaded->assetViews);
 
     const glm::vec3 cameraPosition = camera.getPosition();
     const glm::vec3 cameraForward = camera.getDirection();

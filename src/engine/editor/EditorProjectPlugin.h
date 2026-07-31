@@ -12,7 +12,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 4u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 5u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -61,6 +61,21 @@ struct EditorProjectGamePreview {
     const char* description = nullptr;
 };
 
+struct EditorProjectAsset {
+    const char* id = nullptr;
+    const char* displayName = nullptr;
+    const char* typeName = nullptr;
+    const char* category = nullptr;
+    const char* path = nullptr;
+    const char* description = nullptr;
+    bool previewable = false;
+};
+
+enum class EditorProjectAssetPreviewKind : std::uint8_t {
+    Model = 0u,
+    VisualEffect = 1u,
+};
+
 struct EditorProjectGamePreviewContext {
     IRenderBackend* renderer = nullptr;
     Camera3D* camera = nullptr;
@@ -82,6 +97,8 @@ struct EditorProjectAssetPreviewOptions {
 };
 
 struct EditorProjectAssetPreviewInfo {
+    EditorProjectAssetPreviewKind kind =
+        EditorProjectAssetPreviewKind::Model;
     const char* assetId = nullptr;
     const char* status = nullptr;
     std::uint32_t vertexCount = 0u;
@@ -89,6 +106,7 @@ struct EditorProjectAssetPreviewInfo {
     std::uint32_t materialCount = 0u;
     std::uint32_t textureCount = 0u;
     std::uint32_t boneCount = 0u;
+    std::uint32_t activeElementCount = 0u;
     std::size_t animationCount = 0u;
     int animationIndex = -1;
     float animationTimeSeconds = 0.0f;
@@ -163,6 +181,14 @@ public:
         return false;
     }
 
+    virtual std::size_t assetCount() const noexcept {
+        return 0u;
+    }
+    virtual EditorProjectAsset asset(
+        std::size_t index) const noexcept {
+        (void)index;
+        return {};
+    }
     virtual bool selectAssetPreview(
         const char* assetId,
         const char* assetPath,

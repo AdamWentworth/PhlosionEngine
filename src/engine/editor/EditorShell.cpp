@@ -1347,7 +1347,7 @@ EditorShellActions EditorShell::drawWorkspace(
                 previewMatches &&
                         !workspace.assetPreview->status.empty()
                     ? workspace.assetPreview->status.c_str()
-                    : "Loading cooked prefab preview...");
+                    : "Loading asset preview...");
         } else {
             const auto& preview =
                 *workspace.assetPreview;
@@ -1375,7 +1375,12 @@ EditorShellActions EditorShell::drawWorkspace(
                 optionsChanged = true;
             }
             ImGui::SameLine();
-            if (ImGui::Button("Restart")) {
+            if (ImGui::Button(
+                    preview.kind ==
+                            WorkspaceAssetPreviewKind::
+                                VisualEffect
+                        ? "Replay"
+                        : "Restart")) {
                 actions.assetPreviewSeekRequested = true;
                 actions.assetPreviewSeekTimeSeconds = 0.0f;
                 optionsChanged = true;
@@ -1440,51 +1445,54 @@ EditorShellActions EditorShell::drawWorkspace(
 
             ImGui::Spacing();
             const auto* animations = preview.animations;
-            const char* animationLabel = "Bind pose";
-            if (animations &&
-                impl_->assetPreviewAnimationIndex >= 0 &&
-                static_cast<std::size_t>(
-                    impl_->assetPreviewAnimationIndex) <
-                    animations->size()) {
-                animationLabel =
-                    (*animations)[static_cast<std::size_t>(
-                        impl_->assetPreviewAnimationIndex)]
-                        .name.c_str();
-            }
-            ImGui::SetNextItemWidth(-1.0f);
-            if (ImGui::BeginCombo(
-                    "##PrefabAnimation",
-                    animationLabel)) {
-                if (ImGui::Selectable(
-                        "Bind pose",
-                        impl_->assetPreviewAnimationIndex < 0)) {
-                    impl_->assetPreviewAnimationIndex = -1;
-                    optionsChanged = true;
+            if (preview.kind ==
+                WorkspaceAssetPreviewKind::Model) {
+                const char* animationLabel = "Bind pose";
+                if (animations &&
+                    impl_->assetPreviewAnimationIndex >= 0 &&
+                    static_cast<std::size_t>(
+                        impl_->assetPreviewAnimationIndex) <
+                        animations->size()) {
+                    animationLabel =
+                        (*animations)[static_cast<std::size_t>(
+                            impl_->assetPreviewAnimationIndex)]
+                            .name.c_str();
                 }
-                if (animations) {
-                    for (std::size_t index = 0u;
-                         index < animations->size();
-                         ++index) {
-                        const auto& animation =
-                            (*animations)[index];
-                        const std::string label =
-                            animation.name +
-                            "  (" +
-                            std::to_string(
-                                animation.durationSeconds) +
-                            "s)";
-                        if (ImGui::Selectable(
-                                label.c_str(),
-                                impl_->
-                                        assetPreviewAnimationIndex ==
-                                    static_cast<int>(index))) {
-                            impl_->assetPreviewAnimationIndex =
-                                static_cast<int>(index);
-                            optionsChanged = true;
+                ImGui::SetNextItemWidth(-1.0f);
+                if (ImGui::BeginCombo(
+                        "##PrefabAnimation",
+                        animationLabel)) {
+                    if (ImGui::Selectable(
+                            "Bind pose",
+                            impl_->assetPreviewAnimationIndex < 0)) {
+                        impl_->assetPreviewAnimationIndex = -1;
+                        optionsChanged = true;
+                    }
+                    if (animations) {
+                        for (std::size_t index = 0u;
+                             index < animations->size();
+                             ++index) {
+                            const auto& animation =
+                                (*animations)[index];
+                            const std::string label =
+                                animation.name +
+                                "  (" +
+                                std::to_string(
+                                    animation.durationSeconds) +
+                                "s)";
+                            if (ImGui::Selectable(
+                                    label.c_str(),
+                                    impl_->
+                                            assetPreviewAnimationIndex ==
+                                        static_cast<int>(index))) {
+                                impl_->assetPreviewAnimationIndex =
+                                    static_cast<int>(index);
+                                optionsChanged = true;
+                            }
                         }
                     }
+                    ImGui::EndCombo();
                 }
-                ImGui::EndCombo();
             }
             ImGui::SetNextItemWidth(-1.0f);
             if (ImGui::SliderFloat(
@@ -1519,69 +1527,82 @@ EditorShellActions EditorShell::drawWorkspace(
                     preview.animationDurationSeconds);
             }
 
-            if (ImGui::Checkbox(
-                    "Mesh",
-                    &impl_->assetPreviewShowMesh)) {
-                optionsChanged = true;
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip(
-                    "Show or hide the model geometry.");
-            }
-            ImGui::SameLine();
-            if (ImGui::Checkbox(
-                    "Materials",
-                    &impl_->assetPreviewShowMaterials)) {
-                optionsChanged = true;
-                if (!impl_->assetPreviewShowMaterials) {
-                    impl_->assetPreviewShowTextures = false;
+            if (preview.kind ==
+                WorkspaceAssetPreviewKind::Model) {
+                if (ImGui::Checkbox(
+                        "Mesh",
+                        &impl_->assetPreviewShowMesh)) {
+                    optionsChanged = true;
                 }
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip(
-                    "Use the cooked material shaders and factors. "
-                    "Off shows neutral geometry.");
-            }
-            ImGui::SameLine();
-            ImGui::BeginDisabled(
-                !impl_->assetPreviewShowMaterials);
-            if (ImGui::Checkbox(
-                    "Textures",
-                    &impl_->assetPreviewShowTextures)) {
-                optionsChanged = true;
-            }
-            ImGui::EndDisabled();
-            if (ImGui::IsItemHovered(
-                    ImGuiHoveredFlags_AllowWhenDisabled)) {
-                ImGui::SetTooltip(
-                    "Use the image maps referenced by the cooked "
-                    "materials. Textures require Materials.");
-            }
-            ImGui::TextDisabled(
-                "Materials: shaders/factors   Textures: image maps");
-            if (ImGui::Checkbox(
-                    "Wireframe",
-                    &impl_->assetPreviewShowWireframe)) {
-                optionsChanged = true;
-            }
-            ImGui::SameLine();
-            if (ImGui::Checkbox(
-                    "Skeleton",
-                    &impl_->assetPreviewShowSkeleton)) {
-                optionsChanged = true;
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip(
+                        "Show or hide the model geometry.");
+                }
+                ImGui::SameLine();
+                if (ImGui::Checkbox(
+                        "Materials",
+                        &impl_->assetPreviewShowMaterials)) {
+                    optionsChanged = true;
+                    if (!impl_->assetPreviewShowMaterials) {
+                        impl_->assetPreviewShowTextures = false;
+                    }
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip(
+                        "Use the cooked material shaders and factors. "
+                        "Off shows neutral geometry.");
+                }
+                ImGui::SameLine();
+                ImGui::BeginDisabled(
+                    !impl_->assetPreviewShowMaterials);
+                if (ImGui::Checkbox(
+                        "Textures",
+                        &impl_->assetPreviewShowTextures)) {
+                    optionsChanged = true;
+                }
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(
+                        ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip(
+                        "Use the image maps referenced by the cooked "
+                        "materials. Textures require Materials.");
+                }
+                ImGui::TextDisabled(
+                    "Materials: shaders/factors   Textures: image maps");
+                if (ImGui::Checkbox(
+                        "Wireframe",
+                        &impl_->assetPreviewShowWireframe)) {
+                    optionsChanged = true;
+                }
+                ImGui::SameLine();
+                if (ImGui::Checkbox(
+                        "Skeleton",
+                        &impl_->assetPreviewShowSkeleton)) {
+                    optionsChanged = true;
+                }
             }
 
             ImGui::Separator();
-            ImGui::TextDisabled(
-                "%u vertices  %u triangles",
-                preview.vertexCount,
-                preview.triangleCount);
-            ImGui::TextDisabled(
-                "%u materials  %u textures  %u bones  %zu clips",
-                preview.materialCount,
-                preview.textureCount,
-                preview.boneCount,
-                animations ? animations->size() : 0u);
+            if (preview.kind ==
+                WorkspaceAssetPreviewKind::VisualEffect) {
+                ImGui::TextDisabled(
+                    "%u active visual element%s",
+                    preview.activeElementCount,
+                    preview.activeElementCount == 1u
+                        ? ""
+                        : "s");
+            } else {
+                ImGui::TextDisabled(
+                    "%u vertices  %u triangles",
+                    preview.vertexCount,
+                    preview.triangleCount);
+                ImGui::TextDisabled(
+                    "%u materials  %u textures  %u bones  %zu clips",
+                    preview.materialCount,
+                    preview.textureCount,
+                    preview.boneCount,
+                    animations ? animations->size() : 0u);
+            }
             if (!preview.status.empty()) {
                 ImGui::TextWrapped(
                     "%s",
@@ -1620,13 +1641,13 @@ EditorShellActions EditorShell::drawWorkspace(
     ImGui::SetNextItemWidth(-1.0f);
     ImGui::InputTextWithHint(
         "##AssetFilter",
-        "Filter cooked assets...",
+        "Filter assets...",
         impl_->assetFilter.data(),
         impl_->assetFilter.size());
     ImGui::Separator();
     if (!workspace.assets || workspace.assets->empty()) {
         ImGui::TextWrapped(
-            "No cooked assets were discovered in the project content mounts.");
+            "No assets were discovered for this project.");
     } else if (ImGui::BeginTable(
                    "AssetTable",
                    2,

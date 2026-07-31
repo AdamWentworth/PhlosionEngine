@@ -54,7 +54,14 @@ struct WorkspaceAssetAnimation {
     float durationSeconds = 0.0f;
 };
 
+enum class WorkspaceAssetPreviewKind {
+    Model,
+    VisualEffect,
+};
+
 struct WorkspaceAssetPreview {
+    WorkspaceAssetPreviewKind kind =
+        WorkspaceAssetPreviewKind::Model;
     std::string assetId;
     std::string status;
     std::uint32_t vertexCount = 0u;
@@ -62,6 +69,7 @@ struct WorkspaceAssetPreview {
     std::uint32_t materialCount = 0u;
     std::uint32_t textureCount = 0u;
     std::uint32_t boneCount = 0u;
+    std::uint32_t activeElementCount = 0u;
     int animationIndex = -1;
     float animationTimeSeconds = 0.0f;
     float animationDurationSeconds = 0.0f;

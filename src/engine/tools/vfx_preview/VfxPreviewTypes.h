@@ -4,6 +4,7 @@
 
 class Camera3D;
 class TextRenderer;
+class IRenderBackend;
 
 namespace engine::tools::vfx_preview {
 
@@ -34,6 +35,7 @@ struct PreviewFrameContext {
     int surfaceWidth = 0;
     int surfaceHeight = 0;
     TextRenderer* overlayText = nullptr;
+    IRenderBackend* renderer = nullptr;
 };
 
 } // namespace engine::tools::vfx_preview
