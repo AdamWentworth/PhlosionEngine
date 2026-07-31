@@ -29,6 +29,7 @@ struct ProjectScene {
     std::string displayName;
     std::string category;
     std::string environmentAssetId;
+    std::filesystem::path authoredScenePath;
     std::filesystem::path runtimePath;
     std::string status;
 };
@@ -86,6 +87,12 @@ bool resolveStartupScenePath(
 bool resolveScenePath(
     const std::filesystem::path& descriptorPath,
     const ProjectDescriptor& descriptor,
+    const ProjectScene& scene,
+    std::filesystem::path& out,
+    std::string* outError = nullptr);
+
+bool resolveAuthoredScenePath(
+    const std::filesystem::path& descriptorPath,
     const ProjectScene& scene,
     std::filesystem::path& out,
     std::string* outError = nullptr);

@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 11u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 12u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -61,6 +61,7 @@ struct EditorProjectSceneContext {
     const char* environmentAssetId = nullptr;
     const char* environmentKind = nullptr;
     const char* environmentPath = nullptr;
+    const char* authoredScenePath = nullptr;
     const char* runtimePath = nullptr;
     const char* status = nullptr;
 };

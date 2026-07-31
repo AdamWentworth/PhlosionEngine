@@ -202,6 +202,10 @@ bool parseProjectDescriptor(
             scene.environmentAssetId =
                 sceneJson.at("environment_asset_id")
                     .get<std::string>();
+            scene.authoredScenePath =
+                sceneJson.value(
+                    "authored_scene_path",
+                    std::string{});
             scene.runtimePath =
                 sceneJson.value(
                     "runtime_path",
@@ -214,11 +218,14 @@ bool parseProjectDescriptor(
                 scene.displayName.empty() ||
                 scene.environmentAssetId.empty() ||
                 scene.status.empty() ||
+                (!scene.authoredScenePath.empty() &&
+                 !isPortableRelativePath(
+                     scene.authoredScenePath)) ||
                 (!scene.runtimePath.empty() &&
                  !isPortableRelativePath(
                      scene.runtimePath))) {
                 return fail(
-                    "Project scenes require a scene id, display name, environment asset id, status, and an optional portable runtime path.",
+                    "Project scenes require a scene id, display name, environment asset id, status, and optional portable authored-scene and runtime paths.",
                     outError);
             }
             const auto environment = std::find_if(
@@ -498,6 +505,41 @@ bool resolveScenePath(
     }
     out = (descriptorDirectory / mount->root /
            environment->path)
+              .lexically_normal();
+    if (outError) {
+        outError->clear();
+    }
+    return true;
+}
+
+bool resolveAuthoredScenePath(
+    const std::filesystem::path& descriptorPath,
+    const ProjectScene& scene,
+    std::filesystem::path& out,
+    std::string* outError) {
+    out.clear();
+    if (scene.authoredScenePath.empty()) {
+        if (outError) {
+            outError->clear();
+        }
+        return true;
+    }
+    if (!isPortableRelativePath(scene.authoredScenePath)) {
+        return fail(
+            "Authored scene path must stay inside the project.",
+            outError);
+    }
+    std::error_code error;
+    const auto descriptorDirectory =
+        std::filesystem::absolute(descriptorPath, error)
+            .parent_path();
+    if (error) {
+        return fail(
+            "Could not resolve project descriptor directory: " +
+                error.message(),
+            outError);
+    }
+    out = (descriptorDirectory / scene.authoredScenePath)
               .lexically_normal();
     if (outError) {
         outError->clear();

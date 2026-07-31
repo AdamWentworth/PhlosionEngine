@@ -23,7 +23,7 @@ changes compose over that base and do not rewrite the imported asset.
 ## Document Model
 
 The editor document is not the cooked `.phscene`. It is a project-owned scene
-description whose nodes have stable UUIDs, display names, parent UUIDs, sibling
+description whose nodes have stable IDs, display names, parent IDs, sibling
 order, enabled state, and a set of typed components. Hierarchy folders are
 ordinary organizational nodes with no runtime transform or rendering behavior.
 
@@ -100,10 +100,27 @@ The first command implementation is now active in Pokemon Autochess Route 1:
 - hierarchy labels use natural numeric ordering, so numbered objects are shown
   as `1, 2, ... 10, 11`.
 
-Route 1 currently serializes these records in version 3 of its project-owned
-layout overlay. This is a working adapter contract, not the final generic
-Phlosion scene document described below; migrating it is the next delivery
-step and must preserve the stable imported bindings and authored instance IDs.
+Route 1 now persists these records in the Engine-owned
+`phlosion_authored_scene` schema version 1. Its tracked
+`scenes/route1.scene.json` composes over the immutable cooked Route 1
+environment. `phlosion.project.json` declares that document with
+`authored_scene_path`; the editor passes the resolved path through the generic
+project-plugin scene context.
+
+The implemented version-1 component vocabulary is deliberately narrow:
+
+- folder nodes have no components;
+- object nodes have `transform` plus exactly one of
+  `imported_source_binding` or `prefab_instance`;
+- imported bindings include immutable target kind, logical name, record index,
+  and expected source transform;
+- prefab bindings include prototype node ID, `.phlo` asset ID, and creation
+  transform.
+
+The Engine parser rejects duplicate IDs, invalid transforms, missing or
+non-folder parents, hierarchy cycles, missing prefab prototypes, and malformed
+component combinations. Source-specific adapters add stronger rules such as
+Route 1's exact stable-ID derivation and `Environment/` hierarchy boundary.
 
 ## Parametric Terrain Workflow
 
@@ -126,9 +143,12 @@ components do not hard-code Pokemon rules.
 ## Cook Boundary
 
 The authored document and referenced `.phlo` resources are tracked game
-inputs. Forge resolves them into a deterministic `.phscene`, derived collision
-and navigation data, and optional packaged `.phv` payloads. Runtime loading
-never needs editor-only hierarchy folders or source-import metadata.
+inputs. Forge validates and hash-tracks the authored document today while the
+game/editor adapter composes it over the immutable `.phscene` at load time.
+The later cook step will resolve that same document into a deterministic
+runtime `.phscene`, derived collision/navigation data, and optional packaged
+`.phv` payloads. That flattening is an optimization and deployment boundary;
+it must not create a second authoring schema.
 
 Private source dumps remain outside public repositories. Their imported/cooked
 outputs follow the owning game's asset policy; provenance hashes and conversion
@@ -142,8 +162,8 @@ recipes remain tracked.
    individual stable instances. Route 1's 47 trees satisfy this step.
 4. **Complete:** add create-from-selected/duplicate, delete, rename, and
    reparent commands with undo/redo.
-5. Persist a generic project-owned scene document rather than a Route 1-only
-   delta schema.
+5. **Complete:** persist a generic project-owned scene document rather than a
+   Route 1-only delta schema.
 6. Add `RaisedPlatform`, `LedgeSpline`, and `Ramp` creation tools.
 7. Generate collision/navigation and cook the authored composition.
 8. Qualify editing, undo, recook stability, and renderer parity with Pokemon

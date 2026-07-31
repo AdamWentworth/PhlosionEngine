@@ -41,6 +41,7 @@ bool test_project_descriptor_contract(std::string& outFail) {
                 "display_name": "Test Route",
                 "category": "Routes",
                 "environment_asset_id": "environments/test",
+                "authored_scene_path": "scenes/test.scene.json",
                 "status": "implemented"
             },
             {
@@ -104,6 +105,8 @@ bool test_project_descriptor_contract(std::string& outFail) {
         project.environments.size() != 2u ||
         project.scenes.size() != 3u ||
         project.scenes.front().displayName != "Test Route" ||
+        project.scenes.front().authoredScenePath !=
+            "scenes/test.scene.json" ||
         project.scenes[0].environmentAssetId !=
             project.scenes[1].environmentAssetId ||
         project.playConfigurations.size() != 1u ||
@@ -113,6 +116,20 @@ bool test_project_descriptor_contract(std::string& outFail) {
         project.privateAssetDepotEnvironment !=
             "PHLOSION_ASSET_DEPOT") {
         outFail = "descriptor fields changed during parsing";
+        return false;
+    }
+
+    std::filesystem::path authoredScenePath;
+    if (!engine::editor::resolveAuthoredScenePath(
+            "D:/Projects/TestGame/phlosion.project.json",
+            project.scenes.front(),
+            authoredScenePath,
+            &error) ||
+        authoredScenePath.generic_string() !=
+            "D:/Projects/TestGame/scenes/test.scene.json") {
+        outFail =
+            "authored scene path resolution failed: " + error +
+            " path=" + authoredScenePath.generic_string();
         return false;
     }
 

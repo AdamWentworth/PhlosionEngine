@@ -121,6 +121,7 @@ struct WorkspaceScene {
     std::string environmentDisplayName;
     std::string environmentKind;
     std::string path;
+    std::string authoredScenePath;
     std::string runtimePath;
     std::string status;
     bool startup = false;
