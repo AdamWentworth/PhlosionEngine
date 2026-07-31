@@ -1,15 +1,18 @@
 #pragma once
 
 #include "engine/editor/ProjectDescriptor.h"
+#include "engine/input/InputEvent.h"
 #include "engine/render/IRenderBackend.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <string>
 
+class Camera3D;
+
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 1u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 2u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -51,6 +54,20 @@ struct EditorProjectStats {
     std::size_t archiveFileCount = 0u;
 };
 
+struct EditorProjectGamePreview {
+    const char* id = nullptr;
+    const char* displayName = nullptr;
+    const char* group = nullptr;
+    const char* description = nullptr;
+};
+
+struct EditorProjectGamePreviewContext {
+    IRenderBackend* renderer = nullptr;
+    Camera3D* camera = nullptr;
+    int surfaceWidth = 1280;
+    int surfaceHeight = 720;
+};
+
 class IEditorProjectRuntime {
 public:
     virtual ~IEditorProjectRuntime() = default;
@@ -66,6 +83,50 @@ public:
         const EditorProjectRenderContext& context) = 0;
     virtual EditorProjectStats stats() const = 0;
     virtual const char* status() const noexcept = 0;
+
+    virtual std::size_t gamePreviewCount() const noexcept {
+        return 0u;
+    }
+    virtual EditorProjectGamePreview gamePreview(
+        std::size_t index) const noexcept {
+        (void)index;
+        return {};
+    }
+    virtual bool initializeGamePreview(
+        const EditorProjectGamePreviewContext& context,
+        std::string* outError = nullptr) {
+        (void)context;
+        if (outError) {
+            *outError =
+                "This project does not provide an embedded game preview.";
+        }
+        return false;
+    }
+    virtual bool selectGamePreview(
+        const char* id,
+        std::string* outError = nullptr) {
+        (void)id;
+        if (outError) {
+            *outError =
+                "This project does not provide an embedded game preview.";
+        }
+        return false;
+    }
+    virtual void resetGamePreview() {}
+    virtual void fixedUpdateGamePreview(float deltaSeconds) {
+        (void)deltaSeconds;
+    }
+    virtual void renderGamePreview(
+        const EditorProjectRenderContext& context) {
+        (void)context;
+    }
+    virtual void handleGamePreviewInput(
+        const InputEvent& event) {
+        (void)event;
+    }
+    virtual bool gamePreviewReady() const noexcept {
+        return false;
+    }
 };
 
 using EditorProjectPluginAbiVersionFn = std::uint32_t (*)();

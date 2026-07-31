@@ -18,6 +18,26 @@ enum class EditorPlayState {
     Paused,
 };
 
+enum class EditorViewportKind {
+    Scene,
+    Game,
+};
+
+struct WorkspaceScene {
+    std::string assetId;
+    std::string displayName;
+    std::string category;
+    std::string path;
+    bool startup = false;
+};
+
+struct WorkspaceGamePreview {
+    std::string id;
+    std::string displayName;
+    std::string group;
+    std::string description;
+};
+
 struct WorkspacePlayConfiguration {
     std::string id;
     std::string displayName;
@@ -39,6 +59,15 @@ struct WorkspaceView {
     float simulationSeconds = 0.0f;
     const std::vector<WorkspacePlayConfiguration>*
         playConfigurations = nullptr;
+    const std::vector<WorkspaceScene>* scenes = nullptr;
+    const std::vector<WorkspaceGamePreview>*
+        gamePreviews = nullptr;
+    std::string_view activeGamePreviewId;
+    EditorViewportKind activeViewport =
+        EditorViewportKind::Scene;
+    bool focusActiveViewport = false;
+    std::uint64_t sceneTextureId = 0u;
+    std::uint64_t gameTextureId = 0u;
     std::uint32_t sceneCount = 0u;
     std::uint32_t materialCount = 0u;
     std::uint32_t drawClassCount = 0u;
@@ -64,6 +93,15 @@ struct EditorShellActions {
     bool step = false;
     int recentProjectIndex = -1;
     int launchPlayConfigurationIndex = -1;
+    int selectGamePreviewIndex = -1;
+    EditorViewportKind activeViewport =
+        EditorViewportKind::Scene;
+    int viewportWidth = 1280;
+    int viewportHeight = 720;
+    float viewportScreenX = 0.0f;
+    float viewportScreenY = 0.0f;
+    bool viewportHovered = false;
+    bool viewportFocused = false;
 };
 
 class EditorShell {

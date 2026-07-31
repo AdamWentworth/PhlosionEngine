@@ -42,6 +42,7 @@ reaching into Engine internals.
 - the project and stable project id;
 - relative cooked-content mounts;
 - the startup scene asset id and path;
+- an optional catalog of named scene assets for the Scenes panel;
 - an optional portable editor-plugin library name and configuration-relative
   generated output directory;
 - optional named play configurations with a project-relative executable,
@@ -66,7 +67,19 @@ editor state under the operating system's application-data directory. They do
 not belong to either the Engine or game repository. Remembering the outer
 window rectangle is intentional support for multi-monitor workstations.
 
-## Scene Mode and Game Views
+## Scenes, Hierarchy, and Game Preview
+
+These editor concepts are deliberately separate:
+
+- **Scenes** are reusable world or presentation assets listed in the project
+  catalog. Opening one chooses the document being inspected.
+- **Scene Hierarchy** is the object/component tree inside the open scene. The
+  current read-only adapter exposes source-backed groups; stable object
+  identities and component editing belong to M1.
+- **Scene view** renders the open asset with editor camera and simulation
+  controls.
+- **Game view** renders the project's real runtime state over its loaded
+  assets.
 
 Opening a project enters Edit mode at simulation time zero. The scene remains
 rendered and camera navigation remains available, but time-dependent material,
@@ -74,17 +87,22 @@ wind, lighting, and vegetation animation do not advance. Play starts the scene
 simulation, Pause freezes it at the current time, Step advances one fixed
 60 Hz frame, and Stop returns to time zero.
 
-Game screens and game states are not falsely represented as `.phscene` files.
-Boot, frontend menus, starter selection, planning, and combat are named play
-configurations owned by the game descriptor. Running one starts the same game
-executable and state implementation used outside the editor. Classic and
-Adventure variants are configuration data over that runtime, not duplicated
-editor scenes.
+Game screens and session states are not falsely represented as `.phscene`
+files. A project plugin exposes named previews such as a frontend screen or a
+world snapshot. The editor initializes one project runtime when the project
+opens, renders it into an Engine-owned offscreen surface, and presents it in
+the central Game view. Choosing another preview mutates or restores that warm
+runtime; it does not launch another executable or repeat asset prewarming.
 
-The first implementation opens a Game View in the game's own window. A future
-docked Game tab will host the real game renderer and input surface inside the
-editor. Until that host exists, the external window is the truthful preview
-boundary and keeps editor scene simulation separate from the game lifecycle.
+Boot is application lifecycle and loading presentation, not a world scene. A
+project may expose a replayable Boot preview without reinitializing the
+runtime. Frontend screens are UI/runtime states. A route is one world scene;
+Classic versus Adventure and Planning versus Battle are session configuration
+and phase layered over that scene, not duplicate route assets.
+
+The initial project open may still perform expensive CPU/GPU asset prewarming.
+"Warm switching" means subsequent preview changes reuse those resources; it
+does not imply that a newly opened process can skip its first initialization.
 
 ## First Vertical Slice
 
@@ -159,10 +177,10 @@ cook, package, and play loop without adding a game-specific runtime format or
 forking the editor.
 
 M0 is complete with an Engine-owned project browser, recent-project workflow,
-dynamic game-project adapter, and OpenGL editor viewport. Vulkan and D3D12
-editor presentation follow through an Engine-owned UI submission abstraction
-rather than leaking backend-specific Dear ImGui types into games. M1 is the
-current active milestone.
+dynamic game-project adapter, OpenGL Scene viewport, and an embedded persistent
+Game runtime surface. Vulkan and D3D12 editor presentation follow through an
+Engine-owned UI submission abstraction rather than leaking backend-specific
+Dear ImGui types into games. M1 is the current active milestone.
 
 The M0 SDL2 bridge currently owns keyboard, mouse, text, focus, and DPI input.
 Clipboard, cursor-shape, accessibility, controller navigation, and detached

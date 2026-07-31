@@ -102,19 +102,64 @@ bool parseProjectDescriptor(
             return fail("At least one content mount is required.", outError);
         }
 
-        const auto& sceneJson = root.at("startup_scene");
+        const auto& startupSceneJson = root.at("startup_scene");
         parsed.startupScene.assetId =
-            sceneJson.at("asset_id").get<std::string>();
+            startupSceneJson.at("asset_id").get<std::string>();
         parsed.startupScene.mountId =
-            sceneJson.at("mount").get<std::string>();
+            startupSceneJson.at("mount").get<std::string>();
         parsed.startupScene.path =
-            sceneJson.at("path").get<std::string>();
+            startupSceneJson.at("path").get<std::string>();
         if (parsed.startupScene.assetId.empty() ||
             parsed.startupScene.mountId.empty() ||
             !isPortableRelativePath(parsed.startupScene.path)) {
             return fail(
                 "Startup scene requires an asset id, mount id, and portable relative path.",
                 outError);
+        }
+
+        if (root.contains("scenes")) {
+            for (const auto& sceneJson : root.at("scenes")) {
+                ProjectScene scene;
+                scene.assetId =
+                    sceneJson.at("asset_id").get<std::string>();
+                scene.displayName =
+                    sceneJson.at("display_name").get<std::string>();
+                scene.category =
+                    sceneJson.value("category", std::string{});
+                scene.mountId =
+                    sceneJson.at("mount").get<std::string>();
+                scene.path =
+                    sceneJson.at("path").get<std::string>();
+                if (scene.assetId.empty() ||
+                    scene.displayName.empty() ||
+                    scene.mountId.empty() ||
+                    !isPortableRelativePath(scene.path)) {
+                    return fail(
+                        "Project scenes require an asset id, display name, mount id, and portable relative path.",
+                        outError);
+                }
+                const auto duplicate = std::find_if(
+                    parsed.scenes.begin(),
+                    parsed.scenes.end(),
+                    [&](const ProjectScene& candidate) {
+                        return candidate.assetId == scene.assetId;
+                    });
+                if (duplicate != parsed.scenes.end()) {
+                    return fail(
+                        "Duplicate project scene asset id: " +
+                            scene.assetId,
+                        outError);
+                }
+                parsed.scenes.push_back(std::move(scene));
+            }
+        }
+        if (parsed.scenes.empty()) {
+            parsed.scenes.push_back(ProjectScene{
+                .assetId = parsed.startupScene.assetId,
+                .displayName = parsed.startupScene.assetId,
+                .category = "Scenes",
+                .mountId = parsed.startupScene.mountId,
+                .path = parsed.startupScene.path});
         }
 
         if (root.contains("editor_plugin")) {
@@ -273,6 +318,43 @@ bool resolveStartupScenePath(
     }
     out = (descriptorDirectory / mount->root /
            descriptor.startupScene.path)
+              .lexically_normal();
+    if (outError) {
+        outError->clear();
+    }
+    return true;
+}
+
+bool resolveScenePath(
+    const std::filesystem::path& descriptorPath,
+    const ProjectDescriptor& descriptor,
+    const ProjectScene& scene,
+    std::filesystem::path& out,
+    std::string* outError) {
+    const auto mount = std::find_if(
+        descriptor.contentMounts.begin(),
+        descriptor.contentMounts.end(),
+        [&](const ContentMount& candidate) {
+            return candidate.id == scene.mountId;
+        });
+    if (mount == descriptor.contentMounts.end()) {
+        return fail(
+            "Scene references unknown mount: " +
+                scene.mountId,
+            outError);
+    }
+
+    std::error_code error;
+    const auto descriptorDirectory =
+        std::filesystem::absolute(descriptorPath, error)
+            .parent_path();
+    if (error) {
+        return fail(
+            "Could not resolve project descriptor directory: " +
+                error.message(),
+            outError);
+    }
+    out = (descriptorDirectory / mount->root / scene.path)
               .lexically_normal();
     if (outError) {
         outError->clear();

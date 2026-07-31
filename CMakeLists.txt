@@ -343,6 +343,7 @@ phlosion_apply_settings(engine_editor_core)
 if (PHLOSION_BUILD_EDITOR)
     add_library(engine_editor STATIC
         src/engine/editor/EditorShell.cpp
+        src/engine/editor/OpenGLEditorRenderSurface.cpp
     )
     target_link_libraries(engine_editor
         PUBLIC

@@ -180,6 +180,8 @@ struct EditorShell::Impl {
     bool firstLayout = true;
     int selectedHierarchyItem = 0;
     int selectedPlayConfiguration = 0;
+    EditorViewportKind selectedViewport =
+        EditorViewportKind::Scene;
     std::string settingsIniPath;
 };
 
@@ -513,18 +515,14 @@ EditorShellActions EditorShell::drawWorkspace(
     ImGui::PopStyleVar(3);
 
     const ImGuiID dockspaceId =
-        ImGui::GetID("PhlosionEditorDockspace");
+        ImGui::GetID("PhlosionEditorDockspaceV3");
     if (impl_->firstLayout &&
         ImGui::DockBuilderGetNode(dockspaceId) == nullptr) {
         impl_->firstLayout = false;
         ImGui::DockBuilderRemoveNode(dockspaceId);
         ImGui::DockBuilderAddNode(
             dockspaceId,
-            static_cast<ImGuiDockNodeFlags>(
-                static_cast<int>(
-                    ImGuiDockNodeFlags_DockSpace) |
-                static_cast<int>(
-                    ImGuiDockNodeFlags_PassthruCentralNode)));
+            ImGuiDockNodeFlags_DockSpace);
         ImGui::DockBuilderSetNodeSize(
             dockspaceId,
             viewport->WorkSize);
@@ -540,17 +538,19 @@ EditorShellActions EditorShell::drawWorkspace(
         bottom = ImGui::DockBuilderSplitNode(
             center, ImGuiDir_Down, 0.25f, nullptr, &center);
         ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
-        ImGui::DockBuilderDockWindow("Game Views", left);
+        ImGui::DockBuilderDockWindow("Game Preview", left);
         ImGui::DockBuilderDockWindow("Inspector", right);
         ImGui::DockBuilderDockWindow("Assets", bottom);
+        ImGui::DockBuilderDockWindow("Scenes", bottom);
         ImGui::DockBuilderDockWindow("Console", bottom);
+        ImGui::DockBuilderDockWindow("Viewport", center);
         ImGui::DockBuilderFinish(dockspaceId);
     }
 
     ImGui::DockSpace(
         dockspaceId,
         ImVec2(0.0f, 0.0f),
-        ImGuiDockNodeFlags_PassthruCentralNode);
+        ImGuiDockNodeFlags_None);
 
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("File")) {
@@ -575,13 +575,13 @@ EditorShellActions EditorShell::drawWorkspace(
             if (workspace.playState ==
                 EditorPlayState::Editing) {
                 if (ImGui::MenuItem(
-                        "Play Scene",
+                        "Play",
                         "Ctrl+P")) {
                     actions.togglePlay = true;
                 }
             } else {
                 if (ImGui::MenuItem(
-                        "Stop Scene",
+                        "Stop",
                         "Ctrl+P")) {
                     actions.togglePlay = true;
                 }
@@ -630,6 +630,80 @@ EditorShellActions EditorShell::drawWorkspace(
         }
         ImGui::TextDisabled("%s", title.c_str());
         ImGui::EndMenuBar();
+    }
+    ImGui::End();
+
+    const bool viewportVisible = ImGui::Begin(
+        "Viewport",
+        nullptr,
+        ImGuiWindowFlags_NoScrollbar |
+            ImGuiWindowFlags_NoScrollWithMouse);
+    if (viewportVisible) {
+        if (workspace.focusActiveViewport) {
+            impl_->selectedViewport =
+                workspace.activeViewport;
+        }
+        if (ImGui::Selectable(
+                "Scene",
+                impl_->selectedViewport ==
+                    EditorViewportKind::Scene,
+                0,
+                ImVec2(72.0f, 22.0f))) {
+            impl_->selectedViewport =
+                EditorViewportKind::Scene;
+        }
+        ImGui::SameLine();
+        if (ImGui::Selectable(
+                "Game",
+                impl_->selectedViewport ==
+                    EditorViewportKind::Game,
+                0,
+                ImVec2(72.0f, 22.0f))) {
+            impl_->selectedViewport =
+                EditorViewportKind::Game;
+        }
+        ImGui::Separator();
+
+        const EditorViewportKind kind =
+            impl_->selectedViewport;
+        const std::uint64_t textureId =
+            kind == EditorViewportKind::Game
+                ? workspace.gameTextureId
+                : workspace.sceneTextureId;
+        const ImVec2 available =
+            ImGui::GetContentRegionAvail();
+        const ImVec2 origin =
+            ImGui::GetCursorScreenPos();
+        const int viewportWidth = std::max(
+            1,
+            static_cast<int>(available.x));
+        const int viewportHeight = std::max(
+            1,
+            static_cast<int>(available.y));
+        if (textureId != 0u) {
+            ImGui::Image(
+                static_cast<ImTextureID>(textureId),
+                ImVec2(
+                    static_cast<float>(viewportWidth),
+                    static_cast<float>(viewportHeight)),
+                ImVec2(0.0f, 1.0f),
+                ImVec2(1.0f, 0.0f));
+        } else {
+            ImGui::Dummy(ImVec2(
+                static_cast<float>(viewportWidth),
+                static_cast<float>(viewportHeight)));
+        }
+        actions.activeViewport = kind;
+        actions.viewportWidth = viewportWidth;
+        actions.viewportHeight = viewportHeight;
+        actions.viewportScreenX = origin.x;
+        actions.viewportScreenY = origin.y;
+        actions.viewportHovered =
+            ImGui::IsWindowHovered(
+                ImGuiHoveredFlags_RootAndChildWindows);
+        actions.viewportFocused =
+            ImGui::IsWindowFocused(
+                ImGuiFocusedFlags_RootAndChildWindows);
     }
     ImGui::End();
 
@@ -708,28 +782,26 @@ EditorShellActions EditorShell::drawWorkspace(
     }
     ImGui::End();
 
-    ImGui::Begin("Game Views");
+    ImGui::Begin("Game Preview");
     ImGui::TextDisabled(
-        "Actual game runtime play configurations");
+        "Warm in-editor runtime states");
     ImGui::Separator();
-    const auto* playConfigurations =
-        workspace.playConfigurations;
-    if (!playConfigurations ||
-        playConfigurations->empty()) {
+    const auto* gamePreviews = workspace.gamePreviews;
+    if (!gamePreviews || gamePreviews->empty()) {
         ImGui::TextWrapped(
-            "This project has not declared any game views.");
+            "This project does not provide embedded game previews.");
     } else {
         impl_->selectedPlayConfiguration = std::clamp(
             impl_->selectedPlayConfiguration,
             0,
             static_cast<int>(
-                playConfigurations->size() - 1u));
+                gamePreviews->size() - 1u));
         std::string previousGroup;
         for (std::size_t index = 0u;
-             index < playConfigurations->size();
+             index < gamePreviews->size();
              ++index) {
             const auto& configuration =
-                (*playConfigurations)[index];
+                (*gamePreviews)[index];
             if (configuration.group != previousGroup) {
                 if (index != 0u) {
                     ImGui::Spacing();
@@ -751,9 +823,8 @@ EditorShellActions EditorShell::drawWorkspace(
                 impl_->selectedPlayConfiguration =
                     static_cast<int>(index);
                 if (ImGui::IsMouseDoubleClicked(
-                        ImGuiMouseButton_Left) &&
-                    configuration.available) {
-                    actions.launchPlayConfigurationIndex =
+                        ImGuiMouseButton_Left)) {
+                    actions.selectGamePreviewIndex =
                         static_cast<int>(index);
                 }
             }
@@ -762,28 +833,20 @@ EditorShellActions EditorShell::drawWorkspace(
 
         ImGui::Spacing();
         ImGui::Separator();
-        const auto& selected = (*playConfigurations)[
+        const auto& selected = (*gamePreviews)[
             static_cast<std::size_t>(
                 impl_->selectedPlayConfiguration)];
         ImGui::TextWrapped(
             "%s",
             selected.description.c_str());
-        if (!selected.available) {
-            ImGui::TextColored(
-                ImVec4(1.0f, 0.62f, 0.24f, 1.0f),
-                "Build required: %s",
-                selected.executablePath.c_str());
-        }
-        ImGui::BeginDisabled(!selected.available);
         if (ImGui::Button(
-                "Run Game View",
+                "Open In Game",
                 ImVec2(-1.0f, 32.0f))) {
-            actions.launchPlayConfigurationIndex =
+            actions.selectGamePreviewIndex =
                 impl_->selectedPlayConfiguration;
         }
-        ImGui::EndDisabled();
         ImGui::TextDisabled(
-            "Runs the real game in its own window.");
+            "Switches the already initialized game session.");
     }
     ImGui::End();
 
@@ -858,6 +921,38 @@ EditorShellActions EditorShell::drawWorkspace(
     }
     ImGui::End();
 
+    ImGui::Begin("Scenes");
+    ImGui::TextDisabled(
+        "Project scene asset catalog");
+    ImGui::Separator();
+    if (!workspace.scenes || workspace.scenes->empty()) {
+        ImGui::TextWrapped(
+            "This project has not declared scene assets.");
+    } else {
+        std::string previousCategory;
+        for (const auto& scene : *workspace.scenes) {
+            if (scene.category != previousCategory) {
+                ImGui::TextDisabled(
+                    "%s",
+                    scene.category.empty()
+                        ? "Scenes"
+                        : scene.category.c_str());
+                previousCategory = scene.category;
+            }
+            ImGui::BulletText(
+                "%s%s",
+                scene.displayName.c_str(),
+                scene.startup ? "  [startup]" : "");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "%s\n%s",
+                    scene.assetId.c_str(),
+                    scene.path.c_str());
+            }
+        }
+    }
+    ImGui::End();
+
     ImGui::Begin("Console");
     ImGui::TextColored(
         ImVec4(0.35f, 0.90f, 0.58f, 1.0f),
@@ -871,7 +966,7 @@ EditorShellActions EditorShell::drawWorkspace(
         "Scene: %s",
         text(workspace.scenePath).c_str());
     ImGui::TextDisabled(
-        "Scene simulation: %s  %.2fs",
+        "Play mode: %s  %.2fs",
         workspace.playState == EditorPlayState::Editing
             ? "frozen"
             : workspace.playState == EditorPlayState::Paused

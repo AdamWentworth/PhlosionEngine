@@ -2,7 +2,9 @@
 
 #include "engine/editor/EditorProjectPlugin.h"
 #include "engine/editor/EditorShell.h"
+#include "engine/editor/OpenGLEditorRenderSurface.h"
 #include "engine/editor/ProjectDescriptor.h"
+#include "engine/input/SdlKeyMap.h"
 #include "engine/platform/Window.h"
 #include "engine/render/Camera3D.h"
 #include "engine/render/OpenGLRenderBackend.h"
@@ -45,6 +47,7 @@ namespace {
 
 struct Arguments {
     std::filesystem::path project;
+    std::string gamePreview;
     int frameLimit = 0;
 };
 
@@ -65,9 +68,15 @@ Arguments parseArguments(int argc, char** argv) {
         }
         const std::string argument(argv[index]);
         constexpr std::string_view projectPrefix = "--project=";
+        constexpr std::string_view gamePreviewPrefix =
+            "--game-preview=";
         constexpr std::string_view framesPrefix = "--frames=";
         if (argument.rfind(projectPrefix, 0u) == 0u) {
             result.project = argument.substr(projectPrefix.size());
+        } else if (
+            argument.rfind(gamePreviewPrefix, 0u) == 0u) {
+            result.gamePreview =
+                argument.substr(gamePreviewPrefix.size());
         } else if (argument.rfind(framesPrefix, 0u) == 0u) {
             result.frameLimit = std::max(
                 1,
@@ -398,12 +407,17 @@ struct LoadedProject {
     std::vector<ResolvedPlayConfiguration> playConfigurations;
     std::vector<engine::editor::WorkspacePlayConfiguration>
         playConfigurationViews;
+    std::vector<engine::editor::WorkspaceScene> sceneViews;
+    std::vector<engine::editor::WorkspaceGamePreview>
+        gamePreviewViews;
+    std::string activeGamePreviewId = "main-menu";
 };
 
 std::unique_ptr<LoadedProject> loadProject(
     const std::filesystem::path& requestedDescriptorPath,
     IRenderBackend& renderer,
     const Camera3D& camera,
+    Camera3D& gameCamera,
     std::string& outError) {
     auto loaded = std::make_unique<LoadedProject>();
     loaded->descriptorPath =
@@ -490,6 +504,28 @@ std::unique_ptr<LoadedProject> loadProject(
     loaded->rootText = loaded->root.generic_string();
     loaded->scenePathText =
         loaded->scenePath.generic_string();
+    loaded->sceneViews.reserve(
+        loaded->descriptor.scenes.size());
+    for (const auto& scene : loaded->descriptor.scenes) {
+        std::filesystem::path resolvedScenePath;
+        if (!engine::editor::resolveScenePath(
+                loaded->descriptorPath,
+                loaded->descriptor,
+                scene,
+                resolvedScenePath,
+                &outError)) {
+            return nullptr;
+        }
+        loaded->sceneViews.push_back(
+            engine::editor::WorkspaceScene{
+                .assetId = scene.assetId,
+                .displayName = scene.displayName,
+                .category = scene.category,
+                .path = resolvedScenePath.generic_string(),
+                .startup =
+                    scene.assetId ==
+                    loaded->descriptor.startupScene.assetId});
+    }
     loaded->playConfigurations.reserve(
         loaded->descriptor.playConfigurations.size());
     loaded->playConfigurationViews.reserve(
@@ -555,6 +591,40 @@ std::unique_ptr<LoadedProject> loadProject(
         .cameraForward3 = glm::value_ptr(cameraForward),
         .cameraTarget3 = glm::value_ptr(cameraTarget)};
     loaded->runtime->prewarm(renderer, cameraContext);
+    const std::size_t gamePreviewCount =
+        loaded->runtime->gamePreviewCount();
+    loaded->gamePreviewViews.reserve(gamePreviewCount);
+    for (std::size_t index = 0u;
+         index < gamePreviewCount;
+         ++index) {
+        const auto preview =
+            loaded->runtime->gamePreview(index);
+        if (!preview.id || !preview.displayName) {
+            continue;
+        }
+        loaded->gamePreviewViews.push_back(
+            engine::editor::WorkspaceGamePreview{
+                .id = preview.id,
+                .displayName = preview.displayName,
+                .group = preview.group ? preview.group : "",
+                .description =
+                    preview.description
+                        ? preview.description
+                        : ""});
+    }
+    if (!loaded->gamePreviewViews.empty()) {
+        const engine::editor::EditorProjectGamePreviewContext
+            gamePreviewContext{
+                .renderer = &renderer,
+                .camera = &gameCamera,
+                .surfaceWidth = 1280,
+                .surfaceHeight = 720};
+        if (!loaded->runtime->initializeGamePreview(
+                gamePreviewContext,
+                &outError)) {
+            return nullptr;
+        }
+    }
     loaded->status =
         loaded->runtime->status()
             ? loaded->runtime->status()
@@ -768,6 +838,109 @@ bool launchPlayConfiguration(
     return true;
 }
 
+InputEvent::MouseButton mapEditorMouseButton(
+    std::uint8_t button) {
+    switch (button) {
+        case SDL_BUTTON_LEFT:
+            return InputEvent::MouseButton::Left;
+        case SDL_BUTTON_MIDDLE:
+            return InputEvent::MouseButton::Middle;
+        case SDL_BUTTON_RIGHT:
+            return InputEvent::MouseButton::Right;
+        case SDL_BUTTON_X1:
+            return InputEvent::MouseButton::X1;
+        case SDL_BUTTON_X2:
+            return InputEvent::MouseButton::X2;
+        default:
+            return InputEvent::MouseButton::Unknown;
+    }
+}
+
+bool translateGamePreviewInput(
+    const SDL_Event& event,
+    float viewportScreenX,
+    float viewportScreenY,
+    int viewportWidth,
+    int viewportHeight,
+    bool viewportHovered,
+    bool viewportFocused,
+    InputEvent& out) {
+    const auto localPosition =
+        [&](int screenX, int screenY) {
+            return std::pair<int, int>{
+                std::clamp(
+                    static_cast<int>(
+                        static_cast<float>(screenX) -
+                        viewportScreenX),
+                    0,
+                    std::max(0, viewportWidth - 1)),
+                std::clamp(
+                    static_cast<int>(
+                        static_cast<float>(screenY) -
+                        viewportScreenY),
+                    0,
+                    std::max(0, viewportHeight - 1))};
+        };
+
+    switch (event.type) {
+        case SDL_KEYDOWN:
+            if (!viewportFocused) {
+                return false;
+            }
+            out = InputEvent::KeyDownEvent(
+                engine::input::mapSdlKeyToEngineKey(
+                    static_cast<int>(
+                        event.key.keysym.sym)),
+                event.key.repeat != 0);
+            return true;
+        case SDL_KEYUP:
+            if (!viewportFocused) {
+                return false;
+            }
+            out = InputEvent::KeyUpEvent(
+                engine::input::mapSdlKeyToEngineKey(
+                    static_cast<int>(
+                        event.key.keysym.sym)));
+            return true;
+        case SDL_MOUSEMOTION: {
+            if (!viewportHovered) {
+                return false;
+            }
+            const auto [x, y] = localPosition(
+                event.motion.x,
+                event.motion.y);
+            out = InputEvent::MouseMoveEvent(x, y);
+            return true;
+        }
+        case SDL_MOUSEBUTTONDOWN:
+        case SDL_MOUSEBUTTONUP: {
+            if (!viewportHovered) {
+                return false;
+            }
+            const auto [x, y] = localPosition(
+                event.button.x,
+                event.button.y);
+            const auto button = mapEditorMouseButton(
+                event.button.button);
+            out =
+                event.type == SDL_MOUSEBUTTONDOWN
+                    ? InputEvent::MouseDownEvent(x, y, button)
+                    : InputEvent::MouseUpEvent(x, y, button);
+            return true;
+        }
+        case SDL_MOUSEWHEEL:
+            if (!viewportHovered) {
+                return false;
+            }
+            out = InputEvent::MouseWheelEvent(
+                event.wheel.x,
+                event.wheel.y);
+            return true;
+        default:
+            return false;
+    }
+}
+
 glm::vec3 horizontalDirection(glm::vec3 direction) {
     direction.y = 0.0f;
     const float length = glm::length(direction);
@@ -823,6 +996,15 @@ int main(int argc, char** argv) {
                 static_cast<float>(height),
             0.1f,
             200.0f);
+        Camera3D gameCamera(
+            45.0f,
+            16.0f / 9.0f,
+            0.1f,
+            100.0f);
+        engine::editor::OpenGLEditorRenderSurface
+            sceneSurface;
+        engine::editor::OpenGLEditorRenderSurface
+            gameSurface;
 
         std::string error;
         const std::string layoutPath =
@@ -851,6 +1033,17 @@ int main(int argc, char** argv) {
         float simulationSeconds = 0.0f;
         engine::editor::EditorPlayState playState =
             engine::editor::EditorPlayState::Editing;
+        engine::editor::EditorViewportKind activeViewport =
+            engine::editor::EditorViewportKind::Scene;
+        int editorViewportWidth = 960;
+        int editorViewportHeight = 540;
+        float editorViewportScreenX = 0.0f;
+        float editorViewportScreenY = 0.0f;
+        bool editorViewportHovered = false;
+        bool editorViewportFocused = false;
+        bool focusActiveViewport = true;
+        float gameFixedAccumulator = 0.0f;
+        bool commandLinePreviewApplied = false;
         using Clock = std::chrono::steady_clock;
         auto previous = Clock::now();
 
@@ -910,14 +1103,38 @@ int main(int argc, char** argv) {
                         windowPlacement);
                 } else if (
                     project &&
+                    activeViewport ==
+                        engine::editor::EditorViewportKind::Game &&
+                    playState !=
+                        engine::editor::EditorPlayState::Editing) {
+                    InputEvent gameInput;
+                    if (translateGamePreviewInput(
+                            event,
+                            editorViewportScreenX,
+                            editorViewportScreenY,
+                            editorViewportWidth,
+                            editorViewportHeight,
+                            editorViewportHovered,
+                            editorViewportFocused,
+                            gameInput)) {
+                        project->runtime->
+                            handleGamePreviewInput(gameInput);
+                    }
+                }
+                if (
+                    project &&
+                    activeViewport ==
+                        engine::editor::EditorViewportKind::Scene &&
                     event.type == SDL_MOUSEWHEEL &&
-                    !editor.wantsMouseCapture()) {
+                    editorViewportHovered) {
                     wheelDelta +=
                         static_cast<float>(event.wheel.y);
                 } else if (
                     project &&
+                    activeViewport ==
+                        engine::editor::EditorViewportKind::Scene &&
                     event.type == SDL_MOUSEMOTION &&
-                    !editor.wantsMouseCapture()) {
+                    editorViewportHovered) {
                     const bool shift =
                         (SDL_GetModState() & KMOD_SHIFT) != 0;
                     const bool left =
@@ -956,6 +1173,7 @@ int main(int argc, char** argv) {
                         *pendingProject,
                         renderer,
                         camera,
+                        gameCamera,
                         browserError);
                 pendingProject.reset();
                 if (candidate) {
@@ -971,6 +1189,36 @@ int main(int argc, char** argv) {
                     simulationSeconds = 0.0f;
                     playState =
                         engine::editor::EditorPlayState::Editing;
+                    activeViewport =
+                        engine::editor::EditorViewportKind::Scene;
+                    focusActiveViewport = true;
+                    gameFixedAccumulator = 0.0f;
+                    if (!commandLinePreviewApplied &&
+                        !arguments.gamePreview.empty()) {
+                        commandLinePreviewApplied = true;
+                        std::string previewError;
+                        if (project->runtime->selectGamePreview(
+                                arguments.gamePreview.c_str(),
+                                &previewError)) {
+                            project->activeGamePreviewId =
+                                arguments.gamePreview;
+                            activeViewport =
+                                engine::editor::
+                                    EditorViewportKind::Game;
+                            focusActiveViewport = true;
+                            project->status =
+                                project->runtime->status()
+                                    ? project->runtime->status()
+                                    : "Embedded game preview selected.";
+                        } else {
+                            project->status =
+                                "Command-line game preview selection failed: " +
+                                previewError;
+                            std::cerr
+                                << "[Phlosion Editor] "
+                                << project->status << '\n';
+                        }
+                    }
                     window.setTitle(
                         project->descriptor.displayName +
                         " - Phlosion Editor");
@@ -986,7 +1234,11 @@ int main(int argc, char** argv) {
             }
 
             editor.beginFrame(deltaSeconds);
-            if (project && !editor.wantsKeyboardCapture()) {
+            if (project &&
+                activeViewport ==
+                    engine::editor::EditorViewportKind::Scene &&
+                editorViewportFocused &&
+                !editor.wantsKeyboardCapture()) {
                 const Uint8* keys =
                     SDL_GetKeyboardState(nullptr);
                 const glm::vec3 forward =
@@ -1028,6 +1280,26 @@ int main(int argc, char** argv) {
                 camera.zoom(wheelDelta * 1.25f);
             }
 
+            if (project &&
+                project->runtime->gamePreviewReady() &&
+                playState ==
+                    engine::editor::EditorPlayState::Playing) {
+                constexpr float fixedDelta = 1.0f / 60.0f;
+                gameFixedAccumulator += deltaSeconds;
+                int fixedTicks = 0;
+                while (gameFixedAccumulator >= fixedDelta &&
+                       fixedTicks < 4) {
+                    project->runtime->
+                        fixedUpdateGamePreview(fixedDelta);
+                    gameFixedAccumulator -= fixedDelta;
+                    ++fixedTicks;
+                }
+                if (fixedTicks == 4 &&
+                    gameFixedAccumulator >= fixedDelta) {
+                    gameFixedAccumulator = 0.0f;
+                }
+            }
+
             renderer.beginFrame(
                 0.025f,
                 0.031f,
@@ -1053,6 +1325,16 @@ int main(int argc, char** argv) {
                         !directoryError;
                 }
                 project->runtime->update(simulationSeconds);
+                const int surfaceWidth =
+                    std::max(1, editorViewportWidth);
+                const int surfaceHeight =
+                    std::max(1, editorViewportHeight);
+                if (activeViewport ==
+                    engine::editor::EditorViewportKind::Scene) {
+                    camera.setAspectRatio(
+                        static_cast<float>(surfaceWidth) /
+                        static_cast<float>(surfaceHeight));
+                }
                 const glm::mat4 viewProjection =
                     camera.getProjectionMatrix() *
                     camera.getViewMatrix();
@@ -1062,22 +1344,41 @@ int main(int argc, char** argv) {
                     camera.getDirection();
                 const glm::vec3 cameraTarget =
                     camera.getTarget();
-                renderer.beginWorldSceneColorPass(width, height);
                 const engine::editor::EditorProjectRenderContext
                     renderContext{
                         .renderer = &renderer,
                         .viewProjectionMatrix4x4 =
                             glm::value_ptr(viewProjection),
-                        .surfaceWidth = width,
-                        .surfaceHeight = height,
+                        .surfaceWidth = surfaceWidth,
+                        .surfaceHeight = surfaceHeight,
                         .cameraWorldPosition3 =
                             glm::value_ptr(cameraPosition),
                         .cameraForward3 =
                             glm::value_ptr(cameraForward),
                         .cameraTarget3 =
                             glm::value_ptr(cameraTarget)};
-                project->runtime->render(renderContext);
-                renderer.endWorldSceneColorPass();
+                if (activeViewport ==
+                    engine::editor::EditorViewportKind::Scene) {
+                    if (sceneSurface.begin(
+                            surfaceWidth,
+                            surfaceHeight)) {
+                        renderer.beginWorldSceneColorPass(
+                            surfaceWidth,
+                            surfaceHeight);
+                        project->runtime->render(renderContext);
+                        renderer.endWorldSceneColorPass();
+                        sceneSurface.end();
+                    }
+                } else if (gameSurface.begin(
+                               surfaceWidth,
+                               surfaceHeight)) {
+                    gameCamera.setAspectRatio(
+                        static_cast<float>(surfaceWidth) /
+                        static_cast<float>(surfaceHeight));
+                    project->runtime->renderGamePreview(
+                        renderContext);
+                    gameSurface.end();
+                }
 
                 const auto stats =
                     project->runtime->stats();
@@ -1097,6 +1398,18 @@ int main(int argc, char** argv) {
                     .simulationSeconds = simulationSeconds,
                     .playConfigurations =
                         &project->playConfigurationViews,
+                    .scenes = &project->sceneViews,
+                    .gamePreviews =
+                        &project->gamePreviewViews,
+                    .activeGamePreviewId =
+                        project->activeGamePreviewId,
+                    .activeViewport = activeViewport,
+                    .focusActiveViewport =
+                        focusActiveViewport,
+                    .sceneTextureId =
+                        sceneSurface.textureId(),
+                    .gameTextureId =
+                        gameSurface.textureId(),
                     .sceneCount = stats.sceneCount,
                     .materialCount = stats.materialCount,
                     .drawClassCount = stats.drawClassCount,
@@ -1111,6 +1424,24 @@ int main(int argc, char** argv) {
                     .archiveFileCount =
                         stats.archiveFileCount};
                 actions = editor.drawWorkspace(workspace);
+                if (!focusActiveViewport ||
+                    actions.activeViewport ==
+                        activeViewport) {
+                    focusActiveViewport = false;
+                    activeViewport = actions.activeViewport;
+                }
+                editorViewportWidth =
+                    std::max(1, actions.viewportWidth);
+                editorViewportHeight =
+                    std::max(1, actions.viewportHeight);
+                editorViewportScreenX =
+                    actions.viewportScreenX;
+                editorViewportScreenY =
+                    actions.viewportScreenY;
+                editorViewportHovered =
+                    actions.viewportHovered;
+                editorViewportFocused =
+                    actions.viewportFocused;
             } else {
                 const engine::editor::ProjectBrowserView browser{
                     .status = browserStatus,
@@ -1128,6 +1459,7 @@ int main(int argc, char** argv) {
             if (actions.closeProject) {
                 project.reset();
                 simulationSeconds = 0.0f;
+                gameFixedAccumulator = 0.0f;
                 playState =
                     engine::editor::EditorPlayState::Editing;
                 window.setTitle("Phlosion Editor");
@@ -1140,14 +1472,19 @@ int main(int argc, char** argv) {
                     playState =
                         engine::editor::EditorPlayState::Playing;
                     project->status =
-                        "Scene simulation started.";
+                        activeViewport ==
+                                engine::editor::EditorViewportKind::Game
+                            ? "Embedded game preview started."
+                            : "Scene simulation started.";
                 } else {
                     playState =
                         engine::editor::EditorPlayState::Editing;
                     simulationSeconds = 0.0f;
+                    gameFixedAccumulator = 0.0f;
                     project->runtime->update(simulationSeconds);
+                    project->runtime->resetGamePreview();
                     project->status =
-                        "Scene simulation stopped; edit view restored.";
+                        "Play mode stopped; scene and game preview restored.";
                 }
             }
             if (project && actions.togglePause &&
@@ -1161,16 +1498,53 @@ int main(int argc, char** argv) {
                 project->status =
                     playState ==
                             engine::editor::EditorPlayState::Paused
-                        ? "Scene simulation paused."
-                        : "Scene simulation resumed.";
+                        ? "Play mode paused."
+                        : "Play mode resumed.";
             }
             if (project && actions.step &&
                 playState ==
                     engine::editor::EditorPlayState::Paused) {
                 simulationSeconds += 1.0f / 60.0f;
                 project->runtime->update(simulationSeconds);
+                if (activeViewport ==
+                        engine::editor::EditorViewportKind::Game &&
+                    project->runtime->gamePreviewReady()) {
+                    project->runtime->fixedUpdateGamePreview(
+                        1.0f / 60.0f);
+                }
                 project->status =
-                    "Scene simulation advanced by one 60 Hz frame.";
+                    "Play mode advanced by one 60 Hz frame.";
+            }
+            if (project &&
+                actions.selectGamePreviewIndex >= 0 &&
+                static_cast<std::size_t>(
+                    actions.selectGamePreviewIndex) <
+                    project->gamePreviewViews.size()) {
+                const auto& preview =
+                    project->gamePreviewViews[
+                        static_cast<std::size_t>(
+                            actions.selectGamePreviewIndex)];
+                std::string previewError;
+                if (project->runtime->selectGamePreview(
+                        preview.id.c_str(),
+                        &previewError)) {
+                    project->activeGamePreviewId = preview.id;
+                    activeViewport =
+                        engine::editor::EditorViewportKind::Game;
+                    focusActiveViewport = true;
+                    gameFixedAccumulator = 0.0f;
+                    project->status =
+                        project->runtime->status()
+                            ? project->runtime->status()
+                            : "Embedded game preview selected.";
+                } else {
+                    project->status =
+                        "Game preview selection failed: " +
+                        previewError;
+                    std::cerr
+                        << "[Phlosion Editor] "
+                        << project->status << '\n';
+                }
             }
             if (project &&
                 actions.launchPlayConfigurationIndex >= 0 &&
@@ -1233,6 +1607,8 @@ int main(int argc, char** argv) {
             stateDirectory,
             windowPlacement);
         project.reset();
+        sceneSurface.shutdown();
+        gameSurface.shutdown();
         editor.shutdown();
         renderer.shutdown();
     } catch (const std::exception& exception) {

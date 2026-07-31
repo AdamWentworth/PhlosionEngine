@@ -20,6 +20,15 @@ bool test_project_descriptor_contract(std::string& outFail) {
             "mount": "cooked",
             "path": "scenes/test.phscene"
         },
+        "scenes": [
+            {
+                "asset_id": "environments/test",
+                "display_name": "Test World",
+                "category": "Worlds",
+                "mount": "cooked",
+                "path": "scenes/test.phscene"
+            }
+        ],
         "editor_plugin": {
             "library": "TestGameEditorProject",
             "directory": ".phlosion/editor/{config}"
@@ -55,6 +64,8 @@ bool test_project_descriptor_contract(std::string& outFail) {
         project.contentMounts.size() != 1u ||
         project.contentMounts.front().id != "cooked" ||
         project.startupScene.assetId != "environments/test" ||
+        project.scenes.size() != 1u ||
+        project.scenes.front().displayName != "Test World" ||
         project.playConfigurations.size() != 1u ||
         project.playConfigurations.front().id != "main-menu" ||
         project.playConfigurations.front().arguments.size() != 1u ||
@@ -62,6 +73,21 @@ bool test_project_descriptor_contract(std::string& outFail) {
         project.privateAssetDepotEnvironment !=
             "PHLOSION_ASSET_DEPOT") {
         outFail = "descriptor fields changed during parsing";
+        return false;
+    }
+
+    std::filesystem::path catalogScenePath;
+    if (!engine::editor::resolveScenePath(
+            "D:/Projects/TestGame/phlosion.project.json",
+            project,
+            project.scenes.front(),
+            catalogScenePath,
+            &error) ||
+        catalogScenePath.generic_string() !=
+            "D:/Projects/TestGame/content/phlosion/scenes/test.phscene") {
+        outFail =
+            "scene catalog path resolution failed: " + error +
+            " path=" + catalogScenePath.generic_string();
         return false;
     }
 

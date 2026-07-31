@@ -20,6 +20,14 @@ struct StartupScene {
     std::filesystem::path path;
 };
 
+struct ProjectScene {
+    std::string assetId;
+    std::string displayName;
+    std::string category;
+    std::string mountId;
+    std::filesystem::path path;
+};
+
 struct EditorPlugin {
     std::string library;
     std::filesystem::path directory;
@@ -47,6 +55,7 @@ struct ProjectDescriptor {
     std::string displayName;
     std::vector<ContentMount> contentMounts;
     StartupScene startupScene;
+    std::vector<ProjectScene> scenes;
     EditorPlugin editorPlugin;
     std::vector<PlayConfiguration> playConfigurations;
     std::string privateAssetDepotEnvironment;
@@ -65,6 +74,13 @@ bool loadProjectDescriptor(
 bool resolveStartupScenePath(
     const std::filesystem::path& descriptorPath,
     const ProjectDescriptor& descriptor,
+    std::filesystem::path& out,
+    std::string* outError = nullptr);
+
+bool resolveScenePath(
+    const std::filesystem::path& descriptorPath,
+    const ProjectDescriptor& descriptor,
+    const ProjectScene& scene,
     std::filesystem::path& out,
     std::string* outError = nullptr);
 
