@@ -42,7 +42,28 @@ struct WorkspaceAsset {
     std::string typeName;
     std::string category;
     std::string path;
+    bool previewable3d = false;
     std::vector<WorkspaceProperty> properties;
+};
+
+struct WorkspaceAssetAnimation {
+    std::string name;
+    float durationSeconds = 0.0f;
+};
+
+struct WorkspaceAssetPreview {
+    std::string assetId;
+    std::string status;
+    std::uint32_t vertexCount = 0u;
+    std::uint32_t triangleCount = 0u;
+    std::uint32_t materialCount = 0u;
+    std::uint32_t textureCount = 0u;
+    std::uint32_t boneCount = 0u;
+    float boundsRadius = 1.0f;
+    float boundsCenterY = 0.0f;
+    bool ready = false;
+    const std::vector<WorkspaceAssetAnimation>*
+        animations = nullptr;
 };
 
 struct WorkspaceScene {
@@ -87,6 +108,7 @@ struct WorkspaceView {
     const std::vector<WorkspaceHierarchyItem>*
         hierarchyItems = nullptr;
     const std::vector<WorkspaceAsset>* assets = nullptr;
+    const WorkspaceAssetPreview* assetPreview = nullptr;
     const std::vector<WorkspaceScene>* scenes = nullptr;
     const std::vector<WorkspaceGamePreview>*
         gamePreviews = nullptr;
@@ -96,6 +118,7 @@ struct WorkspaceView {
     bool focusActiveViewport = false;
     std::uint64_t sceneTextureId = 0u;
     std::uint64_t gameTextureId = 0u;
+    std::uint64_t assetPreviewTextureId = 0u;
     std::uint32_t sceneCount = 0u;
     std::uint32_t materialCount = 0u;
     std::uint32_t drawClassCount = 0u;
@@ -123,6 +146,24 @@ struct EditorShellActions {
     int launchPlayConfigurationIndex = -1;
     int selectGamePreviewIndex = -1;
     int openSceneIndex = -1;
+    int selectAssetIndex = -1;
+    int assetPreviewWidth = 400;
+    int assetPreviewHeight = 300;
+    float assetPreviewOrbitYaw = 0.0f;
+    float assetPreviewOrbitPitch = 0.0f;
+    float assetPreviewPanX = 0.0f;
+    float assetPreviewPanY = 0.0f;
+    float assetPreviewZoom = 0.0f;
+    bool resetAssetPreviewCamera = false;
+    bool assetPreviewOptionsChanged = false;
+    int assetPreviewAnimationIndex = -1;
+    float assetPreviewPlaybackSpeed = 1.0f;
+    bool assetPreviewAnimationPlaying = true;
+    bool assetPreviewShowMesh = true;
+    bool assetPreviewShowMaterials = true;
+    bool assetPreviewShowTextures = true;
+    bool assetPreviewShowWireframe = false;
+    bool assetPreviewShowSkeleton = false;
     EditorViewportKind activeViewport =
         EditorViewportKind::Scene;
     int viewportWidth = 1280;

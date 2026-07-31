@@ -12,7 +12,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 2u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 3u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -66,6 +66,36 @@ struct EditorProjectGamePreviewContext {
     Camera3D* camera = nullptr;
     int surfaceWidth = 1280;
     int surfaceHeight = 720;
+};
+
+struct EditorProjectAssetPreviewOptions {
+    int animationIndex = -1;
+    float playbackSpeed = 1.0f;
+    bool animationPlaying = true;
+    bool showMesh = true;
+    bool showMaterials = true;
+    bool showTextures = true;
+    bool showWireframe = false;
+    bool showSkeleton = false;
+};
+
+struct EditorProjectAssetPreviewInfo {
+    const char* assetId = nullptr;
+    const char* status = nullptr;
+    std::uint32_t vertexCount = 0u;
+    std::uint32_t triangleCount = 0u;
+    std::uint32_t materialCount = 0u;
+    std::uint32_t textureCount = 0u;
+    std::uint32_t boneCount = 0u;
+    std::size_t animationCount = 0u;
+    float boundsRadius = 1.0f;
+    float boundsCenterY = 0.0f;
+    bool ready = false;
+};
+
+struct EditorProjectAssetAnimation {
+    const char* name = nullptr;
+    float durationSeconds = 0.0f;
 };
 
 class IEditorProjectRuntime {
@@ -126,6 +156,40 @@ public:
     }
     virtual bool gamePreviewReady() const noexcept {
         return false;
+    }
+
+    virtual bool selectAssetPreview(
+        const char* assetId,
+        const char* assetPath,
+        std::string* outError = nullptr) {
+        (void)assetId;
+        (void)assetPath;
+        if (outError) {
+            *outError =
+                "This project does not provide cooked asset previews.";
+        }
+        return false;
+    }
+    virtual EditorProjectAssetPreviewInfo
+    assetPreviewInfo() const noexcept {
+        return {};
+    }
+    virtual EditorProjectAssetAnimation
+    assetPreviewAnimation(
+        std::size_t index) const noexcept {
+        (void)index;
+        return {};
+    }
+    virtual void setAssetPreviewOptions(
+        const EditorProjectAssetPreviewOptions& options) {
+        (void)options;
+    }
+    virtual void updateAssetPreview(float deltaSeconds) {
+        (void)deltaSeconds;
+    }
+    virtual void renderAssetPreview(
+        const EditorProjectRenderContext& context) {
+        (void)context;
     }
 };
 

@@ -254,6 +254,14 @@ struct EditorShell::Impl {
     std::array<char, 256> assetFilter{};
     EditorViewportKind selectedViewport =
         EditorViewportKind::Scene;
+    int assetPreviewAnimationIndex = -1;
+    float assetPreviewPlaybackSpeed = 1.0f;
+    bool assetPreviewAnimationPlaying = true;
+    bool assetPreviewShowMesh = true;
+    bool assetPreviewShowMaterials = true;
+    bool assetPreviewShowTextures = true;
+    bool assetPreviewShowWireframe = false;
+    bool assetPreviewShowSkeleton = false;
     std::string settingsIniPath;
 };
 
@@ -565,6 +573,22 @@ EditorShellActions EditorShell::drawWorkspace(
     if (!impl_->ready) {
         return actions;
     }
+    actions.assetPreviewAnimationIndex =
+        impl_->assetPreviewAnimationIndex;
+    actions.assetPreviewPlaybackSpeed =
+        impl_->assetPreviewPlaybackSpeed;
+    actions.assetPreviewAnimationPlaying =
+        impl_->assetPreviewAnimationPlaying;
+    actions.assetPreviewShowMesh =
+        impl_->assetPreviewShowMesh;
+    actions.assetPreviewShowMaterials =
+        impl_->assetPreviewShowMaterials;
+    actions.assetPreviewShowTextures =
+        impl_->assetPreviewShowTextures;
+    actions.assetPreviewShowWireframe =
+        impl_->assetPreviewShowWireframe;
+    actions.assetPreviewShowSkeleton =
+        impl_->assetPreviewShowSkeleton;
 
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -959,6 +983,7 @@ EditorShellActions EditorShell::drawWorkspace(
     const char* inspectedType = "";
     const std::vector<WorkspaceProperty>*
         inspectedProperties = nullptr;
+    const WorkspaceAsset* inspectedAsset = nullptr;
     if (impl_->inspectorSelection ==
             InspectorSelectionDomain::Hierarchy &&
         workspace.hierarchyItems &&
@@ -992,6 +1017,7 @@ EditorShellActions EditorShell::drawWorkspace(
         inspectedName = selected.displayName.c_str();
         inspectedType = selected.typeName.c_str();
         inspectedProperties = &selected.properties;
+        inspectedAsset = &selected;
     } else if (
         impl_->inspectorSelection ==
             InspectorSelectionDomain::Scene &&
@@ -1019,7 +1045,208 @@ EditorShellActions EditorShell::drawWorkspace(
     }
     ImGui::Separator();
     ImGui::Spacing();
-    if (inspectedProperties) {
+    const bool showAssetPreview =
+        inspectedAsset &&
+        inspectedAsset->previewable3d;
+    if (showAssetPreview) {
+        const bool previewMatches =
+            workspace.assetPreview &&
+            workspace.assetPreview->assetId ==
+                inspectedAsset->id;
+        if (!previewMatches ||
+            !workspace.assetPreview->ready) {
+            ImGui::TextWrapped(
+                "%s",
+                previewMatches &&
+                        !workspace.assetPreview->status.empty()
+                    ? workspace.assetPreview->status.c_str()
+                    : "Loading cooked prefab preview...");
+        } else {
+            const auto& preview =
+                *workspace.assetPreview;
+            bool optionsChanged = false;
+            if (ImGui::Button(
+                    impl_->assetPreviewAnimationPlaying
+                        ? "Pause"
+                        : "Play")) {
+                impl_->assetPreviewAnimationPlaying =
+                    !impl_->assetPreviewAnimationPlaying;
+                optionsChanged = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Reset View")) {
+                actions.resetAssetPreviewCamera = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled(
+                "RMB orbit  MMB pan  Wheel zoom");
+
+            const float previewWidth = std::max(
+                160.0f,
+                ImGui::GetContentRegionAvail().x);
+            const float previewHeight = std::clamp(
+                previewWidth * 0.72f,
+                180.0f,
+                390.0f);
+            actions.assetPreviewWidth =
+                std::max(1, static_cast<int>(previewWidth));
+            actions.assetPreviewHeight =
+                std::max(1, static_cast<int>(previewHeight));
+            if (workspace.assetPreviewTextureId != 0u) {
+                ImGui::Image(
+                    static_cast<ImTextureID>(
+                        workspace.assetPreviewTextureId),
+                    ImVec2(previewWidth, previewHeight),
+                    ImVec2(0.0f, 1.0f),
+                    ImVec2(1.0f, 0.0f));
+            } else {
+                ImGui::Dummy(
+                    ImVec2(previewWidth, previewHeight));
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGuiIO& io = ImGui::GetIO();
+                if (ImGui::IsMouseDragging(
+                        ImGuiMouseButton_Right)) {
+                    actions.assetPreviewOrbitYaw =
+                        -io.MouseDelta.x * 0.008f;
+                    actions.assetPreviewOrbitPitch =
+                        -io.MouseDelta.y * 0.008f;
+                }
+                if (ImGui::IsMouseDragging(
+                        ImGuiMouseButton_Middle)) {
+                    actions.assetPreviewPanX =
+                        io.MouseDelta.x;
+                    actions.assetPreviewPanY =
+                        io.MouseDelta.y;
+                }
+                actions.assetPreviewZoom =
+                    io.MouseWheel;
+            }
+
+            ImGui::Spacing();
+            const auto* animations = preview.animations;
+            const char* animationLabel = "Bind pose";
+            if (animations &&
+                impl_->assetPreviewAnimationIndex >= 0 &&
+                static_cast<std::size_t>(
+                    impl_->assetPreviewAnimationIndex) <
+                    animations->size()) {
+                animationLabel =
+                    (*animations)[static_cast<std::size_t>(
+                        impl_->assetPreviewAnimationIndex)]
+                        .name.c_str();
+            }
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::BeginCombo(
+                    "##PrefabAnimation",
+                    animationLabel)) {
+                if (ImGui::Selectable(
+                        "Bind pose",
+                        impl_->assetPreviewAnimationIndex < 0)) {
+                    impl_->assetPreviewAnimationIndex = -1;
+                    optionsChanged = true;
+                }
+                if (animations) {
+                    for (std::size_t index = 0u;
+                         index < animations->size();
+                         ++index) {
+                        const auto& animation =
+                            (*animations)[index];
+                        const std::string label =
+                            animation.name +
+                            "  (" +
+                            std::to_string(
+                                animation.durationSeconds) +
+                            "s)";
+                        if (ImGui::Selectable(
+                                label.c_str(),
+                                impl_->
+                                        assetPreviewAnimationIndex ==
+                                    static_cast<int>(index))) {
+                            impl_->assetPreviewAnimationIndex =
+                                static_cast<int>(index);
+                            optionsChanged = true;
+                        }
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::SliderFloat(
+                    "Playback speed",
+                    &impl_->assetPreviewPlaybackSpeed,
+                    0.0f,
+                    2.0f,
+                    "%.2fx")) {
+                optionsChanged = true;
+            }
+
+            if (ImGui::Checkbox(
+                    "Mesh",
+                    &impl_->assetPreviewShowMesh)) {
+                optionsChanged = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Checkbox(
+                    "Materials",
+                    &impl_->assetPreviewShowMaterials)) {
+                optionsChanged = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Checkbox(
+                    "Textures",
+                    &impl_->assetPreviewShowTextures)) {
+                optionsChanged = true;
+            }
+            if (ImGui::Checkbox(
+                    "Wireframe",
+                    &impl_->assetPreviewShowWireframe)) {
+                optionsChanged = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Checkbox(
+                    "Skeleton",
+                    &impl_->assetPreviewShowSkeleton)) {
+                optionsChanged = true;
+            }
+
+            ImGui::Separator();
+            ImGui::TextDisabled(
+                "%u vertices  %u triangles",
+                preview.vertexCount,
+                preview.triangleCount);
+            ImGui::TextDisabled(
+                "%u materials  %u textures  %u bones  %zu clips",
+                preview.materialCount,
+                preview.textureCount,
+                preview.boneCount,
+                animations ? animations->size() : 0u);
+            if (!preview.status.empty()) {
+                ImGui::TextWrapped(
+                    "%s",
+                    preview.status.c_str());
+            }
+            if (optionsChanged) {
+                actions.assetPreviewOptionsChanged = true;
+                actions.assetPreviewAnimationIndex =
+                    impl_->assetPreviewAnimationIndex;
+                actions.assetPreviewPlaybackSpeed =
+                    impl_->assetPreviewPlaybackSpeed;
+                actions.assetPreviewAnimationPlaying =
+                    impl_->assetPreviewAnimationPlaying;
+                actions.assetPreviewShowMesh =
+                    impl_->assetPreviewShowMesh;
+                actions.assetPreviewShowMaterials =
+                    impl_->assetPreviewShowMaterials;
+                actions.assetPreviewShowTextures =
+                    impl_->assetPreviewShowTextures;
+                actions.assetPreviewShowWireframe =
+                    impl_->assetPreviewShowWireframe;
+                actions.assetPreviewShowSkeleton =
+                    impl_->assetPreviewShowSkeleton;
+            }
+        }
+    } else if (inspectedProperties) {
         drawInspectorProperties(
             *inspectedProperties);
     } else {
@@ -1104,6 +1331,16 @@ EditorShellActions EditorShell::drawWorkspace(
                     static_cast<int>(index);
                 impl_->inspectorSelection =
                     InspectorSelectionDomain::Asset;
+                actions.selectAssetIndex =
+                    static_cast<int>(index);
+                impl_->assetPreviewAnimationIndex = 0;
+                impl_->assetPreviewPlaybackSpeed = 1.0f;
+                impl_->assetPreviewAnimationPlaying = true;
+                impl_->assetPreviewShowMesh = true;
+                impl_->assetPreviewShowMaterials = true;
+                impl_->assetPreviewShowTextures = true;
+                impl_->assetPreviewShowWireframe = false;
+                impl_->assetPreviewShowSkeleton = false;
             }
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip(
@@ -1118,7 +1355,7 @@ EditorShellActions EditorShell::drawWorkspace(
         ImGui::EndTable();
     }
     ImGui::TextDisabled(
-        "%zu cooked resources",
+        "%zu top-level cooked assets",
         workspace.assets
             ? workspace.assets->size()
             : 0u);

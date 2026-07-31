@@ -84,9 +84,9 @@ These editor concepts are deliberately separate:
   scene, or asset. It is read-only until the command/transaction layer can
   make edits safely.
 - **Assets** enumerates cooked resources from the project's content mounts.
-  `.phlo` files appear as high-level prefabs, while meshes, materials,
-  animations, skeletons, textures, and scenes remain inspectable as their
-  dependent runtime resources.
+  `.phscene` worlds and `.phlo` prefabs are the top-level entries. Meshes,
+  materials, animations, skeletons, and textures owned by a prefab are
+  dependencies of that prefab, not unrelated peer assets.
 - **Scene view** renders the open asset with editor camera and simulation
   controls.
 - **Game view** renders the project's real runtime state over its loaded
@@ -114,6 +114,26 @@ and phase layered over that scene, not duplicate route assets.
 The initial project open may still perform expensive CPU/GPU asset prewarming.
 "Warm switching" means subsequent preview changes reuse those resources; it
 does not imply that a newly opened process can skip its first initialization.
+
+## Cooked Prefab Inspection
+
+Selecting a previewable `.phlo` replaces generic metadata in the Inspector with
+an embedded, read-only 3D viewer. The project plugin decodes the selected
+cooked prefab directly; the editor does not silently substitute its source
+model.
+
+The viewer provides:
+
+- right-mouse orbit, middle-mouse pan, wheel zoom, and reset view;
+- animation selection, pause/play, and playback speed;
+- mesh, material, texture, wireframe, and skeleton inspection modes;
+- cooked vertex, triangle, material, texture, bone, and clip counts.
+
+The preview uses an Engine-owned offscreen surface and a project-owned renderer
+instance isolated from the open scene. Preview animation and diagnostic state
+therefore cannot mutate or blank the Scene or Game surface. This is an
+inspection tool, not a second model editor: source authoring remains in Blender
+and later asset changes go through Forge.
 
 ## First Vertical Slice
 

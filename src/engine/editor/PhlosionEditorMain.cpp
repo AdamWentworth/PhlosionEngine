@@ -448,6 +448,50 @@ std::string cookedAssetDisplayName(
     return path.filename().string();
 }
 
+std::string prefabDependencySummary(
+    const std::filesystem::path& prefabPath) {
+    std::size_t meshes = 0u;
+    std::size_t materials = 0u;
+    std::size_t animations = 0u;
+    std::size_t skeletons = 0u;
+    std::size_t textures = 0u;
+    std::error_code iteratorError;
+    std::filesystem::recursive_directory_iterator iterator(
+        prefabPath.parent_path(),
+        std::filesystem::directory_options::
+            skip_permission_denied,
+        iteratorError);
+    const std::filesystem::recursive_directory_iterator end;
+    while (!iteratorError && iterator != end) {
+        const auto entry = *iterator;
+        iterator.increment(iteratorError);
+        std::error_code typeError;
+        if (!entry.is_regular_file(typeError) || typeError) {
+            continue;
+        }
+        std::string extension =
+            entry.path().extension().string();
+        std::transform(
+            extension.begin(),
+            extension.end(),
+            extension.begin(),
+            [](unsigned char character) {
+                return static_cast<char>(
+                    std::tolower(character));
+            });
+        meshes += extension == ".phmesh" ? 1u : 0u;
+        materials += extension == ".phmat" ? 1u : 0u;
+        animations += extension == ".phanim" ? 1u : 0u;
+        skeletons += extension == ".phskel" ? 1u : 0u;
+        textures += extension == ".ktx2" ? 1u : 0u;
+    }
+    return std::to_string(meshes) + " mesh, " +
+           std::to_string(materials) + " material, " +
+           std::to_string(animations) + " animation set, " +
+           std::to_string(skeletons) + " skeleton, " +
+           std::to_string(textures) + " textures";
+}
+
 std::optional<CookedAssetType> cookedAssetType(
     std::string extension) {
     std::transform(
@@ -551,6 +595,11 @@ discoverCookedAssets(
             if (!type) {
                 continue;
             }
+            if (type->typeName != std::string_view("Prefab") &&
+                type->typeName !=
+                    std::string_view("World Scene")) {
+                continue;
+            }
             std::error_code relativeError;
             const auto relativeToProject =
                 std::filesystem::relative(
@@ -576,8 +625,17 @@ discoverCookedAssets(
                         .typeName = type->typeName,
                         .category = type->category,
                         .path = projectPath,
+                        .previewable3d =
+                            entry.path().extension() ==
+                            ".phlo",
                         .properties = {
                             {"Asset type", type->typeName},
+                            {"Contains",
+                             entry.path().extension() ==
+                                     ".phlo"
+                                 ? prefabDependencySummary(
+                                       entry.path())
+                                 : "Cooked world hierarchy"},
                             {"Format",
                              entry.path()
                                  .extension()
@@ -756,8 +814,69 @@ struct LoadedProject {
     std::vector<engine::editor::WorkspaceScene> sceneViews;
     std::vector<engine::editor::WorkspaceGamePreview>
         gamePreviewViews;
+    std::vector<engine::editor::WorkspaceAssetAnimation>
+        assetPreviewAnimations;
+    engine::editor::WorkspaceAssetPreview
+        assetPreviewView;
     std::string activeGamePreviewId = "main-menu";
 };
+
+void refreshAssetPreviewView(LoadedProject& project) {
+    const auto info =
+        project.runtime->assetPreviewInfo();
+    project.assetPreviewAnimations.clear();
+    project.assetPreviewAnimations.reserve(
+        info.animationCount);
+    for (std::size_t index = 0u;
+         index < info.animationCount;
+         ++index) {
+        const auto animation =
+            project.runtime->assetPreviewAnimation(index);
+        project.assetPreviewAnimations.push_back(
+            engine::editor::WorkspaceAssetAnimation{
+                .name =
+                    animation.name
+                        ? animation.name
+                        : "Unnamed clip",
+                .durationSeconds =
+                    animation.durationSeconds});
+    }
+    project.assetPreviewView =
+        engine::editor::WorkspaceAssetPreview{
+            .assetId =
+                info.assetId ? info.assetId : "",
+            .status =
+                info.status ? info.status : "",
+            .vertexCount = info.vertexCount,
+            .triangleCount = info.triangleCount,
+            .materialCount = info.materialCount,
+            .textureCount = info.textureCount,
+            .boneCount = info.boneCount,
+            .boundsRadius = info.boundsRadius,
+            .boundsCenterY = info.boundsCenterY,
+            .ready = info.ready,
+            .animations =
+                &project.assetPreviewAnimations};
+}
+
+void resetAssetPreviewCamera(
+    Camera3D& camera,
+    const engine::editor::WorkspaceAssetPreview&
+        preview) {
+    const float radius =
+        std::clamp(preview.boundsRadius, 0.45f, 6.0f);
+    const glm::vec3 target(
+        0.0f,
+        preview.boundsCenterY,
+        0.0f);
+    camera.lookAt(target);
+    camera.setPosition(
+        target +
+        glm::vec3(
+            radius * 1.35f,
+            radius * 0.65f,
+            radius * 2.65f));
+}
 
 std::unique_ptr<LoadedProject> loadProject(
     const std::filesystem::path& requestedDescriptorPath,
@@ -1388,10 +1507,21 @@ int main(int argc, char** argv) {
             16.0f / 9.0f,
             0.1f,
             100.0f);
+        Camera3D assetPreviewCamera(
+            36.0f,
+            4.0f / 3.0f,
+            0.01f,
+            100.0f);
+        assetPreviewCamera.setPosition(
+            glm::vec3(2.6f, 1.6f, 4.8f));
+        assetPreviewCamera.lookAt(
+            glm::vec3(0.0f, 0.8f, 0.0f));
         engine::editor::OpenGLEditorRenderSurface
             sceneSurface;
         engine::editor::OpenGLEditorRenderSurface
             gameSurface;
+        engine::editor::OpenGLEditorRenderSurface
+            assetPreviewSurface;
 
         std::string error;
         const std::string layoutPath =
@@ -1429,6 +1559,9 @@ int main(int argc, char** argv) {
         bool editorViewportHovered = false;
         bool editorViewportFocused = false;
         bool focusActiveViewport = true;
+        int assetPreviewWidth = 400;
+        int assetPreviewHeight = 300;
+        int selectedAssetPreviewIndex = -1;
         float gameFixedAccumulator = 0.0f;
         bool commandLinePreviewApplied = false;
         using Clock = std::chrono::steady_clock;
@@ -1579,6 +1712,7 @@ int main(int argc, char** argv) {
                     activeViewport =
                         engine::editor::EditorViewportKind::Scene;
                     focusActiveViewport = true;
+                    selectedAssetPreviewIndex = -1;
                     gameFixedAccumulator = 0.0f;
                     if (!commandLinePreviewApplied &&
                         !arguments.gamePreview.empty()) {
@@ -1767,6 +1901,60 @@ int main(int argc, char** argv) {
                     gameSurface.end();
                 }
 
+                if (selectedAssetPreviewIndex >= 0) {
+                    project->runtime->updateAssetPreview(
+                        deltaSeconds);
+                    refreshAssetPreviewView(*project);
+                    if (project->assetPreviewView.ready) {
+                        const int previewWidth =
+                            std::max(1, assetPreviewWidth);
+                        const int previewHeight =
+                            std::max(1, assetPreviewHeight);
+                        assetPreviewCamera.setAspectRatio(
+                            static_cast<float>(previewWidth) /
+                            static_cast<float>(previewHeight));
+                        const glm::mat4 previewViewProjection =
+                            assetPreviewCamera
+                                .getProjectionMatrix() *
+                            assetPreviewCamera
+                                .getViewMatrix();
+                        const glm::vec3 previewPosition =
+                            assetPreviewCamera.getPosition();
+                        const glm::vec3 previewForward =
+                            assetPreviewCamera.getDirection();
+                        const glm::vec3 previewTarget =
+                            assetPreviewCamera.getTarget();
+                        const engine::editor::
+                            EditorProjectRenderContext
+                                assetRenderContext{
+                                    .renderer = &renderer,
+                                    .viewProjectionMatrix4x4 =
+                                        glm::value_ptr(
+                                            previewViewProjection),
+                                    .surfaceWidth =
+                                        previewWidth,
+                                    .surfaceHeight =
+                                        previewHeight,
+                                    .cameraWorldPosition3 =
+                                        glm::value_ptr(
+                                            previewPosition),
+                                    .cameraForward3 =
+                                        glm::value_ptr(
+                                            previewForward),
+                                    .cameraTarget3 =
+                                        glm::value_ptr(
+                                            previewTarget)};
+                        if (assetPreviewSurface.begin(
+                                previewWidth,
+                                previewHeight)) {
+                            project->runtime->
+                                renderAssetPreview(
+                                    assetRenderContext);
+                            assetPreviewSurface.end();
+                        }
+                    }
+                }
+
                 const auto stats =
                     project->runtime->stats();
                 const engine::editor::WorkspaceView workspace{
@@ -1788,6 +1976,10 @@ int main(int argc, char** argv) {
                     .hierarchyItems =
                         &project->hierarchyViews,
                     .assets = &project->assetViews,
+                    .assetPreview =
+                        selectedAssetPreviewIndex >= 0
+                            ? &project->assetPreviewView
+                            : nullptr,
                     .scenes = &project->sceneViews,
                     .gamePreviews =
                         &project->gamePreviewViews,
@@ -1800,6 +1992,8 @@ int main(int argc, char** argv) {
                         sceneSurface.textureId(),
                     .gameTextureId =
                         gameSurface.textureId(),
+                    .assetPreviewTextureId =
+                        assetPreviewSurface.textureId(),
                     .sceneCount = stats.sceneCount,
                     .materialCount = stats.materialCount,
                     .drawClassCount = stats.drawClassCount,
@@ -1843,11 +2037,128 @@ int main(int argc, char** argv) {
             renderer.endFrame();
             window.swapBuffers();
 
+            assetPreviewWidth =
+                std::max(1, actions.assetPreviewWidth);
+            assetPreviewHeight =
+                std::max(1, actions.assetPreviewHeight);
+            if (project &&
+                actions.selectAssetIndex >= 0 &&
+                static_cast<std::size_t>(
+                    actions.selectAssetIndex) <
+                    project->assetViews.size()) {
+                const auto& asset =
+                    project->assetViews[
+                        static_cast<std::size_t>(
+                            actions.selectAssetIndex)];
+                if (asset.previewable3d) {
+                    const std::filesystem::path assetPath =
+                        (project->root / asset.path)
+                            .lexically_normal();
+                    std::string previewError;
+                    if (project->runtime->
+                            selectAssetPreview(
+                                asset.id.c_str(),
+                                assetPath.string().c_str(),
+                                &previewError)) {
+                        selectedAssetPreviewIndex =
+                            actions.selectAssetIndex;
+                        const engine::editor::
+                            EditorProjectAssetPreviewOptions
+                                defaultOptions{
+                                    .animationIndex = 0};
+                        project->runtime->
+                            setAssetPreviewOptions(
+                                defaultOptions);
+                        refreshAssetPreviewView(*project);
+                        resetAssetPreviewCamera(
+                            assetPreviewCamera,
+                            project->assetPreviewView);
+                        project->status =
+                            "Previewing cooked prefab: " +
+                            asset.displayName + ".";
+                    } else {
+                        selectedAssetPreviewIndex = -1;
+                        project->status =
+                            "Cooked prefab preview failed: " +
+                            previewError;
+                    }
+                } else {
+                    selectedAssetPreviewIndex = -1;
+                }
+            }
+            if (project &&
+                selectedAssetPreviewIndex >= 0 &&
+                actions.assetPreviewOptionsChanged) {
+                project->runtime->setAssetPreviewOptions(
+                    engine::editor::
+                        EditorProjectAssetPreviewOptions{
+                            .animationIndex =
+                                actions
+                                    .assetPreviewAnimationIndex,
+                            .playbackSpeed =
+                                actions
+                                    .assetPreviewPlaybackSpeed,
+                            .animationPlaying =
+                                actions
+                                    .assetPreviewAnimationPlaying,
+                            .showMesh =
+                                actions.assetPreviewShowMesh,
+                            .showMaterials =
+                                actions
+                                    .assetPreviewShowMaterials,
+                            .showTextures =
+                                actions
+                                    .assetPreviewShowTextures,
+                            .showWireframe =
+                                actions
+                                    .assetPreviewShowWireframe,
+                            .showSkeleton =
+                                actions
+                                    .assetPreviewShowSkeleton});
+            }
+            if (project &&
+                selectedAssetPreviewIndex >= 0) {
+                if (actions.resetAssetPreviewCamera) {
+                    resetAssetPreviewCamera(
+                        assetPreviewCamera,
+                        project->assetPreviewView);
+                }
+                if (actions.assetPreviewOrbitYaw != 0.0f ||
+                    actions.assetPreviewOrbitPitch != 0.0f) {
+                    assetPreviewCamera.orbit(
+                        actions.assetPreviewOrbitYaw,
+                        actions.assetPreviewOrbitPitch);
+                }
+                if (actions.assetPreviewPanX != 0.0f ||
+                    actions.assetPreviewPanY != 0.0f) {
+                    const float panScale =
+                        std::max(
+                            0.001f,
+                            project->assetPreviewView
+                                    .boundsRadius *
+                                0.0025f);
+                    assetPreviewCamera.panPlanar(
+                        actions.assetPreviewPanX,
+                        actions.assetPreviewPanY,
+                        panScale);
+                }
+                if (actions.assetPreviewZoom != 0.0f) {
+                    assetPreviewCamera.zoom(
+                        actions.assetPreviewZoom *
+                        std::max(
+                            0.12f,
+                            project->assetPreviewView
+                                    .boundsRadius *
+                                0.28f));
+                }
+            }
+
             if (actions.exit) {
                 running = false;
             }
             if (actions.closeProject) {
                 project.reset();
+                selectedAssetPreviewIndex = -1;
                 simulationSeconds = 0.0f;
                 gameFixedAccumulator = 0.0f;
                 playState =
@@ -2056,6 +2367,7 @@ int main(int argc, char** argv) {
         project.reset();
         sceneSurface.shutdown();
         gameSurface.shutdown();
+        assetPreviewSurface.shutdown();
         editor.shutdown();
         renderer.shutdown();
     } catch (const std::exception& exception) {
