@@ -66,10 +66,13 @@ importer:
 - every override records the expected source transform or provenance hash and
   fails loudly after an incompatible recook.
 
-For Pokemon Autochess Route 1, the first adapter exposes canonical source mesh
-groups, encounter-grass records, and decoded vegetation placements. Some tree
-meshes still contain several source instances in one group. Extracting their
-per-instance transforms is the next fidelity-preserving decomposition step.
+For Pokemon Autochess Route 1, the adapter exposes canonical source mesh
+groups, encounter-grass records, decoded vegetation placements, and 47
+independent tree instances. The tree split is derived from connected trunk
+topology and matching contiguous source material blocks; it does not guess
+centres or replace the source geometry with a generic tree. Source meshes that
+do not yet have an equally strong decomposition proof remain clearly labelled
+as groups.
 
 ## Editing Transactions
 
@@ -119,7 +122,8 @@ recipes remain tracked.
 
 1. Smooth transform preview and organized hierarchy folders.
 2. Expose every stable imported prefab placement and honest source mesh group.
-3. Split repeated tree and prop batches into individual stable instances.
+3. Split the remaining evidence-backed repeated prop or foliage batches into
+   individual stable instances. Route 1's 47 trees satisfy this step.
 4. Add create, duplicate, delete, rename, and reparent commands with undo/redo.
 5. Persist a generic project-owned scene document rather than a Route 1-only
    delta schema.

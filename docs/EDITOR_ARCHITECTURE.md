@@ -201,8 +201,10 @@ uses the same preview/commit path. Canonical cooked scenes remain read-only.
 The Route 1 adapter now presents stable source records in semantic,
 collapsible hierarchy folders and uses a lightweight preview path so drag
 frames do not rebuild projected shadows, material catalogs, or runtime
-statistics. Command history, undo/redo, individual extraction of repeated
-source batches, and creation of new scene components remain later M1 work.
+statistics. Route 1's 47 source-baked trees are now decomposed into stable
+individual placements through topology- and vertex-block evidence. Command
+history, undo/redo, decomposition of the remaining qualified repeated source
+batches, and creation of new scene components remain later M1 work.
 
 The generic authored-environment component model and the path from imported
 source groups to prefab instances, ramps, ledges, and raised platforms are
