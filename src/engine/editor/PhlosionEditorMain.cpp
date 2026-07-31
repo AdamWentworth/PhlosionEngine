@@ -1300,6 +1300,8 @@ struct LoadedProject {
         playConfigurationViews;
     std::vector<engine::editor::WorkspaceHierarchyItem>
         hierarchyViews;
+    std::vector<engine::editor::WorkspaceLayoutObject>
+        layoutObjectViews;
     std::vector<engine::editor::WorkspaceAsset>
         assetViews;
     std::vector<engine::editor::WorkspaceScene> sceneViews;
@@ -1312,6 +1314,118 @@ struct LoadedProject {
         assetPreviewView;
     std::string activeGamePreviewId = "main-menu";
 };
+
+void refreshLayoutObjectViews(LoadedProject& project) {
+    project.layoutObjectViews.clear();
+    const std::size_t count =
+        project.runtime->layoutObjectCount();
+    project.layoutObjectViews.reserve(count);
+    for (std::size_t index = 0u;
+         index < count;
+         ++index) {
+        const auto object =
+            project.runtime->layoutObject(index);
+        if (!object.stableId ||
+            !object.displayName) {
+            continue;
+        }
+        project.layoutObjectViews.push_back(
+            engine::editor::WorkspaceLayoutObject{
+                .stableId = object.stableId,
+                .displayName = object.displayName,
+                .typeName =
+                    object.typeName
+                        ? object.typeName
+                        : "Layout Object",
+                .coordinateSystem =
+                    object.coordinateSystem
+                        ? object.coordinateSystem
+                        : "Project units",
+                .reason =
+                    object.reason
+                        ? object.reason
+                        : "",
+                .sourceTranslation =
+                    object.sourceTranslation,
+                .sourceRotationDegrees =
+                    object.sourceRotationDegrees,
+                .sourceScale =
+                    object.sourceScale,
+                .translation =
+                    object.translation,
+                .rotationDegrees =
+                    object.rotationDegrees,
+                .scale = object.scale,
+                .suppressed =
+                    object.suppressed,
+                .hasOverride =
+                    object.hasOverride});
+    }
+}
+
+void rebuildProjectHierarchy(
+    LoadedProject& project,
+    const engine::editor::WorkspaceScene& scene,
+    const engine::editor::EditorProjectStats& stats,
+    std::string_view backendName) {
+    project.hierarchyViews =
+        buildReadOnlyHierarchy(
+            scene,
+            stats,
+            backendName);
+    if (project.layoutObjectViews.empty()) {
+        return;
+    }
+    project.hierarchyViews.push_back(
+        engine::editor::WorkspaceHierarchyItem{
+            .id = "environment/autochess-layout",
+            .displayName =
+                "Autochess board layout",
+            .typeName =
+                "Non-destructive Layout Layer",
+            .depth = 2,
+            .properties = {
+                {"Source environment",
+                 "Locked canonical asset"},
+                {"Editable targets",
+                 std::to_string(
+                     project.layoutObjectViews.size())},
+                {"Persistence",
+                 "Project-owned layout manifest"},
+            }});
+    for (std::size_t index = 0u;
+         index < project.layoutObjectViews.size();
+         ++index) {
+        const auto& object =
+            project.layoutObjectViews[index];
+        project.hierarchyViews.push_back(
+            engine::editor::WorkspaceHierarchyItem{
+                .id = object.stableId,
+                .displayName =
+                    object.displayName +
+                    (object.hasOverride
+                         ? "  [override]"
+                         : ""),
+                .typeName = object.typeName,
+                .depth = 3,
+                .layoutObjectIndex =
+                    static_cast<int>(index),
+                .properties = {
+                    {"Stable source target",
+                     object.stableId},
+                    {"State",
+                     object.hasOverride
+                         ? (object.suppressed
+                                ? "Suppressed by layout"
+                                : "Transformed by layout")
+                         : "Canonical"},
+                    {"Reason",
+                     object.reason.empty()
+                         ? "None"
+                         : object.reason},
+                }});
+    }
+}
 
 void refreshAssetPreviewView(LoadedProject& project) {
     const auto info =
@@ -1700,14 +1814,15 @@ std::unique_ptr<LoadedProject> loadProject(
         .cameraForward3 = glm::value_ptr(cameraForward),
         .cameraTarget3 = glm::value_ptr(cameraTarget)};
     loaded->runtime->prewarm(renderer, cameraContext);
-    loaded->hierarchyViews =
-        buildReadOnlyHierarchy(
-            loaded->sceneViews[
-                loaded->activeSceneIndex],
-            loaded->runtime->stats(),
-            renderer.backendId()
-                ? renderer.backendId()
-                : "unknown");
+    refreshLayoutObjectViews(*loaded);
+    rebuildProjectHierarchy(
+        *loaded,
+        loaded->sceneViews[
+            loaded->activeSceneIndex],
+        loaded->runtime->stats(),
+        renderer.backendId()
+            ? renderer.backendId()
+            : "unknown");
     const std::size_t gamePreviewCount =
         loaded->runtime->gamePreviewCount();
     loaded->gamePreviewViews.reserve(gamePreviewCount);
@@ -2744,6 +2859,11 @@ int main(int argc, char** argv) {
                         &project->playConfigurationViews,
                     .hierarchyItems =
                         &project->hierarchyViews,
+                    .layoutObjects =
+                        &project->layoutObjectViews,
+                    .layoutOverlayVisible =
+                        project->runtime->
+                            layoutOverlayVisible(),
                     .assets = &project->assetViews,
                     .assetPreview =
                         selectedAssetPreviewIndex >= 0
@@ -2820,6 +2940,81 @@ int main(int argc, char** argv) {
                 std::max(1, actions.assetPreviewWidth);
             assetPreviewHeight =
                 std::max(1, actions.assetPreviewHeight);
+            if (project &&
+                actions.layoutOverlayVisibilityChanged) {
+                project->runtime->setLayoutOverlayVisible(
+                    actions.layoutOverlayVisible);
+            }
+            if (project &&
+                actions.selectLayoutObjectIndex >= 0 &&
+                static_cast<std::size_t>(
+                    actions.selectLayoutObjectIndex) <
+                    project->layoutObjectViews.size()) {
+                const auto& object =
+                    project->layoutObjectViews[
+                        static_cast<std::size_t>(
+                            actions.selectLayoutObjectIndex)];
+                project->runtime->selectLayoutObject(
+                    object.stableId.c_str());
+            }
+            if (project &&
+                actions.editLayoutObjectIndex >= 0 &&
+                static_cast<std::size_t>(
+                    actions.editLayoutObjectIndex) <
+                    project->layoutObjectViews.size() &&
+                (actions.layoutObjectEditRequested ||
+                 actions.layoutObjectResetRequested)) {
+                const auto& object =
+                    project->layoutObjectViews[
+                        static_cast<std::size_t>(
+                            actions.editLayoutObjectIndex)];
+                std::string layoutError;
+                const bool applied =
+                    actions.layoutObjectResetRequested
+                    ? project->runtime->
+                          resetLayoutObjectOverride(
+                              object.stableId.c_str(),
+                              &layoutError)
+                    : project->runtime->
+                          setLayoutObjectOverride(
+                              engine::editor::
+                                  EditorProjectLayoutEdit{
+                                      .stableId =
+                                          object.stableId.c_str(),
+                                      .translation =
+                                          actions.layoutTranslation,
+                                      .rotationDegrees =
+                                          actions
+                                              .layoutRotationDegrees,
+                                      .scale =
+                                          actions.layoutScale,
+                                      .suppressed =
+                                          actions.layoutSuppressed,
+                                      .reason =
+                                          "autochess_board_clearance"},
+                              &layoutError);
+                if (applied) {
+                    refreshLayoutObjectViews(*project);
+                    const auto& activeScene =
+                        project->sceneViews[
+                            project->activeSceneIndex];
+                    rebuildProjectHierarchy(
+                        *project,
+                        activeScene,
+                        project->runtime->stats(),
+                        renderer.backendId()
+                            ? renderer.backendId()
+                            : "unknown");
+                    project->status =
+                        actions.layoutObjectResetRequested
+                        ? "Layout override reset to canonical source."
+                        : "Layout override applied, saved, and hot-reloaded.";
+                } else {
+                    project->status =
+                        "Layout override failed: " +
+                        layoutError;
+                }
+            }
             if (project &&
                 actions.selectAssetIndex >= 0 &&
                 static_cast<std::size_t>(
@@ -3100,13 +3295,15 @@ int main(int argc, char** argv) {
                                     .cameraTarget3 =
                                         glm::value_ptr(
                                             cameraTarget)});
-                        project->hierarchyViews =
-                            buildReadOnlyHierarchy(
-                                scene,
-                                project->runtime->stats(),
-                                renderer.backendId()
-                                    ? renderer.backendId()
-                                    : "unknown");
+                        refreshLayoutObjectViews(
+                            *project);
+                        rebuildProjectHierarchy(
+                            *project,
+                            scene,
+                            project->runtime->stats(),
+                            renderer.backendId()
+                                ? renderer.backendId()
+                                : "unknown");
                         activeViewport =
                             engine::editor::
                                 EditorViewportKind::Scene;

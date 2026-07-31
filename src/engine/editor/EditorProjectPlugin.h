@@ -4,6 +4,7 @@
 #include "engine/input/InputEvent.h"
 #include "engine/render/IRenderBackend.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -12,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 7u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 8u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -132,6 +133,31 @@ struct EditorProjectAssetAnimation {
     float durationSeconds = 0.0f;
 };
 
+struct EditorProjectLayoutObject {
+    const char* stableId = nullptr;
+    const char* displayName = nullptr;
+    const char* typeName = nullptr;
+    const char* coordinateSystem = nullptr;
+    const char* reason = nullptr;
+    std::array<float, 3> sourceTranslation{};
+    std::array<float, 3> sourceRotationDegrees{};
+    std::array<float, 3> sourceScale{1.0f, 1.0f, 1.0f};
+    std::array<float, 3> translation{};
+    std::array<float, 3> rotationDegrees{};
+    std::array<float, 3> scale{1.0f, 1.0f, 1.0f};
+    bool suppressed = false;
+    bool hasOverride = false;
+};
+
+struct EditorProjectLayoutEdit {
+    const char* stableId = nullptr;
+    std::array<float, 3> translation{};
+    std::array<float, 3> rotationDegrees{};
+    std::array<float, 3> scale{1.0f, 1.0f, 1.0f};
+    bool suppressed = false;
+    const char* reason = nullptr;
+};
+
 class IEditorProjectRuntime {
 public:
     virtual ~IEditorProjectRuntime() = default;
@@ -243,6 +269,44 @@ public:
     virtual void renderAssetPreview(
         const EditorProjectRenderContext& context) {
         (void)context;
+    }
+
+    virtual std::size_t layoutObjectCount() const noexcept {
+        return 0u;
+    }
+    virtual EditorProjectLayoutObject layoutObject(
+        std::size_t index) const noexcept {
+        (void)index;
+        return {};
+    }
+    virtual bool setLayoutObjectOverride(
+        const EditorProjectLayoutEdit& edit,
+        std::string* outError = nullptr) {
+        (void)edit;
+        if (outError) {
+            *outError =
+                "This project does not provide editable scene layout objects.";
+        }
+        return false;
+    }
+    virtual bool resetLayoutObjectOverride(
+        const char* stableId,
+        std::string* outError = nullptr) {
+        (void)stableId;
+        if (outError) {
+            *outError =
+                "This project does not provide editable scene layout objects.";
+        }
+        return false;
+    }
+    virtual void selectLayoutObject(const char* stableId) {
+        (void)stableId;
+    }
+    virtual bool layoutOverlayVisible() const noexcept {
+        return false;
+    }
+    virtual void setLayoutOverlayVisible(bool visible) {
+        (void)visible;
     }
 };
 

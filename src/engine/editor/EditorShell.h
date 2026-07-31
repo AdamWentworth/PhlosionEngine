@@ -2,6 +2,7 @@
 
 #include "engine/editor/EditorRendererPreference.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -36,7 +37,24 @@ struct WorkspaceHierarchyItem {
     std::string displayName;
     std::string typeName;
     int depth = 0;
+    int layoutObjectIndex = -1;
     std::vector<WorkspaceProperty> properties;
+};
+
+struct WorkspaceLayoutObject {
+    std::string stableId;
+    std::string displayName;
+    std::string typeName;
+    std::string coordinateSystem;
+    std::string reason;
+    std::array<float, 3> sourceTranslation{};
+    std::array<float, 3> sourceRotationDegrees{};
+    std::array<float, 3> sourceScale{1.0f, 1.0f, 1.0f};
+    std::array<float, 3> translation{};
+    std::array<float, 3> rotationDegrees{};
+    std::array<float, 3> scale{1.0f, 1.0f, 1.0f};
+    bool suppressed = false;
+    bool hasOverride = false;
 };
 
 struct WorkspaceAsset {
@@ -127,6 +145,9 @@ struct WorkspaceView {
         playConfigurations = nullptr;
     const std::vector<WorkspaceHierarchyItem>*
         hierarchyItems = nullptr;
+    const std::vector<WorkspaceLayoutObject>*
+        layoutObjects = nullptr;
+    bool layoutOverlayVisible = false;
     const std::vector<WorkspaceAsset>* assets = nullptr;
     const WorkspaceAssetPreview* assetPreview = nullptr;
     const std::vector<WorkspaceScene>* scenes = nullptr;
@@ -175,6 +196,16 @@ struct EditorShellActions {
     int selectGamePreviewIndex = -1;
     int openSceneIndex = -1;
     int selectAssetIndex = -1;
+    int selectLayoutObjectIndex = -1;
+    int editLayoutObjectIndex = -1;
+    bool layoutObjectEditRequested = false;
+    bool layoutObjectResetRequested = false;
+    bool layoutOverlayVisibilityChanged = false;
+    bool layoutOverlayVisible = false;
+    std::array<float, 3> layoutTranslation{};
+    std::array<float, 3> layoutRotationDegrees{};
+    std::array<float, 3> layoutScale{1.0f, 1.0f, 1.0f};
+    bool layoutSuppressed = false;
     int assetPreviewWidth = 400;
     int assetPreviewHeight = 300;
     float assetPreviewOrbitYaw = 0.0f;

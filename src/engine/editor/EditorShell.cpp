@@ -464,6 +464,11 @@ struct EditorShell::Impl {
     bool assetPreviewShowWireframe = false;
     bool assetPreviewShowSkeleton = false;
     std::string activeAssetPreviewId;
+    std::string activeLayoutObjectId;
+    std::array<float, 3> layoutTranslation{};
+    std::array<float, 3> layoutRotationDegrees{};
+    std::array<float, 3> layoutScale{1.0f, 1.0f, 1.0f};
+    bool layoutSuppressed = false;
     std::string settingsIniPath;
 #if defined(_WIN32)
     std::unique_ptr<D3D12DescriptorAllocator>
@@ -1294,6 +1299,10 @@ EditorShellActions EditorShell::drawWorkspace(
                     static_cast<int>(index);
                 impl_->inspectorSelection =
                     InspectorSelectionDomain::Hierarchy;
+                if (item.layoutObjectIndex >= 0) {
+                    actions.selectLayoutObjectIndex =
+                        item.layoutObjectIndex;
+                }
             }
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip(
@@ -1485,6 +1494,8 @@ EditorShellActions EditorShell::drawWorkspace(
     const std::vector<WorkspaceProperty>*
         inspectedProperties = nullptr;
     const WorkspaceAsset* inspectedAsset = nullptr;
+    const WorkspaceLayoutObject* inspectedLayout = nullptr;
+    int inspectedLayoutIndex = -1;
     if (impl_->inspectorSelection ==
             InspectorSelectionDomain::Hierarchy &&
         workspace.hierarchyItems &&
@@ -1501,6 +1512,18 @@ EditorShellActions EditorShell::drawWorkspace(
         inspectedName = selected.displayName.c_str();
         inspectedType = selected.typeName.c_str();
         inspectedProperties = &selected.properties;
+        if (selected.layoutObjectIndex >= 0 &&
+            workspace.layoutObjects &&
+            static_cast<std::size_t>(
+                selected.layoutObjectIndex) <
+                workspace.layoutObjects->size()) {
+            inspectedLayoutIndex =
+                selected.layoutObjectIndex;
+            inspectedLayout =
+                &(*workspace.layoutObjects)[
+                    static_cast<std::size_t>(
+                        selected.layoutObjectIndex)];
+        }
     } else if (
         impl_->inspectorSelection ==
             InspectorSelectionDomain::Asset &&
@@ -1543,10 +1566,128 @@ EditorShellActions EditorShell::drawWorkspace(
     }
     ImGui::Separator();
     ImGui::Spacing();
+    if (workspace.layoutObjects &&
+        !workspace.layoutObjects->empty()) {
+        bool overlayVisible =
+            workspace.layoutOverlayVisible;
+        if (ImGui::Checkbox(
+                "Show board footprint",
+                &overlayVisible)) {
+            actions.layoutOverlayVisibilityChanged = true;
+            actions.layoutOverlayVisible = overlayVisible;
+        }
+        ImGui::TextDisabled(
+            "Canonical source stays locked; edits are saved as project-owned overrides.");
+        ImGui::Spacing();
+    }
     const bool showAssetPreview =
         inspectedAsset &&
         inspectedAsset->previewable3d;
-    if (showAssetPreview) {
+    if (inspectedLayout) {
+        if (impl_->activeLayoutObjectId !=
+            inspectedLayout->stableId) {
+            impl_->activeLayoutObjectId =
+                inspectedLayout->stableId;
+            impl_->layoutTranslation =
+                inspectedLayout->translation;
+            impl_->layoutRotationDegrees =
+                inspectedLayout->rotationDegrees;
+            impl_->layoutScale =
+                inspectedLayout->scale;
+            impl_->layoutSuppressed =
+                inspectedLayout->suppressed;
+        }
+        ImGui::TextUnformatted("Layout Override");
+        ImGui::TextDisabled(
+            "%s",
+            inspectedLayout->coordinateSystem.c_str());
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::DragFloat3(
+            "Translation",
+            impl_->layoutTranslation.data(),
+            1.0f,
+            -100000.0f,
+            100000.0f,
+            "%.2f");
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::DragFloat3(
+            "Rotation",
+            impl_->layoutRotationDegrees.data(),
+            0.25f,
+            -360.0f,
+            360.0f,
+            "%.2f deg");
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::DragFloat3(
+            "Scale",
+            impl_->layoutScale.data(),
+            0.01f,
+            0.01f,
+            100.0f,
+            "%.3f");
+        ImGui::Checkbox(
+            "Suppress in gameplay layout",
+            &impl_->layoutSuppressed);
+        ImGui::Spacing();
+        if (ImGui::Button(
+                "Apply and Save Override",
+                ImVec2(-1.0f, 32.0f))) {
+            actions.editLayoutObjectIndex =
+                inspectedLayoutIndex;
+            actions.layoutObjectEditRequested = true;
+            actions.layoutTranslation =
+                impl_->layoutTranslation;
+            actions.layoutRotationDegrees =
+                impl_->layoutRotationDegrees;
+            actions.layoutScale =
+                impl_->layoutScale;
+            actions.layoutSuppressed =
+                impl_->layoutSuppressed;
+            impl_->activeLayoutObjectId.clear();
+        }
+        ImGui::BeginDisabled(
+            !inspectedLayout->hasOverride);
+        if (ImGui::Button(
+                "Reset To Canonical Source",
+                ImVec2(-1.0f, 28.0f))) {
+            actions.editLayoutObjectIndex =
+                inspectedLayoutIndex;
+            actions.layoutObjectResetRequested = true;
+            impl_->activeLayoutObjectId.clear();
+        }
+        ImGui::EndDisabled();
+        ImGui::Separator();
+        ImGui::TextDisabled("Stable source target");
+        ImGui::TextWrapped(
+            "%s",
+            inspectedLayout->stableId.c_str());
+        ImGui::TextDisabled("Original translation");
+        ImGui::Text(
+            "%.2f, %.2f, %.2f",
+            inspectedLayout->sourceTranslation[0],
+            inspectedLayout->sourceTranslation[1],
+            inspectedLayout->sourceTranslation[2]);
+        ImGui::TextDisabled("Original rotation");
+        ImGui::Text(
+            "%.2f, %.2f, %.2f",
+            inspectedLayout->sourceRotationDegrees[0],
+            inspectedLayout->sourceRotationDegrees[1],
+            inspectedLayout->sourceRotationDegrees[2]);
+        ImGui::TextDisabled("Original scale");
+        ImGui::Text(
+            "%.3f, %.3f, %.3f",
+            inspectedLayout->sourceScale[0],
+            inspectedLayout->sourceScale[1],
+            inspectedLayout->sourceScale[2]);
+        ImGui::TextDisabled("Override status");
+        ImGui::TextWrapped(
+            "%s",
+            inspectedLayout->hasOverride
+                ? (inspectedLayout->reason.empty()
+                       ? "Declared override"
+                       : inspectedLayout->reason.c_str())
+                : "Canonical");
+    } else if (showAssetPreview) {
         const bool previewMatches =
             workspace.assetPreview &&
             workspace.assetPreview->assetId ==
