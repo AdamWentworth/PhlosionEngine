@@ -1109,7 +1109,7 @@ EditorShellActions EditorShell::drawWorkspace(
         }
         const std::string title =
             text(workspace.projectName) + "  /  " +
-            text(workspace.sceneAssetId);
+            text(workspace.sceneId);
         const float titleWidth = ImGui::CalcTextSize(title.c_str()).x;
         const float available = ImGui::GetContentRegionAvail().x;
         if (available > titleWidth + 16.0f) {
@@ -1260,7 +1260,7 @@ EditorShellActions EditorShell::drawWorkspace(
     ImGui::End();
 
     ImGui::Begin("Scene Hierarchy");
-    ImGui::TextDisabled("%s", text(workspace.sceneAssetId).c_str());
+    ImGui::TextDisabled("%s", text(workspace.sceneId).c_str());
     ImGui::Separator();
     if (!workspace.hierarchyItems ||
         workspace.hierarchyItems->empty()) {
@@ -1352,11 +1352,11 @@ EditorShellActions EditorShell::drawWorkspace(
              index < gamePreviews->size();
              ++index) {
             const auto& preview = (*gamePreviews)[index];
-            if (!workspace.activeSceneAssetId.empty() &&
-                preview.sceneAssetId ==
-                    workspace.activeSceneAssetId) {
+            if (!workspace.activeSceneId.empty() &&
+                preview.sceneId ==
+                    workspace.activeSceneId) {
                 scenePreviewIndices.push_back(index);
-            } else if (preview.sceneAssetId.empty()) {
+            } else if (preview.sceneId.empty()) {
                 applicationPreviewIndices.push_back(index);
             }
         }
@@ -1412,14 +1412,14 @@ EditorShellActions EditorShell::drawWorkspace(
 
         if (!scenePreviewIndices.empty()) {
             std::string sceneName =
-                text(workspace.activeSceneAssetId);
+                text(workspace.activeSceneId);
             if (workspace.scenes) {
                 const auto scene = std::find_if(
                     workspace.scenes->begin(),
                     workspace.scenes->end(),
                     [&](const WorkspaceScene& candidate) {
-                        return candidate.assetId ==
-                               workspace.activeSceneAssetId;
+                        return candidate.id ==
+                               workspace.activeSceneId;
                     });
                 if (scene != workspace.scenes->end()) {
                     sceneName = scene->displayName;
@@ -1983,8 +1983,8 @@ EditorShellActions EditorShell::drawWorkspace(
             }
             ImGui::PushID(static_cast<int>(index));
             const bool active =
-                scene.assetId ==
-                workspace.activeSceneAssetId;
+                scene.id ==
+                workspace.activeSceneId;
             const std::string sceneLabel =
                 scene.displayName +
                 (active
@@ -2010,12 +2010,24 @@ EditorShellActions EditorShell::drawWorkspace(
             }
             ImGui::SameLine();
             ImGui::TextDisabled(
-                "cooked scene");
+                "%s / %s",
+                scene.status.c_str(),
+                scene.environmentDisplayName.c_str());
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip(
-                    "%s\nCooked scene\n%s",
-                    scene.assetId.c_str(),
-                    scene.path.c_str());
+                    "%s\nEnvironment: %s (%s)\n%s%s%s",
+                    scene.id.c_str(),
+                    scene.environmentAssetId.c_str(),
+                    scene.environmentKind.c_str(),
+                    scene.path.empty()
+                        ? "Scene view: runtime-generated backdrop"
+                        : scene.path.c_str(),
+                    scene.runtimePath.empty()
+                        ? ""
+                        : "\nRuntime: ",
+                    scene.runtimePath.empty()
+                        ? ""
+                        : scene.runtimePath.c_str());
             }
             ImGui::PopID();
         }
@@ -2026,10 +2038,10 @@ EditorShellActions EditorShell::drawWorkspace(
                 static_cast<std::size_t>(
                     impl_->selectedScene)];
         ImGui::TextWrapped(
-            "Cooked scene document: opening it updates the Scene view, hierarchy, Inspector, and associated game previews.");
+            "A game scene composes a reusable environment backdrop with its runtime state. Opening it updates the Scene view, hierarchy, Inspector, and associated game previews.");
         if (ImGui::Button(
-                selected.assetId ==
-                        workspace.activeSceneAssetId
+                selected.id ==
+                        workspace.activeSceneId
                     ? "Focus Open Scene"
                     : "Open Scene",
                 ImVec2(-1.0f, 30.0f))) {

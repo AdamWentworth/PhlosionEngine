@@ -63,7 +63,7 @@ bool parseProjectDescriptor(
         parsed.schemaVersion = root.at("schema_version").get<std::uint32_t>();
         parsed.projectId = root.at("project_id").get<std::string>();
         parsed.displayName = root.at("display_name").get<std::string>();
-        if (parsed.schemaVersion != 1u) {
+        if (parsed.schemaVersion != 2u) {
             return fail(
                 "Unsupported Phlosion project schema version: " +
                     std::to_string(parsed.schemaVersion),
@@ -114,88 +114,170 @@ bool parseProjectDescriptor(
             return fail("At least one content mount is required.", outError);
         }
 
-        const auto& startupSceneJson = root.at("startup_scene");
-        parsed.startupScene.assetId =
-            startupSceneJson.at("asset_id").get<std::string>();
-        parsed.startupScene.mountId =
-            startupSceneJson.at("mount").get<std::string>();
-        parsed.startupScene.path =
-            startupSceneJson.at("path").get<std::string>();
-        if (parsed.startupScene.assetId.empty() ||
-            parsed.startupScene.mountId.empty() ||
-            !isPortableRelativePath(parsed.startupScene.path)) {
+        parsed.startupSceneId =
+            root.at("startup_scene")
+                .at("scene_id")
+                .get<std::string>();
+        if (parsed.startupSceneId.empty()) {
             return fail(
-                "Startup scene requires an asset id, mount id, and portable relative path.",
+                "Startup scene requires a scene id.",
                 outError);
         }
 
-        if (root.contains("scenes")) {
-            for (const auto& sceneJson : root.at("scenes")) {
-                ProjectScene scene;
-                scene.assetId =
-                    sceneJson.at("asset_id").get<std::string>();
-                scene.displayName =
-                    sceneJson.at("display_name").get<std::string>();
-                scene.category =
-                    sceneJson.value("category", std::string{});
-                const std::string kind =
-                    sceneJson.value(
-                        "kind",
-                        std::string("cooked_world"));
-                scene.mountId =
-                    sceneJson.value("mount", std::string{});
-                scene.path =
-                    sceneJson.at("path").get<std::string>();
-                if (scene.assetId.empty() ||
-                    scene.displayName.empty() ||
-                    kind != "cooked_world" ||
-                    scene.mountId.empty() ||
-                    !isPortableRelativePath(scene.path)) {
-                    return fail(
-                        "Project scenes must be cooked-world documents with an asset id, display name, mount, and portable relative path. Runtime states belong in the project plugin's Game Preview catalog.",
-                        outError);
-                }
-                const auto duplicate = std::find_if(
-                    parsed.scenes.begin(),
-                    parsed.scenes.end(),
-                    [&](const ProjectScene& candidate) {
-                        return candidate.assetId == scene.assetId;
-                    });
-                if (duplicate != parsed.scenes.end()) {
-                    return fail(
-                        "Duplicate project scene asset id: " +
-                            scene.assetId,
-                        outError);
-                }
-                parsed.scenes.push_back(std::move(scene));
+        for (const auto& environmentJson :
+             root.at("environments")) {
+            ProjectEnvironment environment;
+            environment.assetId =
+                environmentJson.at("asset_id")
+                    .get<std::string>();
+            environment.displayName =
+                environmentJson.value(
+                    "display_name",
+                    environment.assetId);
+            environment.kind =
+                environmentJson.value(
+                    "kind",
+                    std::string("cooked"));
+            environment.mountId =
+                environmentJson.value(
+                    "mount",
+                    std::string{});
+            environment.path =
+                environmentJson.value(
+                    "path",
+                    std::string{});
+            const bool cooked =
+                environment.kind == "cooked";
+            const bool structural =
+                environment.kind ==
+                    "runtime_generated" ||
+                environment.kind == "placeholder";
+            if (environment.assetId.empty() ||
+                environment.displayName.empty() ||
+                (!cooked && !structural) ||
+                (cooked &&
+                 (environment.mountId.empty() ||
+                  !isPortableRelativePath(
+                      environment.path))) ||
+                (structural &&
+                 (!environment.mountId.empty() ||
+                  !environment.path.empty()))) {
+                return fail(
+                    "Project environments require an id, display name, and supported kind. Cooked environments require a mount and path; runtime-generated and placeholder environments must not declare cooked backing.",
+                    outError);
             }
+            const auto duplicate = std::find_if(
+                parsed.environments.begin(),
+                parsed.environments.end(),
+                [&](const ProjectEnvironment& candidate) {
+                    return candidate.assetId ==
+                           environment.assetId;
+                });
+            if (duplicate != parsed.environments.end()) {
+                return fail(
+                    "Duplicate project environment asset id: " +
+                        environment.assetId,
+                    outError);
+            }
+            parsed.environments.push_back(
+                std::move(environment));
+        }
+        if (parsed.environments.empty()) {
+            return fail(
+                "At least one project environment is required.",
+                outError);
+        }
+
+        for (const auto& sceneJson : root.at("scenes")) {
+            ProjectScene scene;
+            scene.sceneId =
+                sceneJson.at("scene_id").get<std::string>();
+            scene.displayName =
+                sceneJson.at("display_name")
+                    .get<std::string>();
+            scene.category =
+                sceneJson.value(
+                    "category",
+                    std::string{});
+            scene.environmentAssetId =
+                sceneJson.at("environment_asset_id")
+                    .get<std::string>();
+            scene.runtimePath =
+                sceneJson.value(
+                    "runtime_path",
+                    std::string{});
+            scene.status =
+                sceneJson.value(
+                    "status",
+                    std::string("in_progress"));
+            if (scene.sceneId.empty() ||
+                scene.displayName.empty() ||
+                scene.environmentAssetId.empty() ||
+                scene.status.empty() ||
+                (!scene.runtimePath.empty() &&
+                 !isPortableRelativePath(
+                     scene.runtimePath))) {
+                return fail(
+                    "Project scenes require a scene id, display name, environment asset id, status, and an optional portable runtime path.",
+                    outError);
+            }
+            const auto environment = std::find_if(
+                parsed.environments.begin(),
+                parsed.environments.end(),
+                [&](const ProjectEnvironment& candidate) {
+                    return candidate.assetId ==
+                           scene.environmentAssetId;
+                });
+            if (environment == parsed.environments.end()) {
+                return fail(
+                    "Project scene references unknown environment: " +
+                        scene.environmentAssetId,
+                    outError);
+            }
+            const auto duplicate = std::find_if(
+                parsed.scenes.begin(),
+                parsed.scenes.end(),
+                [&](const ProjectScene& candidate) {
+                    return candidate.sceneId ==
+                           scene.sceneId;
+                });
+            if (duplicate != parsed.scenes.end()) {
+                return fail(
+                    "Duplicate project scene id: " +
+                        scene.sceneId,
+                    outError);
+            }
+            parsed.scenes.push_back(std::move(scene));
         }
         if (parsed.scenes.empty()) {
-            parsed.scenes.push_back(ProjectScene{
-                .assetId = parsed.startupScene.assetId,
-                .displayName = parsed.startupScene.assetId,
-                .category = "Scenes",
-                .mountId = parsed.startupScene.mountId,
-                .path = parsed.startupScene.path});
+            return fail(
+                "At least one project scene is required.",
+                outError);
         }
-        const auto startupCatalogEntry = std::find_if(
+        const auto startupScene = std::find_if(
             parsed.scenes.begin(),
             parsed.scenes.end(),
             [&](const ProjectScene& scene) {
-                return scene.assetId ==
-                       parsed.startupScene.assetId;
+                return scene.sceneId ==
+                       parsed.startupSceneId;
             });
-        if (startupCatalogEntry == parsed.scenes.end()) {
+        if (startupScene == parsed.scenes.end()) {
             return fail(
-                "The startup scene must also appear in the cooked scene catalog.",
+                "The startup scene must appear in the project scene catalog.",
                 outError);
         }
-        if (startupCatalogEntry->mountId !=
-                parsed.startupScene.mountId ||
-            startupCatalogEntry->path !=
-                parsed.startupScene.path) {
+        const auto startupEnvironment = std::find_if(
+            parsed.environments.begin(),
+            parsed.environments.end(),
+            [&](const ProjectEnvironment& environment) {
+                return environment.assetId ==
+                       startupScene->environmentAssetId;
+            });
+        if (startupEnvironment ==
+                parsed.environments.end() ||
+            startupEnvironment->kind != "cooked") {
             return fail(
-                "The startup scene and its cooked scene catalog entry must resolve to the same mount and path.",
+                "The startup scene must reference a cooked environment so the editor can initialize its Scene view.",
                 outError);
         }
 
@@ -331,31 +413,33 @@ bool resolveStartupScenePath(
     const ProjectDescriptor& descriptor,
     std::filesystem::path& out,
     std::string* outError) {
-    const auto mount = std::find_if(
-        descriptor.contentMounts.begin(),
-        descriptor.contentMounts.end(),
-        [&](const ContentMount& candidate) {
-            return candidate.id == descriptor.startupScene.mountId;
+    const auto scene = std::find_if(
+        descriptor.scenes.begin(),
+        descriptor.scenes.end(),
+        [&](const ProjectScene& candidate) {
+            return candidate.sceneId ==
+                   descriptor.startupSceneId;
         });
-    if (mount == descriptor.contentMounts.end()) {
+    if (scene == descriptor.scenes.end()) {
         return fail(
-            "Startup scene references unknown mount: " +
-                descriptor.startupScene.mountId,
+            "Startup scene is missing from the scene catalog: " +
+                descriptor.startupSceneId,
             outError);
     }
-
-    std::error_code error;
-    const auto descriptorDirectory =
-        std::filesystem::absolute(descriptorPath, error).parent_path();
-    if (error) {
+    if (!resolveScenePath(
+            descriptorPath,
+            descriptor,
+            *scene,
+            out,
+            outError)) {
+        return false;
+    }
+    if (out.empty()) {
         return fail(
-            "Could not resolve project descriptor directory: " +
-                error.message(),
+            "Startup scene does not have a cooked environment backing: " +
+                descriptor.startupSceneId,
             outError);
     }
-    out = (descriptorDirectory / mount->root /
-           descriptor.startupScene.path)
-              .lexically_normal();
     if (outError) {
         outError->clear();
     }
@@ -368,6 +452,27 @@ bool resolveScenePath(
     const ProjectScene& scene,
     std::filesystem::path& out,
     std::string* outError) {
+    out.clear();
+    const auto environment = std::find_if(
+        descriptor.environments.begin(),
+        descriptor.environments.end(),
+        [&](const ProjectEnvironment& candidate) {
+            return candidate.assetId ==
+                   scene.environmentAssetId;
+        });
+    if (environment == descriptor.environments.end()) {
+        return fail(
+            "Scene references unknown environment: " +
+                scene.environmentAssetId,
+            outError);
+    }
+    if (environment->kind != "cooked") {
+        if (outError) {
+            outError->clear();
+        }
+        return true;
+    }
+
     std::error_code error;
     const auto descriptorDirectory =
         std::filesystem::absolute(descriptorPath, error)
@@ -382,16 +487,17 @@ bool resolveScenePath(
         descriptor.contentMounts.begin(),
         descriptor.contentMounts.end(),
         [&](const ContentMount& candidate) {
-            return candidate.id == scene.mountId;
+            return candidate.id ==
+                   environment->mountId;
         });
     if (mount == descriptor.contentMounts.end()) {
         return fail(
-            "Scene references unknown mount: " +
-                scene.mountId,
+            "Environment references unknown mount: " +
+                environment->mountId,
             outError);
     }
     out = (descriptorDirectory / mount->root /
-           scene.path)
+           environment->path)
               .lexically_normal();
     if (outError) {
         outError->clear();

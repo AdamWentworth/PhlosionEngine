@@ -1,7 +1,7 @@
 # Phlosion Editor Architecture
 
 Status: Active
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
 ## Decision
 
@@ -41,9 +41,11 @@ reaching into Engine internals.
 
 - the project and stable project id;
 - relative cooked-content mounts;
-- the startup scene asset id and path;
-- an optional catalog of named cooked-world scene documents for the Scenes
-  panel;
+- the startup game scene id;
+- a catalog of reusable environment backdrops, including their cooked,
+  runtime-generated, or placeholder representation;
+- a catalog of game scenes that reference those backdrops and optionally name
+  a runtime script and implementation status;
 - an optional portable editor-plugin library name and configuration-relative
   generated output directory;
 - optional named play configurations with a project-relative executable,
@@ -72,14 +74,16 @@ window rectangle is intentional support for multi-monitor workstations.
 
 These editor concepts are deliberately separate:
 
-- **Scenes** is the catalog of genuine cooked scene documents. Opening one
-  changes the active Scene view, path, hierarchy, Inspector context, runtime
-  scene adapter, and the collection of associated Game previews. Scripted
-  runtime stages are not presented as scene documents.
-- **Scene Hierarchy** is the object/component tree inside the open scene. The
-  current read-only adapter exposes source-backed groups with
-  selection-specific properties; stable object identities and component
-  editing belong to M1.
+- **Scenes** is the catalog of game location/state containers. A scene
+  references a reusable environment backdrop and may identify a runtime
+  script. Opening one changes the active Scene view, hierarchy, Inspector
+  context, runtime scene adapter, and associated Game previews. Unfinished
+  scenes stay in the catalog with explicit status rather than disappearing.
+- **Scene Hierarchy** is the object/component tree inside the open game scene.
+  Its first dependency is the environment backdrop. The current read-only
+  adapter exposes source-backed groups for cooked environments and explicit
+  runtime-preview status for backdrops that are still runtime-generated;
+  stable object identities and component editing belong to M1.
 - **Inspector** displays the properties of the selected hierarchy object,
   scene, or asset. It is read-only until the command/transaction layer can
   make edits safely.
@@ -87,8 +91,10 @@ These editor concepts are deliberately separate:
   `.phscene` worlds and `.phlo` prefabs are the top-level entries. Meshes,
   materials, animations, skeletons, and textures owned by a prefab are
   dependencies of that prefab, not unrelated peer assets.
-- **Scene view** renders the open asset with editor camera and simulation
-  controls.
+- **Scene view** renders the active scene's inspectable environment backdrop
+  with editor camera and simulation controls. Scenes may share this asset; for
+  example, Route 1 and Route 1.5 can remain distinct game scenes while both
+  reference the same Route 1 environment.
 - **Game view** renders the project's real runtime state over its loaded
   assets.
 
@@ -98,21 +104,23 @@ wind, lighting, and vegetation animation do not advance. Play starts the scene
 simulation, Pause freezes it at the current time, Step advances one fixed
 60 Hz frame, and Stop returns to time zero.
 
-Game screens and session states are not falsely represented as `.phscene`
-files. A project plugin exposes named previews such as a frontend screen,
-scripted runtime stage, or world snapshot. A preview may name the cooked scene
-that owns it; the Game Preview panel presents those under the active scene and
-keeps application-level or runtime-only previews separate. The editor
+Game scenes are not falsely required to be `.phscene` files. `.phscene` is one
+cooked representation of an environment dependency, not the identity of the
+game scene that uses it. A project plugin exposes named previews such as a
+frontend screen, route script, or world snapshot. A preview may name the game
+scene that owns it; the Game Preview panel presents those under the active
+scene and keeps application-level previews separate. The editor
 initializes one project runtime when the project opens, renders it into an
 Engine-owned offscreen surface, and presents it in the central Game view.
 Choosing another preview mutates or restores that warm runtime; it does not
 launch another executable or repeat asset prewarming.
 
-Boot is application lifecycle and loading presentation, not a world scene. A
+Boot is application lifecycle and loading presentation, not a route scene. A
 project may expose a replayable Boot preview without reinitializing the
-runtime. Frontend screens are UI/runtime states. A route is one world scene;
-Classic versus Adventure and Planning versus Battle are session configuration
-and phase layered over that scene, not duplicate route assets.
+runtime. Frontend screens are UI/runtime states. Each route remains a game
+scene, but multiple route scenes may share an environment backdrop. Classic
+versus Adventure and Planning versus Battle are session configuration and
+phase layered over that scene, not duplicate scenes or environments.
 
 The initial project open may still perform expensive CPU/GPU asset prewarming.
 "Warm switching" means subsequent preview changes reuse those resources; it

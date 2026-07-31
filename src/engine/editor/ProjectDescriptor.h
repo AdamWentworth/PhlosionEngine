@@ -16,18 +16,21 @@ struct ContentMount {
     bool required = true;
 };
 
-struct StartupScene {
+struct ProjectEnvironment {
     std::string assetId;
+    std::string displayName;
+    std::string kind;
     std::string mountId;
     std::filesystem::path path;
 };
 
 struct ProjectScene {
-    std::string assetId;
+    std::string sceneId;
     std::string displayName;
     std::string category;
-    std::string mountId;
-    std::filesystem::path path;
+    std::string environmentAssetId;
+    std::filesystem::path runtimePath;
+    std::string status;
 };
 
 struct EditorPlugin {
@@ -56,7 +59,8 @@ struct ProjectDescriptor {
     std::string projectId;
     std::string displayName;
     std::vector<ContentMount> contentMounts;
-    StartupScene startupScene;
+    std::string startupSceneId;
+    std::vector<ProjectEnvironment> environments;
     std::vector<ProjectScene> scenes;
     EditorPlugin editorPlugin;
     std::vector<PlayConfiguration> playConfigurations;

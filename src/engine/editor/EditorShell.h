@@ -81,10 +81,15 @@ struct WorkspaceAssetPreview {
 };
 
 struct WorkspaceScene {
-    std::string assetId;
+    std::string id;
     std::string displayName;
     std::string category;
+    std::string environmentAssetId;
+    std::string environmentDisplayName;
+    std::string environmentKind;
     std::string path;
+    std::string runtimePath;
+    std::string status;
     bool startup = false;
     std::vector<WorkspaceProperty> properties;
 };
@@ -94,7 +99,7 @@ struct WorkspaceGamePreview {
     std::string displayName;
     std::string group;
     std::string description;
-    std::string sceneAssetId;
+    std::string sceneId;
 };
 
 struct WorkspacePlayConfiguration {
@@ -110,7 +115,7 @@ struct WorkspaceView {
     std::string_view projectName;
     std::string_view projectId;
     std::string_view projectRoot;
-    std::string_view sceneAssetId;
+    std::string_view sceneId;
     std::string_view scenePath;
     std::string_view backendName;
     EditorRendererPreference rendererPreference =
@@ -125,7 +130,7 @@ struct WorkspaceView {
     const std::vector<WorkspaceAsset>* assets = nullptr;
     const WorkspaceAssetPreview* assetPreview = nullptr;
     const std::vector<WorkspaceScene>* scenes = nullptr;
-    std::string_view activeSceneAssetId;
+    std::string_view activeSceneId;
     const std::vector<WorkspaceGamePreview>*
         gamePreviews = nullptr;
     std::string_view activeGamePreviewId;

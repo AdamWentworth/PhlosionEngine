@@ -5,7 +5,7 @@
 
 bool test_project_descriptor_contract(std::string& outFail) {
     constexpr char kProject[] = R"({
-        "schema_version": 1,
+        "schema_version": 2,
         "project_id": "test-game",
         "display_name": "Test Game",
         "content_mounts": [
@@ -19,18 +19,45 @@ bool test_project_descriptor_contract(std::string& outFail) {
             }
         ],
         "startup_scene": {
-            "asset_id": "environments/test",
-            "mount": "cooked",
-            "path": "scenes/test.phscene"
+            "scene_id": "routes/test"
         },
-        "scenes": [
+        "environments": [
             {
                 "asset_id": "environments/test",
-                "display_name": "Test World",
-                "category": "Worlds",
-                "kind": "cooked_world",
+                "display_name": "Test Environment",
+                "kind": "cooked",
                 "mount": "cooked",
                 "path": "scenes/test.phscene"
+            },
+            {
+                "asset_id": "environments/procedural",
+                "display_name": "Procedural Environment",
+                "kind": "runtime_generated"
+            }
+        ],
+        "scenes": [
+            {
+                "scene_id": "routes/test",
+                "display_name": "Test Route",
+                "category": "Routes",
+                "environment_asset_id": "environments/test",
+                "status": "implemented"
+            },
+            {
+                "scene_id": "routes/test-variant",
+                "display_name": "Test Route Variant",
+                "category": "Routes",
+                "environment_asset_id": "environments/test",
+                "runtime_path": "scripts/states/test_variant.lua",
+                "status": "in_progress"
+            },
+            {
+                "scene_id": "routes/procedural",
+                "display_name": "Procedural Route",
+                "category": "Routes",
+                "environment_asset_id": "environments/procedural",
+                "runtime_path": "scripts/states/procedural.lua",
+                "status": "in_progress"
             }
         ],
         "editor_plugin": {
@@ -62,7 +89,7 @@ bool test_project_descriptor_contract(std::string& outFail) {
         outFail = "valid descriptor failed: " + error;
         return false;
     }
-    if (project.schemaVersion != 1u ||
+    if (project.schemaVersion != 2u ||
         project.projectId != "test-game" ||
         project.displayName != "Test Game" ||
         project.contentMounts.size() != 1u ||
@@ -73,9 +100,12 @@ bool test_project_descriptor_contract(std::string& outFail) {
         project.contentMounts.front().
                 assetBrowserExcludePatterns.front() !=
             "objects/internal-*/*.phlo" ||
-        project.startupScene.assetId != "environments/test" ||
-        project.scenes.size() != 1u ||
-        project.scenes.front().displayName != "Test World" ||
+        project.startupSceneId != "routes/test" ||
+        project.environments.size() != 2u ||
+        project.scenes.size() != 3u ||
+        project.scenes.front().displayName != "Test Route" ||
+        project.scenes[0].environmentAssetId !=
+            project.scenes[1].environmentAssetId ||
         project.playConfigurations.size() != 1u ||
         project.playConfigurations.front().id != "main-menu" ||
         project.playConfigurations.front().arguments.size() != 1u ||
@@ -98,6 +128,34 @@ bool test_project_descriptor_contract(std::string& outFail) {
         outFail =
             "scene catalog path resolution failed: " + error +
             " path=" + catalogScenePath.generic_string();
+        return false;
+    }
+
+    std::filesystem::path sharedScenePath;
+    if (!engine::editor::resolveScenePath(
+            "D:/Projects/TestGame/phlosion.project.json",
+            project,
+            project.scenes[1],
+            sharedScenePath,
+            &error) ||
+        sharedScenePath != catalogScenePath) {
+        outFail =
+            "shared environment path resolution failed: " + error +
+            " path=" + sharedScenePath.generic_string();
+        return false;
+    }
+
+    std::filesystem::path proceduralScenePath;
+    if (!engine::editor::resolveScenePath(
+            "D:/Projects/TestGame/phlosion.project.json",
+            project,
+            project.scenes[2],
+            proceduralScenePath,
+            &error) ||
+        !proceduralScenePath.empty()) {
+        outFail =
+            "runtime-generated environment should not resolve a cooked path: " +
+            error;
         return false;
     }
 
@@ -172,17 +230,17 @@ bool test_project_descriptor_contract(std::string& outFail) {
     }
 
     constexpr char kTraversal[] = R"({
-        "schema_version": 1,
+        "schema_version": 2,
         "project_id": "bad",
         "display_name": "Bad",
         "content_mounts": [
             {"id": "cooked", "root": "../outside"}
         ],
         "startup_scene": {
-            "asset_id": "bad",
-            "mount": "cooked",
-            "path": "bad.phscene"
-        }
+            "scene_id": "bad"
+        },
+        "environments": [],
+        "scenes": []
     })";
     if (engine::editor::parseProjectDescriptor(
             kTraversal,
