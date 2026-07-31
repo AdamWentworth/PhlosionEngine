@@ -84,9 +84,7 @@ struct WorkspaceScene {
     std::string assetId;
     std::string displayName;
     std::string category;
-    std::string kind;
     std::string path;
-    std::string previewId;
     bool startup = false;
     std::vector<WorkspaceProperty> properties;
 };
@@ -96,6 +94,7 @@ struct WorkspaceGamePreview {
     std::string displayName;
     std::string group;
     std::string description;
+    std::string sceneAssetId;
 };
 
 struct WorkspacePlayConfiguration {
@@ -126,6 +125,7 @@ struct WorkspaceView {
     const std::vector<WorkspaceAsset>* assets = nullptr;
     const WorkspaceAssetPreview* assetPreview = nullptr;
     const std::vector<WorkspaceScene>* scenes = nullptr;
+    std::string_view activeSceneAssetId;
     const std::vector<WorkspaceGamePreview>*
         gamePreviews = nullptr;
     std::string_view activeGamePreviewId;

@@ -138,7 +138,7 @@ bool parseProjectDescriptor(
                     sceneJson.at("display_name").get<std::string>();
                 scene.category =
                     sceneJson.value("category", std::string{});
-                scene.kind =
+                const std::string kind =
                     sceneJson.value(
                         "kind",
                         std::string("cooked_world"));
@@ -146,22 +146,13 @@ bool parseProjectDescriptor(
                     sceneJson.value("mount", std::string{});
                 scene.path =
                     sceneJson.at("path").get<std::string>();
-                scene.previewId =
-                    sceneJson.value(
-                        "preview_id",
-                        std::string{});
-                const bool cookedWorld =
-                    scene.kind == "cooked_world";
-                const bool runtimeStage =
-                    scene.kind == "runtime_stage";
                 if (scene.assetId.empty() ||
                     scene.displayName.empty() ||
-                    (!cookedWorld && !runtimeStage) ||
-                    (cookedWorld && scene.mountId.empty()) ||
-                    (runtimeStage && scene.previewId.empty()) ||
+                    kind != "cooked_world" ||
+                    scene.mountId.empty() ||
                     !isPortableRelativePath(scene.path)) {
                     return fail(
-                        "Project scenes require an asset id, display name, supported kind, portable relative path, and either a cooked mount or runtime preview id.",
+                        "Project scenes must be cooked-world documents with an asset id, display name, mount, and portable relative path. Runtime states belong in the project plugin's Game Preview catalog.",
                         outError);
                 }
                 const auto duplicate = std::find_if(
@@ -184,9 +175,28 @@ bool parseProjectDescriptor(
                 .assetId = parsed.startupScene.assetId,
                 .displayName = parsed.startupScene.assetId,
                 .category = "Scenes",
-                .kind = "cooked_world",
                 .mountId = parsed.startupScene.mountId,
                 .path = parsed.startupScene.path});
+        }
+        const auto startupCatalogEntry = std::find_if(
+            parsed.scenes.begin(),
+            parsed.scenes.end(),
+            [&](const ProjectScene& scene) {
+                return scene.assetId ==
+                       parsed.startupScene.assetId;
+            });
+        if (startupCatalogEntry == parsed.scenes.end()) {
+            return fail(
+                "The startup scene must also appear in the cooked scene catalog.",
+                outError);
+        }
+        if (startupCatalogEntry->mountId !=
+                parsed.startupScene.mountId ||
+            startupCatalogEntry->path !=
+                parsed.startupScene.path) {
+            return fail(
+                "The startup scene and its cooked scene catalog entry must resolve to the same mount and path.",
+                outError);
         }
 
         if (root.contains("editor_plugin")) {
@@ -368,26 +378,21 @@ bool resolveScenePath(
                 error.message(),
             outError);
     }
-    if (scene.kind == "runtime_stage") {
-        out = (descriptorDirectory / scene.path)
-                  .lexically_normal();
-    } else {
-        const auto mount = std::find_if(
-            descriptor.contentMounts.begin(),
-            descriptor.contentMounts.end(),
-            [&](const ContentMount& candidate) {
-                return candidate.id == scene.mountId;
-            });
-        if (mount == descriptor.contentMounts.end()) {
-            return fail(
-                "Scene references unknown mount: " +
-                    scene.mountId,
-                outError);
-        }
-        out = (descriptorDirectory / mount->root /
-               scene.path)
-                  .lexically_normal();
+    const auto mount = std::find_if(
+        descriptor.contentMounts.begin(),
+        descriptor.contentMounts.end(),
+        [&](const ContentMount& candidate) {
+            return candidate.id == scene.mountId;
+        });
+    if (mount == descriptor.contentMounts.end()) {
+        return fail(
+            "Scene references unknown mount: " +
+                scene.mountId,
+            outError);
     }
+    out = (descriptorDirectory / mount->root /
+           scene.path)
+              .lexically_normal();
     if (outError) {
         outError->clear();
     }

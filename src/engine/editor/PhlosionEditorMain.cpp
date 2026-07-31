@@ -1109,7 +1109,7 @@ void appendProjectAssets(
 
 std::vector<engine::editor::WorkspaceHierarchyItem>
 buildReadOnlyHierarchy(
-    const engine::editor::ProjectDescriptor& descriptor,
+    const engine::editor::WorkspaceScene& scene,
     const engine::editor::EditorProjectStats& stats,
     std::string_view backendName) {
     using Item =
@@ -1121,21 +1121,17 @@ buildReadOnlyHierarchy(
     };
     return {
         Item{
-            .id = descriptor.startupScene.assetId,
-            .displayName =
-                descriptor.scenes.empty()
-                    ? descriptor.startupScene.assetId
-                    : descriptor.scenes.front()
-                          .displayName,
+            .id = scene.assetId,
+            .displayName = scene.displayName,
             .typeName = "Scene Root",
             .depth = 0,
             .properties = {
                 Property{
                     "Asset id",
-                    descriptor.startupScene.assetId},
+                    scene.assetId},
                 Property{
                     "Backing",
-                    "Cooked .phscene"},
+                    scene.path},
                 Property{
                     "Scene nodes",
                     number(stats.sceneCount)},
@@ -1247,6 +1243,7 @@ struct LoadedProject {
     std::vector<engine::editor::WorkspaceScene> sceneViews;
     std::vector<engine::editor::WorkspaceGamePreview>
         gamePreviewViews;
+    std::size_t activeSceneIndex = 0u;
     std::vector<engine::editor::WorkspaceAssetAnimation>
         assetPreviewAnimations;
     engine::editor::WorkspaceAssetPreview
@@ -1484,9 +1481,7 @@ std::unique_ptr<LoadedProject> loadProject(
                 .assetId = scene.assetId,
                 .displayName = scene.displayName,
                 .category = scene.category,
-                .kind = scene.kind,
                 .path = resolvedScenePath.generic_string(),
-                .previewId = scene.previewId,
                 .startup =
                     scene.assetId ==
                     loaded->descriptor.startupScene.assetId,
@@ -1497,19 +1492,11 @@ std::unique_ptr<LoadedProject> loadProject(
                     },
                     {
                         "Scene kind",
-                        scene.kind == "runtime_stage"
-                            ? "Runtime stage"
-                            : "Cooked world scene",
+                        "Cooked world scene",
                     },
                     {
                         "Backing path",
                         resolvedScenePath.generic_string(),
-                    },
-                    {
-                        "Game preview",
-                        scene.previewId.empty()
-                            ? "None"
-                            : scene.previewId,
                     },
                     {
                         "Startup scene",
@@ -1521,6 +1508,23 @@ std::unique_ptr<LoadedProject> loadProject(
                     },
                 }});
     }
+    const auto startupScene = std::find_if(
+        loaded->sceneViews.begin(),
+        loaded->sceneViews.end(),
+        [&](const engine::editor::WorkspaceScene& scene) {
+            return scene.assetId ==
+                   loaded->descriptor.startupScene.assetId;
+        });
+    if (startupScene == loaded->sceneViews.end()) {
+        outError =
+            "The startup scene is not present in the cooked scene catalog.";
+        return nullptr;
+    }
+    loaded->activeSceneIndex =
+        static_cast<std::size_t>(
+            std::distance(
+                loaded->sceneViews.begin(),
+                startupScene));
     loaded->playConfigurations.reserve(
         loaded->descriptor.playConfigurations.size());
     loaded->playConfigurationViews.reserve(
@@ -1591,9 +1595,12 @@ std::unique_ptr<LoadedProject> loadProject(
     loaded->runtime->prewarm(renderer, cameraContext);
     loaded->hierarchyViews =
         buildReadOnlyHierarchy(
-            loaded->descriptor,
+            loaded->sceneViews[
+                loaded->activeSceneIndex],
             loaded->runtime->stats(),
-            "OpenGL 3.3 / project renderer plugin");
+            renderer.backendId()
+                ? renderer.backendId()
+                : "unknown");
     const std::size_t gamePreviewCount =
         loaded->runtime->gamePreviewCount();
     loaded->gamePreviewViews.reserve(gamePreviewCount);
@@ -1613,7 +1620,26 @@ std::unique_ptr<LoadedProject> loadProject(
                 .description =
                     preview.description
                         ? preview.description
+                        : "",
+                .sceneAssetId =
+                    preview.sceneAssetId
+                        ? preview.sceneAssetId
                         : ""});
+    }
+    for (auto& scene : loaded->sceneViews) {
+        const auto previewCount = std::count_if(
+            loaded->gamePreviewViews.begin(),
+            loaded->gamePreviewViews.end(),
+            [&](const engine::editor::
+                    WorkspaceGamePreview& preview) {
+                return preview.sceneAssetId ==
+                       scene.assetId;
+            });
+        scene.properties.push_back(
+            engine::editor::WorkspaceProperty{
+                .name = "Associated game previews",
+                .value =
+                    std::to_string(previewCount)});
     }
     if (!loaded->gamePreviewViews.empty()) {
         const engine::editor::EditorProjectGamePreviewContext
@@ -2586,6 +2612,9 @@ int main(int argc, char** argv) {
 
                 const auto stats =
                     project->runtime->stats();
+                const auto& activeScene =
+                    project->sceneViews[
+                        project->activeSceneIndex];
                 const engine::editor::WorkspaceView workspace{
                     .projectName =
                         project->descriptor.displayName,
@@ -2593,8 +2622,8 @@ int main(int argc, char** argv) {
                         project->descriptor.projectId,
                     .projectRoot = project->rootText,
                     .sceneAssetId =
-                        project->descriptor.startupScene.assetId,
-                    .scenePath = project->scenePathText,
+                        activeScene.assetId,
+                    .scenePath = activeScene.path,
                     .backendName =
                         renderer.backendId()
                             ? renderer.backendId()
@@ -2614,6 +2643,8 @@ int main(int argc, char** argv) {
                             ? &project->assetPreviewView
                             : nullptr,
                     .scenes = &project->sceneViews,
+                    .activeSceneAssetId =
+                        activeScene.assetId,
                     .gamePreviews =
                         &project->gamePreviewViews,
                     .activeGamePreviewId =
@@ -2895,51 +2926,79 @@ int main(int argc, char** argv) {
                     project->sceneViews[
                         static_cast<std::size_t>(
                             actions.openSceneIndex)];
-                if (scene.kind != "runtime_stage") {
+                const std::size_t requestedSceneIndex =
+                    static_cast<std::size_t>(
+                        actions.openSceneIndex);
+                if (requestedSceneIndex ==
+                    project->activeSceneIndex) {
                     activeViewport =
                         engine::editor::
                             EditorViewportKind::Scene;
                     focusActiveViewport = true;
                     project->status =
-                        "Opened cooked world scene: " +
+                        "Focused open scene: " +
                         scene.displayName + ".";
                 } else {
-                    const auto preview =
-                        std::find_if(
-                            project->gamePreviewViews.begin(),
-                            project->gamePreviewViews.end(),
-                            [&](const auto& candidate) {
-                                return candidate.id ==
-                                       scene.previewId;
-                            });
-                    if (preview ==
-                        project->gamePreviewViews.end()) {
+                    std::string sceneError;
+                    const engine::editor::
+                        EditorProjectSceneContext sceneContext{
+                            .assetId =
+                                scene.assetId.c_str(),
+                            .displayName =
+                                scene.displayName.c_str(),
+                            .scenePath =
+                                scene.path.c_str()};
+                    if (!project->runtime->openScene(
+                            sceneContext,
+                            &sceneError)) {
                         project->status =
-                            "Runtime stage has no matching game preview: " +
-                            scene.previewId;
+                            "Scene open failed: " +
+                            sceneError;
                     } else {
-                        std::string previewError;
-                        if (project->runtime->
-                                selectGamePreview(
-                                    preview->id.c_str(),
-                                    &previewError)) {
-                            project->
-                                activeGamePreviewId =
-                                    preview->id;
-                            activeViewport =
-                                engine::editor::
-                                    EditorViewportKind::Game;
-                            focusActiveViewport = true;
-                            gameFixedAccumulator = 0.0f;
-                            project->status =
-                                "Opened runtime stage: " +
-                                scene.displayName +
-                                " (warm game state).";
-                        } else {
-                            project->status =
-                                "Runtime stage open failed: " +
-                                previewError;
-                        }
+                        project->activeSceneIndex =
+                            requestedSceneIndex;
+                        project->scenePath =
+                            scene.path;
+                        project->scenePathText =
+                            scene.path;
+                        simulationSeconds = 0.0f;
+                        playState =
+                            engine::editor::
+                                EditorPlayState::Editing;
+                        project->runtime->update(0.0f);
+                        const glm::vec3 cameraPosition =
+                            camera.getPosition();
+                        const glm::vec3 cameraForward =
+                            camera.getDirection();
+                        const glm::vec3 cameraTarget =
+                            camera.getTarget();
+                        project->runtime->prewarm(
+                            renderer,
+                            engine::editor::
+                                EditorProjectCameraContext{
+                                    .cameraWorldPosition3 =
+                                        glm::value_ptr(
+                                            cameraPosition),
+                                    .cameraForward3 =
+                                        glm::value_ptr(
+                                            cameraForward),
+                                    .cameraTarget3 =
+                                        glm::value_ptr(
+                                            cameraTarget)});
+                        project->hierarchyViews =
+                            buildReadOnlyHierarchy(
+                                scene,
+                                project->runtime->stats(),
+                                renderer.backendId()
+                                    ? renderer.backendId()
+                                    : "unknown");
+                        activeViewport =
+                            engine::editor::
+                                EditorViewportKind::Scene;
+                        focusActiveViewport = true;
+                        project->status =
+                            "Opened cooked scene: " +
+                            scene.displayName + ".";
                     }
                 }
             }

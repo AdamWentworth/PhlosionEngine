@@ -12,7 +12,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 5u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 6u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -54,11 +54,18 @@ struct EditorProjectStats {
     std::size_t archiveFileCount = 0u;
 };
 
+struct EditorProjectSceneContext {
+    const char* assetId = nullptr;
+    const char* displayName = nullptr;
+    const char* scenePath = nullptr;
+};
+
 struct EditorProjectGamePreview {
     const char* id = nullptr;
     const char* displayName = nullptr;
     const char* group = nullptr;
     const char* description = nullptr;
+    const char* sceneAssetId = nullptr;
 };
 
 struct EditorProjectAsset {
@@ -136,6 +143,17 @@ public:
         const EditorProjectRenderContext& context) = 0;
     virtual EditorProjectStats stats() const = 0;
     virtual const char* status() const noexcept = 0;
+
+    virtual bool openScene(
+        const EditorProjectSceneContext& context,
+        std::string* outError = nullptr) {
+        (void)context;
+        if (outError) {
+            *outError =
+                "This project does not support switching cooked scenes.";
+        }
+        return false;
+    }
 
     virtual std::size_t gamePreviewCount() const noexcept {
         return 0u;

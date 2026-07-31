@@ -333,42 +333,98 @@ void applyPhlosionStyle() {
     colors[ImGuiCol_CheckMark] = ImVec4(0.30f, 0.88f, 0.57f, 1.0f);
 }
 
-bool drawRendererPreferenceMenu(
+const char* rendererPreferenceLabel(
+    EditorRendererPreference preference) {
+    switch (preference) {
+        case EditorRendererPreference::Auto:
+            return "Auto (recommended)";
+        case EditorRendererPreference::D3D12:
+            return "Direct3D 12";
+        case EditorRendererPreference::Vulkan:
+            return "Vulkan";
+        case EditorRendererPreference::OpenGL:
+            return "OpenGL (compatibility)";
+    }
+    return "Auto (recommended)";
+}
+
+void drawPreferencesWindow(
+    bool& open,
+    EditorRendererPreference& pending,
     EditorRendererPreference current,
     EditorShellActions& actions) {
-    bool changed = false;
-    const auto option =
-        [&](const char* label,
-            EditorRendererPreference preference,
-            bool enabled = true) {
-            if (ImGui::MenuItem(
-                    label,
-                    nullptr,
-                    current == preference,
-                    enabled)) {
-                actions.rendererPreferenceChanged = true;
-                actions.rendererPreference = preference;
-                changed = true;
-            }
-        };
-    option(
-        "Auto (recommended)",
-        EditorRendererPreference::Auto);
-#if defined(_WIN32)
-    option(
-        "Direct3D 12",
-        EditorRendererPreference::D3D12);
-#endif
-    option(
-        "Vulkan",
-        EditorRendererPreference::Vulkan);
-    option(
-        "OpenGL (compatibility)",
-        EditorRendererPreference::OpenGL);
+    if (!open) {
+        return;
+    }
+    ImGui::SetNextWindowSize(
+        ImVec2(520.0f, 300.0f),
+        ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Preferences", &open)) {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::TextUnformatted("Editor");
     ImGui::Separator();
+    ImGui::Spacing();
+    ImGui::TextUnformatted("Rendering");
     ImGui::TextDisabled(
-        "Changing API restarts the editor.");
-    return changed;
+        "Select the graphics API used by the editor shell and all embedded render surfaces.");
+    ImGui::Spacing();
+
+    if (ImGui::BeginCombo(
+            "Rendering API",
+            rendererPreferenceLabel(pending))) {
+        const auto option =
+            [&](EditorRendererPreference preference) {
+                const bool selected = pending == preference;
+                if (ImGui::Selectable(
+                        rendererPreferenceLabel(preference),
+                        selected)) {
+                    pending = preference;
+                }
+                if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+            };
+        option(EditorRendererPreference::Auto);
+#if defined(_WIN32)
+        option(EditorRendererPreference::D3D12);
+#endif
+        option(EditorRendererPreference::Vulkan);
+        option(EditorRendererPreference::OpenGL);
+        ImGui::EndCombo();
+    }
+    ImGui::TextDisabled(
+        "The preference is stored locally for this editor installation.");
+    ImGui::TextColored(
+        ImVec4(1.0f, 0.75f, 0.25f, 1.0f),
+        "Applying a different API restarts the editor and restores the open project.");
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    const bool changed = pending != current;
+    if (!changed) {
+        ImGui::BeginDisabled();
+    }
+    if (ImGui::Button(
+            "Apply and Restart",
+            ImVec2(150.0f, 32.0f))) {
+        actions.rendererPreferenceChanged = true;
+        actions.rendererPreference = pending;
+        open = false;
+    }
+    if (!changed) {
+        ImGui::EndDisabled();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(
+            "Close",
+            ImVec2(90.0f, 32.0f))) {
+        pending = current;
+        open = false;
+    }
+    ImGui::End();
 }
 
 } // namespace
@@ -389,7 +445,11 @@ struct EditorShell::Impl {
     int selectedHierarchyItem = 0;
     int selectedAsset = 0;
     int selectedScene = 0;
-    int selectedPlayConfiguration = 0;
+    int selectedGamePreview = 0;
+    bool preferencesOpen = false;
+    EditorRendererPreference pendingRendererPreference =
+        EditorRendererPreference::Auto;
+    std::string observedActiveGamePreviewId;
     InspectorSelectionDomain inspectorSelection =
         InspectorSelectionDomain::Hierarchy;
     std::array<char, 256> assetFilter{};
@@ -772,11 +832,10 @@ EditorShellActions EditorShell::drawProjectBrowser(
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Edit")) {
-            if (ImGui::BeginMenu("Rendering API")) {
-                drawRendererPreferenceMenu(
-                    browser.rendererPreference,
-                    actions);
-                ImGui::EndMenu();
+            if (ImGui::MenuItem("Preferences...")) {
+                impl_->pendingRendererPreference =
+                    browser.rendererPreference;
+                impl_->preferencesOpen = true;
             }
             ImGui::EndMenu();
         }
@@ -887,6 +946,11 @@ EditorShellActions EditorShell::drawProjectBrowser(
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O, false)) {
         actions.openProject = true;
     }
+    drawPreferencesWindow(
+        impl_->preferencesOpen,
+        impl_->pendingRendererPreference,
+        browser.rendererPreference,
+        actions);
     return actions;
 }
 
@@ -989,11 +1053,10 @@ EditorShellActions EditorShell::drawWorkspace(
             ImGui::MenuItem("Undo", "Ctrl+Z", false, false);
             ImGui::MenuItem("Redo", "Ctrl+Y", false, false);
             ImGui::Separator();
-            if (ImGui::BeginMenu("Rendering API")) {
-                drawRendererPreferenceMenu(
-                    workspace.rendererPreference,
-                    actions);
-                ImGui::EndMenu();
+            if (ImGui::MenuItem("Preferences...")) {
+                impl_->pendingRendererPreference =
+                    workspace.rendererPreference;
+                impl_->preferencesOpen = true;
             }
             ImGui::EndMenu();
         }
@@ -1257,51 +1320,151 @@ EditorShellActions EditorShell::drawWorkspace(
         ImGui::TextWrapped(
             "This project does not provide embedded game previews.");
     } else {
-        impl_->selectedPlayConfiguration = std::clamp(
-            impl_->selectedPlayConfiguration,
+        const std::string activePreviewId =
+            text(workspace.activeGamePreviewId);
+        if (impl_->observedActiveGamePreviewId !=
+            activePreviewId) {
+            const auto active = std::find_if(
+                gamePreviews->begin(),
+                gamePreviews->end(),
+                [&](const WorkspaceGamePreview& preview) {
+                    return preview.id == activePreviewId;
+                });
+            if (active != gamePreviews->end()) {
+                impl_->selectedGamePreview =
+                    static_cast<int>(
+                        std::distance(
+                            gamePreviews->begin(),
+                            active));
+            }
+            impl_->observedActiveGamePreviewId =
+                activePreviewId;
+        }
+        impl_->selectedGamePreview = std::clamp(
+            impl_->selectedGamePreview,
             0,
             static_cast<int>(
                 gamePreviews->size() - 1u));
-        std::string previousGroup;
+
+        std::vector<std::size_t> scenePreviewIndices;
+        std::vector<std::size_t> applicationPreviewIndices;
         for (std::size_t index = 0u;
              index < gamePreviews->size();
              ++index) {
-            const auto& configuration =
-                (*gamePreviews)[index];
-            if (configuration.group != previousGroup) {
-                if (index != 0u) {
-                    ImGui::Spacing();
-                }
-                ImGui::TextDisabled(
-                    "%s",
-                    configuration.group.empty()
-                        ? "Game"
-                        : configuration.group.c_str());
-                previousGroup = configuration.group;
+            const auto& preview = (*gamePreviews)[index];
+            if (!workspace.activeSceneAssetId.empty() &&
+                preview.sceneAssetId ==
+                    workspace.activeSceneAssetId) {
+                scenePreviewIndices.push_back(index);
+            } else if (preview.sceneAssetId.empty()) {
+                applicationPreviewIndices.push_back(index);
             }
-            ImGui::PushID(static_cast<int>(index));
-            const bool selected =
-                impl_->selectedPlayConfiguration ==
-                static_cast<int>(index);
-            if (ImGui::Selectable(
-                    configuration.displayName.c_str(),
-                    selected)) {
-                impl_->selectedPlayConfiguration =
+        }
+        std::vector<std::size_t> visibleIndices =
+            scenePreviewIndices;
+        visibleIndices.insert(
+            visibleIndices.end(),
+            applicationPreviewIndices.begin(),
+            applicationPreviewIndices.end());
+        if (visibleIndices.empty()) {
+            for (std::size_t index = 0u;
+                 index < gamePreviews->size();
+                 ++index) {
+                visibleIndices.push_back(index);
+            }
+        }
+        if (std::find(
+                visibleIndices.begin(),
+                visibleIndices.end(),
+                static_cast<std::size_t>(
+                    impl_->selectedGamePreview)) ==
+            visibleIndices.end()) {
+            impl_->selectedGamePreview =
+                static_cast<int>(visibleIndices.front());
+        }
+
+        const auto drawPreview =
+            [&](std::size_t index) {
+                const auto& preview =
+                    (*gamePreviews)[index];
+                ImGui::PushID(static_cast<int>(index));
+                const bool selected =
+                    impl_->selectedGamePreview ==
                     static_cast<int>(index);
-                if (ImGui::IsMouseDoubleClicked(
-                        ImGuiMouseButton_Left)) {
-                    actions.selectGamePreviewIndex =
+                const bool active =
+                    preview.id == activePreviewId;
+                const std::string label =
+                    preview.displayName +
+                    (active ? "  [active]" : "");
+                if (ImGui::Selectable(
+                        label.c_str(),
+                        selected)) {
+                    impl_->selectedGamePreview =
                         static_cast<int>(index);
+                    if (ImGui::IsMouseDoubleClicked(
+                            ImGuiMouseButton_Left)) {
+                        actions.selectGamePreviewIndex =
+                            static_cast<int>(index);
+                    }
+                }
+                ImGui::PopID();
+            };
+
+        if (!scenePreviewIndices.empty()) {
+            std::string sceneName =
+                text(workspace.activeSceneAssetId);
+            if (workspace.scenes) {
+                const auto scene = std::find_if(
+                    workspace.scenes->begin(),
+                    workspace.scenes->end(),
+                    [&](const WorkspaceScene& candidate) {
+                        return candidate.assetId ==
+                               workspace.activeSceneAssetId;
+                    });
+                if (scene != workspace.scenes->end()) {
+                    sceneName = scene->displayName;
                 }
             }
-            ImGui::PopID();
+            ImGui::TextDisabled(
+                "Current Scene - %s",
+                sceneName.c_str());
+            for (const std::size_t index :
+                 scenePreviewIndices) {
+                drawPreview(index);
+            }
+        } else {
+            ImGui::TextDisabled("Current Scene");
+            ImGui::TextWrapped(
+                "No runtime previews are associated with this scene.");
+        }
+
+        if (!applicationPreviewIndices.empty()) {
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextDisabled(
+                "Application and runtime-only previews");
+            std::string previousGroup;
+            for (const std::size_t index :
+                 applicationPreviewIndices) {
+                const auto& preview =
+                    (*gamePreviews)[index];
+                if (preview.group != previousGroup) {
+                    ImGui::TextDisabled(
+                        "  %s",
+                        preview.group.empty()
+                            ? "Game"
+                            : preview.group.c_str());
+                    previousGroup = preview.group;
+                }
+                drawPreview(index);
+            }
         }
 
         ImGui::Spacing();
         ImGui::Separator();
         const auto& selected = (*gamePreviews)[
             static_cast<std::size_t>(
-                impl_->selectedPlayConfiguration)];
+                impl_->selectedGamePreview)];
         ImGui::TextWrapped(
             "%s",
             selected.description.c_str());
@@ -1309,7 +1472,7 @@ EditorShellActions EditorShell::drawWorkspace(
                 "Open In Game",
                 ImVec2(-1.0f, 32.0f))) {
             actions.selectGamePreviewIndex =
-                impl_->selectedPlayConfiguration;
+                impl_->selectedGamePreview;
         }
         ImGui::TextDisabled(
             "Switches the already initialized game session.");
@@ -1371,10 +1534,7 @@ EditorShellActions EditorShell::drawWorkspace(
                 static_cast<std::size_t>(
                     impl_->selectedScene)];
         inspectedName = selected.displayName.c_str();
-        inspectedType =
-            selected.kind == "runtime_stage"
-                ? "Runtime Stage"
-                : "Cooked World Scene";
+        inspectedType = "Cooked World Scene";
         inspectedProperties = &selected.properties;
     }
     ImGui::TextWrapped("%s", inspectedName);
@@ -1822,9 +1982,16 @@ EditorShellActions EditorShell::drawWorkspace(
                 previousCategory = scene.category;
             }
             ImGui::PushID(static_cast<int>(index));
+            const bool active =
+                scene.assetId ==
+                workspace.activeSceneAssetId;
             const std::string sceneLabel =
                 scene.displayName +
-                (scene.startup ? "  [startup]" : "");
+                (active
+                     ? "  [open]"
+                     : scene.startup
+                         ? "  [startup]"
+                         : "");
             if (ImGui::Selectable(
                     sceneLabel.c_str(),
                     impl_->inspectorSelection ==
@@ -1843,18 +2010,11 @@ EditorShellActions EditorShell::drawWorkspace(
             }
             ImGui::SameLine();
             ImGui::TextDisabled(
-                "%s%s",
-                scene.kind == "runtime_stage"
-                    ? "runtime stage"
-                    : "cooked world",
-                scene.previewId.empty()
-                    ? ""
-                    : " / preview");
+                "cooked scene");
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip(
-                    "%s\n%s\n%s",
+                    "%s\nCooked scene\n%s",
                     scene.assetId.c_str(),
-                    scene.kind.c_str(),
                     scene.path.c_str());
             }
             ImGui::PopID();
@@ -1866,13 +2026,11 @@ EditorShellActions EditorShell::drawWorkspace(
                 static_cast<std::size_t>(
                     impl_->selectedScene)];
         ImGui::TextWrapped(
-            "%s",
-            selected.kind == "runtime_stage"
-                ? "Runtime stage: opens the real game state. It is not yet a standalone cooked environment."
-                : "Cooked world scene: opens the source-backed Scene view.");
+            "Cooked scene document: opening it updates the Scene view, hierarchy, Inspector, and associated game previews.");
         if (ImGui::Button(
-                selected.kind == "runtime_stage"
-                    ? "Open Runtime Stage"
+                selected.assetId ==
+                        workspace.activeSceneAssetId
+                    ? "Focus Open Scene"
                     : "Open Scene",
                 ImVec2(-1.0f, 30.0f))) {
             actions.openSceneIndex =
@@ -1924,6 +2082,11 @@ EditorShellActions EditorShell::drawWorkspace(
         workspace.playState == EditorPlayState::Paused) {
         actions.step = true;
     }
+    drawPreferencesWindow(
+        impl_->preferencesOpen,
+        impl_->pendingRendererPreference,
+        workspace.rendererPreference,
+        actions);
     return actions;
 }
 

@@ -42,8 +42,8 @@ reaching into Engine internals.
 - the project and stable project id;
 - relative cooked-content mounts;
 - the startup scene asset id and path;
-- an optional catalog of named cooked-world scenes and runtime stages for the
-  Scenes panel;
+- an optional catalog of named cooked-world scene documents for the Scenes
+  panel;
 - an optional portable editor-plugin library name and configuration-relative
   generated output directory;
 - optional named play configurations with a project-relative executable,
@@ -72,10 +72,10 @@ window rectangle is intentional support for multi-monitor workstations.
 
 These editor concepts are deliberately separate:
 
-- **Scenes** is the project catalog. A `cooked_world` entry opens a reusable
-  source-backed scene document. A `runtime_stage` entry opens a named state in
-  the persistent Game runtime and is explicitly labeled as not being an
-  independently cooked environment.
+- **Scenes** is the catalog of genuine cooked scene documents. Opening one
+  changes the active Scene view, path, hierarchy, Inspector context, runtime
+  scene adapter, and the collection of associated Game previews. Scripted
+  runtime stages are not presented as scene documents.
 - **Scene Hierarchy** is the object/component tree inside the open scene. The
   current read-only adapter exposes source-backed groups with
   selection-specific properties; stable object identities and component
@@ -99,11 +99,14 @@ simulation, Pause freezes it at the current time, Step advances one fixed
 60 Hz frame, and Stop returns to time zero.
 
 Game screens and session states are not falsely represented as `.phscene`
-files. A project plugin exposes named previews such as a frontend screen or a
-world snapshot. The editor initializes one project runtime when the project
-opens, renders it into an Engine-owned offscreen surface, and presents it in
-the central Game view. Choosing another preview mutates or restores that warm
-runtime; it does not launch another executable or repeat asset prewarming.
+files. A project plugin exposes named previews such as a frontend screen,
+scripted runtime stage, or world snapshot. A preview may name the cooked scene
+that owns it; the Game Preview panel presents those under the active scene and
+keeps application-level or runtime-only previews separate. The editor
+initializes one project runtime when the project opens, renders it into an
+Engine-owned offscreen surface, and presents it in the central Game view.
+Choosing another preview mutates or restores that warm runtime; it does not
+launch another executable or repeat asset prewarming.
 
 Boot is application lifecycle and loading presentation, not a world scene. A
 project may expose a replayable Boot preview without reinitializing the
