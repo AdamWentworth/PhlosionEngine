@@ -115,6 +115,9 @@ struct WorkspaceTerrainPrefab {
     std::uint32_t previewSideRgba = 0x343b40ffu;
     std::uint32_t previewAccentRgba = 0xaeb7bdffu;
     std::uint32_t previewConnectionMask = 0xffffffffu;
+    EditorProjectTerrainPrefabKind kind =
+        EditorProjectTerrainPrefabKind::Ground;
+    std::int32_t elevationDelta = 0;
 };
 
 struct WorkspaceAsset {
@@ -294,6 +297,7 @@ struct EditorShellActions {
     std::string terrainTileShape;
     std::string terrainTileVisualVariant;
     std::int32_t terrainTileTargetElevationLevel = 0;
+    std::int32_t terrainTileRelativeElevationDelta = 0;
     std::array<float, 3> layoutTranslation{};
     std::array<float, 3> layoutRotationDegrees{};
     std::array<float, 3> layoutScale{1.0f, 1.0f, 1.0f};

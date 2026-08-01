@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 20u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 21u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -233,6 +233,12 @@ struct EditorProjectTerrainSurface {
     const char* displayName = nullptr;
 };
 
+enum class EditorProjectTerrainPrefabKind : std::uint8_t {
+    Ground = 0u,
+    Ramp = 1u,
+    Platform = 2u,
+};
+
 // A project-authored, renderable terrain combination. The editor deliberately
 // consumes these instead of manufacturing a surface x shape cartesian product:
 // not every project surface is valid for every project shape.
@@ -252,6 +258,11 @@ struct EditorProjectTerrainPrefab {
     // NESW connection bits used only by the generic Inspector thumbnail.
     // UINT32_MAX means this is not a connected-path preview.
     std::uint32_t previewConnectionMask = 0xffffffffu;
+    EditorProjectTerrainPrefabKind kind =
+        EditorProjectTerrainPrefabKind::Ground;
+    // Relative source-level change applied when this prefab is chosen. A
+    // raised platform uses +1; ordinary ground and ramps preserve elevation.
+    std::int32_t elevationDelta = 0;
 };
 
 struct EditorProjectTerrainTileEditRequest {
@@ -264,6 +275,7 @@ struct EditorProjectTerrainTileEditRequest {
     const char* shape = nullptr;
     const char* visualVariant = nullptr;
     std::int32_t targetElevationLevel = 0;
+    std::int32_t relativeElevationDelta = 0;
 };
 
 class IEditorProjectRuntime {

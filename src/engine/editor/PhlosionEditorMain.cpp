@@ -1500,7 +1500,9 @@ void refreshTerrainTileViews(LoadedProject& project) {
                 .previewSideRgba = prefab.previewSideRgba,
                 .previewAccentRgba = prefab.previewAccentRgba,
                 .previewConnectionMask =
-                    prefab.previewConnectionMask});
+                    prefab.previewConnectionMask,
+                .kind = prefab.kind,
+                .elevationDelta = prefab.elevationDelta});
     }
 }
 
@@ -3467,7 +3469,9 @@ int main(int argc, char** argv) {
                         .visualVariant =
                             actions.terrainTileVisualVariant.c_str(),
                         .targetElevationLevel =
-                            actions.terrainTileTargetElevationLevel};
+                            actions.terrainTileTargetElevationLevel,
+                        .relativeElevationDelta =
+                            actions.terrainTileRelativeElevationDelta};
                 if (project->runtime->applyTerrainTileEdit(
                         request,
                         &tileError)) {

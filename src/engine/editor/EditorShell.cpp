@@ -242,7 +242,9 @@ bool drawTerrainPrefabPreviewCard(
     const float halfWidth = std::min(50.0f, size.x * 0.34f);
     const float halfDepth = halfWidth * 0.48f;
     const float rampRise = std::min(18.0f, size.y * 0.18f);
-    const float thickness = 8.0f;
+    const bool platform =
+        prefab.kind == EditorProjectTerrainPrefabKind::Platform;
+    const float thickness = platform ? 24.0f : 8.0f;
     const ImVec2 center{
         minimum.x + size.x * 0.5f,
         minimum.y + (previewBottom - minimum.y) * 0.54f};
@@ -302,6 +304,30 @@ bool drawTerrainPrefabPreviewCard(
         terrainPreviewColor(
             prefab.previewTopRgba,
             hovered ? 1.08f : 1.0f));
+    if (platform) {
+        // A compact source-style grass lip makes platform cards read as
+        // terrain elevation, not as a thicker generic box.
+        const ImU32 lipShadow = terrainPreviewColor(
+            prefab.previewSideRgba,
+            0.62f,
+            0.9f);
+        const ImU32 lipColor = terrainPreviewColor(
+            prefab.previewAccentRgba,
+            hovered ? 1.08f : 1.0f,
+            0.95f);
+        drawList->AddLine(
+            ImVec2(top[1].x, top[1].y + 2.5f),
+            ImVec2(top[2].x, top[2].y + 2.5f),
+            lipShadow,
+            4.0f);
+        drawList->AddLine(top[1], top[2], lipColor, 3.0f);
+        drawList->AddLine(
+            ImVec2(top[2].x, top[2].y + 2.5f),
+            ImVec2(top[3].x, top[3].y + 2.5f),
+            lipShadow,
+            4.0f);
+        drawList->AddLine(top[2], top[3], lipColor, 3.0f);
+    }
     for (std::size_t index = 0u;
          index < top.size();
          ++index) {
@@ -483,6 +509,27 @@ bool drawTerrainPrefabPreviewCard(
                 badgeCenter.y - directionSize.y * 0.5f),
             IM_COL32(235, 242, 238, 255),
             direction);
+    } else if (platform && prefab.elevationDelta != 0) {
+        const std::string levelBadge =
+            prefab.elevationDelta > 0
+            ? "+" + std::to_string(prefab.elevationDelta)
+            : std::to_string(prefab.elevationDelta);
+        const ImVec2 badgeCenter{
+            maximum.x - 17.0f,
+            minimum.y + 15.0f};
+        drawList->AddCircleFilled(
+            badgeCenter,
+            11.0f,
+            IM_COL32(12, 18, 21, 225),
+            16);
+        const ImVec2 badgeSize = ImGui::CalcTextSize(
+            levelBadge.c_str());
+        drawList->AddText(
+            ImVec2(
+                badgeCenter.x - badgeSize.x * 0.5f,
+                badgeCenter.y - badgeSize.y * 0.5f),
+            IM_COL32(235, 242, 238, 255),
+            levelBadge.c_str());
     }
     const ImVec2 labelSize = ImGui::CalcTextSize(
         prefab.displayName.c_str());
@@ -495,7 +542,13 @@ bool drawTerrainPrefabPreviewCard(
             : IM_COL32(218, 225, 228, 255),
         prefab.displayName.c_str());
     if (hovered) {
-        if (prefab.visualVariant.empty() ||
+        if (platform) {
+            ImGui::SetTooltip(
+                "%s\n%s / raised flat platform\nApplies %+d source level and derives grass lips, cliff faces, and corners from neighboring cells.\nClick to build from the selected terrain footprint.",
+                prefab.displayName.c_str(),
+                prefab.surface.c_str(),
+                prefab.elevationDelta);
+        } else if (prefab.visualVariant.empty() ||
             prefab.visualVariant == "auto") {
             ImGui::SetTooltip(
                 "%s\n%s / %s\nAutomatic source matching and neighbor blending.\nClick to hot-swap the selected terrain cells.",
@@ -3202,7 +3255,8 @@ EditorShellActions EditorShell::drawWorkspace(
                 [&](const char* operation,
                     const char* surface,
                     const char* shape,
-                    const char* visualVariant = "") {
+                    const char* visualVariant = "",
+                    std::int32_t relativeElevationDelta = 0) {
                     actions.terrainTileEditRequested = true;
                     actions.terrainTileCoordinates =
                         impl_->selectedTerrainTiles;
@@ -3215,6 +3269,8 @@ EditorShellActions EditorShell::drawWorkspace(
                         visualVariant ? visualVariant : "";
                     actions.terrainTileTargetElevationLevel =
                         impl_->terrainTargetElevationLevel;
+                    actions.terrainTileRelativeElevationDelta =
+                        relativeElevationDelta;
                 };
 
             constexpr std::array<const char*, 5> kShapeIds{{
@@ -3295,7 +3351,8 @@ EditorShellActions EditorShell::drawWorkspace(
                         "swap_prefab",
                         prefab.surface.c_str(),
                         prefab.shape.c_str(),
-                        prefab.visualVariant.c_str());
+                        prefab.visualVariant.c_str(),
+                        prefab.elevationDelta);
                 };
             if (representativeTile) {
                 if (impl_->terrainTargetReference.gridX !=
@@ -3371,7 +3428,8 @@ EditorShellActions EditorShell::drawWorkspace(
                      ++prefabIndex) {
                     const auto& prefab =
                         (*workspace.terrainPrefabs)[prefabIndex];
-                    if (prefab.shape != "flat") {
+                    if (prefab.kind !=
+                        EditorProjectTerrainPrefabKind::Ground) {
                         continue;
                     }
                     if (prefab.category != previousGroundCategory) {
@@ -3411,7 +3469,8 @@ EditorShellActions EditorShell::drawWorkspace(
                          ++prefabIndex) {
                         const auto& prefab =
                             (*workspace.terrainPrefabs)[prefabIndex];
-                        if (prefab.shape == "flat") {
+                        if (prefab.kind !=
+                            EditorProjectTerrainPrefabKind::Ramp) {
                             continue;
                         }
                         if (prefab.category != previousCategory) {
@@ -3441,8 +3500,52 @@ EditorShellActions EditorShell::drawWorkspace(
                         ++categoryButtonIndex;
                     }
                 }
+                if (ImGui::CollapsingHeader(
+                        "Ledges & Platforms",
+                        ImGuiTreeNodeFlags_DefaultOpen)) {
+                    ImGui::TextWrapped(
+                        "Choose a surface and build the selected footprint one 50 cm source level higher. Connected tiles merge into one platform; grass lips, bowed cliff faces, and outside corners derive from its neighbors.");
+                    std::string previousCategory;
+                    std::size_t categoryButtonIndex = 0u;
+                    for (std::size_t prefabIndex = 0u;
+                         prefabIndex < prefabCount;
+                         ++prefabIndex) {
+                        const auto& prefab =
+                            (*workspace.terrainPrefabs)[prefabIndex];
+                        if (prefab.kind !=
+                            EditorProjectTerrainPrefabKind::Platform) {
+                            continue;
+                        }
+                        if (prefab.category != previousCategory) {
+                            if (!previousCategory.empty()) {
+                                ImGui::Spacing();
+                            }
+                            ImGui::TextDisabled(
+                                "%s", prefab.category.c_str());
+                            previousCategory = prefab.category;
+                            categoryButtonIndex = 0u;
+                        }
+                        if ((categoryButtonIndex %
+                             static_cast<std::size_t>(
+                                 paletteColumns)) != 0u) {
+                            ImGui::SameLine();
+                        }
+                        ImGui::PushID(
+                            static_cast<int>(prefabIndex));
+                        if (drawTerrainPrefabPreviewCard(
+                                prefab,
+                                ImVec2(previewCardWidth, 106.0f),
+                                static_cast<int>(prefabIndex) ==
+                                    impl_->terrainPrefabIndex)) {
+                            queuePrefabSwap(
+                                static_cast<int>(prefabIndex));
+                        }
+                        ImGui::PopID();
+                        ++categoryButtonIndex;
+                    }
+                }
                 ImGui::TextDisabled(
-                    "Only project-supported prefabs are listed; swaps are immediate and preserve elevation.");
+                    "Ground/ramp keep height; platforms raise +1.");
                 ImGui::TextDisabled(
                     "Ledge walls rebuild from this tile and its neighbors.");
                 if (!hasTileSelection) {
@@ -3489,8 +3592,7 @@ EditorShellActions EditorShell::drawWorkspace(
 
             ImGui::Spacing();
             if (ImGui::CollapsingHeader(
-                    "Ledges & Platforms",
-                    ImGuiTreeNodeFlags_DefaultOpen)) {
+                    "Platform Utilities")) {
                 ImGui::TextWrapped(
                     "Build platforms by selecting their entire footprint. The grass lip, curved cliff face, outside corners, and height are derived from the boundary against neighboring cells.");
                 if (ImGui::Button(
