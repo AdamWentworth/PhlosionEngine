@@ -1664,6 +1664,39 @@ EditorShellActions EditorShell::drawWorkspace(
                                 coordinate);
                         });
                 };
+            const WorkspaceLayoutObject* terrainBoundBoard = nullptr;
+            if (workspace.layoutObjects) {
+                const auto board = std::find_if(
+                    workspace.layoutObjects->begin(),
+                    workspace.layoutObjects->end(),
+                    [](const WorkspaceLayoutObject& object) {
+                        return object.targetKind == "gameplay_board" &&
+                            object.terrainGridBound;
+                    });
+                if (board != workspace.layoutObjects->end()) {
+                    terrainBoundBoard = &*board;
+                }
+            }
+            const auto boardOwnsCoordinate =
+                [&](const auto& coordinate) {
+                    if (!terrainBoundBoard) {
+                        return false;
+                    }
+                    const std::int32_t maximumX =
+                        terrainBoundBoard->terrainGridOrigin[0] +
+                        static_cast<std::int32_t>(
+                            terrainBoundBoard->terrainGridExtent[0]);
+                    const std::int32_t maximumZ =
+                        terrainBoundBoard->terrainGridOrigin[1] +
+                        static_cast<std::int32_t>(
+                            terrainBoundBoard->terrainGridExtent[1]);
+                    return coordinate.gridX >=
+                            terrainBoundBoard->terrainGridOrigin[0] &&
+                        coordinate.gridX < maximumX &&
+                        coordinate.gridZ >=
+                            terrainBoundBoard->terrainGridOrigin[1] &&
+                        coordinate.gridZ < maximumZ;
+                };
             ImDrawList* drawList =
                 ImGui::GetWindowDrawList();
             drawList->PushClipRect(
@@ -1696,14 +1729,18 @@ EditorShellActions EditorShell::drawWorkspace(
                 }
                 const bool selected =
                     selectedCoordinate(tile.coordinate);
+                const bool boardCell =
+                    boardOwnsCoordinate(tile.coordinate);
                 const ImU32 outline = selected
                     ? IM_COL32(255, 220, 72, 245)
+                    : boardCell
+                    ? IM_COL32(255, 166, 42, 245)
                     : tile.authored
                     ? IM_COL32(255, 154, 48, 220)
                     : tile.sourceOccupied
                     ? IM_COL32(75, 218, 162, 125)
                     : IM_COL32(135, 148, 158, 70);
-                if (selected || tile.authored) {
+                if (selected || boardCell || tile.authored) {
                     drawList->AddQuadFilled(
                         corners[0],
                         corners[1],
@@ -1711,6 +1748,8 @@ EditorShellActions EditorShell::drawWorkspace(
                         corners[3],
                         selected
                             ? IM_COL32(255, 205, 45, 38)
+                            : boardCell
+                            ? IM_COL32(255, 128, 24, 46)
                             : IM_COL32(255, 130, 35, 22));
                 }
                 drawList->AddQuad(
@@ -1719,7 +1758,7 @@ EditorShellActions EditorShell::drawWorkspace(
                     corners[2],
                     corners[3],
                     outline,
-                    selected ? 2.2f : 1.0f);
+                    selected ? 2.2f : boardCell ? 1.8f : 1.0f);
             }
             if (hoveredTile >= 0) {
                 const auto& tile = tiles[
@@ -1804,12 +1843,24 @@ EditorShellActions EditorShell::drawWorkspace(
                 }
                 impl_->terrainTileDragging = false;
             }
+            std::string terrainOverlayLabel =
+                impl_->terrainTileDragging
+                ? "TERRAIN TILES - drag across cells to select a rectangle"
+                : "TERRAIN TILES - click or drag cells; Ctrl/Shift adds to selection";
+            if (terrainBoundBoard) {
+                terrainOverlayLabel +=
+                    " | ORANGE = exact board-owned cells [" +
+                    std::to_string(
+                        terrainBoundBoard->terrainGridOrigin[0]) +
+                    ", " +
+                    std::to_string(
+                        terrainBoundBoard->terrainGridOrigin[1]) +
+                    "]";
+            }
             drawList->AddText(
                 ImVec2(origin.x + 12.0f, origin.y + 12.0f),
                 IM_COL32(255, 240, 205, 235),
-                impl_->terrainTileDragging
-                    ? "TERRAIN TILES - drag across cells to select a rectangle"
-                    : "TERRAIN TILES - click or drag cells; Ctrl/Shift adds to selection");
+                terrainOverlayLabel.c_str());
             drawList->PopClipRect();
         } else if (impl_->terrainTileDragging) {
             impl_->terrainTileDragging = false;
@@ -3278,36 +3329,72 @@ EditorShellActions EditorShell::drawWorkspace(
         ImGui::Spacing();
         bool liveEditChanged = false;
         bool liveEditFinished = false;
-        ImGui::SetNextItemWidth(-1.0f);
-        const bool translationChanged = ImGui::DragFloat3(
-            gameplayBoard
-                ? "Board center (source cm)"
-                : "Translation",
-            impl_->layoutTranslation.data(),
-            1.0f,
-            -100000.0f,
-            100000.0f,
-            "%.2f");
-        if (translationChanged && gameplayBoard) {
-            impl_->layoutTranslation[0] =
-                std::round(
-                    impl_->layoutTranslation[0] /
-                    100.0f) *
-                100.0f;
-            impl_->layoutTranslation[1] =
-                std::round(
-                    impl_->layoutTranslation[1] /
-                    50.0f) *
-                50.0f;
-            impl_->layoutTranslation[2] =
-                std::round(
-                    impl_->layoutTranslation[2] /
-                    100.0f) *
-                100.0f;
+        bool translationChanged = false;
+        if (gameplayBoard &&
+            inspectedLayout->terrainGridBound) {
+            std::array<int, 2> terrainOrigin{
+                inspectedLayout->terrainGridOrigin[0],
+                inspectedLayout->terrainGridOrigin[1]};
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::DragInt2(
+                    "Terrain cell origin (X, Z)",
+                    terrainOrigin.data(),
+                    1.0f)) {
+                impl_->layoutTranslation[0] =
+                    (static_cast<float>(terrainOrigin[0]) +
+                     static_cast<float>(
+                         inspectedLayout->terrainGridExtent[0]) *
+                         0.5f) *
+                    100.0f;
+                impl_->layoutTranslation[2] =
+                    (static_cast<float>(terrainOrigin[1]) +
+                     static_cast<float>(
+                         inspectedLayout->terrainGridExtent[1]) *
+                         0.5f) *
+                    100.0f;
+                translationChanged = true;
+            }
+            liveEditFinished |=
+                ImGui::IsItemDeactivatedAfterEdit();
+            int elevationLevel =
+                inspectedLayout->terrainElevationLevel;
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::DragInt(
+                    "Terrain elevation level",
+                    &elevationLevel,
+                    1.0f)) {
+                impl_->layoutTranslation[1] =
+                    static_cast<float>(elevationLevel) *
+                    50.0f;
+                translationChanged = true;
+            }
+            liveEditFinished |=
+                ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::Text(
+                "Exact footprint: X %d..%d, Z %d..%d",
+                terrainOrigin[0],
+                terrainOrigin[0] +
+                    static_cast<int>(
+                        inspectedLayout->terrainGridExtent[0]) -
+                    1,
+                terrainOrigin[1],
+                terrainOrigin[1] +
+                    static_cast<int>(
+                        inspectedLayout->terrainGridExtent[1]) -
+                    1);
+        } else {
+            ImGui::SetNextItemWidth(-1.0f);
+            translationChanged = ImGui::DragFloat3(
+                "Translation",
+                impl_->layoutTranslation.data(),
+                1.0f,
+                -100000.0f,
+                100000.0f,
+                "%.2f");
+            liveEditFinished |=
+                ImGui::IsItemDeactivatedAfterEdit();
         }
         liveEditChanged |= translationChanged;
-        liveEditFinished |=
-            ImGui::IsItemDeactivatedAfterEdit();
         ImGui::BeginDisabled(gameplayBoard);
         ImGui::SetNextItemWidth(-1.0f);
         liveEditChanged |= ImGui::DragFloat3(

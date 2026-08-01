@@ -1384,6 +1384,14 @@ void refreshLayoutObjectViews(LoadedProject& project) {
                 .rotationDegrees =
                     object.rotationDegrees,
                 .scale = object.scale,
+                .terrainGridOrigin =
+                    object.terrainGridOrigin,
+                .terrainGridExtent =
+                    object.terrainGridExtent,
+                .terrainElevationLevel =
+                    object.terrainElevationLevel,
+                .terrainGridBound =
+                    object.terrainGridBound,
                 .boundsMinimum =
                     object.boundsMinimum,
                 .boundsMaximum =

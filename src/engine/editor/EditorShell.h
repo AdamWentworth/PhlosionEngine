@@ -65,6 +65,10 @@ struct WorkspaceLayoutObject {
     std::array<float, 3> translation{};
     std::array<float, 3> rotationDegrees{};
     std::array<float, 3> scale{1.0f, 1.0f, 1.0f};
+    std::array<std::int32_t, 2> terrainGridOrigin{};
+    std::array<std::uint32_t, 2> terrainGridExtent{};
+    std::int32_t terrainElevationLevel = 0;
+    bool terrainGridBound = false;
     std::array<float, 3> boundsMinimum{};
     std::array<float, 3> boundsMaximum{};
     std::array<float, 2> viewportPosition{};
