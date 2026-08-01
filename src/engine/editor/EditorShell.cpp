@@ -2904,33 +2904,23 @@ EditorShellActions EditorShell::drawWorkspace(
             }
 
             const bool hasPrefabPalette =
-                workspace.terrainSurfaces &&
-                !workspace.terrainSurfaces->empty();
+                workspace.terrainPrefabs &&
+                !workspace.terrainPrefabs->empty();
             const std::size_t prefabCount = hasPrefabPalette
-                ? workspace.terrainSurfaces->size() *
-                      kShapeIds.size()
+                ? workspace.terrainPrefabs->size()
                 : 0u;
             if (representativeTile && hasPrefabPalette) {
-                for (std::size_t surfaceIndex = 0u;
-                     surfaceIndex < workspace.terrainSurfaces->size();
-                     ++surfaceIndex) {
-                    if ((*workspace.terrainSurfaces)[surfaceIndex].id !=
-                        representativeTile->surface) {
-                        continue;
+                for (std::size_t prefabIndex = 0u;
+                     prefabIndex < prefabCount;
+                     ++prefabIndex) {
+                    const auto& prefab =
+                        (*workspace.terrainPrefabs)[prefabIndex];
+                    if (prefab.surface == representativeTile->surface &&
+                        prefab.shape == representativeTile->shape) {
+                        impl_->terrainPrefabIndex =
+                            static_cast<int>(prefabIndex);
+                        break;
                     }
-                    for (std::size_t shapeIndex = 0u;
-                         shapeIndex < kShapeIds.size();
-                         ++shapeIndex) {
-                        if (representativeTile->shape ==
-                            kShapeIds[shapeIndex]) {
-                            impl_->terrainPrefabIndex =
-                                static_cast<int>(
-                                    surfaceIndex * kShapeIds.size() +
-                                    shapeIndex);
-                            break;
-                        }
-                    }
-                    break;
                 }
             }
             if (prefabCount > 0u) {
@@ -2949,17 +2939,13 @@ EditorShellActions EditorShell::drawWorkspace(
                          static_cast<int>(prefabCount)) %
                         static_cast<int>(prefabCount);
                     impl_->terrainPrefabIndex = wrapped;
-                    const std::size_t surfaceIndex =
-                        static_cast<std::size_t>(wrapped) /
-                        kShapeIds.size();
-                    const std::size_t shapeIndex =
-                        static_cast<std::size_t>(wrapped) %
-                        kShapeIds.size();
+                    const auto& prefab =
+                        (*workspace.terrainPrefabs)[
+                            static_cast<std::size_t>(wrapped)];
                     queueTileEdit(
                         "swap_prefab",
-                        (*workspace.terrainSurfaces)[surfaceIndex]
-                            .id.c_str(),
-                        kShapeIds[shapeIndex]);
+                        prefab.surface.c_str(),
+                        prefab.shape.c_str());
                 };
             ImGui::BeginDisabled(!hasTileSelection);
             if (representativeTile) {
@@ -2970,72 +2956,106 @@ EditorShellActions EditorShell::drawWorkspace(
                     representativeTile->elevationLevel);
             }
             if (hasPrefabPalette && prefabCount > 0u) {
-                const std::size_t selectedSurface =
-                    static_cast<std::size_t>(
-                        impl_->terrainPrefabIndex) /
-                    kShapeIds.size();
-                const std::size_t selectedShape =
-                    static_cast<std::size_t>(
-                        impl_->terrainPrefabIndex) %
-                    kShapeIds.size();
-                const std::string selectedPrefabName =
-                    (*workspace.terrainSurfaces)[selectedSurface]
-                        .displayName +
-                    " / " + kShapeNames[selectedShape];
+                const auto& selectedPrefab =
+                    (*workspace.terrainPrefabs)[
+                        static_cast<std::size_t>(
+                            impl_->terrainPrefabIndex)];
                 if (ImGui::BeginCombo(
                         "Tile prefab",
-                        selectedPrefabName.c_str())) {
-                    for (std::size_t surfaceIndex = 0u;
-                         surfaceIndex <
-                             workspace.terrainSurfaces->size();
-                         ++surfaceIndex) {
-                        const auto& surface =
-                            (*workspace.terrainSurfaces)[surfaceIndex];
-                        for (std::size_t shapeIndex = 0u;
-                             shapeIndex < kShapeIds.size();
-                             ++shapeIndex) {
-                            const int prefabIndex =
-                                static_cast<int>(
-                                    surfaceIndex * kShapeIds.size() +
-                                    shapeIndex);
-                            const std::string label =
-                                surface.displayName + " / " +
-                                kShapeNames[shapeIndex];
-                            const bool selected = prefabIndex ==
-                                impl_->terrainPrefabIndex;
-                            ImGui::PushID(prefabIndex);
-                            if (ImGui::Selectable(
-                                    label.c_str(), selected)) {
-                                queuePrefabSwap(prefabIndex);
+                        selectedPrefab.displayName.c_str())) {
+                    std::string previousCategory;
+                    for (std::size_t prefabIndex = 0u;
+                         prefabIndex < prefabCount;
+                         ++prefabIndex) {
+                        const auto& prefab =
+                            (*workspace.terrainPrefabs)[prefabIndex];
+                        if (prefab.category != previousCategory) {
+                            if (!previousCategory.empty()) {
+                                ImGui::Separator();
                             }
-                            ImGui::PopID();
-                            if (selected) {
-                                ImGui::SetItemDefaultFocus();
-                            }
+                            ImGui::TextDisabled(
+                                "%s", prefab.category.c_str());
+                            previousCategory = prefab.category;
+                        }
+                        const bool selected =
+                            static_cast<int>(prefabIndex) ==
+                            impl_->terrainPrefabIndex;
+                        ImGui::PushID(
+                            static_cast<int>(prefabIndex));
+                        if (ImGui::Selectable(
+                                prefab.displayName.c_str(), selected)) {
+                            queuePrefabSwap(
+                                static_cast<int>(prefabIndex));
+                        }
+                        ImGui::PopID();
+                        if (selected) {
+                            ImGui::SetItemDefaultFocus();
                         }
                     }
                     ImGui::EndCombo();
                 }
-                const float buttonWidth = std::max(
+                ImGui::TextDisabled("Ground tiles");
+                const float quickButtonWidth = std::max(
                     1.0f,
                     (ImGui::GetContentRegionAvail().x -
-                     ImGui::GetStyle().ItemSpacing.x) *
-                        0.5f);
-                if (ImGui::Button(
-                        "< Previous prefab",
-                        ImVec2(buttonWidth, 30.0f))) {
-                    queuePrefabSwap(
-                        impl_->terrainPrefabIndex - 1);
+                     ImGui::GetStyle().ItemSpacing.x) * 0.5f);
+                std::size_t groundButtonIndex = 0u;
+                for (std::size_t prefabIndex = 0u;
+                     prefabIndex < prefabCount;
+                     ++prefabIndex) {
+                    const auto& prefab =
+                        (*workspace.terrainPrefabs)[prefabIndex];
+                    if (prefab.category != "Ground") {
+                        continue;
+                    }
+                    if ((groundButtonIndex % 2u) != 0u) {
+                        ImGui::SameLine();
+                    }
+                    ImGui::PushID(
+                        static_cast<int>(prefabIndex));
+                    if (ImGui::Button(
+                            prefab.displayName.c_str(),
+                            ImVec2(quickButtonWidth, 30.0f))) {
+                        queuePrefabSwap(
+                            static_cast<int>(prefabIndex));
+                    }
+                    ImGui::PopID();
+                    ++groundButtonIndex;
                 }
-                ImGui::SameLine();
-                if (ImGui::Button(
-                        "Next prefab >",
-                        ImVec2(buttonWidth, 30.0f))) {
-                    queuePrefabSwap(
-                        impl_->terrainPrefabIndex + 1);
+                if (ImGui::CollapsingHeader("Directional ramps")) {
+                    std::string previousCategory;
+                    std::size_t categoryButtonIndex = 0u;
+                    for (std::size_t prefabIndex = 0u;
+                         prefabIndex < prefabCount;
+                         ++prefabIndex) {
+                        const auto& prefab =
+                            (*workspace.terrainPrefabs)[prefabIndex];
+                        if (prefab.category == "Ground") {
+                            continue;
+                        }
+                        if (prefab.category != previousCategory) {
+                            ImGui::TextDisabled(
+                                "%s", prefab.category.c_str());
+                            previousCategory = prefab.category;
+                            categoryButtonIndex = 0u;
+                        }
+                        if ((categoryButtonIndex % 2u) != 0u) {
+                            ImGui::SameLine();
+                        }
+                        ImGui::PushID(
+                            static_cast<int>(prefabIndex));
+                        if (ImGui::Button(
+                                prefab.displayName.c_str(),
+                                ImVec2(quickButtonWidth, 28.0f))) {
+                            queuePrefabSwap(
+                                static_cast<int>(prefabIndex));
+                        }
+                        ImGui::PopID();
+                        ++categoryButtonIndex;
+                    }
                 }
                 ImGui::TextDisabled(
-                    "Selection changes hot-swap immediately; elevation is preserved.");
+                    "Only project-supported prefabs are listed; swaps are immediate and preserve elevation.");
                 ImGui::TextDisabled(
                     "Ledge walls rebuild from this tile and its neighbors.");
             }

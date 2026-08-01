@@ -103,6 +103,14 @@ struct WorkspaceTerrainSurface {
     std::string displayName;
 };
 
+struct WorkspaceTerrainPrefab {
+    std::string id;
+    std::string displayName;
+    std::string category;
+    std::string surface;
+    std::string shape;
+};
+
 struct WorkspaceAsset {
     std::string id;
     std::string displayName;
@@ -203,6 +211,7 @@ struct WorkspaceView {
     const std::vector<WorkspaceAsset>* assets = nullptr;
     const std::vector<WorkspaceTerrainTile>* terrainTiles = nullptr;
     const std::vector<WorkspaceTerrainSurface>* terrainSurfaces = nullptr;
+    const std::vector<WorkspaceTerrainPrefab>* terrainPrefabs = nullptr;
     const WorkspaceAssetPreview* assetPreview = nullptr;
     const std::vector<WorkspaceScene>* scenes = nullptr;
     std::string_view activeSceneId;

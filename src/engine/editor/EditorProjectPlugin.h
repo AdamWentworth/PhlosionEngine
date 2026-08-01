@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 17u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 18u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -230,6 +230,17 @@ struct EditorProjectTerrainTile {
 struct EditorProjectTerrainSurface {
     const char* id = nullptr;
     const char* displayName = nullptr;
+};
+
+// A project-authored, renderable terrain combination. The editor deliberately
+// consumes these instead of manufacturing a surface x shape cartesian product:
+// not every project surface is valid for every project shape.
+struct EditorProjectTerrainPrefab {
+    const char* id = nullptr;
+    const char* displayName = nullptr;
+    const char* category = nullptr;
+    const char* surface = nullptr;
+    const char* shape = nullptr;
 };
 
 struct EditorProjectTerrainTileEditRequest {
@@ -553,6 +564,14 @@ public:
         return 0u;
     }
     virtual EditorProjectTerrainSurface terrainSurface(
+        std::size_t index) const noexcept {
+        (void)index;
+        return {};
+    }
+    virtual std::size_t terrainPrefabCount() const noexcept {
+        return 0u;
+    }
+    virtual EditorProjectTerrainPrefab terrainPrefab(
         std::size_t index) const noexcept {
         (void)index;
         return {};

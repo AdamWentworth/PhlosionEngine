@@ -1317,6 +1317,8 @@ struct LoadedProject {
         terrainTileViews;
     std::vector<engine::editor::WorkspaceTerrainSurface>
         terrainSurfaceViews;
+    std::vector<engine::editor::WorkspaceTerrainPrefab>
+        terrainPrefabViews;
     std::vector<engine::editor::WorkspaceAsset>
         assetViews;
     std::size_t cookedAssetViewCount = 0u;
@@ -1426,6 +1428,7 @@ void refreshLayoutObjectViews(LoadedProject& project) {
 void refreshTerrainTileViews(LoadedProject& project) {
     project.terrainTileViews.clear();
     project.terrainSurfaceViews.clear();
+    project.terrainPrefabViews.clear();
     const std::size_t tileCount =
         project.runtime->terrainTileCount();
     project.terrainTileViews.reserve(tileCount);
@@ -1468,6 +1471,25 @@ void refreshTerrainTileViews(LoadedProject& project) {
             engine::editor::WorkspaceTerrainSurface{
                 .id = surface.id,
                 .displayName = surface.displayName});
+    }
+    const std::size_t prefabCount =
+        project.runtime->terrainPrefabCount();
+    project.terrainPrefabViews.reserve(prefabCount);
+    for (std::size_t index = 0u;
+         index < prefabCount;
+         ++index) {
+        const auto prefab = project.runtime->terrainPrefab(index);
+        if (!prefab.id || !prefab.displayName || !prefab.surface ||
+            !prefab.shape) {
+            continue;
+        }
+        project.terrainPrefabViews.push_back(
+            engine::editor::WorkspaceTerrainPrefab{
+                .id = prefab.id,
+                .displayName = prefab.displayName,
+                .category = prefab.category ? prefab.category : "Ground",
+                .surface = prefab.surface,
+                .shape = prefab.shape});
     }
 }
 
@@ -3239,6 +3261,8 @@ int main(int argc, char** argv) {
                         &project->terrainTileViews,
                     .terrainSurfaces =
                         &project->terrainSurfaceViews,
+                    .terrainPrefabs =
+                        &project->terrainPrefabViews,
                     .assetPreview =
                         selectedAssetPreviewIndex >= 0
                             ? &project->assetPreviewView
