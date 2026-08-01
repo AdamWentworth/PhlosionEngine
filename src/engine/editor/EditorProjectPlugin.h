@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 23u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 24u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -223,6 +223,11 @@ struct EditorProjectTerrainTile {
     const char* shape = nullptr;
     const char* visualVariant = nullptr;
     std::array<float, 8> viewportCorners{};
+    // Projected flat corners at elevationLevel plus the per-corner screen
+    // delta for one +50 cm source level. The editor uses these to draw an
+    // exact-height platform ghost before an authored edit is committed.
+    std::array<float, 8> viewportFlatCorners{};
+    std::array<float, 8> viewportLevelStep{};
     bool viewportVisible = false;
     bool sourceOccupied = false;
     bool authored = false;
@@ -284,8 +289,8 @@ struct EditorProjectTerrainTileEditRequest {
     const EditorProjectTerrainTileCoordinate* coordinates = nullptr;
     std::size_t coordinateCount = 0u;
     // create, raise, lower, terrace_raise, terrace_lower, flatten_tidy,
-    // tidy_surface, swap_prefab, paste_tiles_relative, paste_tiles_exact,
-    // paint_surface, set_shape, or restore_source.
+    // tidy_surface, platform_set, swap_prefab, paste_tiles_relative,
+    // paste_tiles_exact, paint_surface, set_shape, or restore_source.
     const char* operation = nullptr;
     const char* surface = nullptr;
     const char* shape = nullptr;

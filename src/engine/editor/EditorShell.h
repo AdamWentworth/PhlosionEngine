@@ -94,6 +94,8 @@ struct WorkspaceTerrainTile {
     std::string shape;
     std::string visualVariant;
     std::array<float, 8> viewportCorners{};
+    std::array<float, 8> viewportFlatCorners{};
+    std::array<float, 8> viewportLevelStep{};
     bool viewportVisible = false;
     bool sourceOccupied = false;
     bool authored = false;

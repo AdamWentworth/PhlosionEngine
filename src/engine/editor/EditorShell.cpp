@@ -13,6 +13,7 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <set>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -996,9 +997,13 @@ struct EditorShell::Impl {
         terrainTileClipboard;
     std::string terrainTileClipboardContext;
     int terrainPrefabIndex = 0;
+    int terrainAuthoringMode = 2;
     int terrainSurfaceIndex = 0;
+    int terrainPlatformSurfaceIndex = 0;
     int terrainShapeIndex = 0;
     int terrainTargetElevationLevel = 0;
+    bool terrainPlatformPreview = true;
+    bool terrainShowElevationLabels = true;
     EditorProjectTerrainTileCoordinate terrainTargetReference{
         std::numeric_limits<std::int32_t>::min(),
         std::numeric_limits<std::int32_t>::min()};
@@ -2195,6 +2200,94 @@ EditorShellActions EditorShell::drawWorkspace(
                         : boardCell || benchCell
                         ? 1.8f
                         : 1.0f);
+                std::array<ImVec2, 4> previewCorners = corners;
+                if (selected && impl_->terrainPlatformPreview) {
+                    const float levelDelta = static_cast<float>(
+                        impl_->terrainTargetElevationLevel -
+                        tile.elevationLevel);
+                    for (std::size_t corner = 0u;
+                         corner < previewCorners.size();
+                         ++corner) {
+                        previewCorners[corner] = ImVec2(
+                            origin.x +
+                                tile.viewportFlatCorners[corner * 2u] +
+                                tile.viewportLevelStep[corner * 2u] *
+                                    levelDelta,
+                            origin.y +
+                                tile.viewportFlatCorners[corner * 2u + 1u] +
+                                tile.viewportLevelStep[corner * 2u + 1u] *
+                                    levelDelta);
+                    }
+                    drawList->AddQuadFilled(
+                        previewCorners[0],
+                        previewCorners[1],
+                        previewCorners[2],
+                        previewCorners[3],
+                        IM_COL32(40, 226, 206, 52));
+                    drawList->AddQuad(
+                        previewCorners[0],
+                        previewCorners[1],
+                        previewCorners[2],
+                        previewCorners[3],
+                        IM_COL32(75, 255, 230, 245),
+                        3.0f);
+                    if (std::abs(levelDelta) > 0.001f) {
+                        for (std::size_t corner = 0u;
+                             corner < previewCorners.size();
+                             ++corner) {
+                            drawList->AddLine(
+                                corners[corner],
+                                previewCorners[corner],
+                                IM_COL32(75, 255, 230, 150),
+                                1.4f);
+                        }
+                    }
+                }
+                if (impl_->terrainShowElevationLabels) {
+                    const auto& labelCorners =
+                        selected && impl_->terrainPlatformPreview
+                        ? previewCorners
+                        : corners;
+                    const float edgeLength = std::hypot(
+                        labelCorners[1].x - labelCorners[0].x,
+                        labelCorners[1].y - labelCorners[0].y);
+                    if (edgeLength >= 18.0f) {
+                        const ImVec2 center{
+                            (labelCorners[0].x + labelCorners[1].x +
+                             labelCorners[2].x + labelCorners[3].x) *
+                                0.25f,
+                            (labelCorners[0].y + labelCorners[1].y +
+                             labelCorners[2].y + labelCorners[3].y) *
+                                0.25f};
+                        char levelLabel[16]{};
+                        std::snprintf(
+                            levelLabel,
+                            sizeof(levelLabel),
+                            "L%d",
+                            selected && impl_->terrainPlatformPreview
+                                ? impl_->terrainTargetElevationLevel
+                                : tile.elevationLevel);
+                        const ImVec2 textSize = ImGui::CalcTextSize(
+                            levelLabel);
+                        drawList->AddRectFilled(
+                            ImVec2(
+                                center.x - textSize.x * 0.5f - 3.0f,
+                                center.y - textSize.y * 0.5f - 1.0f),
+                            ImVec2(
+                                center.x + textSize.x * 0.5f + 3.0f,
+                                center.y + textSize.y * 0.5f + 1.0f),
+                            IM_COL32(12, 22, 22, 185),
+                            3.0f);
+                        drawList->AddText(
+                            ImVec2(
+                                center.x - textSize.x * 0.5f,
+                                center.y - textSize.y * 0.5f),
+                            selected
+                                ? IM_COL32(105, 255, 230, 255)
+                                : IM_COL32(242, 244, 230, 220),
+                            levelLabel);
+                    }
+                }
             }
             if (hoveredTile >= 0) {
                 const auto& tile = tiles[
@@ -3442,6 +3535,182 @@ EditorShellActions EditorShell::drawWorkspace(
                     representativeTile = &*found;
                 }
             }
+            std::vector<const WorkspaceTerrainTile*> selectedTileViews;
+            std::int32_t selectionMinimumX = 0;
+            std::int32_t selectionMaximumX = 0;
+            std::int32_t selectionMinimumZ = 0;
+            std::int32_t selectionMaximumZ = 0;
+            std::int32_t selectionMinimumLevel = 0;
+            std::int32_t selectionMaximumLevel = 0;
+            bool selectionMixedSurface = false;
+            if (representativeTile && workspace.terrainTiles) {
+                selectionMinimumX = selectionMaximumX =
+                    representativeTile->coordinate.gridX;
+                selectionMinimumZ = selectionMaximumZ =
+                    representativeTile->coordinate.gridZ;
+                selectionMinimumLevel = selectionMaximumLevel =
+                    representativeTile->elevationLevel;
+                for (const auto& coordinate :
+                     impl_->selectedTerrainTiles) {
+                    const auto found = std::find_if(
+                        workspace.terrainTiles->begin(),
+                        workspace.terrainTiles->end(),
+                        [&](const WorkspaceTerrainTile& tile) {
+                            return tile.coordinate.gridX ==
+                                    coordinate.gridX &&
+                                tile.coordinate.gridZ ==
+                                    coordinate.gridZ;
+                        });
+                    if (found == workspace.terrainTiles->end()) {
+                        continue;
+                    }
+                    selectedTileViews.push_back(&*found);
+                    selectionMinimumX = std::min(
+                        selectionMinimumX, found->coordinate.gridX);
+                    selectionMaximumX = std::max(
+                        selectionMaximumX, found->coordinate.gridX);
+                    selectionMinimumZ = std::min(
+                        selectionMinimumZ, found->coordinate.gridZ);
+                    selectionMaximumZ = std::max(
+                        selectionMaximumZ, found->coordinate.gridZ);
+                    selectionMinimumLevel = std::min(
+                        selectionMinimumLevel, found->elevationLevel);
+                    selectionMaximumLevel = std::max(
+                        selectionMaximumLevel, found->elevationLevel);
+                    selectionMixedSurface = selectionMixedSurface ||
+                        found->surface != representativeTile->surface;
+                }
+            }
+            const auto replaceTerrainSelection =
+                [&](std::vector<
+                        EditorProjectTerrainTileCoordinate> replacement) {
+                    std::sort(
+                        replacement.begin(),
+                        replacement.end(),
+                        [](const auto& left, const auto& right) {
+                            return std::tie(left.gridZ, left.gridX) <
+                                std::tie(right.gridZ, right.gridX);
+                        });
+                    replacement.erase(
+                        std::unique(
+                            replacement.begin(),
+                            replacement.end(),
+                            [](const auto& left, const auto& right) {
+                                return left.gridX == right.gridX &&
+                                    left.gridZ == right.gridZ;
+                            }),
+                        replacement.end());
+                    impl_->selectedTerrainTiles =
+                        std::move(replacement);
+                };
+            const auto fillTerrainSelectionBounds = [&]() {
+                if (!representativeTile || !workspace.terrainTiles) {
+                    return;
+                }
+                std::vector<EditorProjectTerrainTileCoordinate> result;
+                for (const auto& tile : *workspace.terrainTiles) {
+                    if (tile.coordinate.gridX >= selectionMinimumX &&
+                        tile.coordinate.gridX <= selectionMaximumX &&
+                        tile.coordinate.gridZ >= selectionMinimumZ &&
+                        tile.coordinate.gridZ <= selectionMaximumZ) {
+                        result.push_back(tile.coordinate);
+                    }
+                }
+                replaceTerrainSelection(std::move(result));
+            };
+            const auto growTerrainSelection = [&]() {
+                if (!representativeTile || !workspace.terrainTiles) {
+                    return;
+                }
+                std::set<std::pair<std::int32_t, std::int32_t>> wanted;
+                for (const auto& coordinate :
+                     impl_->selectedTerrainTiles) {
+                    wanted.emplace(coordinate.gridX, coordinate.gridZ);
+                    wanted.emplace(coordinate.gridX - 1, coordinate.gridZ);
+                    wanted.emplace(coordinate.gridX + 1, coordinate.gridZ);
+                    wanted.emplace(coordinate.gridX, coordinate.gridZ - 1);
+                    wanted.emplace(coordinate.gridX, coordinate.gridZ + 1);
+                }
+                std::vector<EditorProjectTerrainTileCoordinate> result;
+                for (const auto& tile : *workspace.terrainTiles) {
+                    if (wanted.contains({
+                            tile.coordinate.gridX,
+                            tile.coordinate.gridZ})) {
+                        result.push_back(tile.coordinate);
+                    }
+                }
+                replaceTerrainSelection(std::move(result));
+            };
+            const auto shrinkTerrainSelection = [&]() {
+                if (!representativeTile) {
+                    return;
+                }
+                std::set<std::pair<std::int32_t, std::int32_t>> selected;
+                for (const auto& coordinate :
+                     impl_->selectedTerrainTiles) {
+                    selected.emplace(coordinate.gridX, coordinate.gridZ);
+                }
+                std::vector<EditorProjectTerrainTileCoordinate> result;
+                for (const auto& coordinate :
+                     impl_->selectedTerrainTiles) {
+                    if (selected.contains(
+                            {coordinate.gridX - 1, coordinate.gridZ}) &&
+                        selected.contains(
+                            {coordinate.gridX + 1, coordinate.gridZ}) &&
+                        selected.contains(
+                            {coordinate.gridX, coordinate.gridZ - 1}) &&
+                        selected.contains(
+                            {coordinate.gridX, coordinate.gridZ + 1})) {
+                        result.push_back(coordinate);
+                    }
+                }
+                replaceTerrainSelection(std::move(result));
+            };
+            const auto selectConnectedTerrainLevel = [&]() {
+                if (!representativeTile || !workspace.terrainTiles) {
+                    return;
+                }
+                std::set<std::pair<std::int32_t, std::int32_t>> visited;
+                std::vector<EditorProjectTerrainTileCoordinate> frontier{
+                    representativeTile->coordinate};
+                std::vector<EditorProjectTerrainTileCoordinate> result;
+                for (std::size_t next = 0u;
+                     next < frontier.size();
+                     ++next) {
+                    const auto coordinate = frontier[next];
+                    if (!visited.emplace(
+                            coordinate.gridX,
+                            coordinate.gridZ).second) {
+                        continue;
+                    }
+                    const auto found = std::find_if(
+                        workspace.terrainTiles->begin(),
+                        workspace.terrainTiles->end(),
+                        [&](const WorkspaceTerrainTile& tile) {
+                            return tile.coordinate.gridX ==
+                                    coordinate.gridX &&
+                                tile.coordinate.gridZ ==
+                                    coordinate.gridZ;
+                        });
+                    if (found == workspace.terrainTiles->end() ||
+                        found->elevationLevel !=
+                            representativeTile->elevationLevel ||
+                        found->surface != representativeTile->surface ||
+                        found->shape != "flat") {
+                        continue;
+                    }
+                    result.push_back(coordinate);
+                    frontier.push_back({coordinate.gridX - 1,
+                                        coordinate.gridZ});
+                    frontier.push_back({coordinate.gridX + 1,
+                                        coordinate.gridZ});
+                    frontier.push_back({coordinate.gridX,
+                                        coordinate.gridZ - 1});
+                    frontier.push_back({coordinate.gridX,
+                                        coordinate.gridZ + 1});
+                }
+                replaceTerrainSelection(std::move(result));
+            };
 
             const bool hasPrefabPalette =
                 workspace.terrainPrefabs &&
@@ -3503,6 +3772,19 @@ EditorShellActions EditorShell::drawWorkspace(
                         representativeTile->coordinate;
                     impl_->terrainTargetElevationLevel =
                         representativeTile->elevationLevel;
+                    if (workspace.terrainSurfaces) {
+                        for (std::size_t surfaceIndex = 0u;
+                             surfaceIndex <
+                                 workspace.terrainSurfaces->size();
+                             ++surfaceIndex) {
+                            if ((*workspace.terrainSurfaces)[surfaceIndex].id ==
+                                representativeTile->surface) {
+                                impl_->terrainPlatformSurfaceIndex =
+                                    static_cast<int>(surfaceIndex);
+                                break;
+                            }
+                        }
+                    }
                 }
                 ImGui::Text(
                     "Cell (%d, %d)  |  Level %d",
@@ -3511,6 +3793,41 @@ EditorShellActions EditorShell::drawWorkspace(
                     representativeTile->elevationLevel);
             }
             if (hasPrefabPalette && prefabCount > 0u) {
+                ImGui::TextDisabled("Terrain authoring tool");
+                constexpr std::array<const char*, 3> toolNames{{
+                    "Ground",
+                    "Ramps",
+                    "Platforms",
+                }};
+                const float toolWidth = std::max(
+                    1.0f,
+                    (ImGui::GetContentRegionAvail().x -
+                     ImGui::GetStyle().ItemSpacing.x * 2.0f) /
+                        3.0f);
+                for (std::size_t toolIndex = 0u;
+                     toolIndex < toolNames.size();
+                     ++toolIndex) {
+                    if (toolIndex != 0u) {
+                        ImGui::SameLine();
+                    }
+                    const bool active =
+                        impl_->terrainAuthoringMode ==
+                        static_cast<int>(toolIndex);
+                    if (active) {
+                        ImGui::PushStyleColor(
+                            ImGuiCol_Button,
+                            ImVec4(0.10f, 0.42f, 0.34f, 1.0f));
+                    }
+                    if (ImGui::Button(
+                            toolNames[toolIndex],
+                            ImVec2(toolWidth, 30.0f))) {
+                        impl_->terrainAuthoringMode =
+                            static_cast<int>(toolIndex);
+                    }
+                    if (active) {
+                        ImGui::PopStyleColor();
+                    }
+                }
                 const auto& selectedPrefab =
                     (*workspace.terrainPrefabs)[
                         static_cast<std::size_t>(
@@ -3549,7 +3866,6 @@ EditorShellActions EditorShell::drawWorkspace(
                     }
                     ImGui::EndCombo();
                 }
-                ImGui::TextDisabled("Ground tile previews");
                 const float paletteWidth =
                     ImGui::GetContentRegionAvail().x;
                 const int paletteColumns = paletteWidth >= 280.0f
@@ -3561,47 +3877,52 @@ EditorShellActions EditorShell::drawWorkspace(
                      ImGui::GetStyle().ItemSpacing.x *
                          static_cast<float>(paletteColumns - 1)) /
                         static_cast<float>(paletteColumns));
-                std::string previousGroundCategory;
-                std::size_t groundButtonIndex = 0u;
-                for (std::size_t prefabIndex = 0u;
-                     prefabIndex < prefabCount;
-                     ++prefabIndex) {
-                    const auto& prefab =
-                        (*workspace.terrainPrefabs)[prefabIndex];
-                    if (prefab.kind !=
-                        EditorProjectTerrainPrefabKind::Ground) {
-                        continue;
-                    }
-                    if (prefab.category != previousGroundCategory) {
-                        if (!previousGroundCategory.empty()) {
-                            ImGui::Spacing();
+                if (impl_->terrainAuthoringMode == 0) {
+                    ImGui::TextDisabled("Ground tile previews");
+                    std::string previousGroundCategory;
+                    std::size_t groundButtonIndex = 0u;
+                    for (std::size_t prefabIndex = 0u;
+                         prefabIndex < prefabCount;
+                         ++prefabIndex) {
+                        const auto& prefab =
+                            (*workspace.terrainPrefabs)[prefabIndex];
+                        if (prefab.kind !=
+                            EditorProjectTerrainPrefabKind::Ground) {
+                            continue;
                         }
-                        ImGui::TextDisabled(
-                            "%s", prefab.category.c_str());
-                        previousGroundCategory = prefab.category;
-                        groundButtonIndex = 0u;
-                    }
-                    if ((groundButtonIndex %
-                         static_cast<std::size_t>(
-                             paletteColumns)) != 0u) {
-                        ImGui::SameLine();
-                    }
-                    ImGui::PushID(
-                        static_cast<int>(prefabIndex));
-                    if (drawTerrainPrefabPreviewCard(
-                            prefab,
-                            ImVec2(
-                                previewCardWidth,
-                                102.0f),
-                            static_cast<int>(prefabIndex) ==
-                                impl_->terrainPrefabIndex)) {
-                        queuePrefabSwap(
+                        if (prefab.category != previousGroundCategory) {
+                            if (!previousGroundCategory.empty()) {
+                                ImGui::Spacing();
+                            }
+                            ImGui::TextDisabled(
+                                "%s", prefab.category.c_str());
+                            previousGroundCategory = prefab.category;
+                            groundButtonIndex = 0u;
+                        }
+                        if ((groundButtonIndex %
+                             static_cast<std::size_t>(
+                                 paletteColumns)) != 0u) {
+                            ImGui::SameLine();
+                        }
+                        ImGui::PushID(
                             static_cast<int>(prefabIndex));
+                        if (drawTerrainPrefabPreviewCard(
+                                prefab,
+                                ImVec2(
+                                    previewCardWidth,
+                                    102.0f),
+                                static_cast<int>(prefabIndex) ==
+                                    impl_->terrainPrefabIndex)) {
+                            queuePrefabSwap(
+                                static_cast<int>(prefabIndex));
+                        }
+                        ImGui::PopID();
+                        ++groundButtonIndex;
                     }
-                    ImGui::PopID();
-                    ++groundButtonIndex;
                 }
-                if (ImGui::CollapsingHeader("Directional ramps")) {
+                if (impl_->terrainAuthoringMode == 1) {
+                    ImGui::TextWrapped(
+                        "Directional ramps connect one source level to the next. Select the ramp footprint, then choose its uphill direction.");
                     std::string previousCategory;
                     std::size_t categoryButtonIndex = 0u;
                     for (std::size_t prefabIndex = 0u;
@@ -3640,11 +3961,173 @@ EditorShellActions EditorShell::drawWorkspace(
                         ++categoryButtonIndex;
                     }
                 }
-                if (ImGui::CollapsingHeader(
-                        "Ledges & Platforms",
-                        ImGuiTreeNodeFlags_DefaultOpen)) {
+                if (impl_->terrainAuthoringMode == 2) {
+                    ImGui::SeparatorText("Precise Platform Builder");
                     ImGui::TextWrapped(
-                        "Choose a surface and build the selected footprint one 50 cm source level higher. Connected tiles merge into one platform; grass lips, bowed cliff faces, and outside corners derive from its neighbors.");
+                        "Build one exact source-grid footprint. The cyan ghost is the saved flat top; grass lips, bowed cliff faces, and outside corners derive from the final neighbor levels.");
+                    ImGui::Checkbox(
+                        "Preview working level in Scene view",
+                        &impl_->terrainPlatformPreview);
+                    ImGui::Checkbox(
+                        "Show per-cell elevation labels",
+                        &impl_->terrainShowElevationLabels);
+                    if (representativeTile) {
+                        const std::int32_t width =
+                            selectionMaximumX - selectionMinimumX + 1;
+                        const std::int32_t depth =
+                            selectionMaximumZ - selectionMinimumZ + 1;
+                        ImGui::Text(
+                            "%zu selected | %d x %d bounds | levels %d..%d",
+                            selectedTileViews.size(),
+                            width,
+                            depth,
+                            selectionMinimumLevel,
+                            selectionMaximumLevel);
+                        ImGui::TextDisabled(
+                            "Anchor (%d, %d) | %s%s",
+                            representativeTile->coordinate.gridX,
+                            representativeTile->coordinate.gridZ,
+                            representativeTile->surface.c_str(),
+                            selectionMixedSurface
+                                ? " + mixed surfaces"
+                                : "");
+                    } else {
+                        ImGui::TextDisabled(
+                            "Select one or more terrain cells to define a footprint.");
+                    }
+
+                    ImGui::SeparatorText("Footprint Selection");
+                    ImGui::BeginDisabled(!hasTileSelection);
+                    if (ImGui::Button(
+                            "Connected Same-Level Top",
+                            ImVec2(-1.0f, 28.0f))) {
+                        selectConnectedTerrainLevel();
+                    }
+                    if (ImGui::Button(
+                            "Fill Selection Bounds",
+                            ImVec2(-1.0f, 28.0f))) {
+                        fillTerrainSelectionBounds();
+                    }
+                    if (ImGui::Button(
+                            "Grow 1 Tile",
+                            ImVec2(0.0f, 28.0f))) {
+                        growTerrainSelection();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button(
+                            "Remove Outer Ring",
+                            ImVec2(-1.0f, 28.0f))) {
+                        shrinkTerrainSelection();
+                    }
+                    if (ImGui::Button(
+                            "Clear Footprint",
+                            ImVec2(-1.0f, 26.0f))) {
+                        impl_->selectedTerrainTiles.clear();
+                    }
+                    ImGui::EndDisabled();
+                    ImGui::TextDisabled(
+                        "Click-drag selects a rectangle; Ctrl/Shift adds cells. Selection tools do not modify the scene.");
+
+                    ImGui::SeparatorText("Exact Platform Top");
+                    if (workspace.terrainSurfaces &&
+                        !workspace.terrainSurfaces->empty()) {
+                        impl_->terrainPlatformSurfaceIndex = std::clamp(
+                            impl_->terrainPlatformSurfaceIndex,
+                            0,
+                            static_cast<int>(
+                                workspace.terrainSurfaces->size() - 1u));
+                        const auto& platformSurface =
+                            (*workspace.terrainSurfaces)[
+                                static_cast<std::size_t>(
+                                    impl_->terrainPlatformSurfaceIndex)];
+                        if (ImGui::BeginCombo(
+                                "Top surface",
+                                platformSurface.displayName.c_str())) {
+                            for (std::size_t surfaceIndex = 0u;
+                                 surfaceIndex <
+                                     workspace.terrainSurfaces->size();
+                                 ++surfaceIndex) {
+                                const auto& surface =
+                                    (*workspace.terrainSurfaces)[surfaceIndex];
+                                const bool selected =
+                                    static_cast<int>(surfaceIndex) ==
+                                    impl_->terrainPlatformSurfaceIndex;
+                                if (ImGui::Selectable(
+                                        surface.displayName.c_str(),
+                                        selected)) {
+                                    impl_->terrainPlatformSurfaceIndex =
+                                        static_cast<int>(surfaceIndex);
+                                }
+                                if (selected) {
+                                    ImGui::SetItemDefaultFocus();
+                                }
+                            }
+                            ImGui::EndCombo();
+                        }
+                        if (ImGui::Button(
+                                "- 50 cm",
+                                ImVec2(88.0f, 28.0f))) {
+                            impl_->terrainTargetElevationLevel = std::max(
+                                -128,
+                                impl_->terrainTargetElevationLevel - 1);
+                        }
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(92.0f);
+                        if (ImGui::InputInt(
+                                "##platform-working-level",
+                                &impl_->terrainTargetElevationLevel,
+                                0,
+                                0)) {
+                            impl_->terrainTargetElevationLevel = std::clamp(
+                                impl_->terrainTargetElevationLevel,
+                                -128,
+                                128);
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button(
+                                "+ 50 cm",
+                                ImVec2(-1.0f, 28.0f))) {
+                            impl_->terrainTargetElevationLevel = std::min(
+                                128,
+                                impl_->terrainTargetElevationLevel + 1);
+                        }
+                        ImGui::Text(
+                            "Working level %d = %.2f m source height",
+                            impl_->terrainTargetElevationLevel,
+                            static_cast<float>(
+                                impl_->terrainTargetElevationLevel) *
+                                0.5f);
+                        ImGui::BeginDisabled(!representativeTile);
+                        if (ImGui::Button(
+                                "Sample Anchor Level",
+                                ImVec2(-1.0f, 26.0f))) {
+                            impl_->terrainTargetElevationLevel =
+                                representativeTile->elevationLevel;
+                        }
+                        if (ImGui::Button(
+                                "One Level Above Selection",
+                                ImVec2(-1.0f, 26.0f))) {
+                            impl_->terrainTargetElevationLevel = std::min(
+                                128,
+                                selectionMaximumLevel + 1);
+                        }
+                        ImGui::EndDisabled();
+                        ImGui::BeginDisabled(!hasTileSelection);
+                        if (ImGui::Button(
+                                "Build / Replace Exact Platform",
+                                ImVec2(-1.0f, 34.0f))) {
+                            queueTileEdit(
+                                "platform_set",
+                                platformSurface.id.c_str(),
+                                "flat",
+                                "auto");
+                        }
+                        ImGui::EndDisabled();
+                        ImGui::TextDisabled(
+                            "One atomic edit sets every selected cell to this level and surface, forces a flat top, cleans source fragments, and rebuilds the complete exposed ledge boundary.");
+                    }
+
+                    ImGui::SeparatorText("Quick +1 Presets");
                     std::string previousCategory;
                     std::size_t categoryButtonIndex = 0u;
                     for (std::size_t prefabIndex = 0u;
@@ -3685,70 +4168,54 @@ EditorShellActions EditorShell::drawWorkspace(
                     }
                 }
                 ImGui::TextDisabled(
-                    "Ground/ramp keep height; platforms raise +1.");
+                    impl_->terrainAuthoringMode == 2
+                        ? "Exact platforms use the working level; quick presets add +1."
+                        : "Ground and ramp prefab swaps preserve the selected height.");
                 ImGui::TextDisabled(
-                    "Ledge walls rebuild from this tile and its neighbors.");
+                    "Neighbor topology rebuilds terrain seams and ledge walls.");
                 if (!hasTileSelection) {
                     ImGui::TextDisabled(
                         "Browse freely; select terrain cells before applying a prefab.");
                 }
             }
             ImGui::BeginDisabled(!hasTileSelection);
-            if (ImGui::Button(
-                    "Lower 50 cm",
-                    ImVec2(0.0f, 28.0f))) {
-                queueTileEdit("lower", "", "");
-            }
-            ImGui::SameLine();
-            if (ImGui::Button(
-                    "Raise 50 cm",
-                    ImVec2(-1.0f, 28.0f))) {
-                queueTileEdit("raise", "", "");
-            }
-
-            ImGui::SetNextItemWidth(-1.0f);
-            if (ImGui::InputInt(
-                    "Target level (50 cm each)",
-                    &impl_->terrainTargetElevationLevel)) {
-                impl_->terrainTargetElevationLevel = std::clamp(
-                    impl_->terrainTargetElevationLevel,
-                    -128,
-                    128);
-            }
-            if (ImGui::Button(
-                    "Flatten + Tidy Selected",
-                    ImVec2(-1.0f, 30.0f))) {
-                queueTileEdit("flatten_tidy", "", "flat");
-            }
-            ImGui::TextDisabled(
-                "Makes one exact plane, rebuilds continuous ground textures, and clears local source floor fragments.");
-            if (ImGui::Button(
-                    "Rebuild Selected Surface Blends",
-                    ImVec2(-1.0f, 28.0f))) {
-                queueTileEdit("tidy_surface", "", "");
-            }
-            ImGui::TextDisabled(
-                "Preserves shape, level, and surface; reauthors the cells into the continuous lawn/path field.");
-
-            ImGui::Spacing();
             if (ImGui::CollapsingHeader(
-                    "Platform Utilities")) {
-                ImGui::TextWrapped(
-                    "Build platforms by selecting their entire footprint. The grass lip, curved cliff face, outside corners, and height are derived from the boundary against neighboring cells.");
+                    "General Terrain Height & Repair")) {
                 if (ImGui::Button(
-                        "Raise as Flat Platform (+50 cm)",
-                        ImVec2(-1.0f, 30.0f))) {
-                    queueTileEdit("terrace_raise", "", "flat");
+                        "Lower 50 cm",
+                        ImVec2(0.0f, 28.0f))) {
+                    queueTileEdit("lower", "", "");
+                }
+                ImGui::SameLine();
+                if (ImGui::Button(
+                        "Raise 50 cm",
+                        ImVec2(-1.0f, 28.0f))) {
+                    queueTileEdit("raise", "", "");
+                }
+
+                ImGui::SetNextItemWidth(-1.0f);
+                if (ImGui::InputInt(
+                        "Target level (50 cm each)",
+                        &impl_->terrainTargetElevationLevel)) {
+                    impl_->terrainTargetElevationLevel = std::clamp(
+                        impl_->terrainTargetElevationLevel,
+                        -128,
+                        128);
                 }
                 if (ImGui::Button(
-                        "Lower as Flat Platform (-50 cm)",
+                        "Flatten + Tidy Selected",
                         ImVec2(-1.0f, 30.0f))) {
-                    queueTileEdit("terrace_lower", "", "flat");
+                    queueTileEdit("flatten_tidy", "", "flat");
                 }
                 ImGui::TextDisabled(
-                    "Use ordinary Raise/Lower above when you intentionally want to preserve ramps inside the selection.");
+                    "Makes one exact plane, rebuilds continuous ground textures, and clears local source floor fragments.");
+                if (ImGui::Button(
+                        "Rebuild Selected Surface Blends",
+                        ImVec2(-1.0f, 28.0f))) {
+                    queueTileEdit("tidy_surface", "", "");
+                }
                 ImGui::TextDisabled(
-                    "Select the next row and choose a directional ramp prefab to connect platform levels.");
+                    "Preserves shape, level, and surface; reauthors the cells into the continuous lawn/path field.");
             }
 
             if (ImGui::CollapsingHeader(

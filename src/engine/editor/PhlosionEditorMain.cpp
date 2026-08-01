@@ -1455,6 +1455,8 @@ void refreshTerrainTileViews(LoadedProject& project) {
                     ? tile.visualVariant
                     : "auto",
                 .viewportCorners = tile.viewportCorners,
+                .viewportFlatCorners = tile.viewportFlatCorners,
+                .viewportLevelStep = tile.viewportLevelStep,
                 .viewportVisible = tile.viewportVisible,
                 .sourceOccupied = tile.sourceOccupied,
                 .authored = tile.authored});
