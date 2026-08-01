@@ -153,7 +153,8 @@ bool validateAuthoredSceneDocument(
                 binding.shape == "ramp_south" ||
                 binding.shape == "ramp_west";
             if (binding.tileSetAssetId.empty() ||
-                binding.surface.empty() || !validShape ||
+                binding.surface.empty() ||
+                binding.visualVariant.empty() || !validShape ||
                 binding.elevationLevel < -128 ||
                 binding.elevationLevel > 128) {
                 return fail(
@@ -313,7 +314,9 @@ bool parseAuthoredSceneDocument(
                         .surface = terrainTile->at("surface")
                             .get<std::string>(),
                         .shape = terrainTile->value(
-                            "shape", std::string("flat"))};
+                            "shape", std::string("flat")),
+                        .visualVariant = terrainTile->value(
+                            "visual_variant", std::string("auto"))};
                 }
             }
             decoded.nodes.push_back(std::move(node));
@@ -393,7 +396,8 @@ std::string serializeAuthoredSceneDocument(
                 {"grid_z", binding.gridZ},
                 {"elevation_level", binding.elevationLevel},
                 {"surface", binding.surface},
-                {"shape", binding.shape}};
+                {"shape", binding.shape},
+                {"visual_variant", binding.visualVariant}};
         }
         root["nodes"].push_back(std::move(record));
     }

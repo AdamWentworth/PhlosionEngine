@@ -52,7 +52,8 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
                     .gridZ = -7,
                     .elevationLevel = 3,
                     .surface = "dark_lawn",
-                    .shape = "ramp_north"}}}};
+                    .shape = "ramp_north",
+                    .visualVariant = "lawn_c"}}}};
     std::string error;
     if (!validateAuthoredSceneDocument(source, &error)) {
         outFail = "valid document failed: " + error;
@@ -74,7 +75,8 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
             "source/tree-1" ||
         !decoded.nodes[3].terrainTile ||
         decoded.nodes[3].terrainTile->gridX != 12 ||
-        decoded.nodes[3].terrainTile->shape != "ramp_north") {
+        decoded.nodes[3].terrainTile->shape != "ramp_north" ||
+        decoded.nodes[3].terrainTile->visualVariant != "lawn_c") {
         outFail = "document fields changed during round trip";
         return false;
     }
@@ -94,6 +96,40 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
     if (!parseAuthoredSceneDocument(schemaOne, decoded, &error) ||
         decoded.sceneId != "routes/legacy") {
         outFail = "schema-1 authored scene compatibility failed: " + error;
+        return false;
+    }
+    const std::string schemaTwo = R"json({
+        "schema_version": 2,
+        "kind": "phlosion_authored_scene",
+        "scene_id": "routes/legacy-terrain",
+        "base_environment_asset_id": "environments/legacy",
+        "coordinate_system": "centimetres_xyz_y_up",
+        "nodes": [{
+            "id": "terrain-tile/1/2",
+            "display_name": "Legacy Terrain",
+            "parent_id": "",
+            "sibling_order": 0,
+            "enabled": true,
+            "reason": "compatibility",
+            "components": {
+                "terrain_tile": {
+                    "tile_set_asset_id": "route/legacy_tileset",
+                    "grid_x": 1,
+                    "grid_z": 2,
+                    "elevation_level": 0,
+                    "surface": "light_lawn",
+                    "shape": "flat"
+                }
+            }
+        }]
+    })json";
+    if (!parseAuthoredSceneDocument(schemaTwo, decoded, &error) ||
+        decoded.nodes.size() != 1u ||
+        !decoded.nodes.front().terrainTile ||
+        decoded.nodes.front().terrainTile->visualVariant != "auto") {
+        outFail =
+            "schema-2 terrain visual-variant compatibility failed: " +
+            error;
         return false;
     }
     return true;

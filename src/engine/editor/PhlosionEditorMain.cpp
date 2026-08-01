@@ -1451,6 +1451,9 @@ void refreshTerrainTileViews(LoadedProject& project) {
                 .shape = tile.shape
                     ? tile.shape
                     : "flat",
+                .visualVariant = tile.visualVariant
+                    ? tile.visualVariant
+                    : "auto",
                 .viewportCorners = tile.viewportCorners,
                 .viewportVisible = tile.viewportVisible,
                 .sourceOccupied = tile.sourceOccupied,
@@ -1490,9 +1493,14 @@ void refreshTerrainTileViews(LoadedProject& project) {
                 .category = prefab.category ? prefab.category : "Ground",
                 .surface = prefab.surface,
                 .shape = prefab.shape,
+                .visualVariant = prefab.visualVariant
+                    ? prefab.visualVariant
+                    : "auto",
                 .previewTopRgba = prefab.previewTopRgba,
                 .previewSideRgba = prefab.previewSideRgba,
-                .previewAccentRgba = prefab.previewAccentRgba});
+                .previewAccentRgba = prefab.previewAccentRgba,
+                .previewConnectionMask =
+                    prefab.previewConnectionMask});
     }
 }
 
@@ -3455,7 +3463,9 @@ int main(int argc, char** argv) {
                         .surface =
                             actions.terrainTileSurface.c_str(),
                         .shape =
-                            actions.terrainTileShape.c_str()};
+                            actions.terrainTileShape.c_str(),
+                        .visualVariant =
+                            actions.terrainTileVisualVariant.c_str()};
                 if (project->runtime->applyTerrainTileEdit(
                         request,
                         &tileError)) {

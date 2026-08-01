@@ -92,6 +92,7 @@ struct WorkspaceTerrainTile {
     std::string sourceSurface;
     std::string surface;
     std::string shape;
+    std::string visualVariant;
     std::array<float, 8> viewportCorners{};
     bool viewportVisible = false;
     bool sourceOccupied = false;
@@ -109,9 +110,11 @@ struct WorkspaceTerrainPrefab {
     std::string category;
     std::string surface;
     std::string shape;
+    std::string visualVariant;
     std::uint32_t previewTopRgba = 0x6f7a82ffu;
     std::uint32_t previewSideRgba = 0x343b40ffu;
     std::uint32_t previewAccentRgba = 0xaeb7bdffu;
+    std::uint32_t previewConnectionMask = 0xffffffffu;
 };
 
 struct WorkspaceAsset {
@@ -289,6 +292,7 @@ struct EditorShellActions {
     std::string terrainTileOperation;
     std::string terrainTileSurface;
     std::string terrainTileShape;
+    std::string terrainTileVisualVariant;
     std::array<float, 3> layoutTranslation{};
     std::array<float, 3> layoutRotationDegrees{};
     std::array<float, 3> layoutScale{1.0f, 1.0f, 1.0f};

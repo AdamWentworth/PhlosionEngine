@@ -336,6 +336,42 @@ bool drawTerrainPrefabPreviewCard(
         drawList->AddLine(top[0], top[2], accent, 2.0f);
         drawList->AddLine(top[1], top[3], accent, 2.0f);
     } else if (prefab.surface == "dirt_path") {
+        const std::uint32_t mask =
+            prefab.previewConnectionMask & 0x0fu;
+        const bool automatic = prefab.visualVariant == "auto";
+        const auto fillTopRect =
+            [&](float minimumU,
+                float minimumV,
+                float maximumU,
+                float maximumV) {
+                const std::array<ImVec2, 4> polygon{{
+                    pointOnTop(minimumU, minimumV),
+                    pointOnTop(maximumU, minimumV),
+                    pointOnTop(maximumU, maximumV),
+                    pointOnTop(minimumU, maximumV),
+                }};
+                drawList->AddConvexPolyFilled(
+                    polygon.data(),
+                    static_cast<int>(polygon.size()),
+                    accent);
+            };
+        if (!automatic && mask == 0x0fu) {
+            fillTopRect(0.0f, 0.0f, 1.0f, 1.0f);
+        } else {
+            fillTopRect(0.27f, 0.27f, 0.73f, 0.73f);
+            if ((mask & 0x01u) != 0u || automatic) {
+                fillTopRect(0.27f, 0.73f, 0.73f, 1.0f);
+            }
+            if ((mask & 0x02u) != 0u || automatic) {
+                fillTopRect(0.73f, 0.27f, 1.0f, 0.73f);
+            }
+            if ((mask & 0x04u) != 0u || automatic) {
+                fillTopRect(0.27f, 0.0f, 0.73f, 0.27f);
+            }
+            if ((mask & 0x08u) != 0u || automatic) {
+                fillTopRect(0.0f, 0.27f, 0.27f, 0.73f);
+            }
+        }
         constexpr std::array<std::array<float, 2>, 5> dots{{
             {0.28f, 0.30f},
             {0.67f, 0.27f},
@@ -349,7 +385,7 @@ bool drawTerrainPrefabPreviewCard(
             drawList->AddCircleFilled(
                 pointOnTop(dots[index][0], dots[index][1]),
                 index % 2u == 0u ? 2.0f : 1.4f,
-                accent,
+                sideColor,
                 8);
         }
     } else {
@@ -395,6 +431,21 @@ bool drawTerrainPrefabPreviewCard(
                 badgeCenter.y - directionSize.y * 0.5f),
             IM_COL32(235, 242, 238, 255),
             direction);
+    } else if (
+        prefab.surface == "dirt_path" &&
+        prefab.visualVariant == "auto") {
+        const ImVec2 badgeCenter{
+            maximum.x - 15.0f,
+            minimum.y + 15.0f};
+        drawList->AddCircleFilled(
+            badgeCenter,
+            10.0f,
+            IM_COL32(12, 18, 21, 225),
+            16);
+        drawList->AddText(
+            ImVec2(badgeCenter.x - 4.0f, badgeCenter.y - 7.0f),
+            IM_COL32(235, 242, 238, 255),
+            "A");
     }
     const ImVec2 labelSize = ImGui::CalcTextSize(
         prefab.displayName.c_str());
@@ -408,10 +459,11 @@ bool drawTerrainPrefabPreviewCard(
         prefab.displayName.c_str());
     if (hovered) {
         ImGui::SetTooltip(
-            "%s\n%s / %s\nClick to hot-swap the selected terrain cells.",
+            "%s\n%s / %s / %s\nClick to hot-swap the selected terrain cells.",
             prefab.displayName.c_str(),
             prefab.surface.c_str(),
-            prefab.shape.c_str());
+            prefab.shape.c_str(),
+            prefab.visualVariant.c_str());
     }
     return pressed;
 }
@@ -3099,7 +3151,8 @@ EditorShellActions EditorShell::drawWorkspace(
             const auto queueTileEdit =
                 [&](const char* operation,
                     const char* surface,
-                    const char* shape) {
+                    const char* shape,
+                    const char* visualVariant = "") {
                     actions.terrainTileEditRequested = true;
                     actions.terrainTileCoordinates =
                         impl_->selectedTerrainTiles;
@@ -3108,6 +3161,8 @@ EditorShellActions EditorShell::drawWorkspace(
                         surface ? surface : "";
                     actions.terrainTileShape =
                         shape ? shape : "";
+                    actions.terrainTileVisualVariant =
+                        visualVariant ? visualVariant : "";
                 };
 
             constexpr std::array<const char*, 5> kShapeIds{{
@@ -3153,7 +3208,9 @@ EditorShellActions EditorShell::drawWorkspace(
                     const auto& prefab =
                         (*workspace.terrainPrefabs)[prefabIndex];
                     if (prefab.surface == representativeTile->surface &&
-                        prefab.shape == representativeTile->shape) {
+                        prefab.shape == representativeTile->shape &&
+                        prefab.visualVariant ==
+                            representativeTile->visualVariant) {
                         impl_->terrainPrefabIndex =
                             static_cast<int>(prefabIndex);
                         break;
@@ -3185,7 +3242,8 @@ EditorShellActions EditorShell::drawWorkspace(
                     queueTileEdit(
                         "swap_prefab",
                         prefab.surface.c_str(),
-                        prefab.shape.c_str());
+                        prefab.shape.c_str(),
+                        prefab.visualVariant.c_str());
                 };
             if (representativeTile) {
                 ImGui::Text(
@@ -3245,31 +3303,63 @@ EditorShellActions EditorShell::drawWorkspace(
                      ImGui::GetStyle().ItemSpacing.x *
                          static_cast<float>(paletteColumns - 1)) /
                         static_cast<float>(paletteColumns));
-                std::size_t groundButtonIndex = 0u;
-                for (std::size_t prefabIndex = 0u;
-                     prefabIndex < prefabCount;
-                     ++prefabIndex) {
-                    const auto& prefab =
-                        (*workspace.terrainPrefabs)[prefabIndex];
-                    if (prefab.category != "Ground") {
-                        continue;
+                constexpr std::array<const char*, 4>
+                    kGroundCategoryIds{{
+                        "Light Lawn Variants",
+                        "Dark Lawn Variants",
+                        "Dirt Path Transitions",
+                        "Ground",
+                    }};
+                constexpr std::array<const char*, 4>
+                    kGroundCategoryLabels{{
+                        "Light Lawn",
+                        "Dark Lawn",
+                        "Dirt Path",
+                        "Other",
+                    }};
+                if (ImGui::BeginTabBar(
+                        "##terrain-ground-palette-tabs")) {
+                    for (std::size_t categoryIndex = 0u;
+                         categoryIndex < kGroundCategoryIds.size();
+                         ++categoryIndex) {
+                        if (!ImGui::BeginTabItem(
+                                kGroundCategoryLabels[categoryIndex])) {
+                            continue;
+                        }
+                        std::size_t groundButtonIndex = 0u;
+                        for (std::size_t prefabIndex = 0u;
+                             prefabIndex < prefabCount;
+                             ++prefabIndex) {
+                            const auto& prefab =
+                                (*workspace.terrainPrefabs)[prefabIndex];
+                            if (prefab.shape != "flat" ||
+                                prefab.category !=
+                                    kGroundCategoryIds[categoryIndex]) {
+                                continue;
+                            }
+                            if ((groundButtonIndex %
+                                 static_cast<std::size_t>(
+                                     paletteColumns)) != 0u) {
+                                ImGui::SameLine();
+                            }
+                            ImGui::PushID(
+                                static_cast<int>(prefabIndex));
+                            if (drawTerrainPrefabPreviewCard(
+                                    prefab,
+                                    ImVec2(
+                                        previewCardWidth,
+                                        102.0f),
+                                    static_cast<int>(prefabIndex) ==
+                                        impl_->terrainPrefabIndex)) {
+                                queuePrefabSwap(
+                                    static_cast<int>(prefabIndex));
+                            }
+                            ImGui::PopID();
+                            ++groundButtonIndex;
+                        }
+                        ImGui::EndTabItem();
                     }
-                    if ((groundButtonIndex %
-                         static_cast<std::size_t>(paletteColumns)) != 0u) {
-                        ImGui::SameLine();
-                    }
-                    ImGui::PushID(
-                        static_cast<int>(prefabIndex));
-                    if (drawTerrainPrefabPreviewCard(
-                            prefab,
-                            ImVec2(previewCardWidth, 102.0f),
-                            static_cast<int>(prefabIndex) ==
-                                impl_->terrainPrefabIndex)) {
-                        queuePrefabSwap(
-                            static_cast<int>(prefabIndex));
-                    }
-                    ImGui::PopID();
-                    ++groundButtonIndex;
+                    ImGui::EndTabBar();
                 }
                 if (ImGui::CollapsingHeader("Directional ramps")) {
                     std::string previousCategory;
@@ -3279,7 +3369,7 @@ EditorShellActions EditorShell::drawWorkspace(
                          ++prefabIndex) {
                         const auto& prefab =
                             (*workspace.terrainPrefabs)[prefabIndex];
-                        if (prefab.category == "Ground") {
+                        if (prefab.shape == "flat") {
                             continue;
                         }
                         if (prefab.category != previousCategory) {
