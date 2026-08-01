@@ -3427,6 +3427,35 @@ EditorShellActions EditorShell::drawWorkspace(
             }
             ImGui::TextDisabled(
                 "Makes one exact plane, rebuilds continuous ground textures, and clears local source floor fragments.");
+            if (ImGui::Button(
+                    "Rebuild Selected Surface Blends",
+                    ImVec2(-1.0f, 28.0f))) {
+                queueTileEdit("tidy_surface", "", "");
+            }
+            ImGui::TextDisabled(
+                "Preserves shape, level, and surface; reauthors the cells into the continuous lawn/path field.");
+
+            ImGui::Spacing();
+            if (ImGui::CollapsingHeader(
+                    "Ledges & Platforms",
+                    ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::TextWrapped(
+                    "Build platforms by selecting their entire footprint. The grass lip, curved cliff face, outside corners, and height are derived from the boundary against neighboring cells.");
+                if (ImGui::Button(
+                        "Raise as Flat Platform (+50 cm)",
+                        ImVec2(-1.0f, 30.0f))) {
+                    queueTileEdit("terrace_raise", "", "flat");
+                }
+                if (ImGui::Button(
+                        "Lower as Flat Platform (-50 cm)",
+                        ImVec2(-1.0f, 30.0f))) {
+                    queueTileEdit("terrace_lower", "", "flat");
+                }
+                ImGui::TextDisabled(
+                    "Use ordinary Raise/Lower above when you intentionally want to preserve ramps inside the selection.");
+                ImGui::TextDisabled(
+                    "Select the next row and choose a directional ramp prefab to connect platform levels.");
+            }
 
             if (ImGui::CollapsingHeader(
                     "Advanced Tile Controls")) {

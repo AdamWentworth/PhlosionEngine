@@ -257,8 +257,8 @@ struct EditorProjectTerrainPrefab {
 struct EditorProjectTerrainTileEditRequest {
     const EditorProjectTerrainTileCoordinate* coordinates = nullptr;
     std::size_t coordinateCount = 0u;
-    // create, raise, lower, flatten_tidy, swap_prefab, paint_surface,
-    // set_shape, or restore_source.
+    // create, raise, lower, terrace_raise, terrace_lower, flatten_tidy,
+    // tidy_surface, swap_prefab, paint_surface, set_shape, or restore_source.
     const char* operation = nullptr;
     const char* surface = nullptr;
     const char* shape = nullptr;
