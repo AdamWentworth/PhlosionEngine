@@ -14,6 +14,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 
 #include <imgui.h>
@@ -991,6 +992,9 @@ struct EditorShell::Impl {
         terrainTileDragStart{};
     std::vector<EditorProjectTerrainTileCoordinate>
         selectedTerrainTiles;
+    std::vector<WorkspaceTerrainTileStamp>
+        terrainTileClipboard;
+    std::string terrainTileClipboardContext;
     int terrainPrefabIndex = 0;
     int terrainSurfaceIndex = 0;
     int terrainShapeIndex = 0;
@@ -3251,6 +3255,9 @@ EditorShellActions EditorShell::drawWorkspace(
                 impl_->selectedTerrainTiles.size());
             const bool hasTileSelection =
                 !impl_->selectedTerrainTiles.empty();
+            const std::string terrainClipboardContext =
+                text(workspace.projectName) + "|" +
+                text(workspace.sceneId);
             const auto queueTileEdit =
                 [&](const char* operation,
                     const char* surface,
@@ -3272,6 +3279,129 @@ EditorShellActions EditorShell::drawWorkspace(
                     actions.terrainTileRelativeElevationDelta =
                         relativeElevationDelta;
                 };
+            const auto copySelectedTerrainTiles = [&]() {
+                if (!hasTileSelection || !workspace.terrainTiles) {
+                    return;
+                }
+                std::vector<const WorkspaceTerrainTile*> copiedTiles;
+                copiedTiles.reserve(
+                    impl_->selectedTerrainTiles.size());
+                std::int32_t minimumX =
+                    std::numeric_limits<std::int32_t>::max();
+                std::int32_t minimumZ =
+                    std::numeric_limits<std::int32_t>::max();
+                std::int32_t minimumLevel =
+                    std::numeric_limits<std::int32_t>::max();
+                for (const auto& coordinate :
+                     impl_->selectedTerrainTiles) {
+                    const auto found = std::find_if(
+                        workspace.terrainTiles->begin(),
+                        workspace.terrainTiles->end(),
+                        [&](const WorkspaceTerrainTile& tile) {
+                            return tile.coordinate.gridX ==
+                                    coordinate.gridX &&
+                                tile.coordinate.gridZ ==
+                                    coordinate.gridZ;
+                        });
+                    if (found == workspace.terrainTiles->end()) {
+                        continue;
+                    }
+                    copiedTiles.push_back(&*found);
+                    minimumX = std::min(
+                        minimumX, found->coordinate.gridX);
+                    minimumZ = std::min(
+                        minimumZ, found->coordinate.gridZ);
+                    minimumLevel = std::min(
+                        minimumLevel, found->elevationLevel);
+                }
+                std::sort(
+                    copiedTiles.begin(),
+                    copiedTiles.end(),
+                    [](const WorkspaceTerrainTile* left,
+                       const WorkspaceTerrainTile* right) {
+                        return std::tie(
+                                   left->coordinate.gridZ,
+                                   left->coordinate.gridX) <
+                            std::tie(
+                                   right->coordinate.gridZ,
+                                   right->coordinate.gridX);
+                    });
+                impl_->terrainTileClipboard.clear();
+                impl_->terrainTileClipboardContext =
+                    terrainClipboardContext;
+                impl_->terrainTileClipboard.reserve(
+                    copiedTiles.size());
+                for (const auto* tile : copiedTiles) {
+                    impl_->terrainTileClipboard.push_back(
+                        WorkspaceTerrainTileStamp{
+                            .offsetGridX =
+                                tile->coordinate.gridX - minimumX,
+                            .offsetGridZ =
+                                tile->coordinate.gridZ - minimumZ,
+                            .relativeElevationLevel =
+                                tile->elevationLevel - minimumLevel,
+                            .surface = tile->surface,
+                            .shape = tile->shape,
+                            .visualVariant = tile->visualVariant});
+                }
+            };
+            const bool canPasteTerrainTiles =
+                impl_->selectedTerrainTiles.size() == 1u &&
+                !impl_->terrainTileClipboard.empty() &&
+                impl_->terrainTileClipboardContext ==
+                    terrainClipboardContext;
+            const auto pasteTerrainTiles = [&]() {
+                if (!canPasteTerrainTiles) {
+                    return;
+                }
+                actions.terrainTileEditRequested = true;
+                actions.terrainTileCoordinates = {
+                    impl_->selectedTerrainTiles.front()};
+                actions.terrainTileOperation = "paste_tiles";
+                actions.terrainTileSurface.clear();
+                actions.terrainTileShape.clear();
+                actions.terrainTileVisualVariant.clear();
+                actions.terrainTileTargetElevationLevel = 0;
+                actions.terrainTileRelativeElevationDelta = 0;
+                actions.terrainTileStampTiles =
+                    impl_->terrainTileClipboard;
+            };
+
+            const ImGuiIO& terrainIo = ImGui::GetIO();
+            if (!terrainIo.WantTextInput && terrainIo.KeyCtrl &&
+                ImGui::IsKeyPressed(ImGuiKey_C, false) &&
+                hasTileSelection) {
+                copySelectedTerrainTiles();
+            }
+            if (!terrainIo.WantTextInput && terrainIo.KeyCtrl &&
+                ImGui::IsKeyPressed(ImGuiKey_V, false) &&
+                canPasteTerrainTiles) {
+                pasteTerrainTiles();
+            }
+
+            ImGui::BeginDisabled(!hasTileSelection);
+            if (ImGui::Button(
+                    "Copy Selected",
+                    ImVec2(0.0f, 28.0f))) {
+                copySelectedTerrainTiles();
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!canPasteTerrainTiles);
+            if (ImGui::Button(
+                    "Paste at Anchor",
+                    ImVec2(-1.0f, 28.0f))) {
+                pasteTerrainTiles();
+            }
+            ImGui::EndDisabled();
+            if (impl_->terrainTileClipboard.empty()) {
+                ImGui::TextDisabled(
+                    "Clipboard empty | Ctrl+C / Ctrl+V");
+            } else {
+                ImGui::TextDisabled(
+                    "%zu tile(s) copied | paste requires one anchor cell",
+                    impl_->terrainTileClipboard.size());
+            }
 
             constexpr std::array<const char*, 5> kShapeIds{{
                 "flat",

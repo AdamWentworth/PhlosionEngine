@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 21u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 22u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -265,6 +265,15 @@ struct EditorProjectTerrainPrefab {
     std::int32_t elevationDelta = 0;
 };
 
+struct EditorProjectTerrainTileStamp {
+    std::int32_t offsetGridX = 0;
+    std::int32_t offsetGridZ = 0;
+    std::int32_t relativeElevationLevel = 0;
+    const char* surface = nullptr;
+    const char* shape = nullptr;
+    const char* visualVariant = nullptr;
+};
+
 struct EditorProjectTerrainTileEditRequest {
     const EditorProjectTerrainTileCoordinate* coordinates = nullptr;
     std::size_t coordinateCount = 0u;
@@ -276,6 +285,8 @@ struct EditorProjectTerrainTileEditRequest {
     const char* visualVariant = nullptr;
     std::int32_t targetElevationLevel = 0;
     std::int32_t relativeElevationDelta = 0;
+    const EditorProjectTerrainTileStamp* stampTiles = nullptr;
+    std::size_t stampTileCount = 0u;
 };
 
 class IEditorProjectRuntime {

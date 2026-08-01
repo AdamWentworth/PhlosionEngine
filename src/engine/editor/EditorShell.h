@@ -120,6 +120,15 @@ struct WorkspaceTerrainPrefab {
     std::int32_t elevationDelta = 0;
 };
 
+struct WorkspaceTerrainTileStamp {
+    std::int32_t offsetGridX = 0;
+    std::int32_t offsetGridZ = 0;
+    std::int32_t relativeElevationLevel = 0;
+    std::string surface;
+    std::string shape;
+    std::string visualVariant;
+};
+
 struct WorkspaceAsset {
     std::string id;
     std::string displayName;
@@ -298,6 +307,7 @@ struct EditorShellActions {
     std::string terrainTileVisualVariant;
     std::int32_t terrainTileTargetElevationLevel = 0;
     std::int32_t terrainTileRelativeElevationDelta = 0;
+    std::vector<WorkspaceTerrainTileStamp> terrainTileStampTiles;
     std::array<float, 3> layoutTranslation{};
     std::array<float, 3> layoutRotationDegrees{};
     std::array<float, 3> layoutScale{1.0f, 1.0f, 1.0f};

@@ -3454,6 +3454,23 @@ int main(int argc, char** argv) {
             }
             if (project && actions.terrainTileEditRequested) {
                 std::string tileError;
+                std::vector<engine::editor::
+                    EditorProjectTerrainTileStamp> stampTiles;
+                stampTiles.reserve(
+                    actions.terrainTileStampTiles.size());
+                for (const auto& stamp :
+                     actions.terrainTileStampTiles) {
+                    stampTiles.push_back(
+                        engine::editor::EditorProjectTerrainTileStamp{
+                            .offsetGridX = stamp.offsetGridX,
+                            .offsetGridZ = stamp.offsetGridZ,
+                            .relativeElevationLevel =
+                                stamp.relativeElevationLevel,
+                            .surface = stamp.surface.c_str(),
+                            .shape = stamp.shape.c_str(),
+                            .visualVariant =
+                                stamp.visualVariant.c_str()});
+                }
                 const engine::editor::
                     EditorProjectTerrainTileEditRequest request{
                         .coordinates =
@@ -3471,7 +3488,9 @@ int main(int argc, char** argv) {
                         .targetElevationLevel =
                             actions.terrainTileTargetElevationLevel,
                         .relativeElevationDelta =
-                            actions.terrainTileRelativeElevationDelta};
+                            actions.terrainTileRelativeElevationDelta,
+                        .stampTiles = stampTiles.data(),
+                        .stampTileCount = stampTiles.size()};
                 if (project->runtime->applyTerrainTileEdit(
                         request,
                         &tileError)) {
