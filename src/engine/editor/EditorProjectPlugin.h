@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 16u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 17u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -154,6 +154,12 @@ struct EditorProjectLayoutObject {
     std::array<std::uint32_t, 2> terrainGridExtent{};
     std::int32_t terrainElevationLevel = 0;
     bool terrainGridBound = false;
+    std::array<std::int32_t, 2> northBenchTerrainGridOrigin{};
+    std::array<std::int32_t, 2> southBenchTerrainGridOrigin{};
+    std::uint32_t benchTerrainGridExtent = 0u;
+    std::uint32_t benchGapCells = 0u;
+    bool northBenchTerrainGridBound = false;
+    bool southBenchTerrainGridBound = false;
     // Current source-space AABB used by project-owned clearance tools. The
     // project adapter derives this from the exact prefab geometry rather than
     // asking the editor shell to guess an obstruction radius.

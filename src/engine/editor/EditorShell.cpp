@@ -1677,10 +1677,15 @@ EditorShellActions EditorShell::drawWorkspace(
                     terrainBoundBoard = &*board;
                 }
             }
-            const auto boardOwnsCoordinate =
+            enum class GameplayFootprintCell {
+                None,
+                Board,
+                Bench,
+            };
+            const auto gameplayFootprintCellAt =
                 [&](const auto& coordinate) {
                     if (!terrainBoundBoard) {
-                        return false;
+                        return GameplayFootprintCell::None;
                     }
                     const std::int32_t maximumX =
                         terrainBoundBoard->terrainGridOrigin[0] +
@@ -1690,12 +1695,35 @@ EditorShellActions EditorShell::drawWorkspace(
                         terrainBoundBoard->terrainGridOrigin[1] +
                         static_cast<std::int32_t>(
                             terrainBoundBoard->terrainGridExtent[1]);
-                    return coordinate.gridX >=
+                    const bool boardCell =
+                        coordinate.gridX >=
                             terrainBoundBoard->terrainGridOrigin[0] &&
                         coordinate.gridX < maximumX &&
                         coordinate.gridZ >=
                             terrainBoundBoard->terrainGridOrigin[1] &&
                         coordinate.gridZ < maximumZ;
+                    if (boardCell) {
+                        return GameplayFootprintCell::Board;
+                    }
+                    const auto inBenchRow =
+                        [&](const std::array<std::int32_t, 2>& benchOrigin,
+                            bool enabled) {
+                            return enabled &&
+                                coordinate.gridX >= benchOrigin[0] &&
+                                coordinate.gridX <
+                                    benchOrigin[0] +
+                                    static_cast<std::int32_t>(
+                                        terrainBoundBoard->benchTerrainGridExtent) &&
+                                coordinate.gridZ == benchOrigin[1];
+                        };
+                    return inBenchRow(
+                               terrainBoundBoard->northBenchTerrainGridOrigin,
+                               terrainBoundBoard->northBenchTerrainGridBound) ||
+                            inBenchRow(
+                                terrainBoundBoard->southBenchTerrainGridOrigin,
+                                terrainBoundBoard->southBenchTerrainGridBound)
+                        ? GameplayFootprintCell::Bench
+                        : GameplayFootprintCell::None;
                 };
             ImDrawList* drawList =
                 ImGui::GetWindowDrawList();
@@ -1729,18 +1757,24 @@ EditorShellActions EditorShell::drawWorkspace(
                 }
                 const bool selected =
                     selectedCoordinate(tile.coordinate);
+                const GameplayFootprintCell footprintCell =
+                    gameplayFootprintCellAt(tile.coordinate);
                 const bool boardCell =
-                    boardOwnsCoordinate(tile.coordinate);
+                    footprintCell == GameplayFootprintCell::Board;
+                const bool benchCell =
+                    footprintCell == GameplayFootprintCell::Bench;
                 const ImU32 outline = selected
                     ? IM_COL32(255, 220, 72, 245)
                     : boardCell
                     ? IM_COL32(255, 166, 42, 245)
+                    : benchCell
+                    ? IM_COL32(76, 196, 255, 245)
                     : tile.authored
                     ? IM_COL32(255, 154, 48, 220)
                     : tile.sourceOccupied
                     ? IM_COL32(75, 218, 162, 125)
                     : IM_COL32(135, 148, 158, 70);
-                if (selected || boardCell || tile.authored) {
+                if (selected || boardCell || benchCell || tile.authored) {
                     drawList->AddQuadFilled(
                         corners[0],
                         corners[1],
@@ -1750,6 +1784,8 @@ EditorShellActions EditorShell::drawWorkspace(
                             ? IM_COL32(255, 205, 45, 38)
                             : boardCell
                             ? IM_COL32(255, 128, 24, 46)
+                            : benchCell
+                            ? IM_COL32(45, 155, 255, 52)
                             : IM_COL32(255, 130, 35, 22));
                 }
                 drawList->AddQuad(
@@ -1758,7 +1794,11 @@ EditorShellActions EditorShell::drawWorkspace(
                     corners[2],
                     corners[3],
                     outline,
-                    selected ? 2.2f : boardCell ? 1.8f : 1.0f);
+                    selected
+                        ? 2.2f
+                        : boardCell || benchCell
+                        ? 1.8f
+                        : 1.0f);
             }
             if (hoveredTile >= 0) {
                 const auto& tile = tiles[
@@ -1848,14 +1888,8 @@ EditorShellActions EditorShell::drawWorkspace(
                 ? "TERRAIN TILES - drag across cells to select a rectangle"
                 : "TERRAIN TILES - click or drag cells; Ctrl/Shift adds to selection";
             if (terrainBoundBoard) {
-                terrainOverlayLabel +=
-                    " | ORANGE = exact board-owned cells [" +
-                    std::to_string(
-                        terrainBoundBoard->terrainGridOrigin[0]) +
-                    ", " +
-                    std::to_string(
-                        terrainBoundBoard->terrainGridOrigin[1]) +
-                    "]";
+                terrainOverlayLabel =
+                    "TILES | ORANGE: BOARD | BLUE: BENCHES | EXACT CELL BINDING";
             }
             drawList->AddText(
                 ImVec2(origin.x + 12.0f, origin.y + 12.0f),
@@ -3371,7 +3405,7 @@ EditorShellActions EditorShell::drawWorkspace(
             liveEditFinished |=
                 ImGui::IsItemDeactivatedAfterEdit();
             ImGui::Text(
-                "Exact footprint: X %d..%d, Z %d..%d",
+                "Board cells: X %d..%d, Z %d..%d",
                 terrainOrigin[0],
                 terrainOrigin[0] +
                     static_cast<int>(
@@ -3382,6 +3416,34 @@ EditorShellActions EditorShell::drawWorkspace(
                     static_cast<int>(
                         inspectedLayout->terrainGridExtent[1]) -
                     1);
+            const auto drawBenchRange =
+                [&](const char* label,
+                    const std::array<std::int32_t, 2>& origin,
+                    bool enabled) {
+                    if (!enabled) {
+                        return;
+                    }
+                    ImGui::Text(
+                        "%s bench cells: X %d..%d, Z %d",
+                        label,
+                        origin[0],
+                        origin[0] +
+                            static_cast<int>(
+                                inspectedLayout->benchTerrainGridExtent) -
+                            1,
+                        origin[1]);
+                };
+            drawBenchRange(
+                "North",
+                inspectedLayout->northBenchTerrainGridOrigin,
+                inspectedLayout->northBenchTerrainGridBound);
+            drawBenchRange(
+                "South",
+                inspectedLayout->southBenchTerrainGridOrigin,
+                inspectedLayout->southBenchTerrainGridBound);
+            ImGui::TextDisabled(
+                "Board + benches use terrain cells; bench gap: %u cell(s).",
+                inspectedLayout->benchGapCells);
         } else {
             ImGui::SetNextItemWidth(-1.0f);
             translationChanged = ImGui::DragFloat3(

@@ -69,6 +69,12 @@ struct WorkspaceLayoutObject {
     std::array<std::uint32_t, 2> terrainGridExtent{};
     std::int32_t terrainElevationLevel = 0;
     bool terrainGridBound = false;
+    std::array<std::int32_t, 2> northBenchTerrainGridOrigin{};
+    std::array<std::int32_t, 2> southBenchTerrainGridOrigin{};
+    std::uint32_t benchTerrainGridExtent = 0u;
+    std::uint32_t benchGapCells = 0u;
+    bool northBenchTerrainGridBound = false;
+    bool southBenchTerrainGridBound = false;
     std::array<float, 3> boundsMinimum{};
     std::array<float, 3> boundsMaximum{};
     std::array<float, 2> viewportPosition{};

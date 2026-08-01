@@ -1392,6 +1392,18 @@ void refreshLayoutObjectViews(LoadedProject& project) {
                     object.terrainElevationLevel,
                 .terrainGridBound =
                     object.terrainGridBound,
+                .northBenchTerrainGridOrigin =
+                    object.northBenchTerrainGridOrigin,
+                .southBenchTerrainGridOrigin =
+                    object.southBenchTerrainGridOrigin,
+                .benchTerrainGridExtent =
+                    object.benchTerrainGridExtent,
+                .benchGapCells =
+                    object.benchGapCells,
+                .northBenchTerrainGridBound =
+                    object.northBenchTerrainGridBound,
+                .southBenchTerrainGridBound =
+                    object.southBenchTerrainGridBound,
                 .boundsMinimum =
                     object.boundsMinimum,
                 .boundsMaximum =
