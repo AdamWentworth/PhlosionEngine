@@ -603,6 +603,7 @@ struct EditorShell::Impl {
         terrainTileDragStart{};
     std::vector<EditorProjectTerrainTileCoordinate>
         selectedTerrainTiles;
+    int terrainPrefabIndex = 0;
     int terrainSurfaceIndex = 0;
     int terrainShapeIndex = 0;
     std::string settingsIniPath;
@@ -2769,71 +2770,6 @@ EditorShellActions EditorShell::drawWorkspace(
                     actions.terrainTileShape =
                         shape ? shape : "";
                 };
-            ImGui::BeginDisabled(!hasTileSelection);
-            if (ImGui::Button(
-                    "Create / Fill Selected",
-                    ImVec2(-1.0f, 28.0f))) {
-                queueTileEdit("create", "", "flat");
-            }
-            if (ImGui::Button(
-                    "Lower 50 cm",
-                    ImVec2(0.0f, 28.0f))) {
-                queueTileEdit("lower", "", "");
-            }
-            ImGui::SameLine();
-            if (ImGui::Button(
-                    "Raise 50 cm",
-                    ImVec2(-1.0f, 28.0f))) {
-                queueTileEdit("raise", "", "");
-            }
-
-            if (workspace.terrainSurfaces &&
-                !workspace.terrainSurfaces->empty()) {
-                impl_->terrainSurfaceIndex = std::clamp(
-                    impl_->terrainSurfaceIndex,
-                    0,
-                    static_cast<int>(
-                        workspace.terrainSurfaces->size() - 1u));
-                const auto& selectedSurface =
-                    (*workspace.terrainSurfaces)[
-                        static_cast<std::size_t>(
-                            impl_->terrainSurfaceIndex)];
-                if (ImGui::BeginCombo(
-                        "Surface",
-                        selectedSurface.displayName.c_str())) {
-                    for (std::size_t index = 0u;
-                         index < workspace.terrainSurfaces->size();
-                         ++index) {
-                        const auto& surface =
-                            (*workspace.terrainSurfaces)[index];
-                        const bool selected =
-                            static_cast<int>(index) ==
-                            impl_->terrainSurfaceIndex;
-                        if (ImGui::Selectable(
-                                surface.displayName.c_str(),
-                                selected)) {
-                            impl_->terrainSurfaceIndex =
-                                static_cast<int>(index);
-                        }
-                        if (selected) {
-                            ImGui::SetItemDefaultFocus();
-                        }
-                    }
-                    ImGui::EndCombo();
-                }
-                if (ImGui::Button(
-                        "Paint Surface",
-                        ImVec2(-1.0f, 28.0f))) {
-                    const auto& surface =
-                        (*workspace.terrainSurfaces)[
-                            static_cast<std::size_t>(
-                                impl_->terrainSurfaceIndex)];
-                    queueTileEdit(
-                        "paint_surface",
-                        surface.id.c_str(),
-                        "");
-                }
-            }
 
             constexpr std::array<const char*, 5> kShapeIds{{
                 "flat",
@@ -2849,40 +2785,260 @@ EditorShellActions EditorShell::drawWorkspace(
                 "Ramp South (+1 level)",
                 "Ramp West (+1 level)",
             }};
-            impl_->terrainShapeIndex = std::clamp(
-                impl_->terrainShapeIndex,
-                0,
-                static_cast<int>(kShapeIds.size() - 1u));
-            if (ImGui::BeginCombo(
-                    "Tile shape",
-                    kShapeNames[static_cast<std::size_t>(
-                        impl_->terrainShapeIndex)])) {
-                for (std::size_t index = 0u;
-                     index < kShapeIds.size();
-                     ++index) {
-                    const bool selected =
-                        static_cast<int>(index) ==
-                        impl_->terrainShapeIndex;
-                    if (ImGui::Selectable(
-                            kShapeNames[index],
-                            selected)) {
-                        impl_->terrainShapeIndex =
-                            static_cast<int>(index);
-                    }
-                    if (selected) {
-                        ImGui::SetItemDefaultFocus();
-                    }
+            const WorkspaceTerrainTile* representativeTile = nullptr;
+            if (hasTileSelection && workspace.terrainTiles) {
+                const auto selected =
+                    impl_->selectedTerrainTiles.front();
+                const auto found = std::find_if(
+                    workspace.terrainTiles->begin(),
+                    workspace.terrainTiles->end(),
+                    [&](const WorkspaceTerrainTile& tile) {
+                        return tile.coordinate.gridX == selected.gridX &&
+                            tile.coordinate.gridZ == selected.gridZ;
+                    });
+                if (found != workspace.terrainTiles->end()) {
+                    representativeTile = &*found;
                 }
-                ImGui::EndCombo();
+            }
+
+            const bool hasPrefabPalette =
+                workspace.terrainSurfaces &&
+                !workspace.terrainSurfaces->empty();
+            const std::size_t prefabCount = hasPrefabPalette
+                ? workspace.terrainSurfaces->size() *
+                      kShapeIds.size()
+                : 0u;
+            if (representativeTile && hasPrefabPalette) {
+                for (std::size_t surfaceIndex = 0u;
+                     surfaceIndex < workspace.terrainSurfaces->size();
+                     ++surfaceIndex) {
+                    if ((*workspace.terrainSurfaces)[surfaceIndex].id !=
+                        representativeTile->surface) {
+                        continue;
+                    }
+                    for (std::size_t shapeIndex = 0u;
+                         shapeIndex < kShapeIds.size();
+                         ++shapeIndex) {
+                        if (representativeTile->shape ==
+                            kShapeIds[shapeIndex]) {
+                            impl_->terrainPrefabIndex =
+                                static_cast<int>(
+                                    surfaceIndex * kShapeIds.size() +
+                                    shapeIndex);
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+            if (prefabCount > 0u) {
+                impl_->terrainPrefabIndex = std::clamp(
+                    impl_->terrainPrefabIndex,
+                    0,
+                    static_cast<int>(prefabCount - 1u));
+            }
+            const auto queuePrefabSwap =
+                [&](int prefabIndex) {
+                    if (!hasPrefabPalette || prefabCount == 0u) {
+                        return;
+                    }
+                    const int wrapped =
+                        (prefabIndex % static_cast<int>(prefabCount) +
+                         static_cast<int>(prefabCount)) %
+                        static_cast<int>(prefabCount);
+                    impl_->terrainPrefabIndex = wrapped;
+                    const std::size_t surfaceIndex =
+                        static_cast<std::size_t>(wrapped) /
+                        kShapeIds.size();
+                    const std::size_t shapeIndex =
+                        static_cast<std::size_t>(wrapped) %
+                        kShapeIds.size();
+                    queueTileEdit(
+                        "swap_prefab",
+                        (*workspace.terrainSurfaces)[surfaceIndex]
+                            .id.c_str(),
+                        kShapeIds[shapeIndex]);
+                };
+            ImGui::BeginDisabled(!hasTileSelection);
+            if (representativeTile) {
+                ImGui::Text(
+                    "Cell (%d, %d)  |  Level %d",
+                    representativeTile->coordinate.gridX,
+                    representativeTile->coordinate.gridZ,
+                    representativeTile->elevationLevel);
+            }
+            if (hasPrefabPalette && prefabCount > 0u) {
+                const std::size_t selectedSurface =
+                    static_cast<std::size_t>(
+                        impl_->terrainPrefabIndex) /
+                    kShapeIds.size();
+                const std::size_t selectedShape =
+                    static_cast<std::size_t>(
+                        impl_->terrainPrefabIndex) %
+                    kShapeIds.size();
+                const std::string selectedPrefabName =
+                    (*workspace.terrainSurfaces)[selectedSurface]
+                        .displayName +
+                    " / " + kShapeNames[selectedShape];
+                if (ImGui::BeginCombo(
+                        "Tile prefab",
+                        selectedPrefabName.c_str())) {
+                    for (std::size_t surfaceIndex = 0u;
+                         surfaceIndex <
+                             workspace.terrainSurfaces->size();
+                         ++surfaceIndex) {
+                        const auto& surface =
+                            (*workspace.terrainSurfaces)[surfaceIndex];
+                        for (std::size_t shapeIndex = 0u;
+                             shapeIndex < kShapeIds.size();
+                             ++shapeIndex) {
+                            const int prefabIndex =
+                                static_cast<int>(
+                                    surfaceIndex * kShapeIds.size() +
+                                    shapeIndex);
+                            const std::string label =
+                                surface.displayName + " / " +
+                                kShapeNames[shapeIndex];
+                            const bool selected = prefabIndex ==
+                                impl_->terrainPrefabIndex;
+                            ImGui::PushID(prefabIndex);
+                            if (ImGui::Selectable(
+                                    label.c_str(), selected)) {
+                                queuePrefabSwap(prefabIndex);
+                            }
+                            ImGui::PopID();
+                            if (selected) {
+                                ImGui::SetItemDefaultFocus();
+                            }
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                const float buttonWidth = std::max(
+                    1.0f,
+                    (ImGui::GetContentRegionAvail().x -
+                     ImGui::GetStyle().ItemSpacing.x) *
+                        0.5f);
+                if (ImGui::Button(
+                        "< Previous prefab",
+                        ImVec2(buttonWidth, 30.0f))) {
+                    queuePrefabSwap(
+                        impl_->terrainPrefabIndex - 1);
+                }
+                ImGui::SameLine();
+                if (ImGui::Button(
+                        "Next prefab >",
+                        ImVec2(buttonWidth, 30.0f))) {
+                    queuePrefabSwap(
+                        impl_->terrainPrefabIndex + 1);
+                }
+                ImGui::TextDisabled(
+                    "Selection changes hot-swap immediately; elevation is preserved.");
+                ImGui::TextDisabled(
+                    "Ledge walls rebuild from this tile and its neighbors.");
             }
             if (ImGui::Button(
-                    "Apply Tile Shape",
+                    "Lower 50 cm",
+                    ImVec2(0.0f, 28.0f))) {
+                queueTileEdit("lower", "", "");
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(
+                    "Raise 50 cm",
                     ImVec2(-1.0f, 28.0f))) {
-                queueTileEdit(
-                    "set_shape",
-                    "",
-                    kShapeIds[static_cast<std::size_t>(
-                        impl_->terrainShapeIndex)]);
+                queueTileEdit("raise", "", "");
+            }
+
+            if (ImGui::CollapsingHeader(
+                    "Advanced Tile Controls")) {
+                if (ImGui::Button(
+                        "Create / Fill Selected",
+                        ImVec2(-1.0f, 28.0f))) {
+                    queueTileEdit("create", "", "flat");
+                }
+                if (workspace.terrainSurfaces &&
+                    !workspace.terrainSurfaces->empty()) {
+                    impl_->terrainSurfaceIndex = std::clamp(
+                        impl_->terrainSurfaceIndex,
+                        0,
+                        static_cast<int>(
+                            workspace.terrainSurfaces->size() - 1u));
+                    const auto& selectedSurface =
+                        (*workspace.terrainSurfaces)[
+                            static_cast<std::size_t>(
+                                impl_->terrainSurfaceIndex)];
+                    if (ImGui::BeginCombo(
+                            "Surface",
+                            selectedSurface.displayName.c_str())) {
+                        for (std::size_t index = 0u;
+                             index < workspace.terrainSurfaces->size();
+                             ++index) {
+                            const auto& surface =
+                                (*workspace.terrainSurfaces)[index];
+                            const bool selected =
+                                static_cast<int>(index) ==
+                                impl_->terrainSurfaceIndex;
+                            if (ImGui::Selectable(
+                                    surface.displayName.c_str(),
+                                    selected)) {
+                                impl_->terrainSurfaceIndex =
+                                    static_cast<int>(index);
+                            }
+                            if (selected) {
+                                ImGui::SetItemDefaultFocus();
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                    if (ImGui::Button(
+                            "Paint Surface",
+                            ImVec2(-1.0f, 28.0f))) {
+                        const auto& surface =
+                            (*workspace.terrainSurfaces)[
+                                static_cast<std::size_t>(
+                                    impl_->terrainSurfaceIndex)];
+                        queueTileEdit(
+                            "paint_surface",
+                            surface.id.c_str(),
+                            "");
+                    }
+                }
+
+                impl_->terrainShapeIndex = std::clamp(
+                    impl_->terrainShapeIndex,
+                    0,
+                    static_cast<int>(kShapeIds.size() - 1u));
+                if (ImGui::BeginCombo(
+                        "Tile shape",
+                        kShapeNames[static_cast<std::size_t>(
+                            impl_->terrainShapeIndex)])) {
+                    for (std::size_t index = 0u;
+                         index < kShapeIds.size();
+                         ++index) {
+                        const bool selected =
+                            static_cast<int>(index) ==
+                            impl_->terrainShapeIndex;
+                        if (ImGui::Selectable(
+                                kShapeNames[index],
+                                selected)) {
+                            impl_->terrainShapeIndex =
+                                static_cast<int>(index);
+                        }
+                        if (selected) {
+                            ImGui::SetItemDefaultFocus();
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                if (ImGui::Button(
+                        "Apply Tile Shape",
+                        ImVec2(-1.0f, 28.0f))) {
+                    queueTileEdit(
+                        "set_shape",
+                        "",
+                        kShapeIds[static_cast<std::size_t>(
+                            impl_->terrainShapeIndex)]);
+                }
             }
             if (ImGui::Button(
                     "Restore Selected From Source",
