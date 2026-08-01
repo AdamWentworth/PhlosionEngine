@@ -11,7 +11,17 @@ namespace engine::render::lgpe_field_ground {
 
 // World material modes 0-3 predate direct LGPE material interpretation.
 inline constexpr std::uint8_t kMaterialMode = 4u;
+// Editable dirt ramps retain FieldGroundShader01's dirt texture stack, but
+// recover the warm view-dependent highlight carried by the source Route 1
+// ramp's FieldCliffShader01 draw. This derived mode is deliberately separate
+// so flat lawn and dirt surfaces remain byte-for-byte on the ground path.
+inline constexpr std::uint8_t kRampMaterialMode = 27u;
 inline constexpr float kBlendTextureUvScale = 0.3f;
+inline constexpr std::array<float, 3> kRampRimColor{
+    0.278898f, 0.205076f, 0.031895f};
+inline constexpr float kRampRimLightMin = 0.5f;
+inline constexpr float kRampRimLightMax = 1.0f;
+inline constexpr float kRampRimLightStrength = 0.5f;
 
 struct SurfaceInputs {
     std::array<float, 4> groundTex01{};
@@ -49,6 +59,31 @@ inline std::array<float, 4> evaluateSurface(const SurfaceInputs& input) {
                 (1.0f - std::clamp(input.vertexColor[3], 0.0f, 1.0f));
     }
     output[3] = 1.0f;
+    return output;
+}
+
+inline float evaluateRampRim(float normalDotView) {
+    const float rimSpan = kRampRimLightMax - kRampRimLightMin;
+    const float rimCoordinate = 1.0f - normalDotView;
+    return rimSpan > 0.0f
+        ? std::clamp(
+              (rimCoordinate - kRampRimLightMin) / rimSpan,
+              0.0f,
+              1.0f) *
+              kRampRimLightStrength
+        : 0.0f;
+}
+
+inline std::array<float, 4> applyRampRim(
+    const std::array<float, 4>& surface,
+    const std::array<float, 3>& authoredMask,
+    float normalDotView) {
+    auto output = surface;
+    const float rim = evaluateRampRim(normalDotView);
+    for (std::size_t channel = 0u; channel < 3u; ++channel) {
+        output[channel] +=
+            authoredMask[channel] * kRampRimColor[channel] * rim;
+    }
     return output;
 }
 

@@ -67,7 +67,7 @@ vec3 applyLgpeGroundCliffSharedLighting(vec3 surface) {
     return mix(shadowColor, vec3(1.0), light) * surface;
 }
 
-vec3 evaluateLgpeFieldGroundSurface() {
+vec3 evaluateLgpeFieldGroundSurface(bool rampHighlight) {
     vec2 uv0 = vec2(vertexUv.x, 1.0 - vertexUv.y);
     vec2 blendUv = vec2(vertexUv.x * 0.3, 1.0 - vertexUv.y * 0.3);
     vec2 uv2 = vec2(vertexSourceUv2.x, 1.0 - vertexSourceUv2.y);
@@ -89,6 +89,20 @@ vec3 evaluateLgpeFieldGroundSurface() {
         grassMask.rgb * vertexColor.rgb * surface +
         max(pushData.emissiveAndCamera.rgb, vec3(0.0)) *
             (1.0 - clamp(vertexColor.a, 0.0, 1.0));
+    if (rampHighlight) {
+        // Exact FieldCliffShader01 rim constants from Route 1's first source
+        // ramp, transferred onto its editable dirt surface.
+        const vec3 rimColor = vec3(0.278898, 0.205076, 0.031895);
+        vec3 normal = normalize(vertexNormal);
+        vec3 viewDirection =
+            normalize(worldView.cameraPosition.xyz - worldPosition);
+        float rim = clamp(
+            ((1.0 - dot(normal, viewDirection)) - 0.5) / 0.5,
+            0.0,
+            1.0) * 0.5;
+        sourceSurface +=
+            grassMask.rgb * vertexColor.rgb * rimColor * rim;
+    }
     return applyLgpeGroundCliffSharedLighting(sourceSurface);
 }
 
@@ -1298,7 +1312,7 @@ void main() {
         return;
     }
     if (materialMode > 3.5 && materialMode < 4.5) {
-        vec3 groundLinear = evaluateLgpeFieldGroundSurface();
+        vec3 groundLinear = evaluateLgpeFieldGroundSurface(false);
         writeWorldColor(vec4(encodeLgpeFinalColor(groundLinear), 1.0));
         return;
     }
@@ -1311,6 +1325,11 @@ void main() {
         vec4 treeSurface = evaluateLgpeFieldTree05Surface();
         writeWorldColor(
             vec4(encodeLgpeFinalColor(treeSurface.rgb), treeSurface.a));
+        return;
+    }
+    if (materialMode > 26.5 && materialMode < 27.5) {
+        vec3 rampLinear = evaluateLgpeFieldGroundSurface(true);
+        writeWorldColor(vec4(encodeLgpeFinalColor(rampLinear), 1.0));
         return;
     }
     if (materialMode > 6.5 && materialMode < 7.5) {
