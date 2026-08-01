@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 24u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 25u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -219,6 +219,7 @@ struct EditorProjectTerrainTile {
     std::int32_t sourceElevationLevel = 0;
     std::int32_t elevationLevel = 0;
     const char* sourceSurface = nullptr;
+    const char* sourceShape = nullptr;
     const char* surface = nullptr;
     const char* shape = nullptr;
     const char* visualVariant = nullptr;

@@ -90,6 +90,7 @@ struct WorkspaceTerrainTile {
     std::int32_t sourceElevationLevel = 0;
     std::int32_t elevationLevel = 0;
     std::string sourceSurface;
+    std::string sourceShape;
     std::string surface;
     std::string shape;
     std::string visualVariant;

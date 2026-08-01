@@ -122,6 +122,56 @@ enum class InspectorSelectionDomain {
     Scene,
 };
 
+constexpr std::array<const char*, 7> kTerrainPlatformProfileIds{{
+    "preserve",
+    "source",
+    "flat",
+    "ramp_north",
+    "ramp_east",
+    "ramp_south",
+    "ramp_west",
+}};
+
+constexpr std::array<const char*, 7> kTerrainPlatformProfileNames{{
+    "Preserve Current Tile Profiles",
+    "Restore Source Tile Profiles",
+    "Force Flat Top",
+    "Ramp: Low South / High North",
+    "Ramp: Low West / High East",
+    "Ramp: Low North / High South",
+    "Ramp: Low East / High West",
+}};
+
+bool terrainShapeIsRamp(std::string_view shape) {
+    return shape.starts_with("ramp_");
+}
+
+bool terrainShapeHighAtCorner(
+    std::string_view shape,
+    std::size_t corner) {
+    // viewportCorners are SW, SE, NE, NW in source-grid X/Z order.
+    const bool east = corner == 1u || corner == 2u;
+    const bool north = corner == 2u || corner == 3u;
+    if (shape == "ramp_east") return east;
+    if (shape == "ramp_west") return !east;
+    if (shape == "ramp_north") return north;
+    if (shape == "ramp_south") return !north;
+    return false;
+}
+
+std::string_view terrainPlatformPreviewShape(
+    const WorkspaceTerrainTile& tile,
+    int profileIndex) {
+    const int clamped = std::clamp(
+        profileIndex,
+        0,
+        static_cast<int>(kTerrainPlatformProfileIds.size() - 1u));
+    if (clamped == 0) return tile.shape;
+    if (clamped == 1) return tile.sourceShape;
+    return kTerrainPlatformProfileIds[
+        static_cast<std::size_t>(clamped)];
+}
+
 bool containsInsensitive(
     std::string_view value,
     std::string_view query) {
@@ -1000,6 +1050,7 @@ struct EditorShell::Impl {
     int terrainAuthoringMode = 2;
     int terrainSurfaceIndex = 0;
     int terrainPlatformSurfaceIndex = 0;
+    int terrainPlatformProfileIndex = 0;
     int terrainShapeIndex = 0;
     int terrainTargetElevationLevel = 0;
     bool terrainPlatformPreview = true;
@@ -2201,22 +2252,34 @@ EditorShellActions EditorShell::drawWorkspace(
                         ? 1.8f
                         : 1.0f);
                 std::array<ImVec2, 4> previewCorners = corners;
+                const std::string_view previewShape =
+                    terrainPlatformPreviewShape(
+                        tile,
+                        impl_->terrainPlatformProfileIndex);
                 if (selected && impl_->terrainPlatformPreview) {
-                    const float levelDelta = static_cast<float>(
+                    const std::int32_t baseLevelDelta =
                         impl_->terrainTargetElevationLevel -
-                        tile.elevationLevel);
+                        tile.elevationLevel;
                     for (std::size_t corner = 0u;
                          corner < previewCorners.size();
                          ++corner) {
+                        const float cornerLevelDelta =
+                            static_cast<float>(
+                                baseLevelDelta +
+                                (terrainShapeHighAtCorner(
+                                     previewShape,
+                                     corner)
+                                     ? 1
+                                     : 0));
                         previewCorners[corner] = ImVec2(
                             origin.x +
                                 tile.viewportFlatCorners[corner * 2u] +
                                 tile.viewportLevelStep[corner * 2u] *
-                                    levelDelta,
+                                    cornerLevelDelta,
                             origin.y +
                                 tile.viewportFlatCorners[corner * 2u + 1u] +
                                 tile.viewportLevelStep[corner * 2u + 1u] *
-                                    levelDelta);
+                                    cornerLevelDelta);
                     }
                     drawList->AddQuadFilled(
                         previewCorners[0],
@@ -2231,7 +2294,8 @@ EditorShellActions EditorShell::drawWorkspace(
                         previewCorners[3],
                         IM_COL32(75, 255, 230, 245),
                         3.0f);
-                    if (std::abs(levelDelta) > 0.001f) {
+                    if (baseLevelDelta != 0 ||
+                        previewShape != tile.shape) {
                         for (std::size_t corner = 0u;
                              corner < previewCorners.size();
                              ++corner) {
@@ -2260,13 +2324,28 @@ EditorShellActions EditorShell::drawWorkspace(
                              labelCorners[2].y + labelCorners[3].y) *
                                 0.25f};
                         char levelLabel[16]{};
-                        std::snprintf(
-                            levelLabel,
-                            sizeof(levelLabel),
-                            "L%d",
+                        const std::int32_t labelLow =
                             selected && impl_->terrainPlatformPreview
-                                ? impl_->terrainTargetElevationLevel
-                                : tile.elevationLevel);
+                            ? impl_->terrainTargetElevationLevel
+                            : tile.elevationLevel;
+                        const std::string_view labelShape =
+                            selected && impl_->terrainPlatformPreview
+                            ? previewShape
+                            : std::string_view(tile.shape);
+                        if (terrainShapeIsRamp(labelShape)) {
+                            std::snprintf(
+                                levelLabel,
+                                sizeof(levelLabel),
+                                "L%d-L%d",
+                                labelLow,
+                                labelLow + 1);
+                        } else {
+                            std::snprintf(
+                                levelLabel,
+                                sizeof(levelLabel),
+                                "L%d",
+                                labelLow);
+                        }
                         const ImVec2 textSize = ImGui::CalcTextSize(
                             levelLabel);
                         drawList->AddRectFilled(
@@ -3540,16 +3619,23 @@ EditorShellActions EditorShell::drawWorkspace(
             std::int32_t selectionMaximumX = 0;
             std::int32_t selectionMinimumZ = 0;
             std::int32_t selectionMaximumZ = 0;
-            std::int32_t selectionMinimumLevel = 0;
-            std::int32_t selectionMaximumLevel = 0;
+            std::int32_t selectionMinimumCornerLevel = 0;
+            std::int32_t selectionMaximumCornerLevel = 0;
+            std::size_t selectionRampCount = 0u;
+            std::size_t selectionSourceRampCount = 0u;
             bool selectionMixedSurface = false;
             if (representativeTile && workspace.terrainTiles) {
                 selectionMinimumX = selectionMaximumX =
                     representativeTile->coordinate.gridX;
                 selectionMinimumZ = selectionMaximumZ =
                     representativeTile->coordinate.gridZ;
-                selectionMinimumLevel = selectionMaximumLevel =
+                selectionMinimumCornerLevel =
                     representativeTile->elevationLevel;
+                selectionMaximumCornerLevel =
+                    representativeTile->elevationLevel +
+                    (terrainShapeIsRamp(representativeTile->shape)
+                         ? 1
+                         : 0);
                 for (const auto& coordinate :
                      impl_->selectedTerrainTiles) {
                     const auto found = std::find_if(
@@ -3573,10 +3659,19 @@ EditorShellActions EditorShell::drawWorkspace(
                         selectionMinimumZ, found->coordinate.gridZ);
                     selectionMaximumZ = std::max(
                         selectionMaximumZ, found->coordinate.gridZ);
-                    selectionMinimumLevel = std::min(
-                        selectionMinimumLevel, found->elevationLevel);
-                    selectionMaximumLevel = std::max(
-                        selectionMaximumLevel, found->elevationLevel);
+                    selectionMinimumCornerLevel = std::min(
+                        selectionMinimumCornerLevel,
+                        found->elevationLevel);
+                    selectionMaximumCornerLevel = std::max(
+                        selectionMaximumCornerLevel,
+                        found->elevationLevel +
+                            (terrainShapeIsRamp(found->shape)
+                                 ? 1
+                                 : 0));
+                    selectionRampCount +=
+                        terrainShapeIsRamp(found->shape) ? 1u : 0u;
+                    selectionSourceRampCount +=
+                        terrainShapeIsRamp(found->sourceShape) ? 1u : 0u;
                     selectionMixedSurface = selectionMixedSurface ||
                         found->surface != representativeTile->surface;
                 }
@@ -3964,7 +4059,7 @@ EditorShellActions EditorShell::drawWorkspace(
                 if (impl_->terrainAuthoringMode == 2) {
                     ImGui::SeparatorText("Precise Platform Builder");
                     ImGui::TextWrapped(
-                        "Build one exact source-grid footprint. The cyan ghost is the saved flat top; grass lips, bowed cliff faces, and outside corners derive from the final neighbor levels.");
+                        "Build one exact source-grid footprint without losing half-level source profiles. The cyan ghost shows every saved corner; leafy caps, bowed cliff faces, and outside corners derive from the final neighbor levels.");
                     ImGui::Checkbox(
                         "Preview working level in Scene view",
                         &impl_->terrainPlatformPreview);
@@ -3977,20 +4072,22 @@ EditorShellActions EditorShell::drawWorkspace(
                         const std::int32_t depth =
                             selectionMaximumZ - selectionMinimumZ + 1;
                         ImGui::Text(
-                            "%zu selected | %d x %d bounds | levels %d..%d",
+                            "%zu selected | %d x %d bounds | corner levels L%d..L%d",
                             selectedTileViews.size(),
                             width,
                             depth,
-                            selectionMinimumLevel,
-                            selectionMaximumLevel);
+                            selectionMinimumCornerLevel,
+                            selectionMaximumCornerLevel);
                         ImGui::TextDisabled(
-                            "Anchor (%d, %d) | %s%s",
+                            "Anchor (%d, %d) | %s%s | %zu current / %zu source ramps",
                             representativeTile->coordinate.gridX,
                             representativeTile->coordinate.gridZ,
                             representativeTile->surface.c_str(),
                             selectionMixedSurface
                                 ? " + mixed surfaces"
-                                : "");
+                                : "",
+                            selectionRampCount,
+                            selectionSourceRampCount);
                     } else {
                         ImGui::TextDisabled(
                             "Select one or more terrain cells to define a footprint.");
@@ -4031,6 +4128,51 @@ EditorShellActions EditorShell::drawWorkspace(
                     ImGui::SeparatorText("Exact Platform Top");
                     if (workspace.terrainSurfaces &&
                         !workspace.terrainSurfaces->empty()) {
+                        impl_->terrainPlatformProfileIndex = std::clamp(
+                            impl_->terrainPlatformProfileIndex,
+                            0,
+                            static_cast<int>(
+                                kTerrainPlatformProfileIds.size() - 1u));
+                        if (ImGui::BeginCombo(
+                                "Tile profile",
+                                kTerrainPlatformProfileNames[
+                                    static_cast<std::size_t>(
+                                        impl_->terrainPlatformProfileIndex)])) {
+                            for (std::size_t profileIndex = 0u;
+                                 profileIndex <
+                                     kTerrainPlatformProfileNames.size();
+                                 ++profileIndex) {
+                                const bool selected =
+                                    static_cast<int>(profileIndex) ==
+                                    impl_->terrainPlatformProfileIndex;
+                                if (ImGui::Selectable(
+                                        kTerrainPlatformProfileNames[
+                                            profileIndex],
+                                        selected)) {
+                                    impl_->terrainPlatformProfileIndex =
+                                        static_cast<int>(profileIndex);
+                                }
+                                if (selected) {
+                                    ImGui::SetItemDefaultFocus();
+                                }
+                            }
+                            ImGui::EndCombo();
+                        }
+                        if (impl_->terrainPlatformProfileIndex == 0) {
+                            ImGui::TextWrapped(
+                                "Preserves each selected cell's current flat or L-to-L+1 ramp profile independently.");
+                        } else if (
+                            impl_->terrainPlatformProfileIndex == 1) {
+                            ImGui::TextWrapped(
+                                "Restores each cell's recovered LGPE flat/ramp profile independently; use this to repair a ramp that was accidentally flattened.");
+                        } else if (
+                            impl_->terrainPlatformProfileIndex == 2) {
+                            ImGui::TextWrapped(
+                                "Forces every selected cell flat. Use only for a genuinely level platform top.");
+                        } else {
+                            ImGui::TextWrapped(
+                                "Forces the selected cells to the chosen L-to-L+1 directional profile. The working level is the low edge.");
+                        }
                         impl_->terrainPlatformSurfaceIndex = std::clamp(
                             impl_->terrainPlatformSurfaceIndex,
                             0,
@@ -4109,22 +4251,24 @@ EditorShellActions EditorShell::drawWorkspace(
                                 ImVec2(-1.0f, 26.0f))) {
                             impl_->terrainTargetElevationLevel = std::min(
                                 128,
-                                selectionMaximumLevel + 1);
+                                selectionMaximumCornerLevel + 1);
                         }
                         ImGui::EndDisabled();
                         ImGui::BeginDisabled(!hasTileSelection);
                         if (ImGui::Button(
-                                "Build / Replace Exact Platform",
+                                "Build / Replace Profiled Platform",
                                 ImVec2(-1.0f, 34.0f))) {
                             queueTileEdit(
                                 "platform_set",
                                 platformSurface.id.c_str(),
-                                "flat",
+                                kTerrainPlatformProfileIds[
+                                    static_cast<std::size_t>(
+                                        impl_->terrainPlatformProfileIndex)],
                                 "auto");
                         }
                         ImGui::EndDisabled();
                         ImGui::TextDisabled(
-                            "One atomic edit sets every selected cell to this level and surface, forces a flat top, cleans source fragments, and rebuilds the complete exposed ledge boundary.");
+                            "One atomic edit sets the base level and surface, applies the chosen profile per cell, preserves compatible source fringe, and reconstructs changed leafy ledge boundaries.");
                     }
 
                     ImGui::SeparatorText("Quick +1 Presets");

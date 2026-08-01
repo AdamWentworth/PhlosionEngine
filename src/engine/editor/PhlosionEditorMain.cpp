@@ -1445,6 +1445,9 @@ void refreshTerrainTileViews(LoadedProject& project) {
                 .sourceSurface = tile.sourceSurface
                     ? tile.sourceSurface
                     : "",
+                .sourceShape = tile.sourceShape
+                    ? tile.sourceShape
+                    : "flat",
                 .surface = tile.surface
                     ? tile.surface
                     : "",
