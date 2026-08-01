@@ -431,21 +431,6 @@ bool drawTerrainPrefabPreviewCard(
                 badgeCenter.y - directionSize.y * 0.5f),
             IM_COL32(235, 242, 238, 255),
             direction);
-    } else if (
-        prefab.surface == "dirt_path" &&
-        prefab.visualVariant == "auto") {
-        const ImVec2 badgeCenter{
-            maximum.x - 15.0f,
-            minimum.y + 15.0f};
-        drawList->AddCircleFilled(
-            badgeCenter,
-            10.0f,
-            IM_COL32(12, 18, 21, 225),
-            16);
-        drawList->AddText(
-            ImVec2(badgeCenter.x - 4.0f, badgeCenter.y - 7.0f),
-            IM_COL32(235, 242, 238, 255),
-            "A");
     }
     const ImVec2 labelSize = ImGui::CalcTextSize(
         prefab.displayName.c_str());
@@ -458,12 +443,21 @@ bool drawTerrainPrefabPreviewCard(
             : IM_COL32(218, 225, 228, 255),
         prefab.displayName.c_str());
     if (hovered) {
-        ImGui::SetTooltip(
-            "%s\n%s / %s / %s\nClick to hot-swap the selected terrain cells.",
-            prefab.displayName.c_str(),
-            prefab.surface.c_str(),
-            prefab.shape.c_str(),
-            prefab.visualVariant.c_str());
+        if (prefab.visualVariant.empty() ||
+            prefab.visualVariant == "auto") {
+            ImGui::SetTooltip(
+                "%s\n%s / %s\nAutomatic source matching and neighbor blending.\nClick to hot-swap the selected terrain cells.",
+                prefab.displayName.c_str(),
+                prefab.surface.c_str(),
+                prefab.shape.c_str());
+        } else {
+            ImGui::SetTooltip(
+                "%s\n%s / %s / %s\nClick to hot-swap the selected terrain cells.",
+                prefab.displayName.c_str(),
+                prefab.surface.c_str(),
+                prefab.shape.c_str(),
+                prefab.visualVariant.c_str());
+        }
     }
     return pressed;
 }
@@ -3303,63 +3297,44 @@ EditorShellActions EditorShell::drawWorkspace(
                      ImGui::GetStyle().ItemSpacing.x *
                          static_cast<float>(paletteColumns - 1)) /
                         static_cast<float>(paletteColumns));
-                constexpr std::array<const char*, 4>
-                    kGroundCategoryIds{{
-                        "Light Lawn Variants",
-                        "Dark Lawn Variants",
-                        "Dirt Path Transitions",
-                        "Ground",
-                    }};
-                constexpr std::array<const char*, 4>
-                    kGroundCategoryLabels{{
-                        "Light Lawn",
-                        "Dark Lawn",
-                        "Dirt Path",
-                        "Other",
-                    }};
-                if (ImGui::BeginTabBar(
-                        "##terrain-ground-palette-tabs")) {
-                    for (std::size_t categoryIndex = 0u;
-                         categoryIndex < kGroundCategoryIds.size();
-                         ++categoryIndex) {
-                        if (!ImGui::BeginTabItem(
-                                kGroundCategoryLabels[categoryIndex])) {
-                            continue;
-                        }
-                        std::size_t groundButtonIndex = 0u;
-                        for (std::size_t prefabIndex = 0u;
-                             prefabIndex < prefabCount;
-                             ++prefabIndex) {
-                            const auto& prefab =
-                                (*workspace.terrainPrefabs)[prefabIndex];
-                            if (prefab.shape != "flat" ||
-                                prefab.category !=
-                                    kGroundCategoryIds[categoryIndex]) {
-                                continue;
-                            }
-                            if ((groundButtonIndex %
-                                 static_cast<std::size_t>(
-                                     paletteColumns)) != 0u) {
-                                ImGui::SameLine();
-                            }
-                            ImGui::PushID(
-                                static_cast<int>(prefabIndex));
-                            if (drawTerrainPrefabPreviewCard(
-                                    prefab,
-                                    ImVec2(
-                                        previewCardWidth,
-                                        102.0f),
-                                    static_cast<int>(prefabIndex) ==
-                                        impl_->terrainPrefabIndex)) {
-                                queuePrefabSwap(
-                                    static_cast<int>(prefabIndex));
-                            }
-                            ImGui::PopID();
-                            ++groundButtonIndex;
-                        }
-                        ImGui::EndTabItem();
+                std::string previousGroundCategory;
+                std::size_t groundButtonIndex = 0u;
+                for (std::size_t prefabIndex = 0u;
+                     prefabIndex < prefabCount;
+                     ++prefabIndex) {
+                    const auto& prefab =
+                        (*workspace.terrainPrefabs)[prefabIndex];
+                    if (prefab.shape != "flat") {
+                        continue;
                     }
-                    ImGui::EndTabBar();
+                    if (prefab.category != previousGroundCategory) {
+                        if (!previousGroundCategory.empty()) {
+                            ImGui::Spacing();
+                        }
+                        ImGui::TextDisabled(
+                            "%s", prefab.category.c_str());
+                        previousGroundCategory = prefab.category;
+                        groundButtonIndex = 0u;
+                    }
+                    if ((groundButtonIndex %
+                         static_cast<std::size_t>(
+                             paletteColumns)) != 0u) {
+                        ImGui::SameLine();
+                    }
+                    ImGui::PushID(
+                        static_cast<int>(prefabIndex));
+                    if (drawTerrainPrefabPreviewCard(
+                            prefab,
+                            ImVec2(
+                                previewCardWidth,
+                                102.0f),
+                            static_cast<int>(prefabIndex) ==
+                                impl_->terrainPrefabIndex)) {
+                        queuePrefabSwap(
+                            static_cast<int>(prefabIndex));
+                    }
+                    ImGui::PopID();
+                    ++groundButtonIndex;
                 }
                 if (ImGui::CollapsingHeader("Directional ramps")) {
                     std::string previousCategory;
