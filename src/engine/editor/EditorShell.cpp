@@ -1055,6 +1055,7 @@ struct EditorShell::Impl {
     int terrainTargetElevationLevel = 0;
     bool terrainPlatformPreview = true;
     bool terrainShowElevationLabels = true;
+    bool terrainShowCoordinateLabels = true;
     EditorProjectTerrainTileCoordinate terrainTargetReference{
         std::numeric_limits<std::int32_t>::min(),
         std::numeric_limits<std::int32_t>::min()};
@@ -1964,6 +1965,48 @@ EditorShellActions EditorShell::drawWorkspace(
             if (impl_->terrainTileEditing) {
                 ImGui::PopStyleColor();
             }
+            ImGui::SameLine();
+            if (impl_->terrainShowElevationLabels) {
+                ImGui::PushStyleColor(
+                    ImGuiCol_Button,
+                    ImVec4(0.14f, 0.43f, 0.43f, 1.0f));
+            }
+            if (ImGui::Button(
+                    impl_->terrainShowElevationLabels
+                        ? "Levels: ON"
+                        : "Levels: OFF",
+                    ImVec2(94.0f, 22.0f))) {
+                impl_->terrainShowElevationLabels =
+                    !impl_->terrainShowElevationLabels;
+            }
+            if (impl_->terrainShowElevationLabels) {
+                ImGui::PopStyleColor();
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Show the exact saved elevation profile for each cell (for example L2 or L2-L3).");
+            }
+            ImGui::SameLine();
+            if (impl_->terrainShowCoordinateLabels) {
+                ImGui::PushStyleColor(
+                    ImGuiCol_Button,
+                    ImVec4(0.24f, 0.36f, 0.58f, 1.0f));
+            }
+            if (ImGui::Button(
+                    impl_->terrainShowCoordinateLabels
+                        ? "Coords: ON"
+                        : "Coords: OFF",
+                    ImVec2(96.0f, 22.0f))) {
+                impl_->terrainShowCoordinateLabels =
+                    !impl_->terrainShowCoordinateLabels;
+            }
+            if (impl_->terrainShowCoordinateLabels) {
+                ImGui::PopStyleColor();
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Label each terrain cell with its source-grid (X,Z) coordinate.");
+            }
         }
         if (impl_->selectedViewport ==
                 EditorViewportKind::Scene &&
@@ -2307,7 +2350,8 @@ EditorShellActions EditorShell::drawWorkspace(
                         }
                     }
                 }
-                if (impl_->terrainShowElevationLabels) {
+                if (impl_->terrainShowElevationLabels ||
+                    impl_->terrainShowCoordinateLabels) {
                     const auto& labelCorners =
                         selected && impl_->terrainPlatformPreview
                         ? previewCorners
@@ -2346,8 +2390,37 @@ EditorShellActions EditorShell::drawWorkspace(
                                 "L%d",
                                 labelLow);
                         }
+                        char coordinateLabel[32]{};
+                        std::snprintf(
+                            coordinateLabel,
+                            sizeof(coordinateLabel),
+                            "%d,%d",
+                            tile.coordinate.gridX,
+                            tile.coordinate.gridZ);
+                        char cellLabel[64]{};
+                        if (impl_->terrainShowElevationLabels &&
+                            impl_->terrainShowCoordinateLabels) {
+                            std::snprintf(
+                                cellLabel,
+                                sizeof(cellLabel),
+                                "%s\n%s",
+                                levelLabel,
+                                coordinateLabel);
+                        } else if (impl_->terrainShowElevationLabels) {
+                            std::snprintf(
+                                cellLabel,
+                                sizeof(cellLabel),
+                                "%s",
+                                levelLabel);
+                        } else {
+                            std::snprintf(
+                                cellLabel,
+                                sizeof(cellLabel),
+                                "%s",
+                                coordinateLabel);
+                        }
                         const ImVec2 textSize = ImGui::CalcTextSize(
-                            levelLabel);
+                            cellLabel);
                         drawList->AddRectFilled(
                             ImVec2(
                                 center.x - textSize.x * 0.5f - 3.0f,
@@ -2364,7 +2437,7 @@ EditorShellActions EditorShell::drawWorkspace(
                             selected
                                 ? IM_COL32(105, 255, 230, 255)
                                 : IM_COL32(242, 244, 230, 220),
-                            levelLabel);
+                            cellLabel);
                     }
                 }
             }
@@ -2388,6 +2461,51 @@ EditorShellActions EditorShell::drawWorkspace(
                     corners[3],
                     IM_COL32(255, 255, 255, 235),
                     2.0f);
+                char hoverLevel[16]{};
+                if (terrainShapeIsRamp(tile.shape)) {
+                    std::snprintf(
+                        hoverLevel,
+                        sizeof(hoverLevel),
+                        "L%d-L%d",
+                        tile.elevationLevel,
+                        tile.elevationLevel + 1);
+                } else {
+                    std::snprintf(
+                        hoverLevel,
+                        sizeof(hoverLevel),
+                        "L%d",
+                        tile.elevationLevel);
+                }
+                const std::string hoverSurface = tile.surface.empty()
+                    ? "empty"
+                    : tile.surface;
+                char hoverLabel[160]{};
+                std::snprintf(
+                    hoverLabel,
+                    sizeof(hoverLabel),
+                    "CELL (%d,%d)  |  %s  |  %s",
+                    tile.coordinate.gridX,
+                    tile.coordinate.gridZ,
+                    hoverLevel,
+                    hoverSurface.c_str());
+                const ImVec2 hoverTextSize =
+                    ImGui::CalcTextSize(hoverLabel);
+                const ImVec2 hoverTextPosition{
+                    origin.x + 12.0f,
+                    origin.y + 34.0f};
+                drawList->AddRectFilled(
+                    ImVec2(
+                        hoverTextPosition.x - 5.0f,
+                        hoverTextPosition.y - 3.0f),
+                    ImVec2(
+                        hoverTextPosition.x + hoverTextSize.x + 5.0f,
+                        hoverTextPosition.y + hoverTextSize.y + 3.0f),
+                    IM_COL32(10, 18, 22, 220),
+                    4.0f);
+                drawList->AddText(
+                    hoverTextPosition,
+                    IM_COL32(255, 255, 255, 245),
+                    hoverLabel);
             }
             const bool canInteract =
                 imageHovered && !ImGui::GetIO().WantTextInput;
@@ -3420,6 +3538,16 @@ EditorShellActions EditorShell::drawWorkspace(
             ImGui::Checkbox(
                 "Enable tile selection in Scene view",
                 &impl_->terrainTileEditing);
+            ImGui::SeparatorText("Viewport Grid Overlay");
+            ImGui::Checkbox(
+                "Elevation profiles (L#)",
+                &impl_->terrainShowElevationLabels);
+            ImGui::SameLine();
+            ImGui::Checkbox(
+                "Coordinates (X,Z)",
+                &impl_->terrainShowCoordinateLabels);
+            ImGui::TextDisabled(
+                "Coordinates are exact source-grid cells; X runs west/east and Z runs north/south.");
             ImGui::TextWrapped(
                 "Each cell is one source metre. Elevation changes use the source 50 cm level step; ledge faces are derived from neighboring cells.");
             ImGui::Text(
@@ -3427,6 +3555,53 @@ EditorShellActions EditorShell::drawWorkspace(
                 impl_->selectedTerrainTiles.size());
             const bool hasTileSelection =
                 !impl_->selectedTerrainTiles.empty();
+            if (hasTileSelection) {
+                std::int32_t selectedMinimumX =
+                    impl_->selectedTerrainTiles.front().gridX;
+                std::int32_t selectedMaximumX = selectedMinimumX;
+                std::int32_t selectedMinimumZ =
+                    impl_->selectedTerrainTiles.front().gridZ;
+                std::int32_t selectedMaximumZ = selectedMinimumZ;
+                for (const auto& coordinate :
+                     impl_->selectedTerrainTiles) {
+                    selectedMinimumX = std::min(
+                        selectedMinimumX,
+                        coordinate.gridX);
+                    selectedMaximumX = std::max(
+                        selectedMaximumX,
+                        coordinate.gridX);
+                    selectedMinimumZ = std::min(
+                        selectedMinimumZ,
+                        coordinate.gridZ);
+                    selectedMaximumZ = std::max(
+                        selectedMaximumZ,
+                        coordinate.gridZ);
+                }
+                char selectionReference[160]{};
+                if (impl_->selectedTerrainTiles.size() == 1u) {
+                    std::snprintf(
+                        selectionReference,
+                        sizeof(selectionReference),
+                        "Cell (%d,%d)",
+                        selectedMinimumX,
+                        selectedMinimumZ);
+                } else {
+                    std::snprintf(
+                        selectionReference,
+                        sizeof(selectionReference),
+                        "Cells X%d..%d, Z%d..%d (%zu selected)",
+                        selectedMinimumX,
+                        selectedMaximumX,
+                        selectedMinimumZ,
+                        selectedMaximumZ,
+                        impl_->selectedTerrainTiles.size());
+                }
+                ImGui::TextUnformatted(selectionReference);
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Copy tile reference")) {
+                    ImGui::SetClipboardText(selectionReference);
+                }
+            }
             const std::string terrainClipboardContext =
                 text(workspace.projectName) + "|" +
                 text(workspace.sceneId);
@@ -4063,9 +4238,6 @@ EditorShellActions EditorShell::drawWorkspace(
                     ImGui::Checkbox(
                         "Preview working level in Scene view",
                         &impl_->terrainPlatformPreview);
-                    ImGui::Checkbox(
-                        "Show per-cell elevation labels",
-                        &impl_->terrainShowElevationLabels);
                     if (representativeTile) {
                         const std::int32_t width =
                             selectionMaximumX - selectionMinimumX + 1;
