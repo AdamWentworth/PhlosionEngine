@@ -3286,12 +3286,6 @@ EditorShellActions EditorShell::drawWorkspace(
                 std::vector<const WorkspaceTerrainTile*> copiedTiles;
                 copiedTiles.reserve(
                     impl_->selectedTerrainTiles.size());
-                std::int32_t minimumX =
-                    std::numeric_limits<std::int32_t>::max();
-                std::int32_t minimumZ =
-                    std::numeric_limits<std::int32_t>::max();
-                std::int32_t minimumLevel =
-                    std::numeric_limits<std::int32_t>::max();
                 for (const auto& coordinate :
                      impl_->selectedTerrainTiles) {
                     const auto found = std::find_if(
@@ -3307,12 +3301,6 @@ EditorShellActions EditorShell::drawWorkspace(
                         continue;
                     }
                     copiedTiles.push_back(&*found);
-                    minimumX = std::min(
-                        minimumX, found->coordinate.gridX);
-                    minimumZ = std::min(
-                        minimumZ, found->coordinate.gridZ);
-                    minimumLevel = std::min(
-                        minimumLevel, found->elevationLevel);
                 }
                 std::sort(
                     copiedTiles.begin(),
@@ -3331,15 +3319,27 @@ EditorShellActions EditorShell::drawWorkspace(
                     terrainClipboardContext;
                 impl_->terrainTileClipboard.reserve(
                     copiedTiles.size());
+                if (copiedTiles.empty()) {
+                    return;
+                }
+                // The first actual copied cell is the source anchor. Using a
+                // real cell (instead of independent minimum X/Z/height values)
+                // keeps sparse and multi-level stamps internally coherent.
+                const auto* sourceAnchor = copiedTiles.front();
                 for (const auto* tile : copiedTiles) {
                     impl_->terrainTileClipboard.push_back(
                         WorkspaceTerrainTileStamp{
                             .offsetGridX =
-                                tile->coordinate.gridX - minimumX,
+                                tile->coordinate.gridX -
+                                sourceAnchor->coordinate.gridX,
                             .offsetGridZ =
-                                tile->coordinate.gridZ - minimumZ,
+                                tile->coordinate.gridZ -
+                                sourceAnchor->coordinate.gridZ,
                             .relativeElevationLevel =
-                                tile->elevationLevel - minimumLevel,
+                                tile->elevationLevel -
+                                sourceAnchor->elevationLevel,
+                            .absoluteElevationLevel =
+                                tile->elevationLevel,
                             .surface = tile->surface,
                             .shape = tile->shape,
                             .visualVariant = tile->visualVariant});
@@ -3350,14 +3350,16 @@ EditorShellActions EditorShell::drawWorkspace(
                 !impl_->terrainTileClipboard.empty() &&
                 impl_->terrainTileClipboardContext ==
                     terrainClipboardContext;
-            const auto pasteTerrainTiles = [&]() {
+            const auto pasteTerrainTiles = [&](bool exactHeight) {
                 if (!canPasteTerrainTiles) {
                     return;
                 }
                 actions.terrainTileEditRequested = true;
                 actions.terrainTileCoordinates = {
                     impl_->selectedTerrainTiles.front()};
-                actions.terrainTileOperation = "paste_tiles";
+                actions.terrainTileOperation = exactHeight
+                    ? "paste_tiles_exact"
+                    : "paste_tiles_relative";
                 actions.terrainTileSurface.clear();
                 actions.terrainTileShape.clear();
                 actions.terrainTileVisualVariant.clear();
@@ -3376,7 +3378,7 @@ EditorShellActions EditorShell::drawWorkspace(
             if (!terrainIo.WantTextInput && terrainIo.KeyCtrl &&
                 ImGui::IsKeyPressed(ImGuiKey_V, false) &&
                 canPasteTerrainTiles) {
-                pasteTerrainTiles();
+                pasteTerrainTiles(!terrainIo.KeyShift);
             }
 
             ImGui::BeginDisabled(!hasTileSelection);
@@ -3386,12 +3388,18 @@ EditorShellActions EditorShell::drawWorkspace(
                 copySelectedTerrainTiles();
             }
             ImGui::EndDisabled();
-            ImGui::SameLine();
             ImGui::BeginDisabled(!canPasteTerrainTiles);
             if (ImGui::Button(
-                    "Paste at Anchor",
+                    "Paste Exact Height",
                     ImVec2(-1.0f, 28.0f))) {
-                pasteTerrainTiles();
+                pasteTerrainTiles(true);
+            }
+            ImGui::EndDisabled();
+            ImGui::BeginDisabled(!canPasteTerrainTiles);
+            if (ImGui::Button(
+                    "Paste Relative to Anchor",
+                    ImVec2(-1.0f, 28.0f))) {
+                pasteTerrainTiles(false);
             }
             ImGui::EndDisabled();
             if (impl_->terrainTileClipboard.empty()) {
@@ -3399,8 +3407,10 @@ EditorShellActions EditorShell::drawWorkspace(
                     "Clipboard empty | Ctrl+C / Ctrl+V");
             } else {
                 ImGui::TextDisabled(
-                    "%zu tile(s) copied | paste requires one anchor cell",
+                    "%zu tile(s) copied | Ctrl+V exact | Ctrl+Shift+V relative",
                     impl_->terrainTileClipboard.size());
+                ImGui::TextWrapped(
+                    "Exact restores the copied Route levels. Relative maps the copied anchor cell to the selected cell while preserving every tier offset.");
             }
 
             constexpr std::array<const char*, 5> kShapeIds{{

@@ -3466,6 +3466,8 @@ int main(int argc, char** argv) {
                             .offsetGridZ = stamp.offsetGridZ,
                             .relativeElevationLevel =
                                 stamp.relativeElevationLevel,
+                            .absoluteElevationLevel =
+                                stamp.absoluteElevationLevel,
                             .surface = stamp.surface.c_str(),
                             .shape = stamp.shape.c_str(),
                             .visualVariant =
@@ -3495,9 +3497,14 @@ int main(int argc, char** argv) {
                         request,
                         &tileError)) {
                     refreshSceneAuthoringViews();
+                    const std::size_t editedTileCount =
+                        actions.terrainTileOperation.starts_with(
+                            "paste_tiles_")
+                        ? actions.terrainTileStampTiles.size()
+                        : actions.terrainTileCoordinates.size();
                     project->status =
                         std::to_string(
-                            actions.terrainTileCoordinates.size()) +
+                            editedTileCount) +
                         " terrain tile(s) updated and autosaved.";
                 } else {
                     project->status =

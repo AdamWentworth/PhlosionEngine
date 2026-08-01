@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 22u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 23u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -268,7 +268,13 @@ struct EditorProjectTerrainPrefab {
 struct EditorProjectTerrainTileStamp {
     std::int32_t offsetGridX = 0;
     std::int32_t offsetGridZ = 0;
+    // Signed height from the copied anchor cell. Relative paste maps that
+    // anchor to the destination cell and preserves every internal tier.
     std::int32_t relativeElevationLevel = 0;
+    // Original source-grid height used by exact paste. This is intentionally
+    // separate from the relative value so restoring a clipped Route terrain
+    // assembly never depends on the destination cell's current height.
+    std::int32_t absoluteElevationLevel = 0;
     const char* surface = nullptr;
     const char* shape = nullptr;
     const char* visualVariant = nullptr;
@@ -278,7 +284,8 @@ struct EditorProjectTerrainTileEditRequest {
     const EditorProjectTerrainTileCoordinate* coordinates = nullptr;
     std::size_t coordinateCount = 0u;
     // create, raise, lower, terrace_raise, terrace_lower, flatten_tidy,
-    // tidy_surface, swap_prefab, paint_surface, set_shape, or restore_source.
+    // tidy_surface, swap_prefab, paste_tiles_relative, paste_tiles_exact,
+    // paint_surface, set_shape, or restore_source.
     const char* operation = nullptr;
     const char* surface = nullptr;
     const char* shape = nullptr;

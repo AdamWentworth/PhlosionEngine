@@ -124,6 +124,7 @@ struct WorkspaceTerrainTileStamp {
     std::int32_t offsetGridX = 0;
     std::int32_t offsetGridZ = 0;
     std::int32_t relativeElevationLevel = 0;
+    std::int32_t absoluteElevationLevel = 0;
     std::string surface;
     std::string shape;
     std::string visualVariant;
