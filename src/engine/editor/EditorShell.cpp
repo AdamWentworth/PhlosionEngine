@@ -372,6 +372,58 @@ bool drawTerrainPrefabPreviewCard(
                 fillTopRect(0.0f, 0.27f, 0.27f, 0.73f);
             }
         }
+        if (!automatic) {
+            const ImU32 grassEdgeColor = terrainPreviewColor(
+                prefab.previewTopRgba,
+                hovered ? 1.18f : 1.10f);
+            const ImU32 grassEdgeShadow = terrainPreviewColor(
+                prefab.previewTopRgba,
+                0.72f,
+                0.82f);
+            const auto drawGrassEdge =
+                [&](std::uint32_t connectionBit) {
+                    if ((mask & connectionBit) != 0u) {
+                        return;
+                    }
+                    constexpr std::array<float, 7> positions{
+                        0.29f, 0.36f, 0.43f, 0.50f,
+                        0.57f, 0.64f, 0.71f};
+                    for (std::size_t leafIndex = 0u;
+                         leafIndex < positions.size();
+                         ++leafIndex) {
+                        float u = positions[leafIndex];
+                        float v = 0.73f;
+                        if (connectionBit == 0x02u) {
+                            u = 0.73f;
+                            v = positions[leafIndex];
+                        } else if (connectionBit == 0x04u) {
+                            v = 0.27f;
+                        } else if (connectionBit == 0x08u) {
+                            u = 0.27f;
+                            v = positions[leafIndex];
+                        }
+                        const ImVec2 centerPoint = pointOnTop(u, v);
+                        const float radius =
+                            leafIndex % 2u == 0u ? 2.5f : 2.0f;
+                        drawList->AddCircleFilled(
+                            ImVec2(
+                                centerPoint.x + 0.7f,
+                                centerPoint.y + 0.9f),
+                            radius,
+                            grassEdgeShadow,
+                            8);
+                        drawList->AddCircleFilled(
+                            centerPoint,
+                            radius,
+                            grassEdgeColor,
+                            8);
+                    }
+                };
+            drawGrassEdge(0x01u);
+            drawGrassEdge(0x02u);
+            drawGrassEdge(0x04u);
+            drawGrassEdge(0x08u);
+        }
         constexpr std::array<std::array<float, 2>, 5> dots{{
             {0.28f, 0.30f},
             {0.67f, 0.27f},
