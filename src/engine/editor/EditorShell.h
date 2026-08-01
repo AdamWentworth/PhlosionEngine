@@ -293,6 +293,7 @@ struct EditorShellActions {
     std::string terrainTileSurface;
     std::string terrainTileShape;
     std::string terrainTileVisualVariant;
+    std::int32_t terrainTileTargetElevationLevel = 0;
     std::array<float, 3> layoutTranslation{};
     std::array<float, 3> layoutRotationDegrees{};
     std::array<float, 3> layoutScale{1.0f, 1.0f, 1.0f};

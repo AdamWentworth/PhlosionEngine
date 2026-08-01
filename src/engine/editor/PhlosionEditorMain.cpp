@@ -3465,7 +3465,9 @@ int main(int argc, char** argv) {
                         .shape =
                             actions.terrainTileShape.c_str(),
                         .visualVariant =
-                            actions.terrainTileVisualVariant.c_str()};
+                            actions.terrainTileVisualVariant.c_str(),
+                        .targetElevationLevel =
+                            actions.terrainTileTargetElevationLevel};
                 if (project->runtime->applyTerrainTileEdit(
                         request,
                         &tileError)) {

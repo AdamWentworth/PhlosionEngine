@@ -257,12 +257,13 @@ struct EditorProjectTerrainPrefab {
 struct EditorProjectTerrainTileEditRequest {
     const EditorProjectTerrainTileCoordinate* coordinates = nullptr;
     std::size_t coordinateCount = 0u;
-    // create, raise, lower, swap_prefab, paint_surface, set_shape,
-    // or restore_source.
+    // create, raise, lower, flatten_tidy, swap_prefab, paint_surface,
+    // set_shape, or restore_source.
     const char* operation = nullptr;
     const char* surface = nullptr;
     const char* shape = nullptr;
     const char* visualVariant = nullptr;
+    std::int32_t targetElevationLevel = 0;
 };
 
 class IEditorProjectRuntime {

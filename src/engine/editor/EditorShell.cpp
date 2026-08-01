@@ -889,6 +889,10 @@ struct EditorShell::Impl {
     int terrainPrefabIndex = 0;
     int terrainSurfaceIndex = 0;
     int terrainShapeIndex = 0;
+    int terrainTargetElevationLevel = 0;
+    EditorProjectTerrainTileCoordinate terrainTargetReference{
+        std::numeric_limits<std::int32_t>::min(),
+        std::numeric_limits<std::int32_t>::min()};
     std::string settingsIniPath;
 #if defined(_WIN32)
     std::unique_ptr<D3D12DescriptorAllocator>
@@ -3157,6 +3161,8 @@ EditorShellActions EditorShell::drawWorkspace(
                         shape ? shape : "";
                     actions.terrainTileVisualVariant =
                         visualVariant ? visualVariant : "";
+                    actions.terrainTileTargetElevationLevel =
+                        impl_->terrainTargetElevationLevel;
                 };
 
             constexpr std::array<const char*, 5> kShapeIds{{
@@ -3240,6 +3246,15 @@ EditorShellActions EditorShell::drawWorkspace(
                         prefab.visualVariant.c_str());
                 };
             if (representativeTile) {
+                if (impl_->terrainTargetReference.gridX !=
+                        representativeTile->coordinate.gridX ||
+                    impl_->terrainTargetReference.gridZ !=
+                        representativeTile->coordinate.gridZ) {
+                    impl_->terrainTargetReference =
+                        representativeTile->coordinate;
+                    impl_->terrainTargetElevationLevel =
+                        representativeTile->elevationLevel;
+                }
                 ImGui::Text(
                     "Cell (%d, %d)  |  Level %d",
                     representativeTile->coordinate.gridX,
@@ -3396,6 +3411,23 @@ EditorShellActions EditorShell::drawWorkspace(
                 queueTileEdit("raise", "", "");
             }
 
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::InputInt(
+                    "Target level (50 cm each)",
+                    &impl_->terrainTargetElevationLevel)) {
+                impl_->terrainTargetElevationLevel = std::clamp(
+                    impl_->terrainTargetElevationLevel,
+                    -128,
+                    128);
+            }
+            if (ImGui::Button(
+                    "Flatten + Tidy Selected",
+                    ImVec2(-1.0f, 30.0f))) {
+                queueTileEdit("flatten_tidy", "", "flat");
+            }
+            ImGui::TextDisabled(
+                "Makes one exact plane, rebuilds continuous ground textures, and clears local source floor fragments.");
+
             if (ImGui::CollapsingHeader(
                     "Advanced Tile Controls")) {
                 if (ImGui::Button(
@@ -3498,6 +3530,9 @@ EditorShellActions EditorShell::drawWorkspace(
                     "Clear Tile Selection",
                     ImVec2(-1.0f, 24.0f))) {
                 impl_->selectedTerrainTiles.clear();
+                impl_->terrainTargetReference = {
+                    std::numeric_limits<std::int32_t>::min(),
+                    std::numeric_limits<std::int32_t>::min()};
             }
             ImGui::TextDisabled(
                 "Click or drag cells in Scene view. Ctrl/Shift adds cells; all edits autosave and use Ctrl+Z history.");
@@ -3509,7 +3544,7 @@ EditorShellActions EditorShell::drawWorkspace(
                 "Autochess Board Clearing",
                 ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::TextWrapped(
-                "Suppress exact source objects intersecting the orange clearance boundary and place a matched flat ground patch beneath the board.");
+                "Suppress source obstructions, flatten every covered cell to the board level, and rebuild one clean lawn beneath the board and benches.");
             ImGui::SetNextItemWidth(-1.0f);
             ImGui::DragFloat(
                 "Clearance padding (cells)",
@@ -3540,7 +3575,7 @@ EditorShellActions EditorShell::drawWorkspace(
                 impl_->boardClearanceAddGroundInfill;
             ImGui::BeginDisabled(!canClear);
             if (ImGui::Button(
-                    "Clear Board Footprint",
+                    "Clear + Flatten Board Footprint",
                     ImVec2(-1.0f, 30.0f))) {
                 actions.applyBoardClearanceRequested = true;
                 actions.boardClearanceRequest = {
