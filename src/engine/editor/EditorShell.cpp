@@ -1518,6 +1518,21 @@ EditorShellActions EditorShell::drawWorkspace(
             !impl_->terrainTileEditing &&
             workspace.layoutObjects &&
             !workspace.layoutObjects->empty()) {
+            const bool selectedGameplayBoard =
+                impl_->selectedLayoutObject >= 0 &&
+                static_cast<std::size_t>(
+                    impl_->selectedLayoutObject) <
+                    workspace.layoutObjects->size() &&
+                (*workspace.layoutObjects)[
+                    static_cast<std::size_t>(
+                        impl_->selectedLayoutObject)]
+                        .targetKind == "gameplay_board";
+            if (selectedGameplayBoard &&
+                impl_->layoutGizmoOperation !=
+                    LayoutGizmoOperation::Translate) {
+                impl_->layoutGizmoOperation =
+                    LayoutGizmoOperation::Translate;
+            }
             ImGui::SameLine();
             ImGui::Dummy(ImVec2(12.0f, 0.0f));
             ImGui::SameLine();
@@ -1547,6 +1562,7 @@ EditorShellActions EditorShell::drawWorkspace(
                 "W  Move",
                 LayoutGizmoOperation::Translate);
             ImGui::SameLine();
+            ImGui::BeginDisabled(selectedGameplayBoard);
             gizmoButton(
                 "E  Rotate",
                 LayoutGizmoOperation::Rotate);
@@ -1554,6 +1570,7 @@ EditorShellActions EditorShell::drawWorkspace(
             gizmoButton(
                 "R  Scale",
                 LayoutGizmoOperation::Scale);
+            ImGui::EndDisabled();
             const ImGuiIO& io = ImGui::GetIO();
             if (ImGui::IsWindowFocused(
                     ImGuiFocusedFlags_RootAndChildWindows) &&
@@ -1561,11 +1578,11 @@ EditorShellActions EditorShell::drawWorkspace(
                 if (ImGui::IsKeyPressed(ImGuiKey_W, false)) {
                     impl_->layoutGizmoOperation =
                         LayoutGizmoOperation::Translate;
-                } else if (
+                } else if (!selectedGameplayBoard &&
                     ImGui::IsKeyPressed(ImGuiKey_E, false)) {
                     impl_->layoutGizmoOperation =
                         LayoutGizmoOperation::Rotate;
-                } else if (
+                } else if (!selectedGameplayBoard &&
                     ImGui::IsKeyPressed(ImGuiKey_R, false)) {
                     impl_->layoutGizmoOperation =
                         LayoutGizmoOperation::Scale;
@@ -3305,34 +3322,13 @@ EditorShellActions EditorShell::drawWorkspace(
         ImGui::EndDisabled();
         ImGui::SetNextItemWidth(-1.0f);
         if (gameplayBoard) {
-            float tileSize = impl_->layoutScale[0];
-            if (ImGui::DragFloat(
-                    "Board tile size (m)",
-                    &tileSize,
-                    0.01f,
-                    0.25f,
-                    4.0f,
-                    "%.2f m")) {
-                tileSize = std::round(tileSize / 0.05f) *
-                    0.05f;
-                impl_->layoutScale = {
-                    tileSize, tileSize, tileSize};
-                liveEditChanged = true;
-            }
-            liveEditFinished |=
-                ImGui::IsItemDeactivatedAfterEdit();
-            if (ImGui::Button(
-                    "Match Route 1 Tiles (1.00 m)",
-                    ImVec2(-1.0f, 28.0f))) {
-                impl_->layoutScale =
-                    {1.0f, 1.0f, 1.0f};
-                liveEditChanged = true;
-                liveEditFinished = true;
-            }
+            ImGui::Text(
+                "Board tile size: %.2f m",
+                impl_->layoutScale[0]);
             ImGui::TextDisabled(
-                "Auto snap: X/Z = 100 cm terrain cells; Y = 50 cm elevation levels.");
+                "Bound to Route 1: one board cell = one terrain cell.");
             ImGui::TextWrapped(
-                "Move with the viewport gizmo or source-centimetre fields. Tile size scales uniformly in 0.05 m steps; Match Route 1 Tiles selects exactly 1.00 m.");
+                "Move with the viewport gizmo or source-centimetre fields. X/Z move in 100 cm cells and Y moves in recovered 50 cm elevation levels; scale and rotation cannot drift from the terrain lattice.");
         } else {
             liveEditChanged |= ImGui::DragFloat3(
                 "Scale",
@@ -3371,7 +3367,7 @@ EditorShellActions EditorShell::drawWorkspace(
         ImGui::Spacing();
         ImGui::TextDisabled(
             gameplayBoard
-                ? "Viewport: select the board marker and use Move [W]; Scale [R] changes tile size."
+                ? "Viewport: select the board marker and use Move [W]; its grid stays bound to Route 1 tiles."
                 : "Viewport: click the green marker, then use Move [W], Rotate [E], or Scale [R].");
         ImGui::Spacing();
         if (liveEditFinished) {
