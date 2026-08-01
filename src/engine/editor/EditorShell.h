@@ -94,12 +94,14 @@ struct WorkspaceTerrainTile {
     std::string surface;
     std::string shape;
     std::string visualVariant;
+    EditorProjectTerrainTileCoordinate sourceReference{};
     std::array<float, 8> viewportCorners{};
     std::array<float, 8> viewportFlatCorners{};
     std::array<float, 8> viewportLevelStep{};
     bool viewportVisible = false;
     bool sourceOccupied = false;
     bool authored = false;
+    bool hasSourceReference = false;
 };
 
 struct WorkspaceTerrainSurface {
@@ -131,6 +133,8 @@ struct WorkspaceTerrainTileStamp {
     std::string surface;
     std::string shape;
     std::string visualVariant;
+    EditorProjectTerrainTileCoordinate sourceReference{};
+    bool hasSourceReference = false;
 };
 
 struct WorkspaceAsset {

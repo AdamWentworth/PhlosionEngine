@@ -10,7 +10,7 @@
 
 namespace engine::assets::phlosion {
 
-inline constexpr std::uint32_t kAuthoredSceneSchemaVersion = 3u;
+inline constexpr std::uint32_t kAuthoredSceneSchemaVersion = 4u;
 inline constexpr std::uint32_t kMinimumAuthoredSceneSchemaVersion = 1u;
 inline constexpr char kAuthoredSceneKind[] =
     "phlosion_authored_scene";
@@ -34,6 +34,15 @@ struct PrefabInstanceBinding {
     AuthoredSceneTransform creationTransform;
 };
 
+// Identifies one immutable cell in the tile set's source environment. The
+// owning runtime may reuse that cell's exact source geometry and material
+// carriers at a different authored coordinate instead of reducing an
+// irregular source feature to a generic flat/ramp primitive.
+struct TerrainTileSourceReference {
+    std::int32_t gridX = 0;
+    std::int32_t gridZ = 0;
+};
+
 // A compact, grid-authored terrain cell. Geometry at seams is deliberately
 // derived by the owning tile-set runtime so top surfaces, ramps, ledge walls,
 // transition strips, collision, and navigation cannot drift apart.
@@ -45,6 +54,7 @@ struct TerrainTileBinding {
     std::string surface;
     std::string shape = "flat";
     std::string visualVariant = "auto";
+    std::optional<TerrainTileSourceReference> sourceReference;
 };
 
 struct AuthoredSceneNode {

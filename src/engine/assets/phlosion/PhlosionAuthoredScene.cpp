@@ -300,7 +300,7 @@ bool parseAuthoredSceneDocument(
                 if (const auto terrainTile =
                         components->find("terrain_tile");
                     terrainTile != components->end()) {
-                    node.terrainTile = TerrainTileBinding{
+                    TerrainTileBinding binding{
                         .tileSetAssetId =
                             terrainTile->at("tile_set_asset_id")
                                 .get<std::string>(),
@@ -317,6 +317,17 @@ bool parseAuthoredSceneDocument(
                             "shape", std::string("flat")),
                         .visualVariant = terrainTile->value(
                             "visual_variant", std::string("auto"))};
+                    if (const auto sourceReference =
+                            terrainTile->find("source_reference");
+                        sourceReference != terrainTile->end()) {
+                        binding.sourceReference =
+                            TerrainTileSourceReference{
+                                .gridX = sourceReference->at("grid_x")
+                                    .get<std::int32_t>(),
+                                .gridZ = sourceReference->at("grid_z")
+                                    .get<std::int32_t>()};
+                    }
+                    node.terrainTile = std::move(binding);
                 }
             }
             decoded.nodes.push_back(std::move(node));
@@ -398,6 +409,12 @@ std::string serializeAuthoredSceneDocument(
                 {"surface", binding.surface},
                 {"shape", binding.shape},
                 {"visual_variant", binding.visualVariant}};
+            if (binding.sourceReference) {
+                record["components"]["terrain_tile"]
+                    ["source_reference"] = {
+                        {"grid_x", binding.sourceReference->gridX},
+                        {"grid_z", binding.sourceReference->gridZ}};
+            }
         }
         root["nodes"].push_back(std::move(record));
     }

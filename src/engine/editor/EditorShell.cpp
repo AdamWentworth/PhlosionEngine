@@ -3689,7 +3689,11 @@ EditorShellActions EditorShell::drawWorkspace(
                                 tile->elevationLevel,
                             .surface = tile->surface,
                             .shape = tile->shape,
-                            .visualVariant = tile->visualVariant});
+                            .visualVariant = tile->visualVariant,
+                            .sourceReference =
+                                tile->sourceReference,
+                            .hasSourceReference =
+                                tile->hasSourceReference});
                 }
             };
             const bool canPasteTerrainTiles =
@@ -4061,6 +4065,12 @@ EditorShellActions EditorShell::drawWorkspace(
                     representativeTile->coordinate.gridX,
                     representativeTile->coordinate.gridZ,
                     representativeTile->elevationLevel);
+                if (representativeTile->hasSourceReference) {
+                    ImGui::TextDisabled(
+                        "Exact source reference: (%d, %d)",
+                        representativeTile->sourceReference.gridX,
+                        representativeTile->sourceReference.gridZ);
+                }
             }
             if (hasPrefabPalette && prefabCount > 0u) {
                 ImGui::TextDisabled("Terrain authoring tool");

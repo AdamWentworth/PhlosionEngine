@@ -223,6 +223,7 @@ struct EditorProjectTerrainTile {
     const char* surface = nullptr;
     const char* shape = nullptr;
     const char* visualVariant = nullptr;
+    EditorProjectTerrainTileCoordinate sourceReference{};
     std::array<float, 8> viewportCorners{};
     // Projected flat corners at elevationLevel plus the per-corner screen
     // delta for one +50 cm source level. The editor uses these to draw an
@@ -232,6 +233,7 @@ struct EditorProjectTerrainTile {
     bool viewportVisible = false;
     bool sourceOccupied = false;
     bool authored = false;
+    bool hasSourceReference = false;
 };
 
 struct EditorProjectTerrainSurface {
@@ -284,6 +286,8 @@ struct EditorProjectTerrainTileStamp {
     const char* surface = nullptr;
     const char* shape = nullptr;
     const char* visualVariant = nullptr;
+    EditorProjectTerrainTileCoordinate sourceReference{};
+    bool hasSourceReference = false;
 };
 
 struct EditorProjectTerrainTileEditRequest {

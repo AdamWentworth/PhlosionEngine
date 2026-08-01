@@ -1457,12 +1457,14 @@ void refreshTerrainTileViews(LoadedProject& project) {
                 .visualVariant = tile.visualVariant
                     ? tile.visualVariant
                     : "auto",
+                .sourceReference = tile.sourceReference,
                 .viewportCorners = tile.viewportCorners,
                 .viewportFlatCorners = tile.viewportFlatCorners,
                 .viewportLevelStep = tile.viewportLevelStep,
                 .viewportVisible = tile.viewportVisible,
                 .sourceOccupied = tile.sourceOccupied,
-                .authored = tile.authored});
+                .authored = tile.authored,
+                .hasSourceReference = tile.hasSourceReference});
     }
     const std::size_t surfaceCount =
         project.runtime->terrainSurfaceCount();
@@ -3476,7 +3478,11 @@ int main(int argc, char** argv) {
                             .surface = stamp.surface.c_str(),
                             .shape = stamp.shape.c_str(),
                             .visualVariant =
-                                stamp.visualVariant.c_str()});
+                                stamp.visualVariant.c_str(),
+                            .sourceReference =
+                                stamp.sourceReference,
+                            .hasSourceReference =
+                                stamp.hasSourceReference});
                 }
                 const engine::editor::
                     EditorProjectTerrainTileEditRequest request{

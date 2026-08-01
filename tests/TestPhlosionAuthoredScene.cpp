@@ -53,7 +53,10 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
                     .elevationLevel = 3,
                     .surface = "dark_lawn",
                     .shape = "ramp_north",
-                    .visualVariant = "lawn_c"}}}};
+                    .visualVariant = "lawn_c",
+                    .sourceReference = TerrainTileSourceReference{
+                        .gridX = 21,
+                        .gridZ = -13}}}}};
     std::string error;
     if (!validateAuthoredSceneDocument(source, &error)) {
         outFail = "valid document failed: " + error;
@@ -76,7 +79,10 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
         !decoded.nodes[3].terrainTile ||
         decoded.nodes[3].terrainTile->gridX != 12 ||
         decoded.nodes[3].terrainTile->shape != "ramp_north" ||
-        decoded.nodes[3].terrainTile->visualVariant != "lawn_c") {
+        decoded.nodes[3].terrainTile->visualVariant != "lawn_c" ||
+        !decoded.nodes[3].terrainTile->sourceReference ||
+        decoded.nodes[3].terrainTile->sourceReference->gridX != 21 ||
+        decoded.nodes[3].terrainTile->sourceReference->gridZ != -13) {
         outFail = "document fields changed during round trip";
         return false;
     }
