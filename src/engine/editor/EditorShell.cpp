@@ -2218,6 +2218,18 @@ EditorShellActions EditorShell::drawWorkspace(
                         }
                         actions.layoutTranslation[axis] +=
                             sourceDelta;
+                        if (selected->targetKind ==
+                                "gameplay_board") {
+                            const float snapStep =
+                                axis == 1u
+                                ? 50.0f
+                                : 100.0f;
+                            actions.layoutTranslation[axis] =
+                                std::round(
+                                    actions.layoutTranslation[axis] /
+                                    snapStep) *
+                                snapStep;
+                        }
                     } else if (
                         impl_->layoutGizmoOperation ==
                         LayoutGizmoOperation::Rotate) {
@@ -2239,11 +2251,27 @@ EditorShellActions EditorShell::drawWorkspace(
                                     scaleDelta / 0.1f) *
                                 0.1f;
                         }
-                        actions.layoutScale[axis] =
-                            std::max(
-                                0.01f,
-                                actions.layoutScale[axis] +
-                                    scaleDelta);
+                        if (selected->targetKind ==
+                                "gameplay_board") {
+                            const float tileSize = std::clamp(
+                                std::round(
+                                    (actions.layoutScale[axis] +
+                                     scaleDelta) /
+                                    0.05f) *
+                                    0.05f,
+                                0.25f,
+                                4.0f);
+                            actions.layoutScale = {
+                                tileSize,
+                                tileSize,
+                                tileSize};
+                        } else {
+                            actions.layoutScale[axis] =
+                                std::max(
+                                    0.01f,
+                                    actions.layoutScale[axis] +
+                                        scaleDelta);
+                        }
                     }
                     impl_->layoutTranslation =
                         actions.layoutTranslation;
@@ -3078,7 +3106,7 @@ EditorShellActions EditorShell::drawWorkspace(
         bool liveEditChanged = false;
         bool liveEditFinished = false;
         ImGui::SetNextItemWidth(-1.0f);
-        liveEditChanged |= ImGui::DragFloat3(
+        const bool translationChanged = ImGui::DragFloat3(
             gameplayBoard
                 ? "Board center (source cm)"
                 : "Translation",
@@ -3087,6 +3115,24 @@ EditorShellActions EditorShell::drawWorkspace(
             -100000.0f,
             100000.0f,
             "%.2f");
+        if (translationChanged && gameplayBoard) {
+            impl_->layoutTranslation[0] =
+                std::round(
+                    impl_->layoutTranslation[0] /
+                    100.0f) *
+                100.0f;
+            impl_->layoutTranslation[1] =
+                std::round(
+                    impl_->layoutTranslation[1] /
+                    50.0f) *
+                50.0f;
+            impl_->layoutTranslation[2] =
+                std::round(
+                    impl_->layoutTranslation[2] /
+                    100.0f) *
+                100.0f;
+        }
+        liveEditChanged |= translationChanged;
         liveEditFinished |=
             ImGui::IsItemDeactivatedAfterEdit();
         ImGui::BeginDisabled(gameplayBoard);
@@ -3111,6 +3157,8 @@ EditorShellActions EditorShell::drawWorkspace(
                     0.25f,
                     4.0f,
                     "%.2f m")) {
+                tileSize = std::round(tileSize / 0.05f) *
+                    0.05f;
                 impl_->layoutScale = {
                     tileSize, tileSize, tileSize};
                 liveEditChanged = true;
@@ -3125,24 +3173,10 @@ EditorShellActions EditorShell::drawWorkspace(
                 liveEditChanged = true;
                 liveEditFinished = true;
             }
-            if (ImGui::Button(
-                    "Snap Board Center To 100 cm Grid",
-                    ImVec2(-1.0f, 28.0f))) {
-                impl_->layoutTranslation[0] =
-                    std::round(
-                        impl_->layoutTranslation[0] /
-                        100.0f) *
-                    100.0f;
-                impl_->layoutTranslation[2] =
-                    std::round(
-                        impl_->layoutTranslation[2] /
-                        100.0f) *
-                    100.0f;
-                liveEditChanged = true;
-                liveEditFinished = true;
-            }
+            ImGui::TextDisabled(
+                "Auto snap: X/Z = 100 cm terrain cells; Y = 50 cm elevation levels.");
             ImGui::TextWrapped(
-                "Move with the viewport gizmo or source-centimetre fields. One Route 1 terrain tile is 100 cm / 1.00 m.");
+                "Move with the viewport gizmo or source-centimetre fields. Tile size scales uniformly in 0.05 m steps; Match Route 1 Tiles selects exactly 1.00 m.");
         } else {
             liveEditChanged |= ImGui::DragFloat3(
                 "Scale",
