@@ -179,6 +179,243 @@ void drawInspectorProperties(
     ImGui::EndTable();
 }
 
+ImU32 terrainPreviewColor(
+    std::uint32_t rgba,
+    float brightness = 1.0f,
+    float alphaMultiplier = 1.0f) {
+    const auto channel =
+        [&](std::uint32_t shift) {
+            return static_cast<int>(std::clamp(
+                static_cast<float>((rgba >> shift) & 0xffu) *
+                    brightness,
+                0.0f,
+                255.0f));
+        };
+    const int alpha = static_cast<int>(std::clamp(
+        static_cast<float>(rgba & 0xffu) * alphaMultiplier,
+        0.0f,
+        255.0f));
+    return IM_COL32(
+        channel(24u),
+        channel(16u),
+        channel(8u),
+        alpha);
+}
+
+bool drawTerrainPrefabPreviewCard(
+    const WorkspaceTerrainPrefab& prefab,
+    const ImVec2& size,
+    bool selected) {
+    const ImVec2 minimum = ImGui::GetCursorScreenPos();
+    const ImVec2 maximum{
+        minimum.x + size.x,
+        minimum.y + size.y};
+    const bool pressed = ImGui::InvisibleButton(
+        "##terrain-prefab-preview",
+        size);
+    const bool hovered = ImGui::IsItemHovered();
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    const ImU32 cardFill = selected
+        ? IM_COL32(32, 78, 62, 255)
+        : hovered
+        ? IM_COL32(34, 43, 48, 255)
+        : IM_COL32(24, 30, 34, 255);
+    const ImU32 cardBorder = selected
+        ? IM_COL32(86, 224, 164, 255)
+        : hovered
+        ? IM_COL32(128, 151, 160, 230)
+        : IM_COL32(63, 75, 81, 220);
+    drawList->AddRectFilled(
+        minimum,
+        maximum,
+        cardFill,
+        6.0f);
+    drawList->AddRect(
+        minimum,
+        maximum,
+        cardBorder,
+        6.0f,
+        0,
+        selected ? 2.0f : 1.0f);
+
+    const float previewBottom = maximum.y - 27.0f;
+    const float halfWidth = std::min(50.0f, size.x * 0.34f);
+    const float halfDepth = halfWidth * 0.48f;
+    const float rampRise = std::min(18.0f, size.y * 0.18f);
+    const float thickness = 8.0f;
+    const ImVec2 center{
+        minimum.x + size.x * 0.5f,
+        minimum.y + (previewBottom - minimum.y) * 0.54f};
+    constexpr std::array<std::array<float, 2>, 4> corners{{
+        {-1.0f, -1.0f},
+        {1.0f, -1.0f},
+        {1.0f, 1.0f},
+        {-1.0f, 1.0f},
+    }};
+    const auto highCorner =
+        [&](float x, float z) {
+            if (prefab.shape == "ramp_north") return z > 0.0f;
+            if (prefab.shape == "ramp_east") return x > 0.0f;
+            if (prefab.shape == "ramp_south") return z < 0.0f;
+            if (prefab.shape == "ramp_west") return x < 0.0f;
+            return false;
+        };
+    std::array<ImVec2, 4> top{};
+    for (std::size_t index = 0u;
+         index < corners.size();
+         ++index) {
+        const float x = corners[index][0];
+        const float z = corners[index][1];
+        top[index] = {
+            center.x + (x - z) * halfWidth * 0.5f,
+            center.y + (x + z) * halfDepth * 0.5f -
+                (highCorner(x, z) ? rampRise : 0.0f)};
+    }
+    const ImU32 sideColor = terrainPreviewColor(
+        prefab.previewSideRgba);
+    const ImU32 darkSideColor = terrainPreviewColor(
+        prefab.previewSideRgba,
+        0.72f);
+    const std::array<ImVec2, 4> rightSide{{
+        top[1],
+        top[2],
+        {top[2].x, top[2].y + thickness},
+        {top[1].x, top[1].y + thickness},
+    }};
+    const std::array<ImVec2, 4> leftSide{{
+        top[2],
+        top[3],
+        {top[3].x, top[3].y + thickness},
+        {top[2].x, top[2].y + thickness},
+    }};
+    drawList->AddConvexPolyFilled(
+        rightSide.data(),
+        static_cast<int>(rightSide.size()),
+        sideColor);
+    drawList->AddConvexPolyFilled(
+        leftSide.data(),
+        static_cast<int>(leftSide.size()),
+        darkSideColor);
+    drawList->AddConvexPolyFilled(
+        top.data(),
+        static_cast<int>(top.size()),
+        terrainPreviewColor(
+            prefab.previewTopRgba,
+            hovered ? 1.08f : 1.0f));
+    for (std::size_t index = 0u;
+         index < top.size();
+         ++index) {
+        drawList->AddLine(
+            top[index],
+            top[(index + 1u) % top.size()],
+            terrainPreviewColor(
+                prefab.previewAccentRgba,
+                0.9f,
+                0.8f),
+            1.2f);
+    }
+    const auto pointOnTop =
+        [&](float u, float v) {
+            const float inverseU = 1.0f - u;
+            const float inverseV = 1.0f - v;
+            return ImVec2{
+                top[0].x * inverseU * inverseV +
+                    top[1].x * u * inverseV +
+                    top[2].x * u * v +
+                    top[3].x * inverseU * v,
+                top[0].y * inverseU * inverseV +
+                    top[1].y * u * inverseV +
+                    top[2].y * u * v +
+                    top[3].y * inverseU * v};
+        };
+    const ImU32 accent = terrainPreviewColor(
+        prefab.previewAccentRgba,
+        1.0f,
+        0.82f);
+    if (prefab.surface == "empty") {
+        drawList->AddLine(top[0], top[2], accent, 2.0f);
+        drawList->AddLine(top[1], top[3], accent, 2.0f);
+    } else if (prefab.surface == "dirt_path") {
+        constexpr std::array<std::array<float, 2>, 5> dots{{
+            {0.28f, 0.30f},
+            {0.67f, 0.27f},
+            {0.50f, 0.52f},
+            {0.30f, 0.69f},
+            {0.72f, 0.67f},
+        }};
+        for (std::size_t index = 0u;
+             index < dots.size();
+             ++index) {
+            drawList->AddCircleFilled(
+                pointOnTop(dots[index][0], dots[index][1]),
+                index % 2u == 0u ? 2.0f : 1.4f,
+                accent,
+                8);
+        }
+    } else {
+        constexpr std::array<std::array<float, 2>, 4> grass{{
+            {0.25f, 0.35f},
+            {0.58f, 0.28f},
+            {0.43f, 0.68f},
+            {0.73f, 0.61f},
+        }};
+        for (const auto& blade : grass) {
+            const ImVec2 base = pointOnTop(blade[0], blade[1]);
+            drawList->AddLine(
+                base,
+                ImVec2(base.x + 2.0f, base.y - 6.0f),
+                accent,
+                1.5f);
+            drawList->AddLine(
+                base,
+                ImVec2(base.x - 2.5f, base.y - 4.0f),
+                accent,
+                1.2f);
+        }
+    }
+
+    const char* direction = nullptr;
+    if (prefab.shape == "ramp_north") direction = "N";
+    else if (prefab.shape == "ramp_east") direction = "E";
+    else if (prefab.shape == "ramp_south") direction = "S";
+    else if (prefab.shape == "ramp_west") direction = "W";
+    if (direction) {
+        const ImVec2 badgeCenter{
+            maximum.x - 15.0f,
+            minimum.y + 15.0f};
+        drawList->AddCircleFilled(
+            badgeCenter,
+            10.0f,
+            IM_COL32(12, 18, 21, 225),
+            16);
+        const ImVec2 directionSize = ImGui::CalcTextSize(direction);
+        drawList->AddText(
+            ImVec2(
+                badgeCenter.x - directionSize.x * 0.5f,
+                badgeCenter.y - directionSize.y * 0.5f),
+            IM_COL32(235, 242, 238, 255),
+            direction);
+    }
+    const ImVec2 labelSize = ImGui::CalcTextSize(
+        prefab.displayName.c_str());
+    drawList->AddText(
+        ImVec2(
+            minimum.x + (size.x - labelSize.x) * 0.5f,
+            maximum.y - labelSize.y - 7.0f),
+        selected
+            ? IM_COL32(230, 255, 242, 255)
+            : IM_COL32(218, 225, 228, 255),
+        prefab.displayName.c_str());
+    if (hovered) {
+        ImGui::SetTooltip(
+            "%s\n%s / %s\nClick to hot-swap the selected terrain cells.",
+            prefab.displayName.c_str(),
+            prefab.surface.c_str(),
+            prefab.shape.c_str());
+    }
+    return pressed;
+}
+
 ImGuiKey imguiKey(SDL_Keycode key) {
     switch (key) {
         case SDLK_TAB: return ImGuiKey_Tab;
@@ -2942,12 +3179,14 @@ EditorShellActions EditorShell::drawWorkspace(
                     const auto& prefab =
                         (*workspace.terrainPrefabs)[
                             static_cast<std::size_t>(wrapped)];
+                    if (!hasTileSelection) {
+                        return;
+                    }
                     queueTileEdit(
                         "swap_prefab",
                         prefab.surface.c_str(),
                         prefab.shape.c_str());
                 };
-            ImGui::BeginDisabled(!hasTileSelection);
             if (representativeTile) {
                 ImGui::Text(
                     "Cell (%d, %d)  |  Level %d",
@@ -2994,11 +3233,18 @@ EditorShellActions EditorShell::drawWorkspace(
                     }
                     ImGui::EndCombo();
                 }
-                ImGui::TextDisabled("Ground tiles");
-                const float quickButtonWidth = std::max(
+                ImGui::TextDisabled("Ground tile previews");
+                const float paletteWidth =
+                    ImGui::GetContentRegionAvail().x;
+                const int paletteColumns = paletteWidth >= 280.0f
+                    ? 2
+                    : 1;
+                const float previewCardWidth = std::max(
                     1.0f,
-                    (ImGui::GetContentRegionAvail().x -
-                     ImGui::GetStyle().ItemSpacing.x) * 0.5f);
+                    (paletteWidth -
+                     ImGui::GetStyle().ItemSpacing.x *
+                         static_cast<float>(paletteColumns - 1)) /
+                        static_cast<float>(paletteColumns));
                 std::size_t groundButtonIndex = 0u;
                 for (std::size_t prefabIndex = 0u;
                      prefabIndex < prefabCount;
@@ -3008,14 +3254,17 @@ EditorShellActions EditorShell::drawWorkspace(
                     if (prefab.category != "Ground") {
                         continue;
                     }
-                    if ((groundButtonIndex % 2u) != 0u) {
+                    if ((groundButtonIndex %
+                         static_cast<std::size_t>(paletteColumns)) != 0u) {
                         ImGui::SameLine();
                     }
                     ImGui::PushID(
                         static_cast<int>(prefabIndex));
-                    if (ImGui::Button(
-                            prefab.displayName.c_str(),
-                            ImVec2(quickButtonWidth, 30.0f))) {
+                    if (drawTerrainPrefabPreviewCard(
+                            prefab,
+                            ImVec2(previewCardWidth, 102.0f),
+                            static_cast<int>(prefabIndex) ==
+                                impl_->terrainPrefabIndex)) {
                         queuePrefabSwap(
                             static_cast<int>(prefabIndex));
                     }
@@ -3034,19 +3283,25 @@ EditorShellActions EditorShell::drawWorkspace(
                             continue;
                         }
                         if (prefab.category != previousCategory) {
+                            if (!previousCategory.empty()) {
+                                ImGui::Spacing();
+                            }
                             ImGui::TextDisabled(
                                 "%s", prefab.category.c_str());
                             previousCategory = prefab.category;
                             categoryButtonIndex = 0u;
                         }
-                        if ((categoryButtonIndex % 2u) != 0u) {
+                        if ((categoryButtonIndex %
+                             static_cast<std::size_t>(paletteColumns)) != 0u) {
                             ImGui::SameLine();
                         }
                         ImGui::PushID(
                             static_cast<int>(prefabIndex));
-                        if (ImGui::Button(
-                                prefab.displayName.c_str(),
-                                ImVec2(quickButtonWidth, 28.0f))) {
+                        if (drawTerrainPrefabPreviewCard(
+                                prefab,
+                                ImVec2(previewCardWidth, 96.0f),
+                                static_cast<int>(prefabIndex) ==
+                                    impl_->terrainPrefabIndex)) {
                             queuePrefabSwap(
                                 static_cast<int>(prefabIndex));
                         }
@@ -3058,7 +3313,12 @@ EditorShellActions EditorShell::drawWorkspace(
                     "Only project-supported prefabs are listed; swaps are immediate and preserve elevation.");
                 ImGui::TextDisabled(
                     "Ledge walls rebuild from this tile and its neighbors.");
+                if (!hasTileSelection) {
+                    ImGui::TextDisabled(
+                        "Browse freely; select terrain cells before applying a prefab.");
+                }
             }
+            ImGui::BeginDisabled(!hasTileSelection);
             if (ImGui::Button(
                     "Lower 50 cm",
                     ImVec2(0.0f, 28.0f))) {

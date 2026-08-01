@@ -1489,7 +1489,10 @@ void refreshTerrainTileViews(LoadedProject& project) {
                 .displayName = prefab.displayName,
                 .category = prefab.category ? prefab.category : "Ground",
                 .surface = prefab.surface,
-                .shape = prefab.shape});
+                .shape = prefab.shape,
+                .previewTopRgba = prefab.previewTopRgba,
+                .previewSideRgba = prefab.previewSideRgba,
+                .previewAccentRgba = prefab.previewAccentRgba});
     }
 }
 

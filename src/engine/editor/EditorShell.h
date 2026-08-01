@@ -109,6 +109,9 @@ struct WorkspaceTerrainPrefab {
     std::string category;
     std::string surface;
     std::string shape;
+    std::uint32_t previewTopRgba = 0x6f7a82ffu;
+    std::uint32_t previewSideRgba = 0x343b40ffu;
+    std::uint32_t previewAccentRgba = 0xaeb7bdffu;
 };
 
 struct WorkspaceAsset {

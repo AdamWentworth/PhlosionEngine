@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 18u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 19u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -241,6 +241,11 @@ struct EditorProjectTerrainPrefab {
     const char* category = nullptr;
     const char* surface = nullptr;
     const char* shape = nullptr;
+    // Project-authored RGBA8 colors packed as 0xRRGGBBAA. They describe the
+    // Inspector thumbnail, not a replacement for the runtime material.
+    std::uint32_t previewTopRgba = 0x6f7a82ffu;
+    std::uint32_t previewSideRgba = 0x343b40ffu;
+    std::uint32_t previewAccentRgba = 0xaeb7bdffu;
 };
 
 struct EditorProjectTerrainTileEditRequest {
