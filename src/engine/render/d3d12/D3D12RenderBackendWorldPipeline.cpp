@@ -297,7 +297,7 @@ float3 applyLgpeGroundCliffSharedLighting(
       evaluateLgpeRoute1ProjectedLighting(1.0f, worldPosition);
   return lerp(shadowColor, 1.0f.xxx, light) * surface;
 }
-float3 evaluateLgpeFieldGroundSurface(PSIn i, bool rampHighlight) {
+float3 evaluateLgpeFieldGroundSurface(PSIn i) {
   float2 uv0 = float2(i.uv.x, 1.0f - i.uv.y);
   float2 blendUv = float2(i.uv.x * 0.3f, 1.0f - i.uv.y * 0.3f);
   float2 uv2 = float2(i.sourceUv2.x, 1.0f - i.sourceUv2.y);
@@ -322,20 +322,6 @@ float3 evaluateLgpeFieldGroundSurface(PSIn i, bool rampHighlight) {
   float3 sourceSurface =
       grassMask.rgb * authoredVertexColor.rgb * surface +
       alphaLight * (1.0f - saturate(authoredVertexColor.a));
-  if (rampHighlight) {
-    // Exact FieldCliffShader01 rim constants from Route 1's first source
-    // ramp, transferred onto its editable dirt surface.
-    const float3 rimColor = float3(0.278898f, 0.205076f, 0.031895f);
-    float3 normal = normalize(i.worldNormal);
-    float3 cameraPos =
-        float3(uMaterialRect1V, uMaterialRect1W, uMaterialRect1H);
-    float3 viewDirection = normalize(cameraPos - i.worldPos);
-    float rim = saturate(
-        ((1.0f - dot(normal, viewDirection)) - 0.5f) / 0.5f) *
-        0.5f;
-    sourceSurface +=
-        grassMask.rgb * authoredVertexColor.rgb * rimColor * rim;
-  }
   return applyLgpeGroundCliffSharedLighting(sourceSurface, i.worldPos);
 }
 float3 evaluateLgpeFieldCliffSurface(PSIn i) {
@@ -2097,7 +2083,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
     return evalFireTailExact(i);
   }
   if (uMaterialMode > 3.5f && uMaterialMode < 4.5f) {
-    float3 groundLinear = evaluateLgpeFieldGroundSurface(i, false);
+    float3 groundLinear = evaluateLgpeFieldGroundSurface(i);
     return float4(resolveWorldSceneColor(groundLinear), 1.0f);
   }
   if (uMaterialMode > 4.5f && uMaterialMode < 5.5f) {
@@ -2107,10 +2093,6 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   if (uMaterialMode > 5.5f && uMaterialMode < 6.5f) {
     float4 treeSurface = evaluateLgpeFieldTree05Surface(i);
     return float4(resolveWorldSceneColor(treeSurface.rgb), treeSurface.a);
-  }
-  if (uMaterialMode > 26.5f && uMaterialMode < 27.5f) {
-    float3 rampLinear = evaluateLgpeFieldGroundSurface(i, true);
-    return float4(resolveWorldSceneColor(rampLinear), 1.0f);
   }
   if (uMaterialMode > 6.5f && uMaterialMode < 7.5f) {
     float4 trunkSurface =

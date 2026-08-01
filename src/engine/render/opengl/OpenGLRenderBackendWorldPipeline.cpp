@@ -520,7 +520,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 evaluateLgpeRoute1ProjectedLighting(1.0);
             return mix(shadowColor, vec3(1.0), light) * surface;
         }
-        vec3 evaluateLgpeFieldGroundSurface(bool rampHighlight) {
+        vec3 evaluateLgpeFieldGroundSurface() {
             vec2 uv0 = vec2(vUv.x, 1.0 - vUv.y);
             vec2 blendUv = vec2(vUv.x * 0.3, 1.0 - vUv.y * 0.3);
             vec2 uv2 = vec2(vSourceUv2.x, 1.0 - vSourceUv2.y);
@@ -544,19 +544,6 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 grassMask.rgb * authoredVertexColor.rgb * surface +
                 max(uEmissiveFactor, vec3(0.0)) *
                     (1.0 - clamp(authoredVertexColor.a, 0.0, 1.0));
-            if (rampHighlight) {
-                // Exact FieldCliffShader01 rim constants from Route 1's first
-                // source ramp, transferred onto its editable dirt surface.
-                const vec3 rimColor = vec3(0.278898, 0.205076, 0.031895);
-                vec3 normal = normalize(vWorldNormal);
-                vec3 viewDirection = normalize(uCameraPos - vWorldPos);
-                float rim = clamp(
-                    ((1.0 - dot(normal, viewDirection)) - 0.5) / 0.5,
-                    0.0,
-                    1.0) * 0.5;
-                sourceSurface +=
-                    grassMask.rgb * authoredVertexColor.rgb * rimColor * rim;
-            }
             return applyLgpeGroundCliffSharedLighting(sourceSurface);
         }
         vec3 evaluateLgpeFieldCliffSurface() {
@@ -2350,7 +2337,7 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                 return;
             }
             if (uMaterialMode > 3.5 && uMaterialMode < 4.5) {
-                vec3 groundLinear = evaluateLgpeFieldGroundSurface(false);
+                vec3 groundLinear = evaluateLgpeFieldGroundSurface();
                 FragColor = vec4(resolveWorldSceneColor(groundLinear), 1.0);
                 return;
             }
@@ -2363,11 +2350,6 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                 vec4 treeSurface = evaluateLgpeFieldTree05Surface();
                 FragColor =
                     vec4(resolveWorldSceneColor(treeSurface.rgb), treeSurface.a);
-                return;
-            }
-            if (uMaterialMode > 26.5 && uMaterialMode < 27.5) {
-                vec3 rampLinear = evaluateLgpeFieldGroundSurface(true);
-                FragColor = vec4(resolveWorldSceneColor(rampLinear), 1.0);
                 return;
             }
             if (uMaterialMode > 6.5 && uMaterialMode < 7.5) {
