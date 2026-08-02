@@ -1391,6 +1391,8 @@ void refreshLayoutObjectViews(LoadedProject& project) {
                     object.terrainElevationLevel,
                 .terrainGridBound =
                     object.terrainGridBound,
+                .useGridTranslationEditor =
+                    object.useGridTranslationEditor,
                 .terrainRegions = object.terrainRegions,
                 .terrainRegionCount =
                     object.terrainRegionCount,

@@ -82,6 +82,7 @@ struct WorkspaceLayoutObject {
     std::array<std::uint32_t, 2> terrainGridExtent{};
     std::int32_t terrainElevationLevel = 0;
     bool terrainGridBound = false;
+    bool useGridTranslationEditor = false;
     std::array<EditorProjectGridRegion, 4> terrainRegions{};
     std::size_t terrainRegionCount = 0u;
     std::array<float, 3> boundsMinimum{};

@@ -46,6 +46,8 @@ shell must not compare it to a game-defined string to decide behavior.
 reparent, duplicate, delete, suppress, and reset actions. It also declares
 which viewport may edit it and optional per-axis translation snapping. This
 keeps generic transform code in Phlosion while policy remains with the game.
+Terrain-following metadata and the optional grid-coordinate translation editor
+are separate declarations: grounding an object never changes its Inspector UI.
 
 `EditorProjectCommand` describes a project-owned action. Phlosion renders its
 name, explanation, fields, confirmation, and button; the plugin interprets the

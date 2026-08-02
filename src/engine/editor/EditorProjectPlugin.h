@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 26u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 27u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -201,6 +201,10 @@ struct EditorProjectLayoutObject {
     std::array<std::uint32_t, 2> terrainGridExtent{};
     std::int32_t terrainElevationLevel = 0;
     bool terrainGridBound = false;
+    // Selects the reusable integer grid-origin/elevation Inspector instead of
+    // the ordinary floating-point translation editor. Terrain binding alone
+    // does not imply that an object should be positioned in grid coordinates.
+    bool useGridTranslationEditor = false;
     std::array<EditorProjectGridRegion, 4> terrainRegions{};
     std::size_t terrainRegionCount = 0u;
     // Current source-space AABB used by project-owned clearance tools. The

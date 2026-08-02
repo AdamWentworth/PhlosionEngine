@@ -4960,7 +4960,8 @@ EditorShellActions EditorShell::drawWorkspace(
         bool liveEditChanged = false;
         bool liveEditFinished = false;
         bool translationChanged = false;
-        if (canTranslate && inspectedLayout->terrainGridBound) {
+        if (canTranslate &&
+            inspectedLayout->useGridTranslationEditor) {
             std::array<int, 2> terrainOrigin{
                 inspectedLayout->terrainGridOrigin[0],
                 inspectedLayout->terrainGridOrigin[1]};
