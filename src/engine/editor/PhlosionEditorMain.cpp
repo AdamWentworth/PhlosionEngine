@@ -831,8 +831,7 @@ std::optional<std::string> cookedPrefabKind(
 CookedAssetType cookedPrefabAssetType(
     std::string_view kind) {
     if (kind == "Character" ||
-        kind == "CharacterPrefab" ||
-        kind == "Pokemon") {
+        kind == "CharacterPrefab") {
         return CookedAssetType{
             "Character Prefab", "Character Prefabs", 1};
     }
@@ -843,8 +842,7 @@ CookedAssetType cookedPrefabAssetType(
             "Object Prefab", "Object Prefabs", 2};
     }
     if (kind == "Environment" ||
-        kind == "EnvironmentPrefab" ||
-        kind == "LgpeEnvironment") {
+        kind == "EnvironmentPrefab") {
         return CookedAssetType{
             "Environment Prefab", "Environment Prefabs", 3};
     }
@@ -1227,42 +1225,6 @@ buildReadOnlyHierarchy(
             }});
     hierarchy.push_back(
         Item{
-            .id = "environment/encounter-grass",
-            .displayName = "Encounter grass",
-            .typeName = "Instanced Vegetation",
-            .depth = 2,
-            .properties = {
-                Property{
-                    "Instances",
-                    number(
-                        stats.encounterGrassInstanceCount)},
-                Property{
-                    "Simulation",
-                    "Wind-animated"},
-                Property{
-                    "Source",
-                    "Cooked scene composition"},
-            }});
-    hierarchy.push_back(
-        Item{
-            .id = "environment/placed-vegetation",
-            .displayName = "Placed vegetation",
-            .typeName = "Instanced Vegetation",
-            .depth = 2,
-            .properties = {
-                Property{
-                    "Instances",
-                    number(
-                        stats.vegetationInstanceCount)},
-                Property{
-                    "Includes",
-                    "Trees, shrubs, flowers, and ground vegetation"},
-                Property{
-                    "Source",
-                    "Cooked scene composition"},
-            }});
-    hierarchy.push_back(
-        Item{
             .id = "environment/projected-lighting",
             .displayName =
                 "Projected lighting and shadows",
@@ -1319,6 +1281,8 @@ struct LoadedProject {
         terrainSurfaceViews;
     std::vector<engine::editor::WorkspaceTerrainPrefab>
         terrainPrefabViews;
+    std::vector<engine::editor::WorkspaceProjectCommand>
+        projectCommandViews;
     std::vector<engine::editor::WorkspaceAsset>
         assetViews;
     std::size_t cookedAssetViewCount = 0u;
@@ -1375,6 +1339,39 @@ void refreshLayoutObjectViews(LoadedProject& project) {
                     object.prefabAssetId
                         ? object.prefabAssetId
                         : "",
+                .inspectorTitle =
+                    object.inspectorTitle
+                        ? object.inspectorTitle
+                        : "",
+                .inspectorSummary =
+                    object.inspectorSummary
+                        ? object.inspectorSummary
+                        : "",
+                .translationLabel =
+                    object.translationLabel
+                        ? object.translationLabel
+                        : "",
+                .viewportHint =
+                    object.viewportHint
+                        ? object.viewportHint
+                        : "",
+                .resetLabel =
+                    object.resetLabel
+                        ? object.resetLabel
+                        : "",
+                .scaleReadOnlyLabel =
+                    object.scaleReadOnlyLabel
+                        ? object.scaleReadOnlyLabel
+                        : "",
+                .scaleReadOnlyDescription =
+                    object.scaleReadOnlyDescription
+                        ? object.scaleReadOnlyDescription
+                        : "",
+                .capabilities = object.capabilities,
+                .viewportMask = object.viewportMask,
+                .translationSnap = object.translationSnap,
+                .fineTranslationSnap =
+                    object.fineTranslationSnap,
                 .sourceTranslation =
                     object.sourceTranslation,
                 .sourceRotationDegrees =
@@ -1394,18 +1391,9 @@ void refreshLayoutObjectViews(LoadedProject& project) {
                     object.terrainElevationLevel,
                 .terrainGridBound =
                     object.terrainGridBound,
-                .northBenchTerrainGridOrigin =
-                    object.northBenchTerrainGridOrigin,
-                .southBenchTerrainGridOrigin =
-                    object.southBenchTerrainGridOrigin,
-                .benchTerrainGridExtent =
-                    object.benchTerrainGridExtent,
-                .benchGapCells =
-                    object.benchGapCells,
-                .northBenchTerrainGridBound =
-                    object.northBenchTerrainGridBound,
-                .southBenchTerrainGridBound =
-                    object.southBenchTerrainGridBound,
+                .terrainRegions = object.terrainRegions,
+                .terrainRegionCount =
+                    object.terrainRegionCount,
                 .boundsMinimum =
                     object.boundsMinimum,
                 .boundsMaximum =
@@ -1510,6 +1498,60 @@ void refreshTerrainTileViews(LoadedProject& project) {
                     prefab.previewConnectionMask,
                 .kind = prefab.kind,
                 .elevationDelta = prefab.elevationDelta});
+    }
+}
+
+void refreshProjectCommandViews(LoadedProject& project) {
+    project.projectCommandViews.clear();
+    const std::size_t commandCount =
+        project.runtime->projectCommandCount();
+    project.projectCommandViews.reserve(commandCount);
+    for (std::size_t commandIndex = 0u;
+         commandIndex < commandCount;
+         ++commandIndex) {
+        const auto command =
+            project.runtime->projectCommand(commandIndex);
+        if (!command.id || !command.displayName) {
+            continue;
+        }
+        engine::editor::WorkspaceProjectCommand view{
+            .id = command.id,
+            .displayName = command.displayName,
+            .category = command.category ? command.category : "",
+            .description = command.description
+                ? command.description
+                : "",
+            .buttonLabel = command.buttonLabel
+                ? command.buttonLabel
+                : command.displayName,
+            .confirmationText = command.confirmationText
+                ? command.confirmationText
+                : "",
+            .confirmationRequired =
+                command.confirmationRequired};
+        view.fields.reserve(command.fieldCount);
+        for (std::size_t fieldIndex = 0u;
+             fieldIndex < command.fieldCount;
+             ++fieldIndex) {
+            const auto& field = command.fields[fieldIndex];
+            if (!field.id || !field.displayName) {
+                continue;
+            }
+            view.fields.push_back(
+                engine::editor::WorkspaceProjectCommandField{
+                    .id = field.id,
+                    .displayName = field.displayName,
+                    .description = field.description
+                        ? field.description
+                        : "",
+                    .kind = field.kind,
+                    .booleanValue = field.defaultBoolean,
+                    .floatValue = field.defaultFloat,
+                    .minimumFloat = field.minimumFloat,
+                    .maximumFloat = field.maximumFloat,
+                    .stepFloat = field.stepFloat});
+        }
+        project.projectCommandViews.push_back(std::move(view));
     }
 }
 
@@ -1787,21 +1829,6 @@ void rebuildProjectHierarchy(
             }
         };
     appendFolder(appendFolder, root, 2);
-    project.hierarchyViews.push_back(
-        engine::editor::WorkspaceHierarchyItem{
-            .id = "environment/lighting",
-            .displayName = "Lighting and Atmosphere",
-            .typeName = "Scene Folder",
-            .depth = 2,
-            .folder = true,
-            .expandedByDefault = false,
-            .properties = {
-                {"Projected shadow triangles",
-                 std::to_string(
-                     stats.shadowTriangleCount)},
-                {"Editing",
-                 "Scene-level lighting controls are a later component adapter"},
-            }});
 }
 
 void refreshAssetPreviewView(LoadedProject& project) {
@@ -2211,6 +2238,7 @@ std::unique_ptr<LoadedProject> loadProject(
     loaded->runtime->prewarm(renderer, cameraContext);
     refreshLayoutObjectViews(*loaded);
     refreshTerrainTileViews(*loaded);
+    refreshProjectCommandViews(*loaded);
     rebuildProjectHierarchy(
         *loaded,
         loaded->sceneViews[
@@ -2935,6 +2963,17 @@ int main(int argc, char** argv) {
                                 &previewError)) {
                             project->activeGamePreviewId =
                                 arguments.gamePreview;
+                            refreshLayoutObjectViews(*project);
+                            const auto& activeScene =
+                                project->sceneViews[
+                                    project->activeSceneIndex];
+                            rebuildProjectHierarchy(
+                                *project,
+                                activeScene,
+                                project->runtime->stats(),
+                                renderer.backendId()
+                                    ? renderer.backendId()
+                                    : "unknown");
                             activeViewport =
                                 engine::editor::
                                     EditorViewportKind::Game;
@@ -3267,9 +3306,6 @@ int main(int argc, char** argv) {
                     .layoutOverlayVisible =
                         project->runtime->
                             layoutOverlayVisible(),
-                    .boardClearanceSupported =
-                        project->runtime->
-                            supportsBoardClearance(),
                     .terrainTileEditingSupported =
                         project->runtime->
                             supportsTerrainTileEditing(),
@@ -3286,6 +3322,8 @@ int main(int argc, char** argv) {
                         &project->terrainSurfaceViews,
                     .terrainPrefabs =
                         &project->terrainPrefabViews,
+                    .projectCommands =
+                        &project->projectCommandViews,
                     .assetPreview =
                         selectedAssetPreviewIndex >= 0
                             ? &project->assetPreviewView
@@ -3311,10 +3349,6 @@ int main(int argc, char** argv) {
                     .sceneCount = stats.sceneCount,
                     .materialCount = stats.materialCount,
                     .drawClassCount = stats.drawClassCount,
-                    .encounterGrassInstanceCount =
-                        stats.encounterGrassInstanceCount,
-                    .vegetationInstanceCount =
-                        stats.vegetationInstanceCount,
                     .visibleTriangleCount =
                         stats.visibleTriangleCount,
                     .shadowTriangleCount =
@@ -3412,54 +3446,46 @@ int main(int argc, char** argv) {
                 }
             }
             if (project &&
-                actions.resetSceneToSourceRequested) {
-                std::string resetError;
-                if (project->runtime->resetSceneToSource(
-                        &resetError)) {
-                    refreshSceneAuthoringViews();
-                    project->status =
-                        "Scene restored to its imported source baseline and autosaved.";
-                } else {
-                    project->status =
-                        "Source-scene reset failed: " +
-                        resetError;
+                actions.executeProjectCommandIndex >= 0 &&
+                static_cast<std::size_t>(
+                    actions.executeProjectCommandIndex) <
+                    project->projectCommandViews.size()) {
+                const auto& command =
+                    project->projectCommandViews[
+                        static_cast<std::size_t>(
+                            actions.executeProjectCommandIndex)];
+                std::vector<engine::editor::
+                    EditorProjectCommandValue> values;
+                values.reserve(command.fields.size());
+                for (const auto& field : command.fields) {
+                    values.push_back(
+                        engine::editor::EditorProjectCommandValue{
+                            .id = field.id.c_str(),
+                            .booleanValue = field.booleanValue,
+                            .floatValue = field.floatValue});
                 }
-            }
-            if (project &&
-                actions.applyBoardClearanceRequested) {
-                engine::editor::
-                    EditorProjectBoardClearanceResult clearanceResult;
-                std::string clearanceError;
-                if (project->runtime->applyBoardClearance(
-                        actions.boardClearanceRequest,
-                        clearanceResult,
-                        &clearanceError)) {
-                    refreshSceneAuthoringViews();
+                engine::editor::EditorProjectCommandResult
+                    commandResult;
+                std::string commandError;
+                if (project->runtime->executeProjectCommand(
+                        command.id.c_str(),
+                        values.data(),
+                        values.size(),
+                        commandResult,
+                        &commandError)) {
+                    if (commandResult.sceneChanged ||
+                        commandResult.assetsChanged) {
+                        refreshSceneAuthoringViews();
+                    }
                     project->status =
-                        "Board clearing autosaved: " +
-                        std::to_string(
-                            clearanceResult.suppressedTerrainCount) +
-                        " terrain, " +
-                        std::to_string(
-                            clearanceResult.suppressedVegetationCount) +
-                        " vegetation, " +
-                        std::to_string(
-                            clearanceResult.suppressedObjectCount) +
-                        " object obstructions suppressed" +
-                        (clearanceResult.groundInfillCreated
-                             ? "; ground infill created."
-                             : ".") +
-                        (clearanceResult.
-                                 skippedUnsafeAggregateCount > 0u
-                             ? " " + std::to_string(
-                                   clearanceResult.
-                                       skippedUnsafeAggregateCount) +
-                                   " broad source foliage layers were preserved because their editable boundaries are not yet safe."
-                             : "");
+                        commandResult.status &&
+                            commandResult.status[0] != '\0'
+                        ? commandResult.status
+                        : command.displayName + " completed.";
                 } else {
                     project->status =
-                        "Board clearing failed: " +
-                        clearanceError;
+                        command.displayName + " failed: " +
+                        commandError;
                 }
             }
             if (project && actions.terrainTileEditRequested) {
@@ -3724,7 +3750,7 @@ int main(int argc, char** argv) {
                                     .suppressed =
                                         actions.layoutSuppressed,
                                     .reason =
-                                        "autochess_board_clearance"},
+                                        "editor_layout_override"},
                             &layoutError);
                     if (applied &&
                         actions.layoutObjectCommitRequested) {
@@ -3756,7 +3782,7 @@ int main(int argc, char** argv) {
                                     .suppressed =
                                         actions.layoutSuppressed,
                                     .reason =
-                                        "autochess_board_clearance"},
+                                        "editor_layout_override"},
                             &layoutError);
                 }
                 if (applied) {
@@ -4082,6 +4108,8 @@ int main(int argc, char** argv) {
                                         glm::value_ptr(
                                             cameraTarget)});
                         refreshLayoutObjectViews(
+                            *project);
+                        refreshProjectCommandViews(
                             *project);
                         rebuildProjectHierarchy(
                             *project,

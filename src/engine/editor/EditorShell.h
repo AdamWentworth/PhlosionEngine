@@ -59,6 +59,19 @@ struct WorkspaceLayoutObject {
     std::string targetKind;
     std::string categoryPath;
     std::string prefabAssetId;
+    std::string inspectorTitle;
+    std::string inspectorSummary;
+    std::string translationLabel;
+    std::string viewportHint;
+    std::string resetLabel;
+    std::string scaleReadOnlyLabel;
+    std::string scaleReadOnlyDescription;
+    std::uint32_t capabilities =
+        kEditorProjectLayoutDefaultCapabilities;
+    std::uint8_t viewportMask =
+        EditorProjectLayoutViewportScene;
+    std::array<float, 3> translationSnap{};
+    std::array<float, 3> fineTranslationSnap{};
     std::array<float, 3> sourceTranslation{};
     std::array<float, 3> sourceRotationDegrees{};
     std::array<float, 3> sourceScale{1.0f, 1.0f, 1.0f};
@@ -69,12 +82,8 @@ struct WorkspaceLayoutObject {
     std::array<std::uint32_t, 2> terrainGridExtent{};
     std::int32_t terrainElevationLevel = 0;
     bool terrainGridBound = false;
-    std::array<std::int32_t, 2> northBenchTerrainGridOrigin{};
-    std::array<std::int32_t, 2> southBenchTerrainGridOrigin{};
-    std::uint32_t benchTerrainGridExtent = 0u;
-    std::uint32_t benchGapCells = 0u;
-    bool northBenchTerrainGridBound = false;
-    bool southBenchTerrainGridBound = false;
+    std::array<EditorProjectGridRegion, 4> terrainRegions{};
+    std::size_t terrainRegionCount = 0u;
     std::array<float, 3> boundsMinimum{};
     std::array<float, 3> boundsMaximum{};
     std::array<float, 2> viewportPosition{};
@@ -135,6 +144,30 @@ struct WorkspaceTerrainTileStamp {
     std::string visualVariant;
     EditorProjectTerrainTileCoordinate sourceReference{};
     bool hasSourceReference = false;
+};
+
+struct WorkspaceProjectCommandField {
+    std::string id;
+    std::string displayName;
+    std::string description;
+    EditorProjectCommandFieldKind kind =
+        EditorProjectCommandFieldKind::Boolean;
+    bool booleanValue = false;
+    float floatValue = 0.0f;
+    float minimumFloat = 0.0f;
+    float maximumFloat = 1.0f;
+    float stepFloat = 0.05f;
+};
+
+struct WorkspaceProjectCommand {
+    std::string id;
+    std::string displayName;
+    std::string category;
+    std::string description;
+    std::string buttonLabel;
+    std::string confirmationText;
+    std::vector<WorkspaceProjectCommandField> fields;
+    bool confirmationRequired = false;
 };
 
 struct WorkspaceAsset {
@@ -230,7 +263,6 @@ struct WorkspaceView {
     const std::vector<WorkspaceLayoutObject>*
         layoutObjects = nullptr;
     bool layoutOverlayVisible = false;
-    bool boardClearanceSupported = false;
     bool terrainTileEditingSupported = false;
     bool canUndoSceneEdit = false;
     bool canRedoSceneEdit = false;
@@ -238,6 +270,7 @@ struct WorkspaceView {
     const std::vector<WorkspaceTerrainTile>* terrainTiles = nullptr;
     const std::vector<WorkspaceTerrainSurface>* terrainSurfaces = nullptr;
     const std::vector<WorkspaceTerrainPrefab>* terrainPrefabs = nullptr;
+    std::vector<WorkspaceProjectCommand>* projectCommands = nullptr;
     const WorkspaceAssetPreview* assetPreview = nullptr;
     const std::vector<WorkspaceScene>* scenes = nullptr;
     std::string_view activeSceneId;
@@ -254,8 +287,6 @@ struct WorkspaceView {
     std::uint32_t sceneCount = 0u;
     std::uint32_t materialCount = 0u;
     std::uint32_t drawClassCount = 0u;
-    std::uint32_t encounterGrassInstanceCount = 0u;
-    std::uint32_t vegetationInstanceCount = 0u;
     std::uint64_t visibleTriangleCount = 0u;
     std::uint64_t shadowTriangleCount = 0u;
     std::size_t archiveFileCount = 0u;
@@ -300,12 +331,10 @@ struct EditorShellActions {
     bool layoutObjectReparentRequested = false;
     bool undoSceneEditRequested = false;
     bool redoSceneEditRequested = false;
-    bool applyBoardClearanceRequested = false;
-    bool resetSceneToSourceRequested = false;
+    int executeProjectCommandIndex = -1;
     std::string layoutObjectText;
     bool layoutOverlayVisibilityChanged = false;
     bool layoutOverlayVisible = false;
-    EditorProjectBoardClearanceRequest boardClearanceRequest{};
     bool terrainTileEditRequested = false;
     std::vector<EditorProjectTerrainTileCoordinate>
         terrainTileCoordinates;

@@ -33,6 +33,23 @@ namespace engine::editor {
 
 namespace {
 
+bool hasLayoutCapability(
+    const WorkspaceLayoutObject& object,
+    EditorProjectLayoutCapability capability) {
+    return (object.capabilities &
+            static_cast<std::uint32_t>(capability)) != 0u;
+}
+
+bool layoutObjectVisibleInViewport(
+    const WorkspaceLayoutObject& object,
+    EditorViewportKind viewport) {
+    const std::uint8_t required =
+        viewport == EditorViewportKind::Game
+        ? EditorProjectLayoutViewportGame
+        : EditorProjectLayoutViewportScene;
+    return (object.viewportMask & required) != 0u;
+}
+
 #if defined(_WIN32)
 struct D3D12DescriptorAllocator {
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> heap;
@@ -357,8 +374,8 @@ bool drawTerrainPrefabPreviewCard(
             prefab.previewTopRgba,
             hovered ? 1.08f : 1.0f));
     if (platform) {
-        // A compact source-style grass lip makes platform cards read as
-        // terrain elevation, not as a thicker generic box.
+        // A compact project-colored edge accent makes platform cards read as
+        // terrain elevation rather than as a thicker generic box.
         const ImU32 lipShadow = terrainPreviewColor(
             prefab.previewSideRgba,
             0.62f,
@@ -413,7 +430,9 @@ bool drawTerrainPrefabPreviewCard(
     if (prefab.surface == "empty") {
         drawList->AddLine(top[0], top[2], accent, 2.0f);
         drawList->AddLine(top[1], top[3], accent, 2.0f);
-    } else if (prefab.surface == "dirt_path") {
+    } else if (
+        prefab.previewConnectionMask !=
+        std::numeric_limits<std::uint32_t>::max()) {
         const std::uint32_t mask =
             prefab.previewConnectionMask & 0x0fu;
         const bool automatic = prefab.visualVariant == "auto";
@@ -451,14 +470,14 @@ bool drawTerrainPrefabPreviewCard(
             }
         }
         if (!automatic) {
-            const ImU32 grassEdgeColor = terrainPreviewColor(
+            const ImU32 edgeAccentColor = terrainPreviewColor(
                 prefab.previewTopRgba,
                 hovered ? 1.18f : 1.10f);
-            const ImU32 grassEdgeShadow = terrainPreviewColor(
+            const ImU32 edgeAccentShadow = terrainPreviewColor(
                 prefab.previewTopRgba,
                 0.72f,
                 0.82f);
-            const auto drawGrassEdge =
+            const auto drawEdgeAccent =
                 [&](std::uint32_t connectionBit) {
                     if ((mask & connectionBit) != 0u) {
                         return;
@@ -488,19 +507,19 @@ bool drawTerrainPrefabPreviewCard(
                                 centerPoint.x + 0.7f,
                                 centerPoint.y + 0.9f),
                             radius,
-                            grassEdgeShadow,
+                            edgeAccentShadow,
                             8);
                         drawList->AddCircleFilled(
                             centerPoint,
                             radius,
-                            grassEdgeColor,
+                            edgeAccentColor,
                             8);
                     }
                 };
-            drawGrassEdge(0x01u);
-            drawGrassEdge(0x02u);
-            drawGrassEdge(0x04u);
-            drawGrassEdge(0x08u);
+            drawEdgeAccent(0x01u);
+            drawEdgeAccent(0x02u);
+            drawEdgeAccent(0x04u);
+            drawEdgeAccent(0x08u);
         }
         constexpr std::array<std::array<float, 2>, 5> dots{{
             {0.28f, 0.30f},
@@ -519,14 +538,14 @@ bool drawTerrainPrefabPreviewCard(
                 8);
         }
     } else {
-        constexpr std::array<std::array<float, 2>, 4> grass{{
+        constexpr std::array<std::array<float, 2>, 4> detailStrokes{{
             {0.25f, 0.35f},
             {0.58f, 0.28f},
             {0.43f, 0.68f},
             {0.73f, 0.61f},
         }};
-        for (const auto& blade : grass) {
-            const ImVec2 base = pointOnTop(blade[0], blade[1]);
+        for (const auto& stroke : detailStrokes) {
+            const ImVec2 base = pointOnTop(stroke[0], stroke[1]);
             drawList->AddLine(
                 base,
                 ImVec2(base.x + 2.0f, base.y - 6.0f),
@@ -596,7 +615,7 @@ bool drawTerrainPrefabPreviewCard(
     if (hovered) {
         if (platform) {
             ImGui::SetTooltip(
-                "%s\n%s / raised flat platform\nApplies %+d source level and derives grass lips, cliff faces, and corners from neighboring cells.\nClick to build from the selected terrain footprint.",
+                "%s\n%s / raised flat platform\nApplies %+d project level and derives exposed sides, edge accents, and corners from neighboring cells.\nClick to build from the selected terrain footprint.",
                 prefab.displayName.c_str(),
                 prefab.surface.c_str(),
                 prefab.elevationDelta);
@@ -1021,6 +1040,7 @@ struct EditorShell::Impl {
     LayoutGizmoOperation layoutGizmoOperation =
         LayoutGizmoOperation::Translate;
     bool layoutGizmoDragging = false;
+    bool layoutGizmoPreviewActive = false;
     int layoutGizmoAxis = -1;
     ImVec2 layoutGizmoDragStart{};
     ImVec2 layoutGizmoDragDirection{1.0f, 0.0f};
@@ -1031,12 +1051,6 @@ struct EditorShell::Impl {
         1.0f, 1.0f, 1.0f};
     bool layoutBoxSelecting = false;
     ImVec2 layoutBoxSelectStart{};
-    float boardClearancePaddingCells = 0.35f;
-    bool boardClearanceClearTerrain = true;
-    bool boardClearanceClearVegetation = true;
-    bool boardClearanceClearObjects = true;
-    bool boardClearanceRetainRamps = true;
-    bool boardClearanceAddGroundInfill = true;
     bool terrainTileEditing = false;
     bool terrainTileDragging = false;
     EditorProjectTerrainTileCoordinate
@@ -1051,7 +1065,6 @@ struct EditorShell::Impl {
     int terrainSurfaceIndex = 0;
     int terrainPlatformSurfaceIndex = 0;
     int terrainPlatformProfileIndex = 0;
-    int terrainShapeIndex = 0;
     int terrainTargetElevationLevel = 0;
     bool terrainPlatformPreview = true;
     bool terrainShowElevationLabels = true;
@@ -1946,7 +1959,9 @@ EditorShellActions EditorShell::drawWorkspace(
             ImGui::SameLine();
             ImGui::Dummy(ImVec2(12.0f, 0.0f));
             ImGui::SameLine();
-            if (impl_->terrainTileEditing) {
+            const bool terrainTileEditingStyled =
+                impl_->terrainTileEditing;
+            if (terrainTileEditingStyled) {
                 ImGui::PushStyleColor(
                     ImGuiCol_Button,
                     ImVec4(0.52f, 0.31f, 0.08f, 1.0f));
@@ -1961,12 +1976,15 @@ EditorShellActions EditorShell::drawWorkspace(
                 impl_->terrainTileDragging = false;
                 impl_->layoutBoxSelecting = false;
                 impl_->layoutGizmoDragging = false;
+                impl_->layoutGizmoPreviewActive = false;
             }
-            if (impl_->terrainTileEditing) {
+            if (terrainTileEditingStyled) {
                 ImGui::PopStyleColor();
             }
             ImGui::SameLine();
-            if (impl_->terrainShowElevationLabels) {
+            const bool elevationLabelsStyled =
+                impl_->terrainShowElevationLabels;
+            if (elevationLabelsStyled) {
                 ImGui::PushStyleColor(
                     ImGuiCol_Button,
                     ImVec4(0.14f, 0.43f, 0.43f, 1.0f));
@@ -1979,7 +1997,7 @@ EditorShellActions EditorShell::drawWorkspace(
                 impl_->terrainShowElevationLabels =
                     !impl_->terrainShowElevationLabels;
             }
-            if (impl_->terrainShowElevationLabels) {
+            if (elevationLabelsStyled) {
                 ImGui::PopStyleColor();
             }
             if (ImGui::IsItemHovered()) {
@@ -1987,7 +2005,9 @@ EditorShellActions EditorShell::drawWorkspace(
                     "Show the exact saved elevation profile for each cell (for example L2 or L2-L3).");
             }
             ImGui::SameLine();
-            if (impl_->terrainShowCoordinateLabels) {
+            const bool coordinateLabelsStyled =
+                impl_->terrainShowCoordinateLabels;
+            if (coordinateLabelsStyled) {
                 ImGui::PushStyleColor(
                     ImGuiCol_Button,
                     ImVec4(0.24f, 0.36f, 0.58f, 1.0f));
@@ -2000,7 +2020,7 @@ EditorShellActions EditorShell::drawWorkspace(
                 impl_->terrainShowCoordinateLabels =
                     !impl_->terrainShowCoordinateLabels;
             }
-            if (impl_->terrainShowCoordinateLabels) {
+            if (coordinateLabelsStyled) {
                 ImGui::PopStyleColor();
             }
             if (ImGui::IsItemHovered()) {
@@ -2018,28 +2038,51 @@ EditorShellActions EditorShell::drawWorkspace(
                   static_cast<std::size_t>(
                       impl_->selectedLayoutObject)]
             : nullptr;
-        const bool selectedPreviewUnit =
+        const bool selectedVisibleInViewport =
             selectedViewportLayout &&
-            selectedViewportLayout->targetKind ==
-                "gameplay_preview_unit";
+            layoutObjectVisibleInViewport(
+                *selectedViewportLayout,
+                impl_->selectedViewport);
         if (((impl_->selectedViewport ==
                   EditorViewportKind::Scene &&
               !impl_->terrainTileEditing) ||
              (impl_->selectedViewport ==
                   EditorViewportKind::Game &&
-              selectedPreviewUnit)) &&
+              selectedVisibleInViewport)) &&
             workspace.layoutObjects &&
             !workspace.layoutObjects->empty()) {
-            const bool selectedGameplayBoard =
-                selectedViewportLayout &&
-                selectedViewportLayout->targetKind ==
-                    "gameplay_board";
-            if ((selectedGameplayBoard ||
-                 selectedPreviewUnit) &&
-                impl_->layoutGizmoOperation !=
-                    LayoutGizmoOperation::Translate) {
+            const bool canTranslate =
+                !selectedViewportLayout ||
+                hasLayoutCapability(
+                    *selectedViewportLayout,
+                    EditorProjectLayoutTranslate);
+            const bool canRotate =
+                !selectedViewportLayout ||
+                hasLayoutCapability(
+                    *selectedViewportLayout,
+                    EditorProjectLayoutRotate);
+            const bool canScale =
+                !selectedViewportLayout ||
+                hasLayoutCapability(
+                    *selectedViewportLayout,
+                    EditorProjectLayoutScale);
+            const bool activeOperationSupported =
+                (impl_->layoutGizmoOperation ==
+                     LayoutGizmoOperation::Translate &&
+                 canTranslate) ||
+                (impl_->layoutGizmoOperation ==
+                     LayoutGizmoOperation::Rotate &&
+                 canRotate) ||
+                (impl_->layoutGizmoOperation ==
+                     LayoutGizmoOperation::Scale &&
+                 canScale);
+            if (!activeOperationSupported) {
                 impl_->layoutGizmoOperation =
-                    LayoutGizmoOperation::Translate;
+                    canTranslate
+                    ? LayoutGizmoOperation::Translate
+                    : canRotate
+                    ? LayoutGizmoOperation::Rotate
+                    : LayoutGizmoOperation::Scale;
             }
             ImGui::SameLine();
             ImGui::Dummy(ImVec2(12.0f, 0.0f));
@@ -2066,19 +2109,19 @@ EditorShellActions EditorShell::drawWorkspace(
                         ImGui::PopStyleColor();
                     }
                 };
+            ImGui::BeginDisabled(!canTranslate);
             gizmoButton(
                 "W  Move",
                 LayoutGizmoOperation::Translate);
+            ImGui::EndDisabled();
             ImGui::SameLine();
-            ImGui::BeginDisabled(selectedGameplayBoard);
+            ImGui::BeginDisabled(!canRotate);
             gizmoButton(
                 "E  Rotate",
                 LayoutGizmoOperation::Rotate);
             ImGui::EndDisabled();
             ImGui::SameLine();
-            ImGui::BeginDisabled(
-                selectedGameplayBoard ||
-                selectedPreviewUnit);
+            ImGui::BeginDisabled(!canScale);
             gizmoButton(
                 "R  Scale",
                 LayoutGizmoOperation::Scale);
@@ -2087,15 +2130,15 @@ EditorShellActions EditorShell::drawWorkspace(
             if (ImGui::IsWindowFocused(
                     ImGuiFocusedFlags_RootAndChildWindows) &&
                 !io.WantTextInput) {
-                if (ImGui::IsKeyPressed(ImGuiKey_W, false)) {
+                if (canTranslate &&
+                    ImGui::IsKeyPressed(ImGuiKey_W, false)) {
                     impl_->layoutGizmoOperation =
                         LayoutGizmoOperation::Translate;
-                } else if (!selectedGameplayBoard &&
+                } else if (canRotate &&
                     ImGui::IsKeyPressed(ImGuiKey_E, false)) {
                     impl_->layoutGizmoOperation =
                         LayoutGizmoOperation::Rotate;
-                } else if (!selectedGameplayBoard &&
-                    !selectedPreviewUnit &&
+                } else if (canScale &&
                     ImGui::IsKeyPressed(ImGuiKey_R, false)) {
                     impl_->layoutGizmoOperation =
                         LayoutGizmoOperation::Scale;
@@ -2177,66 +2220,46 @@ EditorShellActions EditorShell::drawWorkspace(
                                 coordinate);
                         });
                 };
-            const WorkspaceLayoutObject* terrainBoundBoard = nullptr;
+            const WorkspaceLayoutObject* terrainRegionOwner = nullptr;
             if (workspace.layoutObjects) {
-                const auto board = std::find_if(
+                const auto owner = std::find_if(
                     workspace.layoutObjects->begin(),
                     workspace.layoutObjects->end(),
                     [](const WorkspaceLayoutObject& object) {
-                        return object.targetKind == "gameplay_board" &&
-                            object.terrainGridBound;
+                        return object.terrainRegionCount > 0u;
                     });
-                if (board != workspace.layoutObjects->end()) {
-                    terrainBoundBoard = &*board;
+                if (owner != workspace.layoutObjects->end()) {
+                    terrainRegionOwner = &*owner;
                 }
             }
-            enum class GameplayFootprintCell {
-                None,
-                Board,
-                Bench,
-            };
-            const auto gameplayFootprintCellAt =
-                [&](const auto& coordinate) {
-                    if (!terrainBoundBoard) {
-                        return GameplayFootprintCell::None;
+            const auto terrainRegionAt =
+                [&](const auto& coordinate)
+                    -> const EditorProjectGridRegion* {
+                    if (!terrainRegionOwner) {
+                        return nullptr;
                     }
-                    const std::int32_t maximumX =
-                        terrainBoundBoard->terrainGridOrigin[0] +
-                        static_cast<std::int32_t>(
-                            terrainBoundBoard->terrainGridExtent[0]);
-                    const std::int32_t maximumZ =
-                        terrainBoundBoard->terrainGridOrigin[1] +
-                        static_cast<std::int32_t>(
-                            terrainBoundBoard->terrainGridExtent[1]);
-                    const bool boardCell =
-                        coordinate.gridX >=
-                            terrainBoundBoard->terrainGridOrigin[0] &&
-                        coordinate.gridX < maximumX &&
-                        coordinate.gridZ >=
-                            terrainBoundBoard->terrainGridOrigin[1] &&
-                        coordinate.gridZ < maximumZ;
-                    if (boardCell) {
-                        return GameplayFootprintCell::Board;
+                    const std::size_t count = std::min(
+                        terrainRegionOwner->terrainRegionCount,
+                        terrainRegionOwner->terrainRegions.size());
+                    for (std::size_t index = 0u;
+                         index < count;
+                         ++index) {
+                        const auto& region =
+                            terrainRegionOwner->terrainRegions[index];
+                        const std::int32_t maximumX =
+                            region.origin[0] +
+                            static_cast<std::int32_t>(region.extent[0]);
+                        const std::int32_t maximumZ =
+                            region.origin[1] +
+                            static_cast<std::int32_t>(region.extent[1]);
+                        if (coordinate.gridX >= region.origin[0] &&
+                            coordinate.gridX < maximumX &&
+                            coordinate.gridZ >= region.origin[1] &&
+                            coordinate.gridZ < maximumZ) {
+                            return &region;
+                        }
                     }
-                    const auto inBenchRow =
-                        [&](const std::array<std::int32_t, 2>& benchOrigin,
-                            bool enabled) {
-                            return enabled &&
-                                coordinate.gridX >= benchOrigin[0] &&
-                                coordinate.gridX <
-                                    benchOrigin[0] +
-                                    static_cast<std::int32_t>(
-                                        terrainBoundBoard->benchTerrainGridExtent) &&
-                                coordinate.gridZ == benchOrigin[1];
-                        };
-                    return inBenchRow(
-                               terrainBoundBoard->northBenchTerrainGridOrigin,
-                               terrainBoundBoard->northBenchTerrainGridBound) ||
-                            inBenchRow(
-                                terrainBoundBoard->southBenchTerrainGridOrigin,
-                                terrainBoundBoard->southBenchTerrainGridBound)
-                        ? GameplayFootprintCell::Bench
-                        : GameplayFootprintCell::None;
+                    return nullptr;
                 };
             ImDrawList* drawList =
                 ImGui::GetWindowDrawList();
@@ -2270,24 +2293,19 @@ EditorShellActions EditorShell::drawWorkspace(
                 }
                 const bool selected =
                     selectedCoordinate(tile.coordinate);
-                const GameplayFootprintCell footprintCell =
-                    gameplayFootprintCellAt(tile.coordinate);
-                const bool boardCell =
-                    footprintCell == GameplayFootprintCell::Board;
-                const bool benchCell =
-                    footprintCell == GameplayFootprintCell::Bench;
+                const EditorProjectGridRegion* projectRegion =
+                    terrainRegionAt(tile.coordinate);
                 const ImU32 outline = selected
                     ? IM_COL32(255, 220, 72, 245)
-                    : boardCell
-                    ? IM_COL32(255, 166, 42, 245)
-                    : benchCell
-                    ? IM_COL32(76, 196, 255, 245)
+                    : projectRegion
+                    ? terrainPreviewColor(
+                          projectRegion->outlineRgba)
                     : tile.authored
                     ? IM_COL32(255, 154, 48, 220)
                     : tile.sourceOccupied
                     ? IM_COL32(75, 218, 162, 125)
                     : IM_COL32(135, 148, 158, 70);
-                if (selected || boardCell || benchCell || tile.authored) {
+                if (selected || projectRegion || tile.authored) {
                     drawList->AddQuadFilled(
                         corners[0],
                         corners[1],
@@ -2295,10 +2313,11 @@ EditorShellActions EditorShell::drawWorkspace(
                         corners[3],
                         selected
                             ? IM_COL32(255, 205, 45, 38)
-                            : boardCell
-                            ? IM_COL32(255, 128, 24, 46)
-                            : benchCell
-                            ? IM_COL32(45, 155, 255, 52)
+                            : projectRegion
+                            ? terrainPreviewColor(
+                                  projectRegion->outlineRgba,
+                                  1.0f,
+                                  0.20f)
                             : IM_COL32(255, 130, 35, 22));
                 }
                 drawList->AddQuad(
@@ -2309,7 +2328,7 @@ EditorShellActions EditorShell::drawWorkspace(
                     outline,
                     selected
                         ? 2.2f
-                        : boardCell || benchCell
+                        : projectRegion
                         ? 1.8f
                         : 1.0f);
                 std::array<ImVec2, 4> previewCorners = corners;
@@ -2591,9 +2610,9 @@ EditorShellActions EditorShell::drawWorkspace(
                 impl_->terrainTileDragging
                 ? "TERRAIN TILES - drag across cells to select a rectangle"
                 : "TERRAIN TILES - click or drag cells; Ctrl/Shift adds to selection";
-            if (terrainBoundBoard) {
+            if (terrainRegionOwner) {
                 terrainOverlayLabel =
-                    "TILES | ORANGE: BOARD | BLUE: BENCHES | EXACT CELL BINDING";
+                    "TILES | COLORED CELLS: PROJECT REGIONS | EXACT GRID BINDING";
             }
             drawList->AddText(
                 ImVec2(origin.x + 12.0f, origin.y + 12.0f),
@@ -2614,14 +2633,10 @@ EditorShellActions EditorShell::drawWorkspace(
             const auto& objects = *workspace.layoutObjects;
             const auto objectVisibleInViewport =
                 [&](const WorkspaceLayoutObject& object) {
-                    const bool previewUnit =
-                        object.targetKind ==
-                            "gameplay_preview_unit";
                     return object.viewportVisible &&
-                        ((kind == EditorViewportKind::Game &&
-                          previewUnit) ||
-                         (kind == EditorViewportKind::Scene &&
-                          !previewUnit));
+                        layoutObjectVisibleInViewport(
+                            object,
+                            kind);
                 };
             impl_->selectedLayoutObject = std::clamp(
                 impl_->selectedLayoutObject,
@@ -2864,12 +2879,27 @@ EditorShellActions EditorShell::drawWorkspace(
             const bool canInteract =
                 imageHovered &&
                 !ImGui::GetIO().WantTextInput;
+            const bool selectedLayoutInspected =
+                impl_->inspectorSelection ==
+                    InspectorSelectionDomain::Hierarchy &&
+                workspace.hierarchyItems &&
+                impl_->selectedHierarchyItem >= 0 &&
+                static_cast<std::size_t>(
+                    impl_->selectedHierarchyItem) <
+                    workspace.hierarchyItems->size() &&
+                (*workspace.hierarchyItems)[
+                    static_cast<std::size_t>(
+                        impl_->selectedHierarchyItem)]
+                        .layoutObjectIndex ==
+                    impl_->selectedLayoutObject;
             if (!impl_->layoutGizmoDragging &&
                 canInteract &&
                 ImGui::IsMouseClicked(
                     ImGuiMouseButton_Left)) {
-                if (selected && hoveredAxis >= 0) {
+                if (selected && hoveredAxis >= 0 &&
+                    selectedLayoutInspected) {
                     impl_->layoutGizmoDragging = true;
+                    impl_->layoutGizmoPreviewActive = false;
                     impl_->layoutGizmoAxis =
                         hoveredAxis;
                     impl_->layoutGizmoDragStart = mouse;
@@ -3002,6 +3032,7 @@ EditorShellActions EditorShell::drawWorkspace(
                         false)) {
                     actions.layoutObjectCancelRequested = true;
                     impl_->layoutGizmoDragging = false;
+                    impl_->layoutGizmoPreviewActive = false;
                     impl_->activeLayoutObjectId.clear();
                 } else {
                     const ImVec2 delta(
@@ -3034,22 +3065,22 @@ EditorShellActions EditorShell::drawWorkspace(
                                 layoutGizmoSourceUnitsPerPixel;
                         if (ImGui::GetIO().KeyCtrl) {
                             const float fineSnap =
-                                selected->targetKind ==
-                                        "gameplay_preview_unit"
-                                ? 0.1f
+                                selected->fineTranslationSnap[axis] >
+                                        0.0f
+                                ? selected->fineTranslationSnap[axis]
                                 : 5.0f;
-                            sourceDelta =
-                                std::round(sourceDelta / fineSnap) *
-                                fineSnap;
+                            if (fineSnap > 0.0f) {
+                                sourceDelta =
+                                    std::round(
+                                        sourceDelta / fineSnap) *
+                                    fineSnap;
+                            }
                         }
                         actions.layoutTranslation[axis] +=
                             sourceDelta;
-                        if (selected->targetKind ==
-                                "gameplay_board") {
-                            const float snapStep =
-                                axis == 1u
-                                ? 50.0f
-                                : 100.0f;
+                        const float snapStep =
+                            selected->translationSnap[axis];
+                        if (snapStep > 0.0f) {
                             actions.layoutTranslation[axis] =
                                 std::round(
                                     actions.layoutTranslation[axis] /
@@ -3077,27 +3108,11 @@ EditorShellActions EditorShell::drawWorkspace(
                                     scaleDelta / 0.1f) *
                                 0.1f;
                         }
-                        if (selected->targetKind ==
-                                "gameplay_board") {
-                            const float tileSize = std::clamp(
-                                std::round(
-                                    (actions.layoutScale[axis] +
-                                     scaleDelta) /
-                                    0.05f) *
-                                    0.05f,
-                                0.25f,
-                                4.0f);
-                            actions.layoutScale = {
-                                tileSize,
-                                tileSize,
-                                tileSize};
-                        } else {
-                            actions.layoutScale[axis] =
-                                std::max(
-                                    0.01f,
-                                    actions.layoutScale[axis] +
-                                        scaleDelta);
-                        }
+                        actions.layoutScale[axis] =
+                            std::max(
+                                0.01f,
+                                actions.layoutScale[axis] +
+                                    scaleDelta);
                     }
                     impl_->layoutTranslation =
                         actions.layoutTranslation;
@@ -3107,13 +3122,48 @@ EditorShellActions EditorShell::drawWorkspace(
                         actions.layoutScale;
                     impl_->layoutSuppressed =
                         actions.layoutSuppressed;
-                    actions.layoutObjectPreviewRequested =
-                        true;
+                    const auto changed3 = [](
+                        const std::array<float, 3>& left,
+                        const std::array<float, 3>& right) {
+                        for (std::size_t index = 0u;
+                             index < left.size();
+                             ++index) {
+                            if (std::abs(left[index] - right[index]) >
+                                0.0001f) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    };
+                    const bool transformChanged =
+                        changed3(
+                            actions.layoutTranslation,
+                            impl_->layoutGizmoStartTranslation) ||
+                        changed3(
+                            actions.layoutRotationDegrees,
+                            impl_->layoutGizmoStartRotation) ||
+                        changed3(
+                            actions.layoutScale,
+                            impl_->layoutGizmoStartScale);
+                    if (transformChanged ||
+                        impl_->layoutGizmoPreviewActive) {
+                        actions.layoutObjectPreviewRequested = true;
+                    }
+                    impl_->layoutGizmoPreviewActive =
+                        impl_->layoutGizmoPreviewActive ||
+                        transformChanged;
                     if (ImGui::IsMouseReleased(
                             ImGuiMouseButton_Left)) {
-                        actions.layoutObjectCommitRequested =
-                            true;
+                        if (transformChanged) {
+                            actions.layoutObjectCommitRequested =
+                                true;
+                        } else if (
+                            impl_->layoutGizmoPreviewActive) {
+                            actions.layoutObjectCancelRequested =
+                                true;
+                        }
                         impl_->layoutGizmoDragging = false;
+                        impl_->layoutGizmoPreviewActive = false;
                         impl_->activeLayoutObjectId.clear();
                     }
                 }
@@ -3133,6 +3183,7 @@ EditorShellActions EditorShell::drawWorkspace(
             impl_->layoutGizmoDragging ||
             impl_->layoutBoxSelecting) {
             impl_->layoutGizmoDragging = false;
+            impl_->layoutGizmoPreviewActive = false;
             impl_->layoutBoxSelecting = false;
         }
         actions.activeViewport = kind;
@@ -3557,28 +3608,31 @@ EditorShellActions EditorShell::drawWorkspace(
     }
     ImGui::Separator();
     ImGui::Spacing();
-    const bool inspectingGameplayPreviewUnit =
-        inspectedLayout &&
-        inspectedLayout->targetKind ==
-            "gameplay_preview_unit";
-    if (workspace.layoutObjects &&
-        !workspace.layoutObjects->empty() &&
-        !inspectingGameplayPreviewUnit) {
-        bool overlayVisible =
-            workspace.layoutOverlayVisible;
-        if (ImGui::Checkbox(
-                "Show board footprint",
-                &overlayVisible)) {
-            actions.layoutOverlayVisibilityChanged = true;
-            actions.layoutOverlayVisible = overlayVisible;
+    const bool showSceneAuthoringTools =
+        workspace.activeViewport == EditorViewportKind::Scene &&
+        (impl_->terrainTileEditing ||
+         (!inspectedLayout && !inspectedAsset));
+    if (showSceneAuthoringTools) {
+        if (workspace.layoutObjects &&
+            !workspace.layoutObjects->empty()) {
+            bool overlayVisible =
+                workspace.layoutOverlayVisible;
+            if (ImGui::Checkbox(
+                    "Show project layout guides",
+                    &overlayVisible)) {
+                actions.layoutOverlayVisibilityChanged = true;
+                actions.layoutOverlayVisible = overlayVisible;
+            }
+            ImGui::TextDisabled(
+                "Canonical source stays locked; edits are saved as project-owned overrides.");
+            ImGui::Spacing();
         }
-        ImGui::TextDisabled(
-            "Canonical source stays locked; edits are saved as project-owned overrides.");
-        ImGui::Spacing();
         if (workspace.terrainTileEditingSupported &&
             ImGui::CollapsingHeader(
                 "Terrain Tile Editor",
-                ImGuiTreeNodeFlags_DefaultOpen)) {
+                impl_->terrainTileEditing
+                    ? ImGuiTreeNodeFlags_DefaultOpen
+                    : ImGuiTreeNodeFlags_None)) {
             ImGui::Checkbox(
                 "Enable tile selection in Scene view",
                 &impl_->terrainTileEditing);
@@ -3593,7 +3647,7 @@ EditorShellActions EditorShell::drawWorkspace(
             ImGui::TextDisabled(
                 "Coordinates are exact source-grid cells; X runs west/east and Z runs north/south.");
             ImGui::TextWrapped(
-                "Each cell is one source metre. Elevation changes use the source 50 cm level step; ledge faces are derived from neighboring cells.");
+                "Cell dimensions and elevation steps are project-defined; exposed sides are derived from neighboring cells.");
             ImGui::Text(
                 "%zu tile(s) selected",
                 impl_->selectedTerrainTiles.size());
@@ -3805,23 +3859,9 @@ EditorShellActions EditorShell::drawWorkspace(
                     "%zu tile(s) copied | Ctrl+V exact | Ctrl+Shift+V relative",
                     impl_->terrainTileClipboard.size());
                 ImGui::TextWrapped(
-                    "Exact restores the copied Route levels. Relative maps the copied anchor cell to the selected cell while preserving every tier offset.");
+                "Exact restores the copied source levels. Relative maps the copied anchor cell to the selected cell while preserving every tier offset.");
             }
 
-            constexpr std::array<const char*, 5> kShapeIds{{
-                "flat",
-                "ramp_north",
-                "ramp_east",
-                "ramp_south",
-                "ramp_west",
-            }};
-            constexpr std::array<const char*, 5> kShapeNames{{
-                "Flat",
-                "Ramp North (+1 level)",
-                "Ramp East (+1 level)",
-                "Ramp South (+1 level)",
-                "Ramp West (+1 level)",
-            }};
             const WorkspaceTerrainTile* representativeTile = nullptr;
             if (hasTileSelection && workspace.terrainTiles) {
                 const auto selected =
@@ -4390,7 +4430,7 @@ EditorShellActions EditorShell::drawWorkspace(
                         } else if (
                             impl_->terrainPlatformProfileIndex == 1) {
                             ImGui::TextWrapped(
-                                "Restores each cell's recovered LGPE flat/ramp profile independently; use this to repair a ramp that was accidentally flattened.");
+                                "Restores each cell's project-provided source profile independently; use this to repair a ramp that was accidentally flattened.");
                         } else if (
                             impl_->terrainPlatformProfileIndex == 2) {
                             ImGui::TextWrapped(
@@ -4494,7 +4534,7 @@ EditorShellActions EditorShell::drawWorkspace(
                         }
                         ImGui::EndDisabled();
                         ImGui::TextDisabled(
-                            "One atomic edit sets the base level and surface, applies the chosen profile per cell, preserves compatible source fringe, and reconstructs changed leafy ledge boundaries.");
+                            "One atomic edit sets the base level and surface, applies the chosen profile per cell, preserves compatible source edge detail, and reconstructs changed boundaries.");
                     }
 
                     ImGui::SeparatorText("Quick +1 Presets");
@@ -4585,7 +4625,7 @@ EditorShellActions EditorShell::drawWorkspace(
                     queueTileEdit("tidy_surface", "", "");
                 }
                 ImGui::TextDisabled(
-                    "Preserves shape, level, and surface; reauthors the cells into the continuous lawn/path field.");
+                    "Preserves shape, level, and surface while reauthoring the cells into the project's continuous material field.");
             }
 
             if (ImGui::CollapsingHeader(
@@ -4642,42 +4682,6 @@ EditorShellActions EditorShell::drawWorkspace(
                             "");
                     }
                 }
-
-                impl_->terrainShapeIndex = std::clamp(
-                    impl_->terrainShapeIndex,
-                    0,
-                    static_cast<int>(kShapeIds.size() - 1u));
-                if (ImGui::BeginCombo(
-                        "Tile shape",
-                        kShapeNames[static_cast<std::size_t>(
-                            impl_->terrainShapeIndex)])) {
-                    for (std::size_t index = 0u;
-                         index < kShapeIds.size();
-                         ++index) {
-                        const bool selected =
-                            static_cast<int>(index) ==
-                            impl_->terrainShapeIndex;
-                        if (ImGui::Selectable(
-                                kShapeNames[index],
-                                selected)) {
-                            impl_->terrainShapeIndex =
-                                static_cast<int>(index);
-                        }
-                        if (selected) {
-                            ImGui::SetItemDefaultFocus();
-                        }
-                    }
-                    ImGui::EndCombo();
-                }
-                if (ImGui::Button(
-                        "Apply Tile Shape",
-                        ImVec2(-1.0f, 28.0f))) {
-                    queueTileEdit(
-                        "set_shape",
-                        "",
-                        kShapeIds[static_cast<std::size_t>(
-                            impl_->terrainShapeIndex)]);
-                }
             }
             if (ImGui::Button(
                     "Restore Selected From Source",
@@ -4699,72 +4703,91 @@ EditorShellActions EditorShell::drawWorkspace(
             ImGui::Separator();
             ImGui::Spacing();
         }
-        if (workspace.boardClearanceSupported &&
-            ImGui::CollapsingHeader(
-                "Autochess Board Clearing",
-                ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::TextWrapped(
-                "Suppress source obstructions, flatten every covered cell to the board level, and rebuild one clean lawn beneath the board and benches.");
-            ImGui::SetNextItemWidth(-1.0f);
-            ImGui::DragFloat(
-                "Clearance padding (cells)",
-                &impl_->boardClearancePaddingCells,
-                0.05f,
-                0.0f,
-                3.0f,
-                "%.2f");
-            ImGui::Checkbox(
-                "Clear ledges and raised terrain",
-                &impl_->boardClearanceClearTerrain);
-            ImGui::Checkbox(
-                "Clear vegetation",
-                &impl_->boardClearanceClearVegetation);
-            ImGui::Checkbox(
-                "Clear props and other obstructions",
-                &impl_->boardClearanceClearObjects);
-            ImGui::Checkbox(
-                "Retain ramps as entrances",
-                &impl_->boardClearanceRetainRamps);
-            ImGui::Checkbox(
-                "Create ground infill",
-                &impl_->boardClearanceAddGroundInfill);
-            const bool canClear =
-                impl_->boardClearanceClearTerrain ||
-                impl_->boardClearanceClearVegetation ||
-                impl_->boardClearanceClearObjects ||
-                impl_->boardClearanceAddGroundInfill;
-            ImGui::BeginDisabled(!canClear);
-            if (ImGui::Button(
-                    "Clear + Flatten Board Footprint",
-                    ImVec2(-1.0f, 30.0f))) {
-                actions.applyBoardClearanceRequested = true;
-                actions.boardClearanceRequest = {
-                    .paddingCells =
-                        impl_->boardClearancePaddingCells,
-                    .clearTerrain =
-                        impl_->boardClearanceClearTerrain,
-                    .clearVegetation =
-                        impl_->boardClearanceClearVegetation,
-                    .clearObjects =
-                        impl_->boardClearanceClearObjects,
-                    .retainRamps =
-                        impl_->boardClearanceRetainRamps,
-                    .addGroundInfill =
-                        impl_->boardClearanceAddGroundInfill};
+        if (workspace.projectCommands) {
+            for (std::size_t commandIndex = 0u;
+                 commandIndex < workspace.projectCommands->size();
+                 ++commandIndex) {
+                auto& command =
+                    (*workspace.projectCommands)[commandIndex];
+                ImGui::PushID(command.id.c_str());
+                if (ImGui::CollapsingHeader(
+                        command.displayName.c_str())) {
+                    if (!command.category.empty()) {
+                        ImGui::TextDisabled(
+                            "%s",
+                            command.category.c_str());
+                    }
+                    if (!command.description.empty()) {
+                        ImGui::TextWrapped(
+                            "%s",
+                            command.description.c_str());
+                    }
+                    for (auto& field : command.fields) {
+                        if (field.kind ==
+                            EditorProjectCommandFieldKind::Boolean) {
+                            ImGui::Checkbox(
+                                field.displayName.c_str(),
+                                &field.booleanValue);
+                        } else {
+                            ImGui::SetNextItemWidth(-1.0f);
+                            ImGui::DragFloat(
+                                field.displayName.c_str(),
+                                &field.floatValue,
+                                field.stepFloat,
+                                field.minimumFloat,
+                                field.maximumFloat,
+                                "%.2f");
+                        }
+                        if (!field.description.empty() &&
+                            ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip(
+                                "%s",
+                                field.description.c_str());
+                        }
+                    }
+                    if (ImGui::Button(
+                            command.buttonLabel.empty()
+                                ? command.displayName.c_str()
+                                : command.buttonLabel.c_str(),
+                            ImVec2(-1.0f, 30.0f))) {
+                        if (command.confirmationRequired) {
+                            ImGui::OpenPopup(
+                                "Confirm project command");
+                        } else {
+                            actions.executeProjectCommandIndex =
+                                static_cast<int>(commandIndex);
+                        }
+                    }
+                    if (ImGui::BeginPopupModal(
+                            "Confirm project command",
+                            nullptr,
+                            ImGuiWindowFlags_AlwaysAutoResize)) {
+                        ImGui::TextWrapped(
+                            "%s",
+                            command.confirmationText.empty()
+                                ? command.description.c_str()
+                                : command.confirmationText.c_str());
+                        ImGui::Spacing();
+                        if (ImGui::Button(
+                                "Cancel",
+                                ImVec2(120.0f, 0.0f))) {
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button(
+                                "Run Command",
+                                ImVec2(140.0f, 0.0f))) {
+                            actions.executeProjectCommandIndex =
+                                static_cast<int>(commandIndex);
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::EndPopup();
+                    }
+                    ImGui::TextDisabled(
+                        "Project-provided command; changes participate in the project's save and undo model.");
+                }
+                ImGui::PopID();
             }
-            ImGui::EndDisabled();
-            if (ImGui::Button(
-                    "Reset Entire Scene To Imported Source",
-                    ImVec2(-1.0f, 28.0f))) {
-                actions.resetSceneToSourceRequested = true;
-                impl_->selectedLayoutObjectIds.clear();
-                impl_->selectedLayoutObject = -1;
-                impl_->activeLayoutObjectId.clear();
-            }
-            ImGui::TextDisabled(
-                "Both operations are autosaved and undoable with Ctrl+Z.");
-            ImGui::Separator();
-            ImGui::Spacing();
         }
         if (impl_->selectedLayoutObjectIds.size() > 1u) {
             ImGui::Text(
@@ -4830,28 +4853,44 @@ EditorShellActions EditorShell::drawWorkspace(
                     inspectedLayout->categoryPath.c_str());
             }
         }
-        const bool gameplayBoard =
-            inspectedLayout->targetKind ==
-            "gameplay_board";
-        const bool gameplayPreviewUnit =
-            inspectingGameplayPreviewUnit;
+        const bool canTranslate = hasLayoutCapability(
+            *inspectedLayout,
+            EditorProjectLayoutTranslate);
+        const bool canRotate = hasLayoutCapability(
+            *inspectedLayout,
+            EditorProjectLayoutRotate);
+        const bool canScale = hasLayoutCapability(
+            *inspectedLayout,
+            EditorProjectLayoutScale);
+        const bool canRename = hasLayoutCapability(
+            *inspectedLayout,
+            EditorProjectLayoutRename);
+        const bool canReparent = hasLayoutCapability(
+            *inspectedLayout,
+            EditorProjectLayoutReparent);
+        const bool canDuplicate = hasLayoutCapability(
+            *inspectedLayout,
+            EditorProjectLayoutDuplicate);
+        const bool canDelete = hasLayoutCapability(
+            *inspectedLayout,
+            EditorProjectLayoutDelete);
+        const bool canSuppress = hasLayoutCapability(
+            *inspectedLayout,
+            EditorProjectLayoutSuppress);
+        const bool canReset = hasLayoutCapability(
+            *inspectedLayout,
+            EditorProjectLayoutReset);
         ImGui::TextUnformatted(
-            gameplayBoard
-                ? "Gameplay Board Layout"
-                : gameplayPreviewUnit
-                ? "Gameplay Preview Unit"
-                : "Layout Override");
+            inspectedLayout->inspectorTitle.empty()
+                ? "Layout Override"
+                : inspectedLayout->inspectorTitle.c_str());
         ImGui::TextDisabled(
             "%s",
             inspectedLayout->coordinateSystem.c_str());
         ImGui::TextDisabled(
             "%s",
-            gameplayBoard
-                ? "8x8 board with north and south bench rows"
-                : gameplayPreviewUnit
-                ? ("Prefab: " +
-                   inspectedLayout->prefabAssetId)
-                      .c_str()
+            !inspectedLayout->inspectorSummary.empty()
+                ? inspectedLayout->inspectorSummary.c_str()
                 : inspectedLayout->prefabAssetId.empty()
                     ? "Editable source mesh group"
                     : ("Prefab: " +
@@ -4859,69 +4898,77 @@ EditorShellActions EditorShell::drawWorkspace(
                           .c_str());
         ImGui::TextWrapped(
             "Values update live. Releasing a field or viewport gizmo autosaves the project override.");
-        ImGui::BeginDisabled(
-            gameplayBoard || gameplayPreviewUnit);
-        ImGui::SetNextItemWidth(-1.0f);
-        ImGui::InputText(
-            "Name",
-            impl_->layoutObjectName.data(),
-            impl_->layoutObjectName.size());
-        if (ImGui::IsItemDeactivatedAfterEdit()) {
-            actions.editLayoutObjectIndex =
-                inspectedLayoutIndex;
-            actions.layoutObjectRenameRequested = true;
-            actions.layoutObjectText =
-                impl_->layoutObjectName.data();
+        if (canRename) {
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputText(
+                "Name",
+                impl_->layoutObjectName.data(),
+                impl_->layoutObjectName.size());
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                actions.editLayoutObjectIndex =
+                    inspectedLayoutIndex;
+                actions.layoutObjectRenameRequested = true;
+                actions.layoutObjectText =
+                    impl_->layoutObjectName.data();
+            }
         }
-        ImGui::SetNextItemWidth(-1.0f);
-        ImGui::InputText(
-            "Hierarchy folder",
-            impl_->layoutObjectCategoryPath.data(),
-            impl_->layoutObjectCategoryPath.size());
-        if (ImGui::IsItemDeactivatedAfterEdit()) {
-            actions.editLayoutObjectIndex =
-                inspectedLayoutIndex;
-            actions.layoutObjectReparentRequested = true;
-            actions.layoutObjectText =
-                impl_->layoutObjectCategoryPath.data();
+        if (canReparent) {
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputText(
+                "Hierarchy folder",
+                impl_->layoutObjectCategoryPath.data(),
+                impl_->layoutObjectCategoryPath.size());
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                actions.editLayoutObjectIndex =
+                    inspectedLayoutIndex;
+                actions.layoutObjectReparentRequested = true;
+                actions.layoutObjectText =
+                    impl_->layoutObjectCategoryPath.data();
+            }
         }
-        ImGui::EndDisabled();
-        ImGui::Spacing();
-        ImGui::BeginDisabled(
-            gameplayBoard || gameplayPreviewUnit);
-        if (ImGui::Button(
-                "Duplicate",
-                ImVec2(
-                    ImGui::GetContentRegionAvail().x * 0.5f - 4.0f,
-                    28.0f))) {
-            actions.editLayoutObjectIndex =
-                inspectedLayoutIndex;
-            actions.layoutObjectDuplicateRequested = true;
+        if (canDuplicate || canDelete) {
+            ImGui::Spacing();
+            if (canDuplicate) {
+                if (ImGui::Button(
+                        "Duplicate",
+                        ImVec2(
+                            canDelete
+                                ? ImGui::GetContentRegionAvail().x *
+                                      0.5f - 4.0f
+                                : -1.0f,
+                            28.0f))) {
+                    actions.editLayoutObjectIndex =
+                        inspectedLayoutIndex;
+                    actions.layoutObjectDuplicateRequested = true;
+                }
+            }
+            if (canDuplicate && canDelete) {
+                ImGui::SameLine();
+            }
+            if (canDelete && ImGui::Button(
+                    impl_->selectedLayoutObjectIds.size() > 1u
+                        ? "Delete Selected"
+                        : "Delete",
+                    ImVec2(-1.0f, 28.0f))) {
+                actions.editLayoutObjectIndex =
+                    inspectedLayoutIndex;
+                writeSelectedLayoutIndices();
+                actions.layoutObjectDeleteRequested = true;
+            }
+            ImGui::Spacing();
         }
-        ImGui::SameLine();
-        if (ImGui::Button(
-                impl_->selectedLayoutObjectIds.size() > 1u
-                    ? "Delete Selected"
-                    : "Delete",
-                ImVec2(-1.0f, 28.0f))) {
-            actions.editLayoutObjectIndex =
-                inspectedLayoutIndex;
-            writeSelectedLayoutIndices();
-            actions.layoutObjectDeleteRequested = true;
-        }
-        ImGui::EndDisabled();
-        ImGui::Spacing();
         bool liveEditChanged = false;
         bool liveEditFinished = false;
         bool translationChanged = false;
-        if (gameplayBoard &&
-            inspectedLayout->terrainGridBound) {
+        if (canTranslate && inspectedLayout->terrainGridBound) {
             std::array<int, 2> terrainOrigin{
                 inspectedLayout->terrainGridOrigin[0],
                 inspectedLayout->terrainGridOrigin[1]};
+            ImGui::TextUnformatted(
+                "Terrain cell origin (X, Z)");
             ImGui::SetNextItemWidth(-1.0f);
             if (ImGui::DragInt2(
-                    "Terrain cell origin (X, Z)",
+                    "##TerrainCellOrigin",
                     terrainOrigin.data(),
                     1.0f)) {
                 impl_->layoutTranslation[0] =
@@ -4929,79 +4976,69 @@ EditorShellActions EditorShell::drawWorkspace(
                      static_cast<float>(
                          inspectedLayout->terrainGridExtent[0]) *
                          0.5f) *
-                    100.0f;
+                    std::max(
+                        1.0f,
+                        inspectedLayout->translationSnap[0]);
                 impl_->layoutTranslation[2] =
                     (static_cast<float>(terrainOrigin[1]) +
                      static_cast<float>(
                          inspectedLayout->terrainGridExtent[1]) *
                          0.5f) *
-                    100.0f;
+                    std::max(
+                        1.0f,
+                        inspectedLayout->translationSnap[2]);
                 translationChanged = true;
             }
             liveEditFinished |=
                 ImGui::IsItemDeactivatedAfterEdit();
             int elevationLevel =
                 inspectedLayout->terrainElevationLevel;
+            ImGui::TextUnformatted(
+                "Terrain elevation level");
             ImGui::SetNextItemWidth(-1.0f);
             if (ImGui::DragInt(
-                    "Terrain elevation level",
+                    "##TerrainElevationLevel",
                     &elevationLevel,
                     1.0f)) {
                 impl_->layoutTranslation[1] =
                     static_cast<float>(elevationLevel) *
-                    50.0f;
+                    std::max(
+                        1.0f,
+                        inspectedLayout->translationSnap[1]);
                 translationChanged = true;
             }
             liveEditFinished |=
                 ImGui::IsItemDeactivatedAfterEdit();
-            ImGui::Text(
-                "Board cells: X %d..%d, Z %d..%d",
-                terrainOrigin[0],
-                terrainOrigin[0] +
-                    static_cast<int>(
-                        inspectedLayout->terrainGridExtent[0]) -
-                    1,
-                terrainOrigin[1],
-                terrainOrigin[1] +
-                    static_cast<int>(
-                        inspectedLayout->terrainGridExtent[1]) -
-                    1);
-            const auto drawBenchRange =
-                [&](const char* label,
-                    const std::array<std::int32_t, 2>& origin,
-                    bool enabled) {
-                    if (!enabled) {
-                        return;
-                    }
-                    ImGui::Text(
-                        "%s bench cells: X %d..%d, Z %d",
-                        label,
-                        origin[0],
-                        origin[0] +
-                            static_cast<int>(
-                                inspectedLayout->benchTerrainGridExtent) -
-                            1,
-                        origin[1]);
-                };
-            drawBenchRange(
-                "North",
-                inspectedLayout->northBenchTerrainGridOrigin,
-                inspectedLayout->northBenchTerrainGridBound);
-            drawBenchRange(
-                "South",
-                inspectedLayout->southBenchTerrainGridOrigin,
-                inspectedLayout->southBenchTerrainGridBound);
-            ImGui::TextDisabled(
-                "Board + benches use terrain cells; bench gap: %u cell(s).",
-                inspectedLayout->benchGapCells);
-        } else {
+            const std::size_t regionCount = std::min(
+                inspectedLayout->terrainRegionCount,
+                inspectedLayout->terrainRegions.size());
+            for (std::size_t index = 0u;
+                 index < regionCount;
+                 ++index) {
+                const auto& region =
+                    inspectedLayout->terrainRegions[index];
+                ImGui::Text(
+                    "%s: X %d..%d, Z %d..%d",
+                    region.label ? region.label : "Region",
+                    region.origin[0],
+                    region.origin[0] +
+                        static_cast<int>(region.extent[0]) - 1,
+                    region.origin[1],
+                    region.origin[1] +
+                        static_cast<int>(region.extent[1]) - 1);
+            }
+        } else if (canTranslate) {
+            ImGui::TextUnformatted(
+                inspectedLayout->translationLabel.empty()
+                    ? "Translation"
+                    : inspectedLayout->translationLabel.c_str());
             ImGui::SetNextItemWidth(-1.0f);
             translationChanged = ImGui::DragFloat3(
-                gameplayPreviewUnit
-                    ? "Starting position"
-                    : "Translation",
+                "##LayoutTranslation",
                 impl_->layoutTranslation.data(),
-                gameplayPreviewUnit ? 0.05f : 1.0f,
+                inspectedLayout->fineTranslationSnap[0] > 0.0f
+                    ? inspectedLayout->fineTranslationSnap[0]
+                    : 1.0f,
                 -100000.0f,
                 100000.0f,
                 "%.2f");
@@ -5009,53 +5046,56 @@ EditorShellActions EditorShell::drawWorkspace(
                 ImGui::IsItemDeactivatedAfterEdit();
         }
         liveEditChanged |= translationChanged;
-        ImGui::BeginDisabled(gameplayBoard);
-        ImGui::SetNextItemWidth(-1.0f);
-        liveEditChanged |= ImGui::DragFloat3(
-            "Rotation",
-            impl_->layoutRotationDegrees.data(),
-            0.25f,
-            -360.0f,
-            360.0f,
-            "%.2f deg");
-        liveEditFinished |=
-            ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::EndDisabled();
-        ImGui::SetNextItemWidth(-1.0f);
-        if (gameplayBoard) {
-            ImGui::Text(
-                "Board tile size: %.2f m",
-                impl_->layoutScale[0]);
-            ImGui::TextDisabled(
-                "Bound to Route 1: one board cell = one terrain cell.");
-            ImGui::TextWrapped(
-                "Move with the viewport gizmo or source-centimetre fields. X/Z move in 100 cm cells and Y moves in recovered 50 cm elevation levels; scale and rotation cannot drift from the terrain lattice.");
-        } else if (gameplayPreviewUnit) {
-            ImGui::Text(
-                "Resolved gameplay scale: %.3f",
-                inspectedLayout->scale[0]);
-            ImGui::TextWrapped(
-                "Scale is locked to the runtime importer correction and species visual scale used by gameplay.");
-        } else {
+        if (canRotate) {
+            ImGui::TextUnformatted("Rotation");
+            ImGui::SetNextItemWidth(-1.0f);
             liveEditChanged |= ImGui::DragFloat3(
-                "Scale",
-                impl_->layoutScale.data(),
-                0.01f,
-                0.01f,
-                100.0f,
-                "%.3f");
+                "##LayoutRotation",
+                impl_->layoutRotationDegrees.data(),
+                0.25f,
+                -360.0f,
+                360.0f,
+                "%.2f deg");
             liveEditFinished |=
                 ImGui::IsItemDeactivatedAfterEdit();
         }
-        ImGui::BeginDisabled(
-            gameplayBoard || gameplayPreviewUnit);
-        if (ImGui::Checkbox(
-                "Suppress in gameplay layout",
-                &impl_->layoutSuppressed)) {
-            liveEditChanged = true;
-            liveEditFinished = true;
+        if (!canScale &&
+            (!inspectedLayout->scaleReadOnlyLabel.empty() ||
+             !inspectedLayout->scaleReadOnlyDescription.empty())) {
+            ImGui::Text(
+                "%s: %.3f",
+                inspectedLayout->scaleReadOnlyLabel.empty()
+                    ? "Resolved scale"
+                    : inspectedLayout->scaleReadOnlyLabel.c_str(),
+                impl_->layoutScale[0]);
+            if (!inspectedLayout->scaleReadOnlyDescription.empty()) {
+                ImGui::TextWrapped(
+                    "%s",
+                    inspectedLayout->scaleReadOnlyDescription.c_str());
+            }
+        } else {
+            if (canScale) {
+                ImGui::TextUnformatted("Scale");
+                ImGui::SetNextItemWidth(-1.0f);
+                liveEditChanged |= ImGui::DragFloat3(
+                    "##LayoutScale",
+                    impl_->layoutScale.data(),
+                    0.01f,
+                    0.01f,
+                    100.0f,
+                    "%.3f");
+                liveEditFinished |=
+                    ImGui::IsItemDeactivatedAfterEdit();
+            }
         }
-        ImGui::EndDisabled();
+        if (canSuppress) {
+            if (ImGui::Checkbox(
+                    "Suppress in gameplay layout",
+                    &impl_->layoutSuppressed)) {
+                liveEditChanged = true;
+                liveEditFinished = true;
+            }
+        }
         if (liveEditChanged || liveEditFinished) {
             actions.editLayoutObjectIndex =
                 inspectedLayoutIndex;
@@ -5074,30 +5114,28 @@ EditorShellActions EditorShell::drawWorkspace(
         }
         ImGui::Spacing();
         ImGui::TextDisabled(
-            gameplayBoard
-                ? "Viewport: select the board marker and use Move [W]; its grid stays bound to Route 1 tiles."
-                : gameplayPreviewUnit
-                ? "Game viewport: click the unit marker and use Move [W] or Rotate [E]. X/Z snap to legal board or bench slots and Y follows terrain."
-                : "Viewport: click the green marker, then use Move [W], Rotate [E], or Scale [R].");
+            "%s",
+            inspectedLayout->viewportHint.empty()
+                ? "Viewport: click the object marker and use the enabled transform tools."
+                : inspectedLayout->viewportHint.c_str());
         ImGui::Spacing();
         if (liveEditFinished) {
             impl_->activeLayoutObjectId.clear();
         }
-        ImGui::BeginDisabled(
-            !inspectedLayout->hasOverride);
-        if (ImGui::Button(
-                gameplayBoard
-                    ? "Reset Board Registration"
-                    : gameplayPreviewUnit
-                    ? "Reset Starting Position"
-                    : "Reset To Canonical Source",
-                ImVec2(-1.0f, 28.0f))) {
-            actions.editLayoutObjectIndex =
-                inspectedLayoutIndex;
-            actions.layoutObjectResetRequested = true;
-            impl_->activeLayoutObjectId.clear();
+        if (canReset) {
+            ImGui::BeginDisabled(!inspectedLayout->hasOverride);
+            if (ImGui::Button(
+                    inspectedLayout->resetLabel.empty()
+                        ? "Reset To Canonical Source"
+                        : inspectedLayout->resetLabel.c_str(),
+                    ImVec2(-1.0f, 28.0f))) {
+                actions.editLayoutObjectIndex =
+                    inspectedLayoutIndex;
+                actions.layoutObjectResetRequested = true;
+                impl_->activeLayoutObjectId.clear();
+            }
+            ImGui::EndDisabled();
         }
-        ImGui::EndDisabled();
         ImGui::Separator();
         ImGui::TextDisabled("Stable source target");
         ImGui::TextWrapped(

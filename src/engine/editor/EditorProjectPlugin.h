@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 25u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 26u;
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -48,8 +48,6 @@ struct EditorProjectStats {
     std::uint32_t sceneCount = 0u;
     std::uint32_t materialCount = 0u;
     std::uint32_t drawClassCount = 0u;
-    std::uint32_t encounterGrassInstanceCount = 0u;
-    std::uint32_t vegetationInstanceCount = 0u;
     std::uint64_t visibleTriangleCount = 0u;
     std::uint64_t shadowTriangleCount = 0u;
     std::size_t archiveFileCount = 0u;
@@ -135,6 +133,42 @@ struct EditorProjectAssetAnimation {
     float durationSeconds = 0.0f;
 };
 
+enum EditorProjectLayoutCapability : std::uint32_t {
+    EditorProjectLayoutTranslate = 1u << 0u,
+    EditorProjectLayoutRotate = 1u << 1u,
+    EditorProjectLayoutScale = 1u << 2u,
+    EditorProjectLayoutRename = 1u << 3u,
+    EditorProjectLayoutReparent = 1u << 4u,
+    EditorProjectLayoutDuplicate = 1u << 5u,
+    EditorProjectLayoutDelete = 1u << 6u,
+    EditorProjectLayoutSuppress = 1u << 7u,
+    EditorProjectLayoutReset = 1u << 8u,
+};
+
+inline constexpr std::uint32_t kEditorProjectLayoutDefaultCapabilities =
+    EditorProjectLayoutTranslate |
+    EditorProjectLayoutRotate |
+    EditorProjectLayoutScale |
+    EditorProjectLayoutRename |
+    EditorProjectLayoutReparent |
+    EditorProjectLayoutDuplicate |
+    EditorProjectLayoutDelete |
+    EditorProjectLayoutSuppress |
+    EditorProjectLayoutReset;
+
+enum EditorProjectLayoutViewport : std::uint8_t {
+    EditorProjectLayoutViewportNone = 0u,
+    EditorProjectLayoutViewportScene = 1u << 0u,
+    EditorProjectLayoutViewportGame = 1u << 1u,
+};
+
+struct EditorProjectGridRegion {
+    const char* label = nullptr;
+    std::array<std::int32_t, 2> origin{};
+    std::array<std::uint32_t, 2> extent{};
+    std::uint32_t outlineRgba = 0x5bd9e6ffu;
+};
+
 struct EditorProjectLayoutObject {
     const char* stableId = nullptr;
     const char* displayName = nullptr;
@@ -144,6 +178,19 @@ struct EditorProjectLayoutObject {
     const char* targetKind = nullptr;
     const char* categoryPath = nullptr;
     const char* prefabAssetId = nullptr;
+    const char* inspectorTitle = nullptr;
+    const char* inspectorSummary = nullptr;
+    const char* translationLabel = nullptr;
+    const char* viewportHint = nullptr;
+    const char* resetLabel = nullptr;
+    const char* scaleReadOnlyLabel = nullptr;
+    const char* scaleReadOnlyDescription = nullptr;
+    std::uint32_t capabilities =
+        kEditorProjectLayoutDefaultCapabilities;
+    std::uint8_t viewportMask =
+        EditorProjectLayoutViewportScene;
+    std::array<float, 3> translationSnap{};
+    std::array<float, 3> fineTranslationSnap{};
     std::array<float, 3> sourceTranslation{};
     std::array<float, 3> sourceRotationDegrees{};
     std::array<float, 3> sourceScale{1.0f, 1.0f, 1.0f};
@@ -154,12 +201,8 @@ struct EditorProjectLayoutObject {
     std::array<std::uint32_t, 2> terrainGridExtent{};
     std::int32_t terrainElevationLevel = 0;
     bool terrainGridBound = false;
-    std::array<std::int32_t, 2> northBenchTerrainGridOrigin{};
-    std::array<std::int32_t, 2> southBenchTerrainGridOrigin{};
-    std::uint32_t benchTerrainGridExtent = 0u;
-    std::uint32_t benchGapCells = 0u;
-    bool northBenchTerrainGridBound = false;
-    bool southBenchTerrainGridBound = false;
+    std::array<EditorProjectGridRegion, 4> terrainRegions{};
+    std::size_t terrainRegionCount = 0u;
     // Current source-space AABB used by project-owned clearance tools. The
     // project adapter derives this from the exact prefab geometry rather than
     // asking the editor shell to guess an obstruction radius.
@@ -191,22 +234,46 @@ struct EditorProjectLayoutObjectCommand {
     const char* value = nullptr;
 };
 
-struct EditorProjectBoardClearanceRequest {
-    float paddingCells = 0.35f;
-    bool clearTerrain = true;
-    bool clearVegetation = true;
-    bool clearObjects = true;
-    bool retainRamps = true;
-    bool addGroundInfill = true;
+enum class EditorProjectCommandFieldKind : std::uint8_t {
+    Boolean = 0u,
+    Float = 1u,
 };
 
-struct EditorProjectBoardClearanceResult {
-    std::uint32_t suppressedTerrainCount = 0u;
-    std::uint32_t suppressedVegetationCount = 0u;
-    std::uint32_t suppressedObjectCount = 0u;
-    std::uint32_t retainedRampCount = 0u;
-    std::uint32_t skippedUnsafeAggregateCount = 0u;
-    bool groundInfillCreated = false;
+struct EditorProjectCommandField {
+    const char* id = nullptr;
+    const char* displayName = nullptr;
+    const char* description = nullptr;
+    EditorProjectCommandFieldKind kind =
+        EditorProjectCommandFieldKind::Boolean;
+    bool defaultBoolean = false;
+    float defaultFloat = 0.0f;
+    float minimumFloat = 0.0f;
+    float maximumFloat = 1.0f;
+    float stepFloat = 0.05f;
+};
+
+struct EditorProjectCommand {
+    const char* id = nullptr;
+    const char* displayName = nullptr;
+    const char* category = nullptr;
+    const char* description = nullptr;
+    const char* buttonLabel = nullptr;
+    const char* confirmationText = nullptr;
+    const EditorProjectCommandField* fields = nullptr;
+    std::size_t fieldCount = 0u;
+    bool confirmationRequired = false;
+};
+
+struct EditorProjectCommandValue {
+    const char* id = nullptr;
+    bool booleanValue = false;
+    float floatValue = 0.0f;
+};
+
+struct EditorProjectCommandResult {
+    const char* status = nullptr;
+    bool sceneChanged = false;
+    bool assetsChanged = false;
 };
 
 struct EditorProjectTerrainTileCoordinate {
@@ -280,7 +347,7 @@ struct EditorProjectTerrainTileStamp {
     // anchor to the destination cell and preserves every internal tier.
     std::int32_t relativeElevationLevel = 0;
     // Original source-grid height used by exact paste. This is intentionally
-    // separate from the relative value so restoring a clipped Route terrain
+    // separate from the relative value so restoring a clipped source terrain
     // assembly never depends on the destination cell's current height.
     std::int32_t absoluteElevationLevel = 0;
     const char* surface = nullptr;
@@ -579,26 +646,27 @@ public:
     virtual void setLayoutOverlayVisible(bool visible) {
         (void)visible;
     }
-    virtual bool supportsBoardClearance() const noexcept {
-        return false;
+    virtual std::size_t projectCommandCount() const noexcept {
+        return 0u;
     }
-    virtual bool applyBoardClearance(
-        const EditorProjectBoardClearanceRequest& request,
-        EditorProjectBoardClearanceResult& outResult,
+    virtual EditorProjectCommand projectCommand(
+        std::size_t index) const noexcept {
+        (void)index;
+        return {};
+    }
+    virtual bool executeProjectCommand(
+        const char* commandId,
+        const EditorProjectCommandValue* values,
+        std::size_t valueCount,
+        EditorProjectCommandResult& outResult,
         std::string* outError = nullptr) {
-        (void)request;
+        (void)commandId;
+        (void)values;
+        (void)valueCount;
         outResult = {};
         if (outError) {
             *outError =
-                "This project does not provide a board-clearance operation.";
-        }
-        return false;
-    }
-    virtual bool resetSceneToSource(
-        std::string* outError = nullptr) {
-        if (outError) {
-            *outError =
-                "This project does not provide a source-scene reset.";
+                "This project does not provide custom editor commands.";
         }
         return false;
     }

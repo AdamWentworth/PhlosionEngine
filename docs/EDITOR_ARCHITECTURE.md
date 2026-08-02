@@ -1,14 +1,16 @@
 # Phlosion Editor Architecture
 
 Status: Active
-Last updated: 2026-07-31
+Last updated: 2026-08-02
 
 ## Decision
 
 Phlosion uses Dear ImGui docking as the first native editor shell. Phlosion
 owns the editor document model, commands, transactions, undo/redo, project and
-asset schemas, inspectors, viewport behavior, visual style, and specialized
-authoring widgets.
+asset schemas, inspectors, viewport behavior, visual style, and reusable
+authoring widgets. Game-specific commands, labels, snapping rules, terrain
+catalogs, and runtime-preview semantics are supplied by the opened project
+rather than compiled into the shell.
 
 Dear ImGui is a replaceable presentation dependency. Engine and game runtime
 targets do not expose Dear ImGui types in their public contracts. The editor
@@ -58,12 +60,11 @@ workflow.
 
 `PhlosionEditor` always starts from the Engine build or installation. Opening a
 project loads its optional editor-project plugin in-process through the
-versioned `IEditorProjectRuntime` contract. That plugin is a transitional and
-extensible adapter: it owns game-specific scene loading and future
-game-specific inspectors, while the Engine owns the process, window, camera,
-render loop, and shell. As generic `.phscene` loading absorbs the remaining
-Route 1-specific code, Pokemon Autochess's basic viewing path should require
-less plugin code.
+versioned `IEditorProjectRuntime` contract. The plugin is the permanent
+extension boundary for game-specific scene loading, runtime previews, asset
+previews, layout policy, terrain catalogs, and project commands. The Engine
+owns the process, window, camera, render loop, generic selection and transform
+machinery, and reusable shell widgets. See `EDITOR_PROJECT_EXTENSIONS.md`.
 
 Recent projects, panel layout, and outer-window placement are machine-local
 editor state under the operating system's application-data directory. They do
@@ -85,16 +86,16 @@ These editor concepts are deliberately separate:
   runtime-preview status for backdrops that are still runtime-generated;
   stable object identities and component editing belong to M1.
 - **Inspector** displays the properties of the selected hierarchy object,
-  scene, or asset. It is read-only until the command/transaction layer can
-  make edits safely.
+  scene, or asset. Editable project objects declare their supported actions;
+  unsupported controls are absent or disabled rather than inferred from a
+  game-specific object type.
 - **Assets** enumerates cooked resources from the project's content mounts.
   `.phscene` worlds and `.phlo` prefabs are the top-level entries. Meshes,
   materials, animations, skeletons, and textures owned by a prefab are
   dependencies of that prefab, not unrelated peer assets.
 - **Scene view** renders the active scene's inspectable environment backdrop
-  with editor camera and simulation controls. Scenes may share this asset; for
-  example, Route 1 and Route 1.5 can remain distinct game scenes while both
-  reference the same Route 1 environment.
+  with editor camera and simulation controls. Multiple game scenes may share
+  one environment asset without becoming duplicate scenes.
 - **Game view** renders the project's real runtime state over its loaded
   assets.
 
@@ -151,18 +152,19 @@ changes go through Forge.
 
 ## First Vertical Slice
 
-The first accepted editor host must:
+The first accepted editor host had to:
 
 1. open a tracked project descriptor;
-2. mount the project's cooked Route 1 `.phscene` with no source-cache fallback;
+2. mount a project's cooked `.phscene` with no source-cache fallback;
 3. render through the same Engine world renderer used by the game;
 4. provide a docked hierarchy, inspector, assets view, and console;
 5. preserve camera navigation in the uncovered scene viewport;
 6. expose the mounted scene's actual runtime statistics;
 7. produce an automated screenshot and pass Engine and game tests.
 
-This slice is intentionally read-only. The next slice adds stable selections,
-command transactions, undo/redo, and project-owned board-layout editing.
+This historical slice was intentionally read-only. The active editor now has
+stable selections, project-owned layout transactions, undo/redo, terrain
+authoring, and declarative project commands.
 
 ## Local AI Boundary
 
@@ -182,15 +184,13 @@ adapters.
 
 Open a tracked project, mount a cooked `.phscene`, render it through the shared
 world renderer, navigate the camera, and expose read-only hierarchy, inspector,
-assets, and console panels. Pokemon Autochess Route 1 is the qualification
-scene.
+assets, and console panels.
 
 ### M1: Safe scene editing
 
 Introduce stable selections, editor documents, typed commands, transactions,
-undo/redo, transform gizmos, and saveable project-owned overrides. Qualify by
-editing only the Pokemon Autochess board-layout delta while canonical Route 1
-remains byte-identical.
+undo/redo, transform gizmos, and saveable project-owned overrides while
+canonical cooked source remains byte-identical.
 
 The first M1 interaction slice is active for project adapters that expose
 source-backed layout records. In `EDIT` mode the Scene viewport projects
@@ -198,13 +198,9 @@ pickable object markers and source-local Move, Rotate, and Scale gizmos.
 Dragging applies an in-memory preview every frame, releasing autosaves through
 the project adapter, and Escape restores the pre-drag layout. The Inspector
 uses the same preview/commit path. Canonical cooked scenes remain read-only.
-The Route 1 adapter now presents stable source records in semantic,
-collapsible hierarchy folders and uses a lightweight preview path so drag
-frames do not rebuild projected shadows, material catalogs, or runtime
-statistics. Route 1's 47 source-baked trees are now decomposed into stable
-individual placements through topology- and vertex-block evidence. Command
-history, undo/redo, decomposition of the remaining qualified repeated source
-batches, and creation of new scene components remain later M1 work.
+Project adapters provide semantic hierarchy folders and may use lightweight
+preview paths so drag frames do not rebuild expensive scene data. Import-source
+decomposition and game-specific layout semantics remain project-owned.
 
 The generic authored-environment component model and the path from imported
 source groups to prefab instances, ramps, ledges, and raised platforms are
@@ -235,8 +231,8 @@ seed, input, license, and output provenance before Forge accepts them.
 
 ### M6: Generic-engine proof
 
-Open a small original non-Pokemon project and complete the same import, edit,
-cook, package, and play loop without adding a game-specific runtime format or
+Open a second small original project and complete the same import, edit, cook,
+package, and play loop without adding a game-specific runtime format or
 forking the editor.
 
 M0 is complete with an Engine-owned project browser, recent-project workflow,
@@ -245,7 +241,11 @@ shared Direct3D 12, Vulkan, and OpenGL editor presentation. Windows `Auto` uses
 Direct3D 12; Vulkan is the explicit modern cross-platform option, and OpenGL
 is the broad compatibility option. All three use the same Engine-owned editor
 surface abstraction, so backend-specific Dear ImGui types do not leak into
-games. M1 is the current active milestone.
+games. M1 is active and its core extension boundary is implemented. Project
+layout objects now declare transform capabilities, viewport visibility,
+snapping, and Inspector language. Project-only workflows are exposed as
+declarative commands and executed by the project plugin; the shell does not
+branch on project object kinds.
 
 The Direct3D 12 editor path owns a separate shader-visible descriptor heap for
 Dear ImGui and embedded editor-surface textures. It rebinds that heap after
@@ -271,8 +271,8 @@ qualification builds should use a binary directory outside the source tree,
 for example:
 
 ```powershell
-cmake -S D:\Projects\PokemonAutochess `
-  -B D:\Build\PokemonAutochess\fetch-deps `
+cmake -S D:\Projects\MyGame `
+  -B D:\Build\MyGame\fetch-deps `
   -DPHLOSION_ENGINE_SOURCE_DIR:PATH= `
   -DPHLOSION_VFX_SOURCE_DIR:PATH=
 ```
