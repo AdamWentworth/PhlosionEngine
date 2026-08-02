@@ -2008,21 +2008,34 @@ EditorShellActions EditorShell::drawWorkspace(
                     "Label each terrain cell with its source-grid (X,Z) coordinate.");
             }
         }
-        if (impl_->selectedViewport ==
-                EditorViewportKind::Scene &&
-            !impl_->terrainTileEditing &&
+        const WorkspaceLayoutObject* selectedViewportLayout =
+            impl_->selectedLayoutObject >= 0 &&
+                workspace.layoutObjects &&
+                static_cast<std::size_t>(
+                    impl_->selectedLayoutObject) <
+                    workspace.layoutObjects->size()
+            ? &(*workspace.layoutObjects)[
+                  static_cast<std::size_t>(
+                      impl_->selectedLayoutObject)]
+            : nullptr;
+        const bool selectedPreviewUnit =
+            selectedViewportLayout &&
+            selectedViewportLayout->targetKind ==
+                "gameplay_preview_unit";
+        if (((impl_->selectedViewport ==
+                  EditorViewportKind::Scene &&
+              !impl_->terrainTileEditing) ||
+             (impl_->selectedViewport ==
+                  EditorViewportKind::Game &&
+              selectedPreviewUnit)) &&
             workspace.layoutObjects &&
             !workspace.layoutObjects->empty()) {
             const bool selectedGameplayBoard =
-                impl_->selectedLayoutObject >= 0 &&
-                static_cast<std::size_t>(
-                    impl_->selectedLayoutObject) <
-                    workspace.layoutObjects->size() &&
-                (*workspace.layoutObjects)[
-                    static_cast<std::size_t>(
-                        impl_->selectedLayoutObject)]
-                        .targetKind == "gameplay_board";
-            if (selectedGameplayBoard &&
+                selectedViewportLayout &&
+                selectedViewportLayout->targetKind ==
+                    "gameplay_board";
+            if ((selectedGameplayBoard ||
+                 selectedPreviewUnit) &&
                 impl_->layoutGizmoOperation !=
                     LayoutGizmoOperation::Translate) {
                 impl_->layoutGizmoOperation =
@@ -2061,7 +2074,11 @@ EditorShellActions EditorShell::drawWorkspace(
             gizmoButton(
                 "E  Rotate",
                 LayoutGizmoOperation::Rotate);
+            ImGui::EndDisabled();
             ImGui::SameLine();
+            ImGui::BeginDisabled(
+                selectedGameplayBoard ||
+                selectedPreviewUnit);
             gizmoButton(
                 "R  Scale",
                 LayoutGizmoOperation::Scale);
@@ -2078,6 +2095,7 @@ EditorShellActions EditorShell::drawWorkspace(
                     impl_->layoutGizmoOperation =
                         LayoutGizmoOperation::Rotate;
                 } else if (!selectedGameplayBoard &&
+                    !selectedPreviewUnit &&
                     ImGui::IsKeyPressed(ImGuiKey_R, false)) {
                     impl_->layoutGizmoOperation =
                         LayoutGizmoOperation::Scale;
@@ -2585,12 +2603,26 @@ EditorShellActions EditorShell::drawWorkspace(
         } else if (impl_->terrainTileDragging) {
             impl_->terrainTileDragging = false;
         }
-        if (kind == EditorViewportKind::Scene &&
+        const bool layoutViewportEditing =
+            (kind == EditorViewportKind::Scene &&
+             !impl_->terrainTileEditing) ||
+            kind == EditorViewportKind::Game;
+        if (layoutViewportEditing &&
             workspace.playState == EditorPlayState::Editing &&
-            !impl_->terrainTileEditing &&
             workspace.layoutObjects &&
             !workspace.layoutObjects->empty()) {
             const auto& objects = *workspace.layoutObjects;
+            const auto objectVisibleInViewport =
+                [&](const WorkspaceLayoutObject& object) {
+                    const bool previewUnit =
+                        object.targetKind ==
+                            "gameplay_preview_unit";
+                    return object.viewportVisible &&
+                        ((kind == EditorViewportKind::Game &&
+                          previewUnit) ||
+                         (kind == EditorViewportKind::Scene &&
+                          !previewUnit));
+                };
             impl_->selectedLayoutObject = std::clamp(
                 impl_->selectedLayoutObject,
                 -1,
@@ -2605,7 +2637,7 @@ EditorShellActions EditorShell::drawWorkspace(
                  index < objects.size();
                  ++index) {
                 const auto& object = objects[index];
-                if (!object.viewportVisible) {
+                if (!objectVisibleInViewport(object)) {
                     continue;
                 }
                 const ImVec2 position(
@@ -2672,7 +2704,7 @@ EditorShellActions EditorShell::drawWorkspace(
                 selected =
                     &objects[static_cast<std::size_t>(
                         impl_->selectedLayoutObject)];
-                if (selected->viewportVisible) {
+                if (objectVisibleInViewport(*selected)) {
                     gizmoCenter = ImVec2(
                         origin.x +
                             selected->viewportPosition[0],
@@ -2932,7 +2964,7 @@ EditorShellActions EditorShell::drawWorkspace(
                          index < objects.size();
                          ++index) {
                         const auto& object = objects[index];
-                        if (!object.viewportVisible) {
+                        if (!objectVisibleInViewport(object)) {
                             continue;
                         }
                         const ImVec2 position(
@@ -3001,9 +3033,14 @@ EditorShellActions EditorShell::drawWorkspace(
                             impl_->
                                 layoutGizmoSourceUnitsPerPixel;
                         if (ImGui::GetIO().KeyCtrl) {
+                            const float fineSnap =
+                                selected->targetKind ==
+                                        "gameplay_preview_unit"
+                                ? 0.1f
+                                : 5.0f;
                             sourceDelta =
-                                std::round(sourceDelta / 5.0f) *
-                                5.0f;
+                                std::round(sourceDelta / fineSnap) *
+                                fineSnap;
                         }
                         actions.layoutTranslation[axis] +=
                             sourceDelta;
@@ -3089,6 +3126,8 @@ EditorShellActions EditorShell::drawWorkspace(
                     ? "LIVE EDIT - release to autosave, Esc to cancel"
                     : impl_->layoutBoxSelecting
                     ? "BOX SELECT - release to select enclosed objects"
+                    : kind == EditorViewportKind::Game
+                    ? "PREVIEW UNIT EDIT - click a unit marker; W moves, E rotates, runtime scale stays locked"
                     : "EDIT MODE - click, Ctrl/Shift-click, or drag empty space; W/E/R edits primary");
         } else if (
             impl_->layoutGizmoDragging ||
@@ -3518,8 +3557,13 @@ EditorShellActions EditorShell::drawWorkspace(
     }
     ImGui::Separator();
     ImGui::Spacing();
+    const bool inspectingGameplayPreviewUnit =
+        inspectedLayout &&
+        inspectedLayout->targetKind ==
+            "gameplay_preview_unit";
     if (workspace.layoutObjects &&
-        !workspace.layoutObjects->empty()) {
+        !workspace.layoutObjects->empty() &&
+        !inspectingGameplayPreviewUnit) {
         bool overlayVisible =
             workspace.layoutOverlayVisible;
         if (ImGui::Checkbox(
@@ -4789,9 +4833,13 @@ EditorShellActions EditorShell::drawWorkspace(
         const bool gameplayBoard =
             inspectedLayout->targetKind ==
             "gameplay_board";
+        const bool gameplayPreviewUnit =
+            inspectingGameplayPreviewUnit;
         ImGui::TextUnformatted(
             gameplayBoard
                 ? "Gameplay Board Layout"
+                : gameplayPreviewUnit
+                ? "Gameplay Preview Unit"
                 : "Layout Override");
         ImGui::TextDisabled(
             "%s",
@@ -4800,6 +4848,10 @@ EditorShellActions EditorShell::drawWorkspace(
             "%s",
             gameplayBoard
                 ? "8x8 board with north and south bench rows"
+                : gameplayPreviewUnit
+                ? ("Prefab: " +
+                   inspectedLayout->prefabAssetId)
+                      .c_str()
                 : inspectedLayout->prefabAssetId.empty()
                     ? "Editable source mesh group"
                     : ("Prefab: " +
@@ -4807,7 +4859,8 @@ EditorShellActions EditorShell::drawWorkspace(
                           .c_str());
         ImGui::TextWrapped(
             "Values update live. Releasing a field or viewport gizmo autosaves the project override.");
-        ImGui::BeginDisabled(gameplayBoard);
+        ImGui::BeginDisabled(
+            gameplayBoard || gameplayPreviewUnit);
         ImGui::SetNextItemWidth(-1.0f);
         ImGui::InputText(
             "Name",
@@ -4834,7 +4887,8 @@ EditorShellActions EditorShell::drawWorkspace(
         }
         ImGui::EndDisabled();
         ImGui::Spacing();
-        ImGui::BeginDisabled(gameplayBoard);
+        ImGui::BeginDisabled(
+            gameplayBoard || gameplayPreviewUnit);
         if (ImGui::Button(
                 "Duplicate",
                 ImVec2(
@@ -4943,9 +4997,11 @@ EditorShellActions EditorShell::drawWorkspace(
         } else {
             ImGui::SetNextItemWidth(-1.0f);
             translationChanged = ImGui::DragFloat3(
-                "Translation",
+                gameplayPreviewUnit
+                    ? "Starting position"
+                    : "Translation",
                 impl_->layoutTranslation.data(),
-                1.0f,
+                gameplayPreviewUnit ? 0.05f : 1.0f,
                 -100000.0f,
                 100000.0f,
                 "%.2f");
@@ -4974,6 +5030,12 @@ EditorShellActions EditorShell::drawWorkspace(
                 "Bound to Route 1: one board cell = one terrain cell.");
             ImGui::TextWrapped(
                 "Move with the viewport gizmo or source-centimetre fields. X/Z move in 100 cm cells and Y moves in recovered 50 cm elevation levels; scale and rotation cannot drift from the terrain lattice.");
+        } else if (gameplayPreviewUnit) {
+            ImGui::Text(
+                "Resolved gameplay scale: %.3f",
+                inspectedLayout->scale[0]);
+            ImGui::TextWrapped(
+                "Scale is locked to the runtime importer correction and species visual scale used by gameplay.");
         } else {
             liveEditChanged |= ImGui::DragFloat3(
                 "Scale",
@@ -4985,7 +5047,8 @@ EditorShellActions EditorShell::drawWorkspace(
             liveEditFinished |=
                 ImGui::IsItemDeactivatedAfterEdit();
         }
-        ImGui::BeginDisabled(gameplayBoard);
+        ImGui::BeginDisabled(
+            gameplayBoard || gameplayPreviewUnit);
         if (ImGui::Checkbox(
                 "Suppress in gameplay layout",
                 &impl_->layoutSuppressed)) {
@@ -5013,6 +5076,8 @@ EditorShellActions EditorShell::drawWorkspace(
         ImGui::TextDisabled(
             gameplayBoard
                 ? "Viewport: select the board marker and use Move [W]; its grid stays bound to Route 1 tiles."
+                : gameplayPreviewUnit
+                ? "Game viewport: click the unit marker and use Move [W] or Rotate [E]. X/Z snap to legal board or bench slots and Y follows terrain."
                 : "Viewport: click the green marker, then use Move [W], Rotate [E], or Scale [R].");
         ImGui::Spacing();
         if (liveEditFinished) {
@@ -5023,6 +5088,8 @@ EditorShellActions EditorShell::drawWorkspace(
         if (ImGui::Button(
                 gameplayBoard
                     ? "Reset Board Registration"
+                    : gameplayPreviewUnit
+                    ? "Reset Starting Position"
                     : "Reset To Canonical Source",
                 ImVec2(-1.0f, 28.0f))) {
             actions.editLayoutObjectIndex =

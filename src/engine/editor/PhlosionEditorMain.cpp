@@ -3176,6 +3176,9 @@ int main(int argc, char** argv) {
                     project->runtime->renderGamePreview(
                         renderContext);
                     gameSurface->end();
+                    // Game-preview rendering updates project-owned unit
+                    // projections used by picking and live transform gizmos.
+                    refreshLayoutObjectViews(*project);
                 }
 
                 if (selectedAssetPreviewIndex >= 0) {
@@ -3972,6 +3975,17 @@ int main(int argc, char** argv) {
                         preview.id.c_str(),
                         &previewError)) {
                     project->activeGamePreviewId = preview.id;
+                    refreshLayoutObjectViews(*project);
+                    const auto& activeScene =
+                        project->sceneViews[
+                            project->activeSceneIndex];
+                    rebuildProjectHierarchy(
+                        *project,
+                        activeScene,
+                        project->runtime->stats(),
+                        renderer.backendId()
+                            ? renderer.backendId()
+                            : "unknown");
                     activeViewport =
                         engine::editor::EditorViewportKind::Game;
                     focusActiveViewport = true;
