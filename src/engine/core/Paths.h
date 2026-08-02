@@ -11,10 +11,10 @@ namespace engine::paths {
 
 // ---------------- Assets ----------------
 //
-// Asset root can be overridden with env var PAC_ASSET_ROOT.
+// Asset root can be overridden with env var PHLOSION_ASSET_ROOT.
 // Default is "assets".
 inline std::string assetRoot() {
-    if (const auto v = engine::env::get("PAC_ASSET_ROOT")) return *v;
+    if (const auto v = engine::env::get("PHLOSION_ASSET_ROOT")) return *v;
     return "assets";
 }
 
@@ -31,16 +31,16 @@ inline std::string asset(std::string_view rel) {
 
 // ---------------- Data (repo/runtime root) ----------------
 //
-// Data root can be overridden with env var PAC_DATA_ROOT.
+// Data root can be overridden with env var PHLOSION_DATA_ROOT.
 // Default is "." (current working directory).
 //
 // Use this for non-asset runtime files that you ship alongside the exe
 // (scripts/, config/, etc.) when they are not under assets/.
 inline std::string dataRoot() {
-    if (const auto v = engine::env::get("PAC_DATA_ROOT")) return *v;
-    // Dev convenience: if launched from a subfolder (e.g. dist/Release),
-    // walk upward and prefer the repository root that contains source data.
-    // This keeps config/script edits in the repo hot without duplicating files.
+    if (const auto v = engine::env::get("PHLOSION_DATA_ROOT")) return *v;
+    // Dev convenience: if launched from a build/output folder, walk upward
+    // to the nearest Phlosion project root. Project-specific config names do
+    // not belong in this engine-level resolver.
     std::error_code ec;
     std::filesystem::path p = std::filesystem::current_path(ec);
     if (!ec) {
@@ -48,11 +48,12 @@ inline std::string dataRoot() {
             std::error_code probeEc;
             const bool hasGit =
                 std::filesystem::exists(p / ".git", probeEc) && !probeEc;
-            const bool hasConfig =
-                std::filesystem::exists(p / "config" / "pokemon_config.json", probeEc) && !probeEc;
-            const bool hasScripts =
-                std::filesystem::exists(p / "scripts", probeEc) && !probeEc;
-            if (hasGit && hasConfig && hasScripts) {
+            const bool hasProject =
+                std::filesystem::exists(
+                    p / "phlosion.project.json",
+                    probeEc) &&
+                !probeEc;
+            if (hasGit && hasProject) {
                 return p.string();
             }
             const std::filesystem::path parent = p.parent_path();
@@ -65,7 +66,7 @@ inline std::string dataRoot() {
 
 // Optional packed data bundle (scripts/config). Empty if not set.
 inline std::string dataPack() {
-    if (const auto v = engine::env::get("PAC_DATA_PACK")) return *v;
+    if (const auto v = engine::env::get("PHLOSION_DATA_PACK")) return *v;
     return "";
 }
 

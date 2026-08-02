@@ -1,4 +1,4 @@
-﻿#include "ModelFastGltfTextures.h"
+#include "ModelFastGltfTextures.h"
 #include "ModelFastGltfLoaderHelpers.h"
 #include "engine/core/Environment.h"
 #include <stb_image.h>
@@ -19,7 +19,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
-namespace pac::model_fastgltf {
+namespace engine::render::gltf::model {
 namespace {
 GLint wrapToGL(fastgltf::Wrap w) {
     switch (w) {
@@ -282,7 +282,7 @@ void dumpRGBAtoPNG(const std::filesystem::path& outPath, const CPUTexture& t) {
     try {
         std::filesystem::create_directories(outPath.parent_path());
     } catch (const std::exception& e) {
-        if (envTruthy("PAC_GLTF_DEBUG_ALL") || envTruthy("PAC_GLTF_DUMP_TEXTURES")) {
+        if (envTruthy("PHLOSION_GLTF_DEBUG_ALL") || envTruthy("PHLOSION_GLTF_DUMP_TEXTURES")) {
             std::cerr << "[gltf][TEX] create_directories failed: " << e.what() << "\n";
         }
     }
@@ -297,7 +297,7 @@ CPUTexture decodeTextureFast(const fastgltf::Asset& asset,
                              const std::string& modelPath,
                              int* outTexCoordIndex) {
     if (outTexCoordIndex) *outTexCoordIndex = 0;
-    const bool forceDbg = dbg || envTruthy("PAC_GLTF_DEBUG_ALL");
+    const bool forceDbg = dbg || envTruthy("PHLOSION_GLTF_DEBUG_ALL");
     const std::string prefix = "[gltf][TEX] ";
     auto wantLog = [&]() {
         if (forceDbg) return true;
@@ -326,7 +326,7 @@ CPUTexture decodeTextureFast(const fastgltf::Asset& asset,
             }
             return false;
         };
-        return envMatch("PAC_GLTF_DEBUG_MATCH");
+        return envMatch("PHLOSION_GLTF_DEBUG_MATCH");
     };
     const auto white = makeWhiteCPUTexture();
     const auto black = makeBlackCPUTexture();
@@ -527,7 +527,7 @@ CPUTexture decodeTextureFast(const fastgltf::Asset& asset,
         }
     }
     stbi_image_free(decoded);
-    if (wantLog() && envTruthy("PAC_GLTF_DUMP_TEXTURES")) {
+    if (wantLog() && envTruthy("PHLOSION_GLTF_DUMP_TEXTURES")) {
         std::string kindStr = textureKindName(kind);
         std::transform(kindStr.begin(), kindStr.end(), kindStr.begin(), [](unsigned char c) {
             return static_cast<char>(std::tolower(c));
@@ -592,4 +592,4 @@ CPUTexture decodeOcclusionTextureFast(const fastgltf::Asset& asset,
                                       int* outTexCoordIndex) {
     return decodeTextureFast(asset, baseDir, materialIndex, TextureKind::Occlusion, dbg, modelPath, outTexCoordIndex);
 }
-}  // namespace pac::model_fastgltf
+}  // namespace engine::render::gltf::model

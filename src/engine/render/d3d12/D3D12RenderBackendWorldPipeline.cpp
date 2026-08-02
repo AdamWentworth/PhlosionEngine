@@ -1906,7 +1906,7 @@ float3 safeNormalize(float3 value, float3 fallback) {
   return value * rsqrt(len2);
 }
 
-__PAC_SHARED_WORLD_PBR_SECTION__
+__PHLOSION_SHARED_WORLD_PBR_SECTION__
 
 float3 perturbNormal2Arb(float3 eyePos, float3 surfNorm, float3 mapN, float2 uv, float faceDirection) {
   float3 q0 = ddx(eyePos.xyz);
@@ -2027,9 +2027,9 @@ float3 applyWorldLitModel(PSIn i,
   float3 camUp = safeNormalize(cross(camRight, camForward), float3(0.0f, 1.0f, 0.0f));
   float3 v = safeNormalize(cameraPos - i.worldPos, -camForward);
   const float3 directColor = float3(1.0f, 1.0f, 1.0f);
-  const float directIntensity = __PAC_PBR_DIRECT_INTENSITY__ * 3.14159265f;
+  const float directIntensity = __PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265f;
   const float3 ambientColor = float3(1.0f, 1.0f, 1.0f);
-  const float ambientIntensity = __PAC_PBR_AMBIENT_INTENSITY__;
+  const float ambientIntensity = __PHLOSION_PBR_AMBIENT_INTENSITY__;
 
   float3 lightPos = cameraPos + camRight * 0.5f + camUp * 0.0f - camForward * 0.8660254f;
   float3 l0 = safeNormalize(lightPos - cameraTarget, float3(0.45f, 0.86f, 0.24f));
@@ -2051,8 +2051,8 @@ float3 applyWorldLitModel(PSIn i,
   float energyComp = 1.0f - max(max(totalScattering.r, totalScattering.g), totalScattering.b);
   float3 diffuseIBL = diffuseColor * max(energyComp, 0.0f) * cosineWeightedIrradiance;
   float3 specularIBL = envRadiance * singleScattering + multiScattering * cosineWeightedIrradiance;
-  diffuseIBL *= __PAC_PBR_DIFFUSE_IBL_SCALE__;
-  specularIBL *= __PAC_PBR_SPECULAR_IBL_SCALE__;
+  diffuseIBL *= __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
+  specularIBL *= __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
   diffuseIBL *= ao;
   float specularOcclusion = computeSpecularOcclusion(NdotV, ao, roughness);
   specularIBL *= specularOcclusion;
@@ -2297,7 +2297,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
                                    cameraForward,
                                    cameraTarget);
   }
-  const float toneMappingExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+  const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
   const float toneMappingMode = 1.0f;
   float3 mapped = applyViewerToneMapping(
       max(outLinear, float3(0.0f, 0.0f, 0.0f)),

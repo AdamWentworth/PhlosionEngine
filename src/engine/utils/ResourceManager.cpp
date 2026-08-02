@@ -17,13 +17,13 @@ std::shared_ptr<Model> ResourceManager::getModel(const std::string& modelPath) {
         return it->second;
     }
 
-#if defined(PAC_VERBOSE_STARTUP) && PAC_VERBOSE_STARTUP
+#if defined(PHLOSION_VERBOSE_STARTUP) && PHLOSION_VERBOSE_STARTUP
     LOG_INFO_T("RES", std::string("Loading model: ") + modelPath);
 #endif
 
     // Optional fastgltf "shadow parse" for compatibility checking.
-    // Enabled only if you set: PAC_FASTGLTF_VALIDATE=1
-    pac::fastgltf_validator::logSummaryIfEnabled(modelPath);
+    // Enabled only if you set: PHLOSION_FASTGLTF_VALIDATE=1
+    engine::render::gltf::validator::logSummaryIfEnabled(modelPath);
 
     auto modelPtr = std::make_shared<Model>(modelPath);
     loadedModels.emplace(modelPath, modelPtr);

@@ -25,13 +25,13 @@
 // Model.cpp provides this helper (keep definition there).
 extern bool isMipmapMinFilter(GLint minF);
 
-// Fix: use the real animation types (they live in pac_model_types)
-using pac_model_types::AnimationClip;
-using pac_model_types::AnimationSampler;
-using pac_model_types::AnimationChannel;
-using pac_model_types::ChannelPath;
+// Fix: use the real animation types (they live in engine::render::model_types)
+using engine::render::model_types::AnimationClip;
+using engine::render::model_types::AnimationSampler;
+using engine::render::model_types::AnimationChannel;
+using engine::render::model_types::ChannelPath;
 
-namespace pac_model_cache_detail {
+namespace model_cache_detail {
 
 namespace fs = std::filesystem;
 
@@ -116,17 +116,17 @@ static fs::path cachePathForModel(const std::string& filepath) {
     return dir / (hexHash64(h) + ".pacmdl");
 }
 
-} // namespace pac_model_cache_detail
+} // namespace model_cache_detail
 
 // ------------------------------------------------------------
 // Cache I/O (read)
 // ------------------------------------------------------------
 bool Model::tryLoadCache(const std::string& filepath)
 {
-    using namespace pac_model_cache_detail;
+    using namespace model_cache_detail;
 
     // This keeps "test fastgltf" runs deterministic without forcing you to delete cache files.
-    if (envTruthy("PAC_DISABLE_MODELCACHE")) return false;
+    if (envTruthy("PHLOSION_DISABLE_MODELCACHE")) return false;
 
     try {
         const fs::path cpath = cachePathForModel(filepath);
@@ -404,7 +404,7 @@ bool Model::tryLoadCache(const std::string& filepath)
             }
 
             
-            const bool dbgThisModel = envTruthy("PAC_GLTF_DEBUG") ||
+            const bool dbgThisModel = envTruthy("PHLOSION_GLTF_DEBUG") ||
                                       (filepath.find("0019_rattata") != std::string::npos) ||
                                       (filepath.find("0019-Rattata") != std::string::npos) ||
                                       (filepath.find("rattata") != std::string::npos) ||
@@ -442,7 +442,7 @@ bool Model::tryLoadCache(const std::string& filepath)
                             "] emissive RGBA blob is EMPTY.");
                     }
                 }
-                LOG_ERROR("[gltf][CACHE][DEBUG] If you suspect stale/corrupt cache, run with PAC_DISABLE_MODELCACHE=1 once.\n");
+                LOG_ERROR("[gltf][CACHE][DEBUG] If you suspect stale/corrupt cache, run with PHLOSION_DISABLE_MODELCACHE=1 once.\n");
             }
 
 // Upload VBO/EBO/VAO exactly like the slow path
@@ -533,7 +533,7 @@ void Model::writeCache(const std::string& filepath,
                        const std::vector<CPUTexture>& baseColorTexturesCPU,
                        const std::vector<CPUTexture>& emissiveTexturesCPU) const
 {
-    using namespace pac_model_cache_detail;
+    using namespace model_cache_detail;
 
     auto warn = [&](const char* why) {
         STARTUP_WARN(std::string("[Model][Cache] Write skipped/failed: ")

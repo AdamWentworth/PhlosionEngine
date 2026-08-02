@@ -26,7 +26,7 @@ float resolveVertexChannel(float channel, float fallback) {
 
 bool pbrBindingLogEnabled() {
     static const bool enabled = []() -> bool {
-        const auto env = engine::env::get("PAC_BACKEND_PBR_BIND_LOG");
+        const auto env = engine::env::get("PHLOSION_BACKEND_PBR_BIND_LOG");
         if (!env.has_value()) return false;
         const std::string raw = *env;
         if (raw == "0" || raw == "false" || raw == "FALSE" || raw == "off" || raw == "OFF") {
@@ -58,7 +58,7 @@ bool supportsDualSourceBlendOpenGL() {
 
 int pbrDebugViewMode() {
     static const int mode = []() -> int {
-        const auto env = engine::env::get("PAC_BACKEND_PBR_DEBUG_VIEW");
+        const auto env = engine::env::get("PHLOSION_BACKEND_PBR_DEBUG_VIEW");
         if (!env.has_value()) return 0;
         try {
             return std::clamp(std::atoi(env->c_str()), 0, 8);
@@ -71,7 +71,7 @@ int pbrDebugViewMode() {
 
 int pbrBindingLogMaxEntries() {
     static const int maxEntries = []() -> int {
-        const auto env = engine::env::get("PAC_BACKEND_PBR_BIND_LOG_MAX");
+        const auto env = engine::env::get("PHLOSION_BACKEND_PBR_BIND_LOG_MAX");
         if (!env.has_value()) return 64;
         try {
             return (std::max)(1, std::atoi(env->c_str()));
@@ -762,28 +762,22 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     const bool projectedShadowEnabled =
         texture && texture->projectedShadowEnabled != 0u &&
         authoredProjectedShadowTexture != 0u;
-    static constexpr float kRoute1CloudProjectionU[4] = {
-        -0.00010391304269433f,
-        0.0f,
-        -0.000276669561862946f,
-        0.695972776542572f};
-    static constexpr float kRoute1CloudProjectionV[4] = {
-        -0.000223165191709995f,
-        -0.000349375866353512f,
-        0.0000838175788521767f,
-        0.692474711333548f};
+    static constexpr float kDefaultLightProjectionU[4] = {
+        1.0f, 0.0f, 0.0f, 0.0f};
+    static constexpr float kDefaultLightProjectionV[4] = {
+        0.0f, 1.0f, 0.0f, 0.0f};
     glUniform4fv(
         worldLightProjectionUvRowULoc_,
         1,
         texture
             ? texture->lightProjectionUvRowU.data()
-            : kRoute1CloudProjectionU);
+            : kDefaultLightProjectionU);
     glUniform4fv(
         worldLightProjectionUvRowVLoc_,
         1,
         texture
             ? texture->lightProjectionUvRowV.data()
-            : kRoute1CloudProjectionV);
+            : kDefaultLightProjectionV);
     glUniformMatrix4fv(
         worldProjectedShadowMatrixLoc_,
         1,

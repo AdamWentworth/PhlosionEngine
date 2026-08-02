@@ -20,8 +20,8 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/quaternion.hpp>
 
-using pac_model_types::AnimationSampler;
-using pac_model_types::ChannelPath;
+using engine::render::model_types::AnimationSampler;
+using engine::render::model_types::ChannelPath;
 
 void Model::uploadSkinUniforms(const glm::mat4& meshGlobal,
                                int skinIndex,

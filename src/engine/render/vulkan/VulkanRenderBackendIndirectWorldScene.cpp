@@ -16,9 +16,9 @@ namespace {
 
 bool indirectWorldSceneEnabled() {
     static const bool enabled = []() {
-        const auto value = engine::env::get("PAC_VULKAN_INDIRECT_WORLD_SCENE");
+        const auto value = engine::env::get("PHLOSION_VULKAN_INDIRECT_WORLD_SCENE");
         if (!value.has_value()) return true;
-        return engine::env::flagEnabled("PAC_VULKAN_INDIRECT_WORLD_SCENE");
+        return engine::env::flagEnabled("PHLOSION_VULKAN_INDIRECT_WORLD_SCENE");
     }();
     return enabled;
 }

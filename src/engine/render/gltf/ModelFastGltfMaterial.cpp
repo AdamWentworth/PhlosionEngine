@@ -7,7 +7,7 @@
 
 extern bool isMipmapMinFilter(GLint minF);
 
-namespace pac::model_fastgltf {
+namespace engine::render::gltf::model {
 
 MaterialRenderInfo resolveMaterialRenderInfo(const fastgltf::Asset& asset,
                                              int materialIndex,
@@ -141,4 +141,4 @@ GLuint uploadTexture2D(const Model::CPUTexture& cpuTexture,
     return textureId;
 }
 
-}  // namespace pac::model_fastgltf
+}  // namespace engine::render::gltf::model

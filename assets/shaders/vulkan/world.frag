@@ -42,7 +42,7 @@ layout(location = 4) in vec3 worldPosition;
 layout(location = 5) in vec3 vertexGenerated;
 layout(location = 6) in vec2 vertexSourceUv1;
 layout(location = 7) in vec2 vertexSourceUv2;
-#if defined(PAC_VULKAN_DUAL_SOURCE_BLEND)
+#if defined(PHLOSION_VULKAN_DUAL_SOURCE_BLEND)
 layout(location = 0, index = 0) out vec4 outColor;
 layout(location = 0, index = 1) out vec4 outBlendAlpha;
 #else
@@ -1261,7 +1261,7 @@ vec4 evaluateLgpeFieldObjectTreeMikiSurface() {
 }
 
 void writeWorldColor(vec4 color) {
-#if defined(PAC_VULKAN_DUAL_SOURCE_BLEND)
+#if defined(PHLOSION_VULKAN_DUAL_SOURCE_BLEND)
     float blendAlpha = clamp(color.a, 0.0, 1.0);
     float quantizedAlpha = floor(blendAlpha * 63.0 + 0.5) / 63.0;
     outColor = vec4(color.rgb, quantizedAlpha);

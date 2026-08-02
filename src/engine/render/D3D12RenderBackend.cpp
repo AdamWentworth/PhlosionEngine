@@ -105,7 +105,7 @@ void D3D12RenderBackend::recordWorldIndexedSubmissionStats(
 }
 
 void D3D12RenderBackend::configureScreenshotCapture() {
-    const auto path = engine::env::get("PAC_BACKEND_SCREENSHOT_PATH");
+    const auto path = engine::env::get("PHLOSION_BACKEND_SCREENSHOT_PATH");
     if (!path.has_value() || path->empty()) return;
 
     screenshotPath_ = *path;
@@ -114,7 +114,7 @@ void D3D12RenderBackend::configureScreenshotCapture() {
     frameCounter_ = 0u;
     screenshotFrameTarget_ = 0u;
 
-    if (const auto frame = engine::env::get("PAC_BACKEND_SCREENSHOT_FRAME")) {
+    if (const auto frame = engine::env::get("PHLOSION_BACKEND_SCREENSHOT_FRAME")) {
         try {
             screenshotFrameTarget_ = static_cast<std::uint64_t>(std::stoull(*frame));
         } catch (...) {

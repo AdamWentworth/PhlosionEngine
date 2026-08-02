@@ -129,7 +129,7 @@ Application::~Application() {
 bool Application::initApplication() {
     // Window ctor performs SDL_Init + creates GL context.
     try {
-        window = std::make_unique<Window>("Pokemon Autochess", (int)START_W, (int)START_H);
+        window = std::make_unique<Window>("Phlosion Application", (int)START_W, (int)START_H);
     } catch (const std::exception& ex) {
         applicationLog().error(std::string("[Application] Window init failed: ") + ex.what());
         return false;
@@ -153,7 +153,7 @@ bool Application::initApplication() {
     bootLoadingView->init(shaderCache);
 
     // show a first frame so the window looks alive
-    setTitle("PokemonAutochess - Loading...");
+    setTitle("Phlosion Application - Loading...");
     glClearColor(0.05f, 0.05f, 0.07f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     swapBuffers();

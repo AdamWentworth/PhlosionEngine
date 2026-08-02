@@ -3,7 +3,7 @@
 
 #include <cstdint>
 
-namespace pac_model_types {
+namespace engine::render::model_types {
 
 struct Vertex {
     float px, py, pz;
@@ -19,4 +19,4 @@ struct Vertex {
     float tx, ty, tz, tw;
 };
 
-} // namespace pac_model_types
+} // namespace engine::render::model_types

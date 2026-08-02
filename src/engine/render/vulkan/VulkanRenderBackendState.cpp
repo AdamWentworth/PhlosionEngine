@@ -230,7 +230,7 @@ void VulkanRenderBackendImpl::resetWorldFrameStateCache() {
 
 void VulkanRenderBackendImpl::maybeLogWorldFrameCache() const {
     static const bool enabled = []() {
-        const auto value = engine::env::get("PAC_VULKAN_STATE_CACHE_LOG");
+        const auto value = engine::env::get("PHLOSION_VULKAN_STATE_CACHE_LOG");
         if (!value.has_value()) return false;
         const std::string& raw = *value;
         return raw != "0" && raw != "false" && raw != "FALSE" &&

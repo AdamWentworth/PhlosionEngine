@@ -58,7 +58,7 @@ void packWorldVsConstants(const float* viewProjectionMatrix4x4,
 
 bool pbrBindingLogEnabled() {
     static const bool enabled = []() -> bool {
-        const auto env = engine::env::get("PAC_BACKEND_PBR_BIND_LOG");
+        const auto env = engine::env::get("PHLOSION_BACKEND_PBR_BIND_LOG");
         if (!env.has_value()) return false;
         const std::string raw = *env;
         if (raw == "0" || raw == "false" || raw == "FALSE" || raw == "off" || raw == "OFF") {
@@ -71,7 +71,7 @@ bool pbrBindingLogEnabled() {
 
 int pbrDebugViewMode() {
     static const int mode = []() -> int {
-        const auto env = engine::env::get("PAC_BACKEND_PBR_DEBUG_VIEW");
+        const auto env = engine::env::get("PHLOSION_BACKEND_PBR_DEBUG_VIEW");
         if (!env.has_value()) return 0;
         try {
             return std::clamp(std::atoi(env->c_str()), 0, 8);
@@ -84,7 +84,7 @@ int pbrDebugViewMode() {
 
 int pbrBindingLogMaxEntries() {
     static const int maxEntries = []() -> int {
-        const auto env = engine::env::get("PAC_BACKEND_PBR_BIND_LOG_MAX");
+        const auto env = engine::env::get("PHLOSION_BACKEND_PBR_BIND_LOG_MAX");
         if (!env.has_value()) return 64;
         try {
             return (std::max)(1, std::atoi(env->c_str()));
@@ -115,16 +115,16 @@ float toMs(const Clock::time_point& start, const Clock::time_point& end) {
 
 bool worldDrawPerfLogEnabled() {
     static const bool enabled = []() -> bool {
-        const auto env = engine::env::get("PAC_BACKEND_WORLD_DRAW_PERF_LOG");
+        const auto env = engine::env::get("PHLOSION_BACKEND_WORLD_DRAW_PERF_LOG");
         if (!env.has_value()) return false;
-        return engine::env::flagEnabled("PAC_BACKEND_WORLD_DRAW_PERF_LOG");
+        return engine::env::flagEnabled("PHLOSION_BACKEND_WORLD_DRAW_PERF_LOG");
     }();
     return enabled;
 }
 
 float worldDrawPerfLogThresholdMs() {
     static const float threshold = []() -> float {
-        const auto env = engine::env::get("PAC_BACKEND_WORLD_DRAW_PERF_THRESHOLD_MS");
+        const auto env = engine::env::get("PHLOSION_BACKEND_WORLD_DRAW_PERF_THRESHOLD_MS");
         if (!env.has_value()) return 0.5f;
         return (std::max)(0.0f, static_cast<float>(std::atof(env->c_str())));
     }();
@@ -133,7 +133,7 @@ float worldDrawPerfLogThresholdMs() {
 
 int worldDrawPerfLogMaxEntries() {
     static const int maxEntries = []() -> int {
-        const auto env = engine::env::get("PAC_BACKEND_WORLD_DRAW_PERF_LOG_MAX");
+        const auto env = engine::env::get("PHLOSION_BACKEND_WORLD_DRAW_PERF_LOG_MAX");
         if (!env.has_value()) return 24;
         return (std::max)(1, std::atoi(env->c_str()));
     }();

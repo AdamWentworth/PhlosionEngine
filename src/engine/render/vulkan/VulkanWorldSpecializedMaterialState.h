@@ -22,15 +22,9 @@ struct alignas(16) WorldSpecializedMaterialState {
         0.0f, 0.0f, 0.0f, 1.0f};
     std::array<float, 4> projectedShadowParams{0.0f, 1.0f, 0.0f, 0.0f};
     std::array<float, 4> lightProjectionUvRowU{
-        -0.00010391304269433f,
-        0.0f,
-        -0.000276669561862946f,
-        0.695972776542572f};
+        1.0f, 0.0f, 0.0f, 0.0f};
     std::array<float, 4> lightProjectionUvRowV{
-        -0.000223165191709995f,
-        -0.000349375866353512f,
-        0.0000838175788521767f,
-        0.692474711333548f};
+        0.0f, 1.0f, 0.0f, 0.0f};
 };
 
 static_assert(std::is_standard_layout_v<WorldSpecializedMaterialState>);

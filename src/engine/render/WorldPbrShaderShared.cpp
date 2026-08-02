@@ -498,11 +498,11 @@ const Tunables& getTunables() {
 std::string injectTunables(std::string_view source, bool hlslLiterals) {
     const Tunables& t = getTunables();
     std::string out(source);
-    replaceAll(out, "__PAC_PBR_DIRECT_INTENSITY__", toLiteral(t.directIntensity, hlslLiterals));
-    replaceAll(out, "__PAC_PBR_AMBIENT_INTENSITY__", toLiteral(t.ambientIntensity, hlslLiterals));
-    replaceAll(out, "__PAC_PBR_DIFFUSE_IBL_SCALE__", toLiteral(t.diffuseIblScale, hlslLiterals));
-    replaceAll(out, "__PAC_PBR_SPECULAR_IBL_SCALE__", toLiteral(t.specularIblScale, hlslLiterals));
-    replaceAll(out, "__PAC_PBR_TONEMAP_EXPOSURE__", toLiteral(t.toneMappingExposure, hlslLiterals));
+    replaceAll(out, "__PHLOSION_PBR_DIRECT_INTENSITY__", toLiteral(t.directIntensity, hlslLiterals));
+    replaceAll(out, "__PHLOSION_PBR_AMBIENT_INTENSITY__", toLiteral(t.ambientIntensity, hlslLiterals));
+    replaceAll(out, "__PHLOSION_PBR_DIFFUSE_IBL_SCALE__", toLiteral(t.diffuseIblScale, hlslLiterals));
+    replaceAll(out, "__PHLOSION_PBR_SPECULAR_IBL_SCALE__", toLiteral(t.specularIblScale, hlslLiterals));
+    replaceAll(out, "__PHLOSION_PBR_TONEMAP_EXPOSURE__", toLiteral(t.toneMappingExposure, hlslLiterals));
     return out;
 }
 
@@ -511,7 +511,7 @@ std::string injectSharedWorldPbr(std::string_view source, ShaderLanguage languag
     std::string out = injectTunables(source, hlslLiterals);
     const std::string_view section =
         (language == ShaderLanguage::Hlsl) ? sharedWorldPbrSectionHlsl() : sharedWorldPbrSectionGlsl();
-    replaceAll(out, "__PAC_SHARED_WORLD_PBR_SECTION__", section);
+    replaceAll(out, "__PHLOSION_SHARED_WORLD_PBR_SECTION__", section);
     return out;
 }
 

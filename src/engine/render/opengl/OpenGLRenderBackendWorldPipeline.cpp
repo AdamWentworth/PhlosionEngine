@@ -62,11 +62,11 @@ std::string hexHash64(std::uint64_t value) {
 }
 
 bool worldProgramBinaryCacheEnabled() {
-    return !engine::env::flagEnabled("PAC_DISABLE_OPENGL_WORLD_PROGRAM_CACHE");
+    return !engine::env::flagEnabled("PHLOSION_DISABLE_OPENGL_WORLD_PROGRAM_CACHE");
 }
 
 bool worldProgramBinaryForceRebuild() {
-    return engine::env::flagEnabled("PAC_REBUILD_OPENGL_WORLD_PROGRAM_CACHE");
+    return engine::env::flagEnabled("PHLOSION_REBUILD_OPENGL_WORLD_PROGRAM_CACHE");
 }
 
 bool worldProgramBinarySupported() {
@@ -2148,7 +2148,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             return value * inversesqrt(len2);
         }
 
-__PAC_SHARED_WORLD_PBR_SECTION__
+__PHLOSION_SHARED_WORLD_PBR_SECTION__
 
         vec3 perturbNormal2Arb(vec3 eyePos, vec3 surfNorm, vec3 mapN, vec2 uv, float faceDirection) {
             // Mirrors three.js perturbNormal2Arb derivative basis construction.
@@ -2254,9 +2254,9 @@ __PAC_SHARED_WORLD_PBR_SECTION__
             vec3 camUp = safeNormalize(cross(camRight, camForward), vec3(0.0, 1.0, 0.0));
             vec3 v = safeNormalize(uCameraPos - vWorldPos, -camForward);
             const vec3 directColor = vec3(1.0);
-            const float directIntensity = __PAC_PBR_DIRECT_INTENSITY__ * 3.14159265;
+            const float directIntensity = __PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265;
             const vec3 ambientColor = vec3(1.0);
-            const float ambientIntensity = __PAC_PBR_AMBIENT_INTENSITY__;
+            const float ambientIntensity = __PHLOSION_PBR_AMBIENT_INTENSITY__;
 
             vec3 lightPos = uCameraPos + camRight * 0.5 + camUp * 0.0 - camForward * 0.8660254;
             vec3 l0 = safeNormalize(lightPos - uCameraTarget, vec3(0.45, 0.86, 0.24));
@@ -2279,8 +2279,8 @@ __PAC_SHARED_WORLD_PBR_SECTION__
             float energyComp = 1.0 - max(max(totalScattering.r, totalScattering.g), totalScattering.b);
             vec3 diffuseIBL = diffuseColor * max(energyComp, 0.0) * cosineWeightedIrradiance;
             vec3 specularIBL = envRadiance * singleScattering + multiScattering * cosineWeightedIrradiance;
-            diffuseIBL *= __PAC_PBR_DIFFUSE_IBL_SCALE__;
-            specularIBL *= __PAC_PBR_SPECULAR_IBL_SCALE__;
+            diffuseIBL *= __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
+            specularIBL *= __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
             diffuseIBL *= ao;
             float specularOcclusion = computeSpecularOcclusion(NdotV, ao, roughness);
             specularIBL *= specularOcclusion;
@@ -2560,7 +2560,7 @@ __PAC_SHARED_WORLD_PBR_SECTION__
                 vec3 n = computeMappedNormal(wrappedUv, uvDx, uvDy);
                 outLinear = applyWorldLitModel(outLinear, n, wrappedUv, uvDx, uvDy);
             }
-            const float toneMappingExposure = __PAC_PBR_TONEMAP_EXPOSURE__;
+            const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
             const float toneMappingMode = 1.0;
             vec3 mapped = applyViewerToneMapping(max(outLinear, vec3(0.0)), toneMappingMode, toneMappingExposure);
             vec3 outSrgb = resolveWorldSceneColor(mapped);

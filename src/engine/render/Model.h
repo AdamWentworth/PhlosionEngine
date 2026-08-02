@@ -38,7 +38,7 @@ struct Submesh {
 class Model {
 public:
     struct AnimatedPose {
-        std::vector<pac_model_types::NodeTRS> locals;
+        std::vector<engine::render::model_types::NodeTRS> locals;
         std::vector<glm::mat4> globals;
     };
 
@@ -151,10 +151,10 @@ private:
     float boundsRadiusHorizontal = 0.0f;
     bool boundsValid = false;
 
-    using NodeTRS          = pac_model_types::NodeTRS;
-    using SkinData         = pac_model_types::SkinData;
-    using AnimationClip    = pac_model_types::AnimationClip;
-    using Vertex           = pac_model_types::Vertex;
+    using NodeTRS          = engine::render::model_types::NodeTRS;
+    using SkinData         = engine::render::model_types::SkinData;
+    using AnimationClip    = engine::render::model_types::AnimationClip;
+    using Vertex           = engine::render::model_types::Vertex;
 
     std::vector<NodeTRS>           nodesDefault;
     std::vector<std::vector<int>>  nodeChildren;

@@ -164,15 +164,9 @@ struct WorldTextureData {
     int lightProjectionWrapT = 10497;
     std::uint8_t lightProjectionTextureSrgb = 0u;
     std::array<float, 4> lightProjectionUvRowU{
-        -0.00010391304269433f,
-        0.0f,
-        -0.000276669561862946f,
-        0.695972776542572f};
+        1.0f, 0.0f, 0.0f, 0.0f};
     std::array<float, 4> lightProjectionUvRowV{
-        -0.000223165191709995f,
-        -0.000349375866353512f,
-        0.0000838175788521767f,
-        0.692474711333548f};
+        0.0f, 1.0f, 0.0f, 0.0f};
     const char* projectedShadowKey = nullptr;
     const char* projectedShadowCacheKey = nullptr;
     const unsigned char* projectedShadowRgba = nullptr;
@@ -467,15 +461,9 @@ struct WorldSceneMaterial {
     int lightProjectionTextureWrapT = 10497;
     std::uint8_t lightProjectionTextureSrgb = 0u;
     std::array<float, 4> lightProjectionUvRowU{
-        -0.00010391304269433f,
-        0.0f,
-        -0.000276669561862946f,
-        0.695972776542572f};
+        1.0f, 0.0f, 0.0f, 0.0f};
     std::array<float, 4> lightProjectionUvRowV{
-        -0.000223165191709995f,
-        -0.000349375866353512f,
-        0.0000838175788521767f,
-        0.692474711333548f};
+        0.0f, 1.0f, 0.0f, 0.0f};
     std::string projectedShadowTextureKey;
     std::string projectedShadowTextureCacheKey;
     const unsigned char* projectedShadowTextureRgba = nullptr;

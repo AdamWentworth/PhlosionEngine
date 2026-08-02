@@ -7,7 +7,7 @@
 #include <fastgltf/tools.hpp>
 #include <glm/glm.hpp>
 
-namespace pac::model_fastgltf {
+namespace engine::render::gltf::model {
 
 bool envTruthy(const char* name);
 bool ciContains(const std::string& s, const std::string& needle);
@@ -44,4 +44,4 @@ void computeTangentsFromGeometry(const std::vector<glm::vec3>& positions,
                                  const std::vector<std::uint32_t>& indices,
                                  std::vector<glm::vec4>& outTangents);
 
-}  // namespace pac::model_fastgltf
+}  // namespace engine::render::gltf::model

@@ -120,13 +120,13 @@ std::size_t resolvePreviewSelectionFromEnv(const char* envName,
 
 PreviewScreenshotCaptureConfig makeScreenshotCaptureConfig() {
     PreviewScreenshotCaptureConfig cfg{};
-    const auto path = engine::env::get("PAC_VFX_PREVIEW_SCREENSHOT_PATH");
+    const auto path = engine::env::get("PHLOSION_VFX_PREVIEW_SCREENSHOT_PATH");
     if (!path.has_value() || path->empty()) {
         return cfg;
     }
     cfg.enabled = true;
     cfg.path = *path;
-    if (const auto frame = engine::env::get("PAC_VFX_PREVIEW_SCREENSHOT_FRAME")) {
+    if (const auto frame = engine::env::get("PHLOSION_VFX_PREVIEW_SCREENSHOT_FRAME")) {
         try {
             cfg.targetFrame = static_cast<std::uint64_t>(std::stoull(*frame));
         } catch (...) {
@@ -169,10 +169,10 @@ void applyEffectFocusFrame(Camera3D& camera,
     PreviewEffectFocusFrame focus = effect.previewFocusFrame(scene);
     if (!focus.enabled) return;
 
-    focus.yawDeg = parsePreviewFloatEnv("PAC_VFX_PREVIEW_FOCUS_YAW_DEG", focus.yawDeg);
-    focus.pitchDeg = parsePreviewFloatEnv("PAC_VFX_PREVIEW_FOCUS_PITCH_DEG", focus.pitchDeg);
+    focus.yawDeg = parsePreviewFloatEnv("PHLOSION_VFX_PREVIEW_FOCUS_YAW_DEG", focus.yawDeg);
+    focus.pitchDeg = parsePreviewFloatEnv("PHLOSION_VFX_PREVIEW_FOCUS_PITCH_DEG", focus.pitchDeg);
     focus.distanceMul =
-        parsePreviewFloatEnv("PAC_VFX_PREVIEW_FOCUS_DISTANCE_MUL", focus.distanceMul);
+        parsePreviewFloatEnv("PHLOSION_VFX_PREVIEW_FOCUS_DISTANCE_MUL", focus.distanceMul);
 
     const float safeAspect = std::max(0.1f, aspect);
     const float radius = std::max(0.05f, focus.radius);
@@ -197,8 +197,8 @@ void applyEffectFocusFrame(Camera3D& camera,
 PreviewAutoQuitConfig makeAutoQuitConfig() {
     PreviewAutoQuitConfig cfg{};
     cfg.exitAfterScreenshot =
-        parsePreviewBoolEnv("PAC_VFX_PREVIEW_EXIT_AFTER_SCREENSHOT", false);
-    if (const auto seconds = engine::env::get("PAC_VFX_PREVIEW_AUTO_QUIT_SECONDS")) {
+        parsePreviewBoolEnv("PHLOSION_VFX_PREVIEW_EXIT_AFTER_SCREENSHOT", false);
+    if (const auto seconds = engine::env::get("PHLOSION_VFX_PREVIEW_AUTO_QUIT_SECONDS")) {
         try {
             cfg.seconds = std::max(0.0, std::stod(*seconds));
             cfg.enabled = cfg.seconds > 0.0;
@@ -787,33 +787,33 @@ int VfxPreviewApp::run() {
 
         DebugLineRenderer debugLines;
         PreviewSceneState scene{};
-        if (parsePreviewBoolEnv("PAC_VFX_PREVIEW_HIDE_GUIDES", false)) {
+        if (parsePreviewBoolEnv("PHLOSION_VFX_PREVIEW_HIDE_GUIDES", false)) {
             scene.showEmitterMarker = false;
             scene.showTargetMarker = false;
             scene.showOrientationGuide = false;
         }
-        bool showHelpOverlay = !parsePreviewBoolEnv("PAC_VFX_PREVIEW_HIDE_HELP", false);
+        bool showHelpOverlay = !parsePreviewBoolEnv("PHLOSION_VFX_PREVIEW_HIDE_HELP", false);
         bool showPrimaryBackdrop = true;
         bool showSecondaryBackdrop = false;
         std::size_t clearBackdropIndex = 0u;
         std::size_t activeEffectIndex = resolvePreviewSelectionFromEnv(
-            "PAC_VFX_PREVIEW_INITIAL_EFFECT",
+            "PHLOSION_VFX_PREVIEW_INITIAL_EFFECT",
             project_->effectCount(),
             [&](std::size_t index) { return project_->effectAt(index).name(); });
         std::size_t activeRigIndex = resolvePreviewSelectionFromEnv(
-            "PAC_VFX_PREVIEW_INITIAL_RIG",
+            "PHLOSION_VFX_PREVIEW_INITIAL_RIG",
             project_->rigCount(),
             [&](std::size_t index) { return project_->rigName(index); });
         float loopReplayCooldownSec = 0.0f;
         PreviewScreenshotCaptureConfig screenshotCapture = makeScreenshotCaptureConfig();
         PreviewAutoQuitConfig autoQuit = makeAutoQuitConfig();
         const bool autoFocusActiveEffect =
-            parsePreviewBoolEnv("PAC_VFX_PREVIEW_AUTO_FOCUS_EFFECT", screenshotCapture.enabled);
+            parsePreviewBoolEnv("PHLOSION_VFX_PREVIEW_AUTO_FOCUS_EFFECT", screenshotCapture.enabled);
         const float focusTightnessMul =
-            parsePreviewFloatEnv("PAC_VFX_PREVIEW_FOCUS_TIGHTNESS", 1.0f);
+            parsePreviewFloatEnv("PHLOSION_VFX_PREVIEW_FOCUS_TIGHTNESS", 1.0f);
         const float forcedFixedDtSec =
             parsePreviewFloatEnv(
-                "PAC_VFX_PREVIEW_FIXED_DT_SECONDS",
+                "PHLOSION_VFX_PREVIEW_FIXED_DT_SECONDS",
                 screenshotCapture.enabled ? (1.0f / 60.0f) : -1.0f);
 
         auto activateCurrentEffect = [&](bool applyRigDefaults) {

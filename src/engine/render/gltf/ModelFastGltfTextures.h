@@ -7,7 +7,7 @@
 
 #include "engine/render/Model.h"
 
-namespace pac::model_fastgltf {
+namespace engine::render::gltf::model {
 
 using CPUTexture = Model::CPUTexture;
 
@@ -46,4 +46,4 @@ CPUTexture decodeOcclusionTextureFast(const fastgltf::Asset& asset,
                                       const std::string& modelPath,
                                       int* outTexCoordIndex);
 
-}  // namespace pac::model_fastgltf
+}  // namespace engine::render::gltf::model

@@ -86,11 +86,11 @@ bool readPod(std::istream& in, T& value) {
 }
 
 bool neutralPmremDiskCacheEnabled() {
-    return !engine::env::flagEnabled("PAC_DISABLE_NEUTRAL_PMREM_CACHE");
+    return !engine::env::flagEnabled("PHLOSION_DISABLE_NEUTRAL_PMREM_CACHE");
 }
 
 bool neutralPmremForceRebuild() {
-    return engine::env::flagEnabled("PAC_REBUILD_NEUTRAL_PMREM_CACHE");
+    return engine::env::flagEnabled("PHLOSION_REBUILD_NEUTRAL_PMREM_CACHE");
 }
 
 fs::path neutralPmremCachePath() {

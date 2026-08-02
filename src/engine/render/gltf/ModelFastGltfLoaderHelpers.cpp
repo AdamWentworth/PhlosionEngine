@@ -7,7 +7,7 @@
 #include <cctype>
 #include <cmath>
 
-namespace pac::model_fastgltf {
+namespace engine::render::gltf::model {
 
 namespace {
 
@@ -189,4 +189,4 @@ void computeTangentsFromGeometry(const std::vector<glm::vec3>& positions,
     }
 }
 
-}  // namespace pac::model_fastgltf
+}  // namespace engine::render::gltf::model

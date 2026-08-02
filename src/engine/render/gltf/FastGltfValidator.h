@@ -11,7 +11,7 @@
 
 #include "engine/core/Environment.h"
 
-namespace pac::fastgltf_validator {
+namespace engine::render::gltf::validator {
 
 inline bool envFlagEnabled(const char* name) {
     return engine::env::flagEnabled(name);
@@ -86,7 +86,7 @@ inline void printSummary(const fastgltf::Asset& a, const std::filesystem::path& 
 }
 
 inline void logSummaryIfEnabled(const std::string& modelPath) {
-    if (!envFlagEnabled("PAC_FASTGLTF_VALIDATE")) {
+    if (!envFlagEnabled("PHLOSION_FASTGLTF_VALIDATE")) {
         return;
     }
 
@@ -133,4 +133,4 @@ inline void logSummaryIfEnabled(const std::string& modelPath) {
     }
 }
 
-} // namespace pac::fastgltf_validator
+} // namespace engine::render::gltf::validator

@@ -11,7 +11,7 @@
 
 #include "engine/core/Environment.h"
 
-namespace pac::fastgltf_loader {
+namespace engine::render::gltf::loader {
 
 namespace detail {
 
@@ -101,4 +101,4 @@ inline std::optional<LoadResult> tryLoad(std::string_view filepath) {
     return LoadResult{std::move(asset.get()), baseDir};
 }
 
-} // namespace pac::fastgltf_loader
+} // namespace engine::render::gltf::loader

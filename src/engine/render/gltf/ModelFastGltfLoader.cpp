@@ -35,16 +35,16 @@ void Model::loadGLTFFast(const std::string& filepath) {
 // ------------------------------------------------------------
 // FastGLTF load (full path)
 // ------------------------------------------------------------
-    auto fg = pac::fastgltf_loader::tryLoad(filepath);
+    auto fg = engine::render::gltf::loader::tryLoad(filepath);
     if (!fg.has_value()) {
         std::cerr << "[gltf][FASTGLTF] FAILED to parse: " << filepath << "\n";
         return;
     }
     const fastgltf::Asset& asset = fg->asset;
-    const bool dbgThisModel = pac::model_fastgltf::envTruthy("PAC_GLTF_DEBUG") || pac::model_fastgltf::ciContains(filepath, "0019_rattata") || pac::model_fastgltf::ciContains(filepath, "rattata");
+    const bool dbgThisModel = engine::render::gltf::model::envTruthy("PHLOSION_GLTF_DEBUG") || engine::render::gltf::model::ciContains(filepath, "0019_rattata") || engine::render::gltf::model::ciContains(filepath, "rattata");
     if (dbgThisModel) {
         std::cerr << "[gltf][DEBUG] Extra logging ENABLED for: " << filepath << "\n";
-        std::cerr << "[gltf][DEBUG] Env toggles: PAC_GLTF_DUMP_TEXTURES=1 will write debug PNGs; PAC_GLTF_RESPECT_TEXCOORD=1 will respect material texCoord indices.\n";
+        std::cerr << "[gltf][DEBUG] Env toggles: PHLOSION_GLTF_DUMP_TEXTURES=1 will write debug PNGs; PHLOSION_GLTF_RESPECT_TEXCOORD=1 will respect material texCoord indices.\n";
     }
     // Reset model state
     nodesDefault.clear();
@@ -59,7 +59,7 @@ void Model::loadGLTFFast(const std::string& filepath) {
     nodeNameMapBuilt = false;
     nodeNameToIndex.clear();
     fastgltf::DefaultBufferDataAdapter adapter{};
-    pac::model_fastgltf::buildSceneData(asset,
+    engine::render::gltf::model::buildSceneData(asset,
                                         adapter,
                                         nodesDefault,
                                         &nodeNames,
@@ -77,8 +77,8 @@ void Model::loadGLTFFast(const std::string& filepath) {
     std::vector<uint32_t> indices;
     vertices.reserve(20000);
     indices.reserve(60000);
-    std::vector<pac::model_fastgltf::CPUTexture> baseColorTexturesCPU;
-    std::vector<pac::model_fastgltf::CPUTexture> emissiveTexturesCPU;
+    std::vector<engine::render::gltf::model::CPUTexture> baseColorTexturesCPU;
+    std::vector<engine::render::gltf::model::CPUTexture> emissiveTexturesCPU;
     baseColorTexturesCPU.reserve(64);
     emissiveTexturesCPU.reserve(64);
     float minX = std::numeric_limits<float>::max(), minY = std::numeric_limits<float>::max(), minZ = std::numeric_limits<float>::max();
@@ -101,8 +101,8 @@ void Model::loadGLTFFast(const std::string& filepath) {
             // Compatibility-safe behavior:
             // - If material wants TEXCOORD_0 -> use it (same as before)
             // - If material wants TEXCOORD_n -> try it, and fallback to TEXCOORD_0 if missing
-            // - PAC_GLTF_RESPECT_TEXCOORD can still force logging/diagnostics semantics, but isn't required anymore.
-            int requiredTexCoord = pac::model_fastgltf::requiredTexCoordForMaterial(asset, materialIndex);
+            // - PHLOSION_GLTF_RESPECT_TEXCOORD can still force logging/diagnostics semantics, but isn't required anymore.
+            int requiredTexCoord = engine::render::gltf::model::requiredTexCoordForMaterial(asset, materialIndex);
 
             std::string uvAttr = "TEXCOORD_" + std::to_string(requiredTexCoord);
             auto itUv = p.findAttribute(uvAttr);
@@ -366,11 +366,11 @@ void Model::loadGLTFFast(const std::string& filepath) {
             }
 
             if (!hasExplicitNormals) {
-                pac::model_fastgltf::computeNormalsFromGeometry(pos, primIdxU32, normals);
+                engine::render::gltf::model::computeNormalsFromGeometry(pos, primIdxU32, normals);
             }
 
             if (!hasExplicitTangents) {
-                pac::model_fastgltf::computeTangentsFromGeometry(pos, uv, normals, primIdxU32, tangents);
+                engine::render::gltf::model::computeTangentsFromGeometry(pos, uv, normals, primIdxU32, tangents);
                 // Mark generated tangents as non-authored so world shaders can
                 // select derivative-tangent normal mapping for viewer parity.
                 for (glm::vec4& t : tangents) t.w = 0.0f;
@@ -384,7 +384,7 @@ void Model::loadGLTFFast(const std::string& filepath) {
                 }
                 if (needsFallback) {
                     std::vector<glm::vec4> fallbackTangents;
-                    pac::model_fastgltf::computeTangentsFromGeometry(pos, uv, normals, primIdxU32, fallbackTangents);
+                    engine::render::gltf::model::computeTangentsFromGeometry(pos, uv, normals, primIdxU32, fallbackTangents);
                     for (std::size_t vi = 0; vi < tangents.size(); ++vi) {
                         if (glm::dot(glm::vec3(tangents[vi]), glm::vec3(tangents[vi])) <= 1e-10f) {
                             tangents[vi] = fallbackTangents[vi];
@@ -437,19 +437,19 @@ void Model::loadGLTFFast(const std::string& filepath) {
             // --- material decode (minimal glTF) ---
             int baseTexCoordUsed = 0;
             int emissiveTexCoordUsed = 0;
-            pac::model_fastgltf::CPUTexture baseCPU = pac::model_fastgltf::decodeBaseColorTextureFast(asset, fg->baseDir, materialIndex, dbgThisModel, filepath, &baseTexCoordUsed);
-            pac::model_fastgltf::CPUTexture emissiveCPU = pac::model_fastgltf::decodeEmissiveTextureFast(asset, fg->baseDir, materialIndex, dbgThisModel, filepath, &emissiveTexCoordUsed);
+            engine::render::gltf::model::CPUTexture baseCPU = engine::render::gltf::model::decodeBaseColorTextureFast(asset, fg->baseDir, materialIndex, dbgThisModel, filepath, &baseTexCoordUsed);
+            engine::render::gltf::model::CPUTexture emissiveCPU = engine::render::gltf::model::decodeEmissiveTextureFast(asset, fg->baseDir, materialIndex, dbgThisModel, filepath, &emissiveTexCoordUsed);
             if (dbgThisModel && (baseTexCoordUsed != requiredTexCoord || emissiveTexCoordUsed != requiredTexCoord)) {
                 std::cerr << "[gltf][INFO] Material texCoord(base=" << baseTexCoordUsed
                         << ", emissive=" << emissiveTexCoordUsed
                         << "), meshUV=" << requiredTexCoord << "\n";
             }
 
-            const pac::model_fastgltf::MaterialRenderInfo materialInfo =
-                pac::model_fastgltf::resolveMaterialRenderInfo(asset, materialIndex, baseCPU, dbgThisModel);
+            const engine::render::gltf::model::MaterialRenderInfo materialInfo =
+                engine::render::gltf::model::resolveMaterialRenderInfo(asset, materialIndex, baseCPU, dbgThisModel);
 
-            const GLuint baseTexId = pac::model_fastgltf::uploadTexture2D(baseCPU, dbgThisModel, "baseTex");
-            const GLuint emissiveTexId = pac::model_fastgltf::uploadTexture2D(emissiveCPU, dbgThisModel, "emissiveTex");
+            const GLuint baseTexId = engine::render::gltf::model::uploadTexture2D(baseCPU, dbgThisModel, "baseTex");
+            const GLuint emissiveTexId = engine::render::gltf::model::uploadTexture2D(emissiveCPU, dbgThisModel, "emissiveTex");
 
             Submesh sm;
             sm.indexOffset = subIndexOffset;

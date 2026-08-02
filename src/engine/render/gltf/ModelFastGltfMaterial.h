@@ -7,7 +7,7 @@
 
 #include "engine/render/Model.h"
 
-namespace pac::model_fastgltf {
+namespace engine::render::gltf::model {
 
 struct MaterialRenderInfo {
     glm::vec3 emissiveFactor{0.0f};
@@ -29,4 +29,4 @@ GLuint uploadTexture2D(const Model::CPUTexture& cpuTexture,
                        bool dbgThisModel,
                        const char* debugLabel);
 
-}  // namespace pac::model_fastgltf
+}  // namespace engine::render::gltf::model

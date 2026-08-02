@@ -3,12 +3,12 @@
 
 #include "engine/core/Log.h"
 
-#ifndef PAC_VERBOSE_STARTUP
-#define PAC_VERBOSE_STARTUP 0
+#ifndef PHLOSION_VERBOSE_STARTUP
+#define PHLOSION_VERBOSE_STARTUP 0
 #endif
 
 // Verbose, opt-in startup logging (INFO)
-#if PAC_VERBOSE_STARTUP
+#if PHLOSION_VERBOSE_STARTUP
     #define STARTUP_LOG(msg) do { ::engine::log::info((msg)); } while(0)
 #else
     #define STARTUP_LOG(msg) do {} while(0)

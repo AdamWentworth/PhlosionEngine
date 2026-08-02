@@ -6,7 +6,6 @@
 #include <mutex>
 
 #include "engine/utils/Shader.h"
-#include "engine/ui/Card.h" // for Card::shutdownSharedGL()
 #include "engine/utils/Log.h"
 
 namespace {
@@ -41,10 +40,6 @@ void UIManager::drawCard(const ui::Rect& /*rect*/, const std::string& /*imagePat
 
 void UIManager::shutdown() {
     std::lock_guard<std::mutex> lock(s_mutex);
-
-    // Cleanup shared Card GL resources while the GL context is still alive.
-    // Safe to call multiple times if Card implementation is idempotent.
-    Card::shutdownSharedGL();
 
     if (s_cardShader) {
         s_cardShader.reset();

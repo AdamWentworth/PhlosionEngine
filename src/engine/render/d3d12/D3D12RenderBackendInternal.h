@@ -172,8 +172,8 @@ struct WorldPsConstants {
     float projectedShadowEnabled = 0.0f;
     float projectedShadowSamplingScale = 1.0f;
     float projectedShadowBias = 0.0f;
-    // Route 1's captured projection is affine/orthographic, so w is exactly
-    // one. Store its three meaningful rows instead of a full float4x4. This
+    // Projected-shadow coordinates are affine/orthographic, so w is exactly
+    // one. Store the three meaningful rows instead of a full float4x4. This
     // leaves room for the two transformed cloud-projection rows while keeping
     // the complete root signature below D3D12's 64-DWORD limit.
     std::array<float, 4> projectedShadowRowX{
@@ -183,15 +183,9 @@ struct WorldPsConstants {
     std::array<float, 4> projectedShadowRowZ{
         0.0f, 0.0f, 1.0f, 0.0f};
     std::array<float, 4> lightProjectionUvRowU{
-        -0.00010391304269433f,
-        0.0f,
-        -0.000276669561862946f,
-        0.695972776542572f};
+        1.0f, 0.0f, 0.0f, 0.0f};
     std::array<float, 4> lightProjectionUvRowV{
-        -0.000223165191709995f,
-        -0.000349375866353512f,
-        0.0000838175788521767f,
-        0.692474711333548f};
+        0.0f, 1.0f, 0.0f, 0.0f};
 };
 
 static_assert(
@@ -309,7 +303,7 @@ inline WorldPsConstants makeWorldPsConstants(
         constants.materialFlipbook1Cols = textureData->cameraTargetY;
         constants.materialFlipbook1Rows = textureData->cameraTargetZ;
 
-        // The LGPE tree modes use typed source-material payloads, not the
+        // Specialized foliage modes use typed source-material payloads, not the
         // generic PBR interpretation above. Preserve their raw specialized
         // values and move Shadow_Color into otherwise-unused PS multiplier
         // constants without changing the vertex instance color.

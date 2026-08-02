@@ -4,14 +4,14 @@
 
 #include "world_indirect_state.glsl"
 
-layout(set = 0, binding = 0) uniform sampler2D baseColorTextures[PAC_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
-layout(set = 0, binding = 1) uniform sampler2D normalTextures[PAC_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
-layout(set = 0, binding = 2) uniform sampler2D metallicRoughnessTextures[PAC_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
-layout(set = 0, binding = 3) uniform sampler2D occlusionTextures[PAC_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
-layout(set = 0, binding = 4) uniform sampler2D emissiveTextures[PAC_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
-layout(set = 0, binding = 5) uniform sampler2D environmentTextures[PAC_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
-layout(set = 0, binding = 6) uniform sampler2D lightProjectionTextures[PAC_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
-layout(set = 0, binding = 7) uniform sampler2D projectedShadowTextures[PAC_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
+layout(set = 0, binding = 0) uniform sampler2D baseColorTextures[PHLOSION_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
+layout(set = 0, binding = 1) uniform sampler2D normalTextures[PHLOSION_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
+layout(set = 0, binding = 2) uniform sampler2D metallicRoughnessTextures[PHLOSION_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
+layout(set = 0, binding = 3) uniform sampler2D occlusionTextures[PHLOSION_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
+layout(set = 0, binding = 4) uniform sampler2D emissiveTextures[PHLOSION_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
+layout(set = 0, binding = 5) uniform sampler2D environmentTextures[PHLOSION_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
+layout(set = 0, binding = 6) uniform sampler2D lightProjectionTextures[PHLOSION_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
+layout(set = 0, binding = 7) uniform sampler2D projectedShadowTextures[PHLOSION_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
 layout(set = 1, binding = 0) uniform WorldViewState {
     vec4 cameraPosition;
     vec4 cameraForward;
@@ -27,7 +27,7 @@ layout(location = 5) in vec3 vertexGenerated;
 layout(location = 6) in vec2 vertexSourceUv1;
 layout(location = 7) in vec2 vertexSourceUv2;
 layout(location = 8) flat in uint drawStateIndex;
-#if defined(PAC_VULKAN_DUAL_SOURCE_BLEND)
+#if defined(PHLOSION_VULKAN_DUAL_SOURCE_BLEND)
 layout(location = 0, index = 0) out vec4 outColor;
 layout(location = 0, index = 1) out vec4 outBlendAlpha;
 #else
@@ -1398,7 +1398,7 @@ vec4 evaluateLgpeFieldObjectTreeMikiSurface(
 }
 
 void writeWorldColor(vec4 color) {
-#if defined(PAC_VULKAN_DUAL_SOURCE_BLEND)
+#if defined(PHLOSION_VULKAN_DUAL_SOURCE_BLEND)
     float blendAlpha = clamp(color.a, 0.0, 1.0);
     float quantizedAlpha = floor(blendAlpha * 63.0 + 0.5) / 63.0;
     outColor = vec4(color.rgb, quantizedAlpha);

@@ -81,4 +81,7 @@ separation boundaries and
 [docs/PHLOSION_ASSET_ARCHITECTURE.md](docs/PHLOSION_ASSET_ARCHITECTURE.md)
 for the shared cooked-resource design. The native editor boundary and first
 vertical slice are defined in
-[docs/EDITOR_ARCHITECTURE.md](docs/EDITOR_ARCHITECTURE.md).
+[docs/EDITOR_ARCHITECTURE.md](docs/EDITOR_ARCHITECTURE.md). The enforced
+project/engine ownership rules are documented in
+[docs/ENGINE_BOUNDARIES.md](docs/ENGINE_BOUNDARIES.md), and startup measurement
+and cache policy in [docs/EDITOR_PERFORMANCE.md](docs/EDITOR_PERFORMANCE.md).

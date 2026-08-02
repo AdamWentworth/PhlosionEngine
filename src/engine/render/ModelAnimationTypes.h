@@ -7,7 +7,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-namespace pac_model_types {
+namespace engine::render::model_types {
 
 struct NodeTRS {
     glm::vec3 t{0.0f};
@@ -44,4 +44,4 @@ struct AnimationClip {
     std::vector<AnimationChannel> channels;
 };
 
-} // namespace pac_model_types
+} // namespace engine::render::model_types

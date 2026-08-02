@@ -50,7 +50,7 @@ bool isTailFireWorldTextureKey(const char* key) {
 
 bool worldTextureMipChainEnabled() {
     static const bool enabled = []() -> bool {
-        const auto env = engine::env::get("PAC_BACKEND_WORLD_TEXTURE_MIPS");
+        const auto env = engine::env::get("PHLOSION_BACKEND_WORLD_TEXTURE_MIPS");
         if (!env.has_value()) return false;
         const std::string raw = *env;
         if (raw == "0" || raw == "false" || raw == "FALSE" || raw == "off" || raw == "OFF") {
@@ -68,7 +68,7 @@ int backendCardArtMaxDim() {
         constexpr int kDefault = 256;
         constexpr int kMin = 64;
         constexpr int kMax = 512;
-        const auto env = engine::env::get("PAC_BACKEND_CARD_ART_MAX_DIM");
+        const auto env = engine::env::get("PHLOSION_BACKEND_CARD_ART_MAX_DIM");
         if (!env.has_value()) return kDefault;
         try {
             return std::clamp(std::stoi(*env), kMin, kMax);

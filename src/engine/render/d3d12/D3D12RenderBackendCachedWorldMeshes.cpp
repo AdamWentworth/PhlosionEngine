@@ -22,7 +22,7 @@ namespace {
 
 bool worldMeshCacheUseDefaultHeap() {
     static const bool enabled = []() -> bool {
-        const auto env = engine::env::get("PAC_D3D12_MESH_CACHE_DEFAULT_HEAP");
+        const auto env = engine::env::get("PHLOSION_D3D12_MESH_CACHE_DEFAULT_HEAP");
         if (!env.has_value()) return false;
         const std::string raw = *env;
         if (raw == "0" || raw == "false" || raw == "FALSE" || raw == "off" || raw == "OFF") {

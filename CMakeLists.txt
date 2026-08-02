@@ -31,10 +31,6 @@ option(PHLOSION_OPTIMIZE_D3D12_SHADERS_IN_DEBUG
     "Compile D3D12 shaders with optimization plus debug information in Debug"
     ON)
 
-if (DEFINED PAC_VERBOSE_STARTUP)
-    set(PHLOSION_VERBOSE_STARTUP "${PAC_VERBOSE_STARTUP}")
-endif()
-
 find_package(SDL2 CONFIG REQUIRED)
 find_package(SDL2_ttf CONFIG REQUIRED)
 find_package(OpenGL REQUIRED)
@@ -144,7 +140,7 @@ foreach(_shader IN ITEMS world world_indirect)
             "${PHLOSION_VULKAN_SHADER_OUTPUT_DIR}"
         COMMAND "${PHLOSION_GLSLANG_VALIDATOR}" -V --target-env vulkan1.1
             "-I${PHLOSION_VULKAN_SHADER_SOURCE_DIR}"
-            -DPAC_VULKAN_DUAL_SOURCE_BLEND=1
+            -DPHLOSION_VULKAN_DUAL_SOURCE_BLEND=1
             -o "${_output}" "${_source}"
         DEPENDS ${_shader_dependencies}
         COMMENT "Compiling Phlosion Vulkan dual-source shader ${_shader}.frag"
@@ -163,7 +159,7 @@ function(phlosion_apply_settings target_name)
     )
     target_compile_definitions(${target_name}
         PRIVATE
-            PAC_VERBOSE_STARTUP=$<BOOL:${PHLOSION_VERBOSE_STARTUP}>
+            PHLOSION_VERBOSE_STARTUP=$<BOOL:${PHLOSION_VERBOSE_STARTUP}>
     )
 
     if (MSVC)
@@ -269,9 +265,7 @@ add_library(engine_render STATIC
     src/engine/render/gltf/ModelFastGltfMaterial.cpp
     src/engine/render/gltf/ModelFastGltfSceneData.cpp
     src/engine/render/gltf/ModelFastGltfTextures.cpp
-    src/engine/assets/lgpe/LgpeCanonicalScene.cpp
     src/engine/ui/UIManager.cpp
-    src/engine/ui/Card.cpp
     src/engine/ui/TextRenderer.cpp
     src/engine/ui/HealthBarRenderer.cpp
     src/engine/ui/BattleFeed.cpp
@@ -302,7 +296,7 @@ target_link_libraries(engine_render
 add_dependencies(engine_render phlosion_vulkan_shaders)
 target_compile_definitions(engine_render
     PRIVATE
-        PAC_VULKAN_SHADER_DIR="${PHLOSION_VULKAN_SHADER_OUTPUT_DIR}"
+        PHLOSION_VULKAN_SHADER_DIR="${PHLOSION_VULKAN_SHADER_OUTPUT_DIR}"
 )
 if (WIN32)
     target_link_libraries(engine_render PUBLIC d3d12 dxgi d3dcompiler)
@@ -310,7 +304,7 @@ endif()
 if (PHLOSION_OPTIMIZE_D3D12_SHADERS_IN_DEBUG)
     target_compile_definitions(engine_render
         PRIVATE
-            "$<$<CONFIG:Debug>:PAC_OPTIMIZE_D3D12_SHADERS_IN_DEBUG=1>")
+            "$<$<CONFIG:Debug>:PHLOSION_OPTIMIZE_D3D12_SHADERS_IN_DEBUG=1>")
 endif()
 phlosion_apply_settings(engine_render)
 
@@ -411,6 +405,8 @@ if (PHLOSION_OPTIMIZE_RENDER_HOTPATHS_IN_DEBUG)
     endif()
 
     set(_phlosion_hotpath_sources
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/assets/phlosion/PhlosionResourceContainer.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/assets/phlosion/PhlosionSceneArchive.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/render/D3D12RenderBackend.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/render/d3d12/D3D12RenderBackendCachedWorldMeshes.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/render/d3d12/D3D12RenderBackendTextures.cpp"
@@ -452,4 +448,9 @@ if (PHLOSION_BUILD_TESTS)
             /permissive- /Zc:__cplusplus /FS /MP)
     endif()
     add_test(NAME PhlosionEngineContracts COMMAND PhlosionEngineTests)
+    add_test(
+        NAME PhlosionEngineSemanticBoundary
+        COMMAND ${CMAKE_COMMAND}
+            -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckEngineSemanticBoundary.cmake)
 endif()

@@ -24,8 +24,8 @@
 #include "engine/render/RendererParityContract.h"
 #include "engine/render/vulkan/VulkanEnvironmentParity.h"
 
-#ifndef PAC_VULKAN_SHADER_DIR
-#define PAC_VULKAN_SHADER_DIR "generated/vulkan"
+#ifndef PHLOSION_VULKAN_SHADER_DIR
+#define PHLOSION_VULKAN_SHADER_DIR "generated/vulkan"
 #endif
 
 namespace {
@@ -390,9 +390,9 @@ void VulkanRenderBackendImpl::createInstance() {
     }
 
     VkApplicationInfo applicationInfo{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    applicationInfo.pApplicationName = "Pokemon Autochess";
+    applicationInfo.pApplicationName = "Phlosion Application";
     applicationInfo.applicationVersion = VK_MAKE_API_VERSION(0, 0, 1, 0);
-    applicationInfo.pEngineName = "PokemonAutochess Engine";
+    applicationInfo.pEngineName = "Phlosion Engine";
     applicationInfo.engineVersion = VK_MAKE_API_VERSION(0, 0, 1, 0);
     applicationInfo.apiVersion = VK_API_VERSION_1_1;
 
@@ -489,7 +489,7 @@ void VulkanRenderBackendImpl::createDevice() {
         engine::render::vulkan_backend::kMaxIndexedWorldMaterials *
         engine::render::vulkan_backend::kWorldMaterialTextureCount;
     descriptorIndexingSupported =
-        !engine::env::flagEnabled("PAC_VULKAN_DISABLE_DESCRIPTOR_INDEXING") &&
+        !engine::env::flagEnabled("PHLOSION_VULKAN_DISABLE_DESCRIPTOR_INDEXING") &&
         hasDeviceExtension(physicalDevice, VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME) &&
         availableDescriptorIndexing.shaderSampledImageArrayNonUniformIndexing == VK_TRUE &&
         physicalDeviceProperties.limits.maxPerStageDescriptorSamplers >=
@@ -503,7 +503,7 @@ void VulkanRenderBackendImpl::createDevice() {
         physicalDeviceProperties.limits.maxPerStageResources >=
             kRequiredIndexedDescriptors;
     indirectWorldBatchingSupported =
-        !engine::env::flagEnabled("PAC_VULKAN_DISABLE_INDIRECT_WORLD") &&
+        !engine::env::flagEnabled("PHLOSION_VULKAN_DISABLE_INDIRECT_WORLD") &&
         descriptorIndexingSupported &&
         availableFeatures.multiDrawIndirect == VK_TRUE &&
         availableVulkan11.shaderDrawParameters == VK_TRUE &&
@@ -1169,7 +1169,7 @@ void VulkanRenderBackendImpl::createFramebuffers() {
 }
 
 VkShaderModule VulkanRenderBackendImpl::loadShaderModule(const char* fileName) const {
-    const std::filesystem::path path = std::filesystem::path(PAC_VULKAN_SHADER_DIR) / fileName;
+    const std::filesystem::path path = std::filesystem::path(PHLOSION_VULKAN_SHADER_DIR) / fileName;
     std::ifstream input(path, std::ios::binary | std::ios::ate);
     if (!input.is_open()) {
         throw std::runtime_error("Unable to open Vulkan shader: " + path.string());
@@ -1923,13 +1923,13 @@ void VulkanRenderBackendImpl::shutdown() {
 }
 
 void VulkanRenderBackendImpl::configureScreenshotCapture() {
-    const auto path = engine::env::get("PAC_BACKEND_SCREENSHOT_PATH");
+    const auto path = engine::env::get("PHLOSION_BACKEND_SCREENSHOT_PATH");
     if (!path.has_value() || path->empty()) return;
     screenshotPath = *path;
     screenshotCaptureConfigured = true;
     screenshotCaptured = false;
     screenshotFrameTarget = 0u;
-    if (const auto target = engine::env::get("PAC_BACKEND_SCREENSHOT_FRAME")) {
+    if (const auto target = engine::env::get("PHLOSION_BACKEND_SCREENSHOT_FRAME")) {
         try {
             screenshotFrameTarget = static_cast<std::uint64_t>(std::stoull(*target));
         } catch (...) {

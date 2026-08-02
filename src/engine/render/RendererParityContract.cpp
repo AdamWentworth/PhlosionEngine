@@ -189,7 +189,7 @@ void logValidation(const char* backendName, const RuntimeConfig& config) {
         << " detail=" << result.message
         << "\n";
 
-    if (!result.ok && engine::env::flagEnabled("PAC_PARITY_CONTRACT_FATAL")) {
+    if (!result.ok && engine::env::flagEnabled("PHLOSION_PARITY_CONTRACT_FATAL")) {
         throw std::runtime_error(
             std::string("Parity contract validation failed for ") +
             (backendName ? backendName : "unknown") +

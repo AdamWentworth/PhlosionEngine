@@ -73,18 +73,18 @@ std::size_t fgOptGet(const Opt& o) {
 
 }  // namespace
 
-namespace pac::model_fastgltf {
+namespace engine::render::gltf::model {
 
 void buildSceneData(const fastgltf::Asset& asset,
                     fastgltf::DefaultBufferDataAdapter& adapter,
-                    std::vector<pac_model_types::NodeTRS>& outNodesDefault,
+                    std::vector<engine::render::model_types::NodeTRS>& outNodesDefault,
                     std::vector<std::string>* outNodeNames,
                     std::vector<std::vector<int>>& outNodeChildren,
                     std::vector<int>& outNodeMesh,
                     std::vector<int>& outNodeSkin,
                     std::vector<int>& outSceneRoots,
-                    std::vector<pac_model_types::SkinData>& outSkins,
-                    std::vector<pac_model_types::AnimationClip>& outAnimations) {
+                    std::vector<engine::render::model_types::SkinData>& outSkins,
+                    std::vector<engine::render::model_types::AnimationClip>& outAnimations) {
     outNodesDefault.clear();
     outNodeChildren.clear();
     outNodeMesh.clear();
@@ -125,7 +125,7 @@ void buildSceneData(const fastgltf::Asset& asset,
         if (n.meshIndex.has_value()) outNodeMesh[i] = static_cast<int>(n.meshIndex.value());
         if (n.skinIndex.has_value()) outNodeSkin[i] = static_cast<int>(n.skinIndex.value());
 
-        pac_model_types::NodeTRS trs;
+        engine::render::model_types::NodeTRS trs;
         trs.hasMatrix = false;
 
         if (const auto* t = std::get_if<fastgltf::TRS>(&n.transform)) {
@@ -144,7 +144,7 @@ void buildSceneData(const fastgltf::Asset& asset,
     outSkins.resize(asset.skins.size());
     for (size_t si = 0; si < asset.skins.size(); ++si) {
         const auto& s = asset.skins[si];
-        pac_model_types::SkinData out;
+        engine::render::model_types::SkinData out;
         out.joints.reserve(s.joints.size());
         for (auto j : s.joints) out.joints.push_back(static_cast<int>(j));
 
@@ -167,7 +167,7 @@ void buildSceneData(const fastgltf::Asset& asset,
     // ---- Animations ----
     outAnimations.reserve(asset.animations.size());
     for (const auto& anim : asset.animations) {
-        pac_model_types::AnimationClip clip;
+        engine::render::model_types::AnimationClip clip;
         clip.name = std::string(anim.name.begin(), anim.name.end());
         clip.durationSec = 0.0f;
 
@@ -175,7 +175,7 @@ void buildSceneData(const fastgltf::Asset& asset,
 
         for (size_t si = 0; si < anim.samplers.size(); ++si) {
             const auto& s = anim.samplers[si];
-            pac_model_types::AnimationSampler samp;
+            engine::render::model_types::AnimationSampler samp;
 
             switch (s.interpolation) {
                 case fastgltf::AnimationInterpolation::Step:
@@ -231,19 +231,19 @@ void buildSceneData(const fastgltf::Asset& asset,
             if (!fgOptHas(ch.nodeIndex)) continue;
             if (!fgOptHas(ch.samplerIndex)) continue;
 
-            pac_model_types::AnimationChannel c;
+            engine::render::model_types::AnimationChannel c;
             c.targetNode = static_cast<int>(fgOptGet(ch.nodeIndex));
             c.samplerIndex = static_cast<int>(fgOptGet(ch.samplerIndex));
 
             switch (ch.path) {
                 case fastgltf::AnimationPath::Translation:
-                    c.path = pac_model_types::ChannelPath::Translation;
+                    c.path = engine::render::model_types::ChannelPath::Translation;
                     break;
                 case fastgltf::AnimationPath::Rotation:
-                    c.path = pac_model_types::ChannelPath::Rotation;
+                    c.path = engine::render::model_types::ChannelPath::Rotation;
                     break;
                 case fastgltf::AnimationPath::Scale:
-                    c.path = pac_model_types::ChannelPath::Scale;
+                    c.path = engine::render::model_types::ChannelPath::Scale;
                     break;
                 default:
                     continue;
@@ -256,4 +256,4 @@ void buildSceneData(const fastgltf::Asset& asset,
     }
 }
 
-}  // namespace pac::model_fastgltf
+}  // namespace engine::render::gltf::model

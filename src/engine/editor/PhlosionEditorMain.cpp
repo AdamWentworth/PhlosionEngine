@@ -1297,6 +1297,25 @@ struct LoadedProject {
     std::string activeGamePreviewId = "main-menu";
 };
 
+using EditorClock = std::chrono::steady_clock;
+
+double elapsedMilliseconds(
+    const EditorClock::time_point start,
+    const EditorClock::time_point end = EditorClock::now()) {
+    return std::chrono::duration<double, std::milli>(
+               end - start)
+        .count();
+}
+
+void logProjectLoadPhase(
+    const char* phase,
+    const EditorClock::time_point phaseStart) {
+    std::cerr
+        << "[PhlosionEditor][ProjectLoad] "
+        << phase << '='
+        << elapsedMilliseconds(phaseStart) << "ms\n";
+}
+
 void refreshLayoutObjectViews(LoadedProject& project) {
     project.layoutObjectViews.clear();
     const std::size_t count =
@@ -1955,8 +1974,9 @@ std::unique_ptr<LoadedProject> loadProject(
     const std::filesystem::path& requestedDescriptorPath,
     IRenderBackend& renderer,
     const Camera3D& camera,
-    Camera3D& gameCamera,
     std::string& outError) {
+    const auto loadStart = EditorClock::now();
+    auto phaseStart = loadStart;
     auto loaded = std::make_unique<LoadedProject>();
     loaded->descriptorPath =
         normalizeDescriptorPath(requestedDescriptorPath);
@@ -1988,6 +2008,8 @@ std::unique_ptr<LoadedProject> loadProject(
             &outError)) {
         return nullptr;
     }
+    logProjectLoadPhase("descriptor", phaseStart);
+    phaseStart = EditorClock::now();
     if (!std::filesystem::is_regular_file(
             loaded->pluginPath)) {
         outError =
@@ -2034,6 +2056,8 @@ std::unique_ptr<LoadedProject> loadProject(
             "Project editor plugin could not create its runtime.";
         return nullptr;
     }
+    logProjectLoadPhase("plugin", phaseStart);
+    phaseStart = EditorClock::now();
 
     loaded->root =
         loaded->descriptorPath.parent_path();
@@ -2218,6 +2242,8 @@ std::unique_ptr<LoadedProject> loadProject(
                     executable.generic_string(),
                 .available = available});
     }
+    logProjectLoadPhase("catalogs", phaseStart);
+    phaseStart = EditorClock::now();
     const engine::editor::EditorProjectOpenContext openContext{
         .descriptor = &loaded->descriptor,
         .descriptorPath = loaded->descriptorPathText.c_str(),
@@ -2229,6 +2255,8 @@ std::unique_ptr<LoadedProject> loadProject(
     appendProjectAssets(
         *loaded->runtime,
         loaded->assetViews);
+    logProjectLoadPhase("project_open", phaseStart);
+    phaseStart = EditorClock::now();
 
     const glm::vec3 cameraPosition = camera.getPosition();
     const glm::vec3 cameraForward = camera.getDirection();
@@ -2238,6 +2266,8 @@ std::unique_ptr<LoadedProject> loadProject(
         .cameraForward3 = glm::value_ptr(cameraForward),
         .cameraTarget3 = glm::value_ptr(cameraTarget)};
     loaded->runtime->prewarm(renderer, cameraContext);
+    logProjectLoadPhase("scene_prewarm", phaseStart);
+    phaseStart = EditorClock::now();
     refreshLayoutObjectViews(*loaded);
     refreshTerrainTileViews(*loaded);
     refreshProjectCommandViews(*loaded);
@@ -2289,25 +2319,52 @@ std::unique_ptr<LoadedProject> loadProject(
                 .value =
                     std::to_string(previewCount)});
     }
-    if (!loaded->gamePreviewViews.empty()) {
-        const engine::editor::EditorProjectGamePreviewContext
-            gamePreviewContext{
-                .renderer = &renderer,
-                .camera = &gameCamera,
-                .surfaceWidth = 1280,
-                .surfaceHeight = 720};
-        if (!loaded->runtime->initializeGamePreview(
-                gamePreviewContext,
-                &outError)) {
-            return nullptr;
-        }
-    }
+    logProjectLoadPhase("workspace", phaseStart);
     loaded->status =
         loaded->runtime->status()
             ? loaded->runtime->status()
             : "Project loaded.";
+    std::cerr
+        << "[PhlosionEditor][ProjectLoad] total="
+        << elapsedMilliseconds(loadStart)
+        << "ms game_preview=deferred\n";
     outError.clear();
     return loaded;
+}
+
+bool ensureGamePreviewInitialized(
+    LoadedProject& project,
+    IRenderBackend& renderer,
+    Camera3D& gameCamera,
+    std::string& outError) {
+    if (project.runtime->gamePreviewReady()) {
+        outError.clear();
+        return true;
+    }
+    if (project.gamePreviewViews.empty()) {
+        outError = "This project does not provide game previews.";
+        return false;
+    }
+
+    const auto start = EditorClock::now();
+    const engine::editor::EditorProjectGamePreviewContext context{
+        .renderer = &renderer,
+        .camera = &gameCamera,
+        .surfaceWidth = 1280,
+        .surfaceHeight = 720};
+    if (!project.runtime->initializeGamePreview(
+            context,
+            &outError)) {
+        std::cerr
+            << "[PhlosionEditor][GamePreviewWarmup] failed="
+            << elapsedMilliseconds(start) << "ms\n";
+        return false;
+    }
+    std::cerr
+        << "[PhlosionEditor][GamePreviewWarmup] total="
+        << elapsedMilliseconds(start) << "ms\n";
+    outError.clear();
+    return true;
 }
 
 #if defined(_WIN32)
@@ -2935,7 +2992,6 @@ int main(int argc, char** argv) {
                         *pendingProject,
                         renderer,
                         camera,
-                        gameCamera,
                         browserError);
                 pendingProject.reset();
                 if (candidate) {
@@ -2960,7 +3016,12 @@ int main(int argc, char** argv) {
                         !arguments.gamePreview.empty()) {
                         commandLinePreviewApplied = true;
                         std::string previewError;
-                        if (project->runtime->selectGamePreview(
+                        if (ensureGamePreviewInitialized(
+                                *project,
+                                renderer,
+                                gameCamera,
+                                previewError) &&
+                            project->runtime->selectGamePreview(
                                 arguments.gamePreview.c_str(),
                                 &previewError)) {
                             project->activeGamePreviewId =
@@ -3363,6 +3424,21 @@ int main(int argc, char** argv) {
                         activeViewport) {
                     focusActiveViewport = false;
                     activeViewport = actions.activeViewport;
+                }
+                if (activeViewport ==
+                        engine::editor::EditorViewportKind::Game &&
+                    !project->runtime->gamePreviewReady() &&
+                    !project->gamePreviewViews.empty()) {
+                    std::string previewError;
+                    if (!ensureGamePreviewInitialized(
+                            *project,
+                            renderer,
+                            gameCamera,
+                            previewError)) {
+                        project->status =
+                            "Game preview initialization failed: " +
+                            previewError;
+                    }
                 }
                 editorViewportWidth =
                     std::max(1, actions.viewportWidth);
@@ -3999,7 +4075,12 @@ int main(int argc, char** argv) {
                         static_cast<std::size_t>(
                             actions.selectGamePreviewIndex)];
                 std::string previewError;
-                if (project->runtime->selectGamePreview(
+                if (ensureGamePreviewInitialized(
+                        *project,
+                        renderer,
+                        gameCamera,
+                        previewError) &&
+                    project->runtime->selectGamePreview(
                         preview.id.c_str(),
                         &previewError)) {
                     project->activeGamePreviewId = preview.id;
