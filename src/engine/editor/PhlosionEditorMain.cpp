@@ -61,6 +61,7 @@ struct Arguments {
     std::string gamePreview;
     std::string assetPreview;
     std::optional<int> assetPreviewAnimation;
+    std::optional<float> assetPreviewTime;
     std::optional<
         engine::editor::EditorRendererPreference>
         rendererPreference;
@@ -91,6 +92,8 @@ Arguments parseArguments(int argc, char** argv) {
         constexpr std::string_view
             assetPreviewAnimationPrefix =
                 "--asset-preview-animation=";
+        constexpr std::string_view assetPreviewTimePrefix =
+            "--asset-preview-time=";
         constexpr std::string_view framesPrefix = "--frames=";
         constexpr std::string_view rendererPrefix =
             "--renderer=";
@@ -115,6 +118,14 @@ Arguments parseArguments(int argc, char** argv) {
                 value == "bind" || value == "Bind"
                     ? -1
                     : std::stoi(value);
+        } else if (
+            argument.rfind(
+                assetPreviewTimePrefix,
+                0u) == 0u) {
+            result.assetPreviewTime = std::max(
+                0.0f,
+                std::stof(argument.substr(
+                    assetPreviewTimePrefix.size())));
         } else if (argument.rfind(framesPrefix, 0u) == 0u) {
             result.frameLimit = std::max(
                 1,
@@ -3209,6 +3220,12 @@ int main(int argc, char** argv) {
                                                     .animationIndex =
                                                         *arguments
                                                              .assetPreviewAnimation,
+                                                    .seekTimeSeconds =
+                                                        arguments.assetPreviewTime
+                                                            .value_or(0.0f),
+                                                    .seekRequested =
+                                                        arguments.assetPreviewTime
+                                                            .has_value(),
                                                     .animationPlaying =
                                                         false});
                                     refreshAssetPreviewView(
