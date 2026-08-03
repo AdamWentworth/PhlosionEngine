@@ -1307,7 +1307,8 @@ void main() {
         vec4 surface = evaluateNativeLayeredUnlitDisplaced(
             baseColorTexture,
             normalTexture,
-            nativeUnlitMaterial);
+            nativeUnlitMaterial,
+            vertexColor.r);
         writeWorldColor(vec4(encodeLgpeFinalColor(surface.rgb), surface.a));
         return;
     }

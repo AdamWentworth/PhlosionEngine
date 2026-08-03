@@ -9,7 +9,8 @@ struct TailFireMaterialState {
 vec4 evaluateNativeLayeredUnlitDisplaced(
     sampler2D baseColorMap,
     sampler2D displacementMap,
-    TailFireMaterialState materialState) {
+    TailFireMaterialState materialState,
+    float sourceDisplacementWeight) {
     vec2 uvScale = max(abs(materialState.rect1.xy), vec2(0.0001));
     vec2 uv = vertexUv * uvScale + materialState.rect1.zw;
     float time = materialState.timingFlagsAtlas.x;
@@ -23,12 +24,25 @@ vec4 evaluateNativeLayeredUnlitDisplaced(
     vec2 flowB = uv + vec2(-flowSpeed.y, -flowSpeed.x) * time * 0.73;
     float displacementA = texture(displacementMap, flowA).r;
     float displacementB = texture(displacementMap, flowB).r;
+    sourceDisplacementWeight = clamp(sourceDisplacementWeight, 0.0, 1.0);
+    float motionWeight = mix(0.08, 1.0, sourceDisplacementWeight);
     vec2 displacedUv = uv +
         vec2(displacementA - 0.5, displacementB - 0.5) *
-        displacementHeight * 0.32;
+        displacementHeight * 0.32 * motionWeight;
     vec4 surface = texture(baseColorMap, displacedUv);
-    float flicker = mix(0.88, 1.12, 0.5 * (displacementA + displacementB));
-    surface.rgb *= max(emissionIntensity, 1.0) * flicker;
+    float flickerAmplitude = mix(0.03, 0.12, sourceDisplacementWeight);
+    float flicker = mix(
+        1.0 - flickerAmplitude,
+        1.0 + flickerAmplitude,
+        0.5 * (displacementA + displacementB));
+    vec3 hdrSurface =
+        surface.rgb * max(emissionIntensity, 1.0) * flicker;
+    float peak = max(hdrSurface.r, max(hdrSurface.g, hdrSurface.b));
+    if (peak > 1.0) {
+        float displayPeak = 1.0 - exp(-peak * 0.7);
+        hdrSurface *= displayPeak / peak;
+    }
+    surface.rgb = hdrSurface;
     surface.a = 1.0;
     return surface;
 }

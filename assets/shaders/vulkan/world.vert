@@ -117,6 +117,26 @@ void main() {
         localNormal = applySkinning(localNormal, 0.0, skinningParams);
         localTangent = applySkinning(localTangent, 0.0, skinningParams);
     }
+    // Native layered-Unlit assets carry a source base-to-tip displacement
+    // envelope in vertex red.
+    float materialMode = pushData.materialParams.w;
+    if (materialMode > 26.5 && materialMode < 27.5 &&
+        dot(localNormal, localNormal) > 1e-10) {
+        float sourceWeight = clamp(inColor.r, 0.0, 1.0);
+        float motionWeight = mix(0.08, 1.0, sourceWeight);
+        float displacementHeight = max(worldSpecializedMaterial.rect0.x, 0.0);
+        vec2 flowSpeed = worldSpecializedMaterial.rect0.zw;
+        float time = worldSpecializedMaterial.timingFlagsAtlas.x;
+        float phaseA =
+            (inUv.y * 13.0 + inUv.x * 5.0) +
+            time * (4.0 + abs(flowSpeed.x) * 18.0);
+        float phaseB =
+            (inUv.y * 7.0 - inUv.x * 11.0) -
+            time * (2.7 + abs(flowSpeed.y) * 14.0);
+        float displacement = sin(phaseA) * 0.62 + sin(phaseB) * 0.38;
+        localPosition += normalize(localNormal) * displacementHeight *
+            displacement * motionWeight;
+    }
 
     vec4 transformedPosition =
         worldTransform.modelMatrix * instanceModel * vec4(localPosition, 1.0);

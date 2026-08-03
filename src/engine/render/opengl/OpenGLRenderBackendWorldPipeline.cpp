@@ -248,6 +248,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         uniform mat4 uModel;
         uniform float uClipSpaceDepthBias;
         uniform float uMaterialMode;
+        uniform float uMaterialTimeSec;
         uniform vec4 uMaterialRect0;
         uniform vec4 uMaterialRect1;
         uniform float uSkinningEnabled;
@@ -393,6 +394,25 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 localPos = applySkinningPos(localPos);
                 localNormal = applySkinningNormal(localNormal);
                 localTangent = applySkinningTangent(localTangent);
+            }
+            // Native layered-Unlit assets carry a source base-to-tip
+            // displacement envelope in vertex red.
+            if (uMaterialMode > 26.5 && uMaterialMode < 27.5 &&
+                dot(localNormal, localNormal) > 1e-10) {
+                float sourceWeight = clamp(aColor.r, 0.0, 1.0);
+                float motionWeight = mix(0.08, 1.0, sourceWeight);
+                float displacementHeight = max(uMaterialRect0.x, 0.0);
+                vec2 flowSpeed = uMaterialRect0.zw;
+                float phaseA =
+                    (aUv.y * 13.0 + aUv.x * 5.0) +
+                    uMaterialTimeSec * (4.0 + abs(flowSpeed.x) * 18.0);
+                float phaseB =
+                    (aUv.y * 7.0 - aUv.x * 11.0) -
+                    uMaterialTimeSec * (2.7 + abs(flowSpeed.y) * 14.0);
+                float displacement =
+                    sin(phaseA) * 0.62 + sin(phaseB) * 0.38;
+                localPos += normalize(localNormal) * displacementHeight *
+                    displacement * motionWeight;
             }
             mat4 instanceModel = mat4(
                 aInstanceModel0,
@@ -1905,19 +1925,32 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             float emissionIntensity = max(uMaterialRect0.y, 0.0);
             vec2 flowSpeed = uMaterialRect0.zw;
 
-            // The source material's displacement texture is sampled twice in
-            // opposing directions.  Its skinned mesh owns the silhouette;
-            // these samples reproduce the authored internal flame motion.
+            // The source displacement map supplies internal flow while the
+            // matching vertex stage applies its red-channel envelope to the
+            // silhouette.
             vec2 flowA = uv + vec2(flowSpeed.x, -flowSpeed.y) * time;
             vec2 flowB = uv + vec2(-flowSpeed.y, -flowSpeed.x) * time * 0.73;
             float displacementA = texture(uNormalTexture, flowA).r;
             float displacementB = texture(uNormalTexture, flowB).r;
+            float sourceDisplacementWeight = clamp(vColor.r, 0.0, 1.0);
+            float motionWeight = mix(0.08, 1.0, sourceDisplacementWeight);
             vec2 displacedUv = uv +
                 vec2(displacementA - 0.5, displacementB - 0.5) *
-                displacementHeight * 0.32;
+                displacementHeight * 0.32 * motionWeight;
             vec4 surface = texture(uTexture, displacedUv);
-            float flicker = mix(0.88, 1.12, 0.5 * (displacementA + displacementB));
-            surface.rgb *= max(emissionIntensity, 1.0) * flicker;
+            float flickerAmplitude = mix(0.03, 0.12, sourceDisplacementWeight);
+            float flicker = mix(
+                1.0 - flickerAmplitude,
+                1.0 + flickerAmplitude,
+                0.5 * (displacementA + displacementB));
+            vec3 hdrSurface =
+                surface.rgb * max(emissionIntensity, 1.0) * flicker;
+            float peak = max(hdrSurface.r, max(hdrSurface.g, hdrSurface.b));
+            if (peak > 1.0) {
+                float displayPeak = 1.0 - exp(-peak * 0.7);
+                hdrSurface *= displayPeak / peak;
+            }
+            surface.rgb = hdrSurface;
             surface.a = 1.0;
             return surface;
         }

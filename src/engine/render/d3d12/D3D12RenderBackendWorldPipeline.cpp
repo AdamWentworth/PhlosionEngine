@@ -20,7 +20,7 @@ void D3D12RenderBackend::createWorldPipeline() {
 #if defined(_WIN32)
     static constexpr char kVsSource[] =
         "cbuffer VSConstants : register(b0) { float4x4 uViewProj; float4x4 uModel; float4 uSkinMeta; float4 uClipMeta; };"
-        "cbuffer MaterialVsConstants : register(b1) { float _m0,_m1,_m2,_m3,_m4,_m5,_m6,_m7,_m8,_m9,_m10,uMaterialMode,_m12,_m13; float4 uGeneratedBoundsMin; float4 uGeneratedBoundsMax; };"
+        "cbuffer MaterialVsConstants : register(b1) { float _m0,_m1,_m2,_m3,_m4,_m5,_m6,_m7,_m8,_m9,_m10,uMaterialMode,uMaterialTimeSecVs,_m13; float4 uGeneratedBoundsMin; float4 uGeneratedBoundsMax; };"
         "StructuredBuffer<float4> gSkinMatrices : register(t7);"
         "struct InstanceData { float4 model0; float4 model1; float4 model2; float4 model3; float4 color; uint4 skinMeta; };"
         "StructuredBuffer<InstanceData> gInstances : register(t6);"
@@ -121,6 +121,19 @@ void D3D12RenderBackend::createWorldPipeline() {
         "    localPos = applySkinningPos(i, localPos, skinMeta);"
         "    localNormal = applySkinningNormal(i, localNormal, skinMeta);"
         "    localTangent = applySkinningTangent(i, localTangent, skinMeta);"
+        "  }"
+        // Native layered-Unlit assets carry their displacement envelope in
+        // vertex red. Preserve the source base-to-tip weighting while driving
+        // the recovered DisplacementHeight with the shared material clock.
+        "  if (uMaterialMode > 26.5f && uMaterialMode < 27.5f && dot(localNormal, localNormal) > 1e-10f) {"
+        "    float sourceWeight = saturate(i.col.r);"
+        "    float motionWeight = lerp(0.08f, 1.0f, sourceWeight);"
+        "    float displacementHeight = max(uGeneratedBoundsMin.z, 0.0f);"
+        "    float2 flowSpeed = uGeneratedBoundsMax.xy;"
+        "    float phaseA = (i.uv.y * 13.0f + i.uv.x * 5.0f) + uMaterialTimeSecVs * (4.0f + abs(flowSpeed.x) * 18.0f);"
+        "    float phaseB = (i.uv.y * 7.0f - i.uv.x * 11.0f) - uMaterialTimeSecVs * (2.7f + abs(flowSpeed.y) * 14.0f);"
+        "    float displacement = sin(phaseA) * 0.62f + sin(phaseB) * 0.38f;"
+        "    localPos += normalize(localNormal) * displacementHeight * displacement * motionWeight;"
         "  }"
         "  float4 instanceWorld = applyInstancePos(inst, localPos);"
         "  float4 world = mul(uModel, instanceWorld);"
@@ -1699,19 +1712,31 @@ float4 evalNativeLayeredUnlitDisplaced(PSIn i) {
   float emissionIntensity = max(uMaterialRect0V, 0.0f);
   float2 flowSpeed = float2(uMaterialRect0W, uMaterialRect0H);
 
-  // The source material's displacement texture is sampled twice in
-  // opposing directions.  Its skinned mesh owns the silhouette; these
-  // samples reproduce the authored internal flame motion.
+  // The source displacement map supplies internal flow while the matching
+  // vertex stage applies its red-channel envelope to the silhouette.
   float2 flowA = uv + float2(flowSpeed.x, -flowSpeed.y) * uMaterialTimeSec;
   float2 flowB = uv + float2(-flowSpeed.y, -flowSpeed.x) * uMaterialTimeSec * 0.73f;
   float displacementA = gNormalTex.Sample(gSampCC, flowA).r;
   float displacementB = gNormalTex.Sample(gSampCC, flowB).r;
+  float sourceDisplacementWeight = saturate(i.col.r);
+  float motionWeight = lerp(0.08f, 1.0f, sourceDisplacementWeight);
   float2 displacedUv = uv +
       float2(displacementA - 0.5f, displacementB - 0.5f) *
-      displacementHeight * 0.32f;
+      displacementHeight * 0.32f * motionWeight;
   float4 surface = gTex.Sample(gSampCC, displacedUv);
-  float flicker = lerp(0.88f, 1.12f, 0.5f * (displacementA + displacementB));
-  surface.rgb *= max(emissionIntensity, 1.0f) * flicker;
+  float flickerAmplitude = lerp(0.03f, 0.12f, sourceDisplacementWeight);
+  float flicker = lerp(
+      1.0f - flickerAmplitude,
+      1.0f + flickerAmplitude,
+      0.5f * (displacementA + displacementB));
+  float3 hdrSurface =
+      surface.rgb * max(emissionIntensity, 1.0f) * flicker;
+  float peak = max(hdrSurface.r, max(hdrSurface.g, hdrSurface.b));
+  if (peak > 1.0f) {
+    float displayPeak = 1.0f - exp(-peak * 0.7f);
+    hdrSurface *= displayPeak / peak;
+  }
+  surface.rgb = hdrSurface;
   surface.a = 1.0f;
   return surface;
 }
