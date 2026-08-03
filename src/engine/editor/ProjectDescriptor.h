@@ -39,6 +39,18 @@ struct EditorPlugin {
     std::filesystem::path directory;
 };
 
+// Optional editor functionality supplied outside both the Engine and the
+// game repository. A package is activated only when the project declares it;
+// its implementation is resolved from the project-local generated package
+// directory (or, later, a package registry installation).
+struct EditorPackageDependency {
+    std::string id;
+    std::string version;
+    std::string library;
+    std::filesystem::path directory;
+    bool required = true;
+};
+
 struct PlayEnvironmentVariable {
     std::string name;
     std::string value;
@@ -64,6 +76,7 @@ struct ProjectDescriptor {
     std::vector<ProjectEnvironment> environments;
     std::vector<ProjectScene> scenes;
     EditorPlugin editorPlugin;
+    std::vector<EditorPackageDependency> editorPackages;
     std::vector<PlayConfiguration> playConfigurations;
     std::string privateAssetDepotEnvironment;
 };
@@ -100,6 +113,13 @@ bool resolveAuthoredScenePath(
 bool resolveEditorPluginPath(
     const std::filesystem::path& descriptorPath,
     const ProjectDescriptor& descriptor,
+    std::string_view buildConfiguration,
+    std::filesystem::path& out,
+    std::string* outError = nullptr);
+
+bool resolveEditorPackagePath(
+    const std::filesystem::path& descriptorPath,
+    const EditorPackageDependency& package,
     std::string_view buildConfiguration,
     std::filesystem::path& out,
     std::string* outError = nullptr);

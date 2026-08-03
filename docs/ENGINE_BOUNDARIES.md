@@ -12,7 +12,7 @@ Pokemon Autochess systems.
 - model, animation, texture, scene, camera, and renderer APIs;
 - OpenGL, D3D12, and Vulkan backends;
 - the Phlosion Editor shell, project descriptor, project-plugin ABI, generic
-  hierarchy/inspector/viewport contracts, and generic terrain-grid editing;
+  hierarchy/inspector/viewport contracts, and optional editor-package ABI;
 - generic VFX host/preview integration points supplied by Phlosion VFX.
 
 ## What a project must supply
@@ -24,10 +24,17 @@ Pokemon Autochess systems.
 - source-format decoders and import/cook policy;
 - project materials, environment adapters, prefabs, and content.
 
+Reusable feature tooling such as grid-tile selection, terrain palettes,
+elevation, ramps, and platform authoring lives in the separate
+`PhlosionPackages` monorepo. A project declares only the packages it needs;
+the Editor loads no tile implementation for a racing or shooter project that
+does not request it.
+
 Pokemon Autochess therefore owns its autochess board and benches, Pokemon
 data/model conventions, Route 1 scene adapter, LGPE canonical-scene decoder,
 recovered CPU material oracles, terrain palette, battle/planning previews, and
-all Pokemon-specific editor tools.
+all Pokemon-specific editor adapters. It configures `phlosion.tile-tools`, but
+does not own the generic package implementation.
 
 ## Enforced boundary
 

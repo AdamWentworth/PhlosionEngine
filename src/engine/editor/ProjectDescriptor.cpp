@@ -1,6 +1,7 @@
 #include "engine/editor/ProjectDescriptor.h"
 
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <sstream>
 #include <string_view>
@@ -37,6 +38,47 @@ bool isPortableLibraryName(std::string_view name) {
            name.find('\\') == std::string_view::npos &&
            name != "." &&
            name != "..";
+}
+
+bool isPackageId(std::string_view id) {
+    if (id.empty() || id.front() == '.' || id.back() == '.') {
+        return false;
+    }
+    bool segmentHasCharacter = false;
+    for (const unsigned char character : id) {
+        if (character == '.') {
+            if (!segmentHasCharacter) {
+                return false;
+            }
+            segmentHasCharacter = false;
+            continue;
+        }
+        if (!(std::islower(character) || std::isdigit(character) ||
+              character == '-')) {
+            return false;
+        }
+        segmentHasCharacter = true;
+    }
+    return segmentHasCharacter;
+}
+
+bool isPackageVersion(std::string_view version) {
+    // Package resolution currently accepts stable MAJOR.MINOR.PATCH versions.
+    // Keeping this strict makes the lock/install format deterministic while a
+    // future registry can add prerelease ranges explicitly.
+    unsigned int component = 0u;
+    bool hasDigit = false;
+    for (const unsigned char character : version) {
+        if (std::isdigit(character)) {
+            hasDigit = true;
+        } else if (character == '.' && hasDigit && component < 2u) {
+            ++component;
+            hasDigit = false;
+        } else {
+            return false;
+        }
+    }
+    return component == 2u && hasDigit;
 }
 
 std::string replaceConfigurationToken(
@@ -299,6 +341,47 @@ bool parseProjectDescriptor(
                 return fail(
                     "Editor plugin requires a portable library name and relative directory.",
                     outError);
+            }
+        }
+
+        if (root.contains("editor_packages")) {
+            const auto& packagesJson = root.at("editor_packages");
+            if (!packagesJson.is_array()) {
+                return fail(
+                    "editor_packages must be an array.",
+                    outError);
+            }
+            for (const auto& packageJson : packagesJson) {
+                EditorPackageDependency package;
+                package.id = packageJson.at("id").get<std::string>();
+                package.version =
+                    packageJson.at("version").get<std::string>();
+                package.library =
+                    packageJson.at("library").get<std::string>();
+                package.directory =
+                    packageJson.at("directory").get<std::string>();
+                package.required =
+                    packageJson.value("required", true);
+                if (!isPackageId(package.id) ||
+                    !isPackageVersion(package.version) ||
+                    !isPortableLibraryName(package.library) ||
+                    !isPortableRelativePath(package.directory)) {
+                    return fail(
+                        "Editor packages require a lowercase dotted id, MAJOR.MINOR.PATCH version, portable library name, and relative generated directory.",
+                        outError);
+                }
+                const auto duplicate = std::find_if(
+                    parsed.editorPackages.begin(),
+                    parsed.editorPackages.end(),
+                    [&](const EditorPackageDependency& candidate) {
+                        return candidate.id == package.id;
+                    });
+                if (duplicate != parsed.editorPackages.end()) {
+                    return fail(
+                        "Duplicate editor package id: " + package.id,
+                        outError);
+                }
+                parsed.editorPackages.push_back(std::move(package));
             }
         }
 
@@ -590,6 +673,56 @@ bool resolveEditorPluginPath(
         "lib" + descriptor.editorPlugin.library + ".so";
 #endif
     out = (descriptorDirectory / pluginDirectory / libraryFile)
+              .lexically_normal();
+    if (outError) {
+        outError->clear();
+    }
+    return true;
+}
+
+bool resolveEditorPackagePath(
+    const std::filesystem::path& descriptorPath,
+    const EditorPackageDependency& package,
+    std::string_view buildConfiguration,
+    std::filesystem::path& out,
+    std::string* outError) {
+    if (!isPackageId(package.id) ||
+        !isPackageVersion(package.version) ||
+        !isPortableLibraryName(package.library) ||
+        !isPortableRelativePath(package.directory)) {
+        return fail(
+            "Editor package declaration is invalid: " + package.id,
+            outError);
+    }
+    if (buildConfiguration.empty()) {
+        return fail(
+            "Editor build configuration must not be empty.",
+            outError);
+    }
+
+    std::error_code error;
+    const auto descriptorDirectory =
+        std::filesystem::absolute(descriptorPath, error).parent_path();
+    if (error) {
+        return fail(
+            "Could not resolve project descriptor directory: " +
+                error.message(),
+            outError);
+    }
+    const std::filesystem::path packageDirectory =
+        replaceConfigurationToken(
+            package.directory.generic_string(),
+            buildConfiguration);
+#if defined(_WIN32)
+    const std::string libraryFile = package.library + ".dll";
+#elif defined(__APPLE__)
+    const std::string libraryFile =
+        "lib" + package.library + ".dylib";
+#else
+    const std::string libraryFile =
+        "lib" + package.library + ".so";
+#endif
+    out = (descriptorDirectory / packageDirectory / libraryFile)
               .lexically_normal();
     if (outError) {
         outError->clear();

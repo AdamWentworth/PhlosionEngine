@@ -65,6 +65,14 @@ bool test_project_descriptor_contract(std::string& outFail) {
             "library": "TestGameEditorProject",
             "directory": ".phlosion/editor/{config}"
         },
+        "editor_packages": [
+            {
+                "id": "phlosion.tile-tools",
+                "version": "0.1.0",
+                "library": "PhlosionTileTools",
+                "directory": ".phlosion/packages/{config}/phlosion.tile-tools"
+            }
+        ],
         "play_configurations": [
             {
                 "id": "main-menu",
@@ -110,6 +118,10 @@ bool test_project_descriptor_contract(std::string& outFail) {
         project.scenes[0].environmentAssetId !=
             project.scenes[1].environmentAssetId ||
         project.playConfigurations.size() != 1u ||
+        project.editorPackages.size() != 1u ||
+        project.editorPackages.front().id !=
+            "phlosion.tile-tools" ||
+        project.editorPackages.front().version != "0.1.0" ||
         project.playConfigurations.front().id != "main-menu" ||
         project.playConfigurations.front().arguments.size() != 1u ||
         project.playConfigurations.front().environment.size() != 1u ||
@@ -216,6 +228,33 @@ bool test_project_descriptor_contract(std::string& outFail) {
         return false;
     }
 
+    std::filesystem::path packagePath;
+    if (!engine::editor::resolveEditorPackagePath(
+            "D:/Projects/TestGame/phlosion.project.json",
+            project.editorPackages.front(),
+            "Debug",
+            packagePath,
+            &error)) {
+        outFail = "editor package path resolution failed: " + error;
+        return false;
+    }
+#if defined(_WIN32)
+    const std::string expectedPackagePath =
+        "D:/Projects/TestGame/.phlosion/packages/Debug/phlosion.tile-tools/PhlosionTileTools.dll";
+#elif defined(__APPLE__)
+    const std::string expectedPackagePath =
+        "D:/Projects/TestGame/.phlosion/packages/Debug/phlosion.tile-tools/libPhlosionTileTools.dylib";
+#else
+    const std::string expectedPackagePath =
+        "D:/Projects/TestGame/.phlosion/packages/Debug/phlosion.tile-tools/libPhlosionTileTools.so";
+#endif
+    if (packagePath.generic_string() != expectedPackagePath) {
+        outFail =
+            "unexpected editor package path: " +
+            packagePath.generic_string();
+        return false;
+    }
+
     std::filesystem::path executablePath;
     if (!engine::editor::resolvePlayExecutablePath(
             "D:/Projects/TestGame/phlosion.project.json",
@@ -264,6 +303,51 @@ bool test_project_descriptor_contract(std::string& outFail) {
             project,
             nullptr)) {
         outFail = "descriptor accepted a parent-directory content mount";
+        return false;
+    }
+    std::string invalidPackageVersion(kProject);
+    const std::string validVersion =
+        "\"version\": \"0.1.0\"";
+    const auto packageVersionOffset =
+        invalidPackageVersion.find(validVersion);
+    if (packageVersionOffset == std::string::npos) {
+        outFail = "test descriptor lost its package version";
+        return false;
+    }
+    invalidPackageVersion.replace(
+        packageVersionOffset,
+        validVersion.size(),
+        "\"version\": \"^0.1\"");
+    if (engine::editor::parseProjectDescriptor(
+            invalidPackageVersion,
+            project,
+            nullptr)) {
+        outFail = "descriptor accepted a non-locked package version";
+        return false;
+    }
+    std::string projectWithoutPackages(kProject);
+    const auto packageBlockStart =
+        projectWithoutPackages.find("        \"editor_packages\": [");
+    const auto packageBlockEnd =
+        projectWithoutPackages.find(
+            "        \"play_configurations\": [",
+            packageBlockStart);
+    if (packageBlockStart == std::string::npos ||
+        packageBlockEnd == std::string::npos) {
+        outFail = "test descriptor lost its optional package block";
+        return false;
+    }
+    projectWithoutPackages.erase(
+        packageBlockStart,
+        packageBlockEnd - packageBlockStart);
+    if (!engine::editor::parseProjectDescriptor(
+            projectWithoutPackages,
+            project,
+            &error) ||
+        !project.editorPackages.empty()) {
+        outFail =
+            "descriptor without editor packages must remain valid: " +
+            error;
         return false;
     }
     return true;

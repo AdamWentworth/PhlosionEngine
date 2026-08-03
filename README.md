@@ -83,5 +83,6 @@ for the shared cooked-resource design. The native editor boundary and first
 vertical slice are defined in
 [docs/EDITOR_ARCHITECTURE.md](docs/EDITOR_ARCHITECTURE.md). The enforced
 project/engine ownership rules are documented in
-[docs/ENGINE_BOUNDARIES.md](docs/ENGINE_BOUNDARIES.md), and startup measurement
+[docs/ENGINE_BOUNDARIES.md](docs/ENGINE_BOUNDARIES.md), optional reusable
+tooling in [docs/EDITOR_PACKAGES.md](docs/EDITOR_PACKAGES.md), and startup measurement
 and cache policy in [docs/EDITOR_PERFORMANCE.md](docs/EDITOR_PERFORMANCE.md).

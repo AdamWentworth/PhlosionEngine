@@ -27,6 +27,9 @@ semantics live below the UI layer.
   editor transactions, viewport integration, and the local-agent tool
   contract.
 - `PhlosionVFX` owns VFX-specific authoring panels and effect schemas.
+- `PhlosionPackages` owns optional reusable editor/runtime features. Its
+  packages are independently manifested and tested within one monorepo; they
+  are loaded only when declared by the opened project.
 - A game owns its `phlosion.project.json`, game-specific inspectors, startup
   scene choice, project-owned scene or prefab overrides, and an optional
   generated editor-project plugin.
@@ -50,6 +53,8 @@ reaching into Engine internals.
   a runtime script and implementation status;
 - an optional portable editor-plugin library name and configuration-relative
   generated output directory;
+- optional versioned `editor_packages`, each with a stable package id and a
+  configuration-relative generated module directory;
 - optional named play configurations with a project-relative executable,
   working directory, arguments, and environment overrides;
 - the optional environment variable that locates a private asset depot.
@@ -64,7 +69,8 @@ versioned `IEditorProjectRuntime` contract. The plugin is the permanent
 extension boundary for game-specific scene loading, runtime previews, asset
 previews, layout policy, terrain catalogs, and project commands. The Engine
 owns the process, window, camera, render loop, generic selection and transform
-machinery, and reusable shell widgets. See `EDITOR_PROJECT_EXTENSIONS.md`.
+machinery. It separately loads declared editor-package modules through the
+versioned `IEditorPackage` contract. See `EDITOR_PROJECT_EXTENSIONS.md`.
 
 Recent projects, panel layout, and outer-window placement are machine-local
 editor state under the operating system's application-data directory. They do

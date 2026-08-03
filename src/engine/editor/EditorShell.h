@@ -1,5 +1,6 @@
 #pragma once
 
+#include "engine/editor/EditorPackagePlugin.h"
 #include "engine/editor/EditorProjectPlugin.h"
 #include "engine/editor/EditorRendererPreference.h"
 
@@ -277,6 +278,10 @@ struct WorkspaceView {
     std::string_view activeSceneId;
     const std::vector<WorkspaceGamePreview>*
         gamePreviews = nullptr;
+    // Optional project-declared editor packages. The shell knows only the
+    // extension contract; package-owned tools decide whether to draw or
+    // capture viewport input for this workspace.
+    const std::vector<IEditorPackage*>* editorPackages = nullptr;
     std::string_view activeGamePreviewId;
     EditorViewportKind activeViewport =
         EditorViewportKind::Scene;

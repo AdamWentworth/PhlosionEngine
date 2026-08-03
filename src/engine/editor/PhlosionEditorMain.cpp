@@ -2,6 +2,7 @@
 
 #include "engine/assets/phlosion/PhlosionResourceContainer.h"
 #include "engine/editor/EditorProjectPlugin.h"
+#include "engine/editor/EditorPackagePlugin.h"
 #include "engine/editor/D3D12EditorRenderSurface.h"
 #include "engine/editor/EditorRenderSurface.h"
 #include "engine/editor/EditorRendererPreference.h"
@@ -591,7 +592,7 @@ public:
                 LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
         if (!handle_) {
             outError =
-                "Could not load project editor plugin (Windows error " +
+                "Could not load dynamic editor module (Windows error " +
                 std::to_string(GetLastError()) + "): " +
                 path.generic_string();
             return false;
@@ -601,7 +602,7 @@ public:
         if (!handle_) {
             const char* message = dlerror();
             outError =
-                "Could not load project editor plugin: " +
+                "Could not load dynamic editor module: " +
                 std::string(message ? message : "unknown error") +
                 " (" + path.generic_string() + ")";
             return false;
@@ -1262,6 +1263,23 @@ struct LoadedProject {
     engine::editor::IEditorProjectRuntime* runtime = nullptr;
     engine::editor::DestroyEditorProjectRuntimeFn destroyRuntime =
         nullptr;
+    struct LoadedEditorPackage {
+        ~LoadedEditorPackage() {
+            if (instance && destroy) {
+                destroy(instance);
+                instance = nullptr;
+            }
+        }
+
+        const engine::editor::EditorPackageDependency* dependency =
+            nullptr;
+        std::filesystem::path libraryPath;
+        DynamicLibrary library;
+        engine::editor::IEditorPackage* instance = nullptr;
+        engine::editor::DestroyEditorPackageFn destroy = nullptr;
+    };
+    std::vector<std::unique_ptr<LoadedEditorPackage>> editorPackages;
+    std::vector<engine::editor::IEditorPackage*> editorPackageViews;
     struct ResolvedPlayConfiguration {
         const engine::editor::PlayConfiguration* configuration =
             nullptr;
@@ -2066,6 +2084,102 @@ std::unique_ptr<LoadedProject> loadProject(
     loaded->rootText = loaded->root.generic_string();
     loaded->scenePathText =
         loaded->scenePath.generic_string();
+    for (const auto& dependency :
+         loaded->descriptor.editorPackages) {
+        auto package =
+            std::make_unique<LoadedProject::LoadedEditorPackage>();
+        package->dependency = &dependency;
+        if (!engine::editor::resolveEditorPackagePath(
+                loaded->descriptorPath,
+                dependency,
+                PHLOSION_EDITOR_BUILD_CONFIGURATION,
+                package->libraryPath,
+                &outError)) {
+            return nullptr;
+        }
+        if (!std::filesystem::is_regular_file(
+                package->libraryPath)) {
+            if (!dependency.required) {
+                std::cerr
+                    << "[PhlosionEditor][EditorPackage] optional package missing id="
+                    << dependency.id << " path="
+                    << package->libraryPath.generic_string() << '\n';
+                continue;
+            }
+            outError =
+                "Required editor package is not built for " +
+                std::string(PHLOSION_EDITOR_BUILD_CONFIGURATION) +
+                ": " + dependency.id + " " + dependency.version +
+                "\nExpected: " + package->libraryPath.generic_string() +
+                "\nBuild the package from PhlosionPackages, then open the project again.";
+            return nullptr;
+        }
+        if (!package->library.open(
+                package->libraryPath,
+                outError)) {
+            return nullptr;
+        }
+        const auto packageAbiVersion =
+            package->library.function<
+                engine::editor::EditorPackagePluginAbiVersionFn>(
+                engine::editor::kEditorPackagePluginAbiSymbol);
+        const auto createPackage =
+            package->library.function<
+                engine::editor::CreateEditorPackageFn>(
+                engine::editor::kCreateEditorPackageSymbol);
+        package->destroy =
+            package->library.function<
+                engine::editor::DestroyEditorPackageFn>(
+                engine::editor::kDestroyEditorPackageSymbol);
+        if (!packageAbiVersion || !createPackage || !package->destroy) {
+            outError =
+                "Editor package is missing required Phlosion symbols: " +
+                package->libraryPath.generic_string();
+            return nullptr;
+        }
+        if (packageAbiVersion() !=
+            engine::editor::kEditorPackagePluginAbiVersion) {
+            outError =
+                "Editor package ABI does not match this Phlosion Editor: " +
+                dependency.id;
+            return nullptr;
+        }
+        package->instance = createPackage();
+        if (!package->instance) {
+            outError =
+                "Editor package could not create its extension: " +
+                dependency.id;
+            return nullptr;
+        }
+        const engine::editor::EditorPackageOpenContext packageContext{
+            .descriptor = &loaded->descriptor,
+            .dependency = &dependency,
+            .descriptorPath = loaded->descriptorPathText.c_str(),
+            .projectRoot = loaded->rootText.c_str()};
+        if (!package->instance->open(packageContext, &outError)) {
+            outError =
+                "Could not activate editor package " + dependency.id +
+                ": " + outError;
+            return nullptr;
+        }
+        if (!package->instance->packageId() ||
+            dependency.id != package->instance->packageId() ||
+            !package->instance->packageVersion() ||
+            dependency.version != package->instance->packageVersion()) {
+            outError =
+                "Editor package identity/version does not match the project declaration: " +
+                dependency.id + " " + dependency.version;
+            return nullptr;
+        }
+        loaded->editorPackageViews.push_back(package->instance);
+        loaded->editorPackages.push_back(std::move(package));
+        std::cerr
+            << "[PhlosionEditor][EditorPackage] activated id="
+            << dependency.id << " version=" << dependency.version
+            << '\n';
+    }
+    logProjectLoadPhase("editor-packages", phaseStart);
+    phaseStart = EditorClock::now();
     loaded->assetViews =
         discoverCookedAssets(
             loaded->root,
@@ -3371,7 +3485,15 @@ int main(int argc, char** argv) {
                             layoutOverlayVisible(),
                     .terrainTileEditingSupported =
                         project->runtime->
-                            supportsTerrainTileEditing(),
+                            supportsTerrainTileEditing() &&
+                        std::any_of(
+                            project->editorPackageViews.begin(),
+                            project->editorPackageViews.end(),
+                            [](const engine::editor::IEditorPackage* package) {
+                                return package && package->packageId() &&
+                                    std::string_view(package->packageId()) ==
+                                        "phlosion.tile-tools";
+                            }),
                     .canUndoSceneEdit =
                         project->runtime->
                             canUndoSceneEdit(),
@@ -3396,6 +3518,8 @@ int main(int argc, char** argv) {
                         activeScene.id,
                     .gamePreviews =
                         &project->gamePreviewViews,
+                    .editorPackages =
+                        &project->editorPackageViews,
                     .activeGamePreviewId =
                         project->activeGamePreviewId,
                     .activeViewport = activeViewport,

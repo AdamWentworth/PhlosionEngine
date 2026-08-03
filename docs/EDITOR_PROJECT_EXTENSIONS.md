@@ -17,13 +17,25 @@ host must never branch on a game's title, asset IDs, object kinds, or rules.
   panels;
 - generic object selection, multi-selection, transform gizmos, live preview,
   commit/cancel, and undo/redo routing;
-- a reusable grid-terrain widget: projected cell selection, coordinates,
-  levels, copy/paste stamps, prefab cards, and platform-footprint controls;
+- a versioned optional editor-package loader with toolbar, Scene-overlay, and
+  Inspector extension points plus exclusive viewport-input capture;
 - a declarative project-command renderer with typed boolean/float options and
   confirmation for destructive operations.
 
 These facilities do not know what a Pokemon, Autochess board, Route, lawn,
 dirt path, bench, or encounter-grass record is.
+
+## Optional package boundary
+
+Reusable feature widgets do not belong to the Engine or a game. The
+`phlosion.tile-tools` package in the sibling `PhlosionPackages` monorepo owns
+projected cell selection, coordinate/elevation overlays, copy/paste stamps,
+prefab cards, ramps, and platform-footprint controls. Phlosion supplies only
+the data/action protocol and loads the package named by `editor_packages`.
+
+The generated package DLL is project-local under `.phlosion/packages/`; its
+source and Git history remain in `PhlosionPackages`. A project that omits the
+declaration gets no tile toolbar, panel, or viewport interception.
 
 ## A game project owns
 
