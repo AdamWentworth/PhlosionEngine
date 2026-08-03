@@ -771,7 +771,12 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
                     worldSkinMatrixMappedData_ + skinWriteOffset,
                     textureData->skinMatrices,
                     copyBytes);
-                skinMatrixGpuAddress += static_cast<std::uint64_t>(skinWriteOffset);
+                // skinWriteOffset is absolute within the upload resource.  The
+                // old += expression double-counted frameBaseOffset on buffered
+                // frames 1 and 2, so animated draws sampled the wrong palette.
+                skinMatrixGpuAddress =
+                    worldSkinMatrixBufferGpuAddress_ +
+                    static_cast<std::uint64_t>(skinWriteOffset);
                 worldSkinMatrixFrameOffset_ = static_cast<UINT>(skinWriteEnd);
                 lastWorldSkinMatrices_ = textureData->skinMatrices;
                 lastWorldSkinningMode_ = static_cast<std::uint8_t>(gpuSkinningMode);
@@ -971,7 +976,11 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
                     worldSkinMatrixMappedData_ + skinWriteOffset,
                     textureData->skinMatrices,
                     copyBytes);
-                skinMatrixGpuAddress += static_cast<std::uint64_t>(skinWriteOffset);
+                // skinWriteOffset is absolute within the upload resource.  Do
+                // not add it to an address that already contains frameBaseOffset.
+                skinMatrixGpuAddress =
+                    worldSkinMatrixBufferGpuAddress_ +
+                    static_cast<std::uint64_t>(skinWriteOffset);
                 worldSkinMatrixFrameOffset_ = static_cast<UINT>(skinWriteEnd);
                 lastWorldSkinMatrices_ = textureData->skinMatrices;
                 lastWorldSkinningMode_ = static_cast<std::uint8_t>(gpuSkinningMode);
