@@ -1441,6 +1441,14 @@ void main() {
             tailFireMaterial));
         return;
     }
+    if (materialMode > 26.5 && materialMode < 27.5) {
+        vec4 surface = evaluateNativeLayeredUnlitDisplaced(
+            baseColorTextures[nonuniformEXT(materialIndex)],
+            normalTextures[nonuniformEXT(materialIndex)],
+            tailFireMaterial);
+        writeWorldColor(vec4(encodeLgpeFinalColor(surface.rgb), surface.a));
+        return;
+    }
     if (materialMode > 3.5 && materialMode < 4.5) {
         vec3 groundLinear =
             evaluateLgpeFieldGroundSurface(materialIndex, drawState);

@@ -1297,6 +1297,20 @@ void main() {
         writeWorldColor(evaluateTailFire(baseColorTexture, tailFireMaterial));
         return;
     }
+    if (materialMode > 26.5 && materialMode < 27.5) {
+        TailFireMaterialState nativeUnlitMaterial = TailFireMaterialState(
+            worldSpecializedMaterial.timingFlagsAtlas,
+            worldSpecializedMaterial.rect0,
+            worldSpecializedMaterial.rect1,
+            worldSpecializedMaterial.flipbook0,
+            worldSpecializedMaterial.flipbook1);
+        vec4 surface = evaluateNativeLayeredUnlitDisplaced(
+            baseColorTexture,
+            normalTexture,
+            nativeUnlitMaterial);
+        writeWorldColor(vec4(encodeLgpeFinalColor(surface.rgb), surface.a));
+        return;
+    }
     if (materialMode > 3.5 && materialMode < 4.5) {
         vec3 groundLinear = evaluateLgpeFieldGroundSurface();
         writeWorldColor(vec4(encodeLgpeFinalColor(groundLinear), 1.0));

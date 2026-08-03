@@ -1897,6 +1897,31 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             }
             return value / max(amplitudeSum, 1e-5);
         }
+        vec4 evalNativeLayeredUnlitDisplaced() {
+            vec2 uvScale = max(abs(uMaterialRect1.xy), vec2(0.0001));
+            vec2 uv = vUv * uvScale + uMaterialRect1.zw;
+            float time = uMaterialTimeSec;
+            float displacementHeight = max(uMaterialRect0.x, 0.0);
+            float emissionIntensity = max(uMaterialRect0.y, 0.0);
+            vec2 flowSpeed = uMaterialRect0.zw;
+
+            // The source material's displacement texture is sampled twice in
+            // opposing directions.  Its skinned mesh owns the silhouette;
+            // these samples reproduce the authored internal flame motion.
+            vec2 flowA = uv + vec2(flowSpeed.x, -flowSpeed.y) * time;
+            vec2 flowB = uv + vec2(-flowSpeed.y, -flowSpeed.x) * time * 0.73;
+            float displacementA = texture(uNormalTexture, flowA).r;
+            float displacementB = texture(uNormalTexture, flowB).r;
+            vec2 displacedUv = uv +
+                vec2(displacementA - 0.5, displacementB - 0.5) *
+                displacementHeight * 0.32;
+            vec4 surface = texture(uTexture, displacedUv);
+            float flicker = mix(0.88, 1.12, 0.5 * (displacementA + displacementB));
+            surface.rgb *= max(emissionIntensity, 1.0) * flicker;
+            surface.a = 1.0;
+            return surface;
+        }
+
         vec4 evalAuthoredFireMesh() {
             vec2 uv = clamp(
                 vUv + vec2(uMaterialFlipbook1.x, uMaterialFlipbook1.y),
@@ -2334,6 +2359,11 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             }
             if (uMaterialMode > 0.5 && uMaterialMode < 1.5) {
                 FragColor = evalFireTailExact();
+                return;
+            }
+            if (uMaterialMode > 26.5 && uMaterialMode < 27.5) {
+                vec4 surface = evalNativeLayeredUnlitDisplaced();
+                FragColor = vec4(resolveWorldSceneColor(surface.rgb), surface.a);
                 return;
             }
             if (uMaterialMode > 3.5 && uMaterialMode < 4.5) {

@@ -1692,6 +1692,30 @@ float authoredFireNoise(float4 p) {
   return value / max(amplitudeSum, 1e-5f);
 }
 
+float4 evalNativeLayeredUnlitDisplaced(PSIn i) {
+  float2 uvScale = max(abs(float2(uMaterialRect1U, uMaterialRect1V)), 0.0001f);
+  float2 uv = i.uv * uvScale + float2(uMaterialRect1W, uMaterialRect1H);
+  float displacementHeight = max(uMaterialRect0U, 0.0f);
+  float emissionIntensity = max(uMaterialRect0V, 0.0f);
+  float2 flowSpeed = float2(uMaterialRect0W, uMaterialRect0H);
+
+  // The source material's displacement texture is sampled twice in
+  // opposing directions.  Its skinned mesh owns the silhouette; these
+  // samples reproduce the authored internal flame motion.
+  float2 flowA = uv + float2(flowSpeed.x, -flowSpeed.y) * uMaterialTimeSec;
+  float2 flowB = uv + float2(-flowSpeed.y, -flowSpeed.x) * uMaterialTimeSec * 0.73f;
+  float displacementA = gNormalTex.Sample(gSampCC, flowA).r;
+  float displacementB = gNormalTex.Sample(gSampCC, flowB).r;
+  float2 displacedUv = uv +
+      float2(displacementA - 0.5f, displacementB - 0.5f) *
+      displacementHeight * 0.32f;
+  float4 surface = gTex.Sample(gSampCC, displacedUv);
+  float flicker = lerp(0.88f, 1.12f, 0.5f * (displacementA + displacementB));
+  surface.rgb *= max(emissionIntensity, 1.0f) * flicker;
+  surface.a = 1.0f;
+  return surface;
+}
+
 float4 evalAuthoredFireMesh(PSIn i) {
   float2 uv = saturate(i.uv + float2(uMaterialFlipbook1Cols, uMaterialFlipbook1Rows));
   float4 baked = sampleAtlasCombinedTopLeft(
@@ -2081,6 +2105,10 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   }
   if (uMaterialMode > 0.5f && uMaterialMode < 1.5f) {
     return evalFireTailExact(i);
+  }
+  if (uMaterialMode > 26.5f && uMaterialMode < 27.5f) {
+    float4 surface = evalNativeLayeredUnlitDisplaced(i);
+    return float4(resolveWorldSceneColor(surface.rgb), surface.a);
   }
   if (uMaterialMode > 3.5f && uMaterialMode < 4.5f) {
     float3 groundLinear = evaluateLgpeFieldGroundSurface(i);
