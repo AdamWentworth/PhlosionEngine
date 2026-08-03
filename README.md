@@ -34,7 +34,7 @@ ctest --preset debug
 open the project browser:
 
 ```powershell
-cd D:\Projects\PhlosionEngine
+cd D:\Projects\Phlosion\PhlosionEngine
 .\build\Debug\PhlosionEditor.exe
 ```
 
@@ -43,7 +43,7 @@ the descriptor onto the window, or pass it directly:
 
 ```powershell
 .\build\Debug\PhlosionEditor.exe `
-  D:\Projects\PokemonAutochess\phlosion.project.json
+  D:\Projects\Games\PokemonAutochess\phlosion.project.json
 ```
 
 The editor stores its recent-project list, dock layout, and outer-window
