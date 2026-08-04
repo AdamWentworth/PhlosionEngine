@@ -304,6 +304,18 @@ inline WorldPsConstants makeWorldPsConstants(
         constants.materialFlipbook1Cols = textureData->cameraTargetY;
         constants.materialFlipbook1Rows = textureData->cameraTargetZ;
 
+        // Native Game Freak eye materials need two source-only clear-coat
+        // values in addition to the generic PBR factors and camera payload.
+        // materialRect0U/Rect1H cannot carry them here: generic packing uses
+        // those slots for surface roughness and camera Z. Keep the source coat
+        // roughness and coverage marker in PS-only slots that mode 28 does not
+        // otherwise consume. In particular, this prevents the eye coat from
+        // changing when the camera crosses the world-Z origin.
+        if (textureData->materialMode == 28u) {
+            constants.materialFlipbook1Frames = textureData->materialRect0U;
+            constants.materialTimeSec = textureData->materialRect1H;
+        }
+
         // Specialized foliage modes use typed source-material payloads, not the
         // generic PBR interpretation above. Preserve their raw specialized
         // values and move Shadow_Color into otherwise-unused PS multiplier

@@ -2127,7 +2127,7 @@ float3 applyWorldLitModel(PSIn i,
   // Keep their authored direct/mask highlight without adding the generic
   // neutral-room reflection. EyeClearCoat keeps its literal source coverage.
   if (uMaterialMode > 27.5f && uMaterialMode < 28.5f &&
-      uMaterialRect1H < -0.5f) {
+      uMaterialTimeSec < -0.5f) {
     specularIBL = float3(0.0f, 0.0f, 0.0f);
   }
   diffuseIBL *= ao;
@@ -2167,9 +2167,11 @@ float3 applyNativeEyeClearCoat(PSIn i,
   float ndl = max(dot(n, l), 0.0f);
   float ndh = max(dot(n, h), 0.0f);
   float vdh = max(dot(v, h), 0.0f);
-  // Native EyeClearCoat params0.x carries RoughnessClearCoat.
-  float roughness = clamp(uMaterialRect0U, 0.04f, 1.0f);
-  float clearCoatCoverage = saturate(uMaterialRect1H);
+  // D3D12's compact generic-PBR packing reserves Rect0U for surface
+  // roughness and Rect1H for camera Z. Native eye coat roughness/coverage are
+  // therefore carried in the otherwise-unused mode-28 flipbook/time slots.
+  float roughness = clamp(uMaterialFlipbook1Frames, 0.04f, 1.0f);
+  float clearCoatCoverage = saturate(uMaterialTimeSec);
   float distribution = distributionGGX(ndh, roughness);
   float geometry = geometrySchlickGGX(ndv, roughness) *
       geometrySchlickGGX(ndl, roughness);
