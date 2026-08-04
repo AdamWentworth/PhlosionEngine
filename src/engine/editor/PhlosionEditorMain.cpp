@@ -3227,7 +3227,8 @@ int main(int argc, char** argv) {
                                                         arguments.assetPreviewTime
                                                             .has_value(),
                                                     .animationPlaying =
-                                                        false});
+                                                        !arguments.assetPreviewTime
+                                                             .has_value()});
                                     refreshAssetPreviewView(
                                         *project);
                                 }
