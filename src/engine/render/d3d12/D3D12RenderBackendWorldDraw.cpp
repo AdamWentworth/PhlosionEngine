@@ -820,6 +820,9 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
     materialHandle.ptr += static_cast<SIZE_T>(materialDescriptorBlockIndex) *
                           static_cast<SIZE_T>(srvDescriptorSize_);
     commandList_->SetGraphicsRootDescriptorTable(3, materialHandle);
+    D3D12_GPU_DESCRIPTOR_HANDLE displacementHandle = materialHandle;
+    displacementHandle.ptr += static_cast<SIZE_T>(srvDescriptorSize_);
+    commandList_->SetGraphicsRootDescriptorTable(5, displacementHandle);
     frameIndexedD3d12DescriptorTableSets_ += 1u;
     ID3D12PipelineState* pso = selectWorldPipelineState(textureData);
     commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -1024,6 +1027,9 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     materialHandle.ptr += static_cast<SIZE_T>(materialDescriptorBlockIndex) *
                           static_cast<SIZE_T>(srvDescriptorSize_);
     commandList_->SetGraphicsRootDescriptorTable(3, materialHandle);
+    D3D12_GPU_DESCRIPTOR_HANDLE displacementHandle = materialHandle;
+    displacementHandle.ptr += static_cast<SIZE_T>(srvDescriptorSize_);
+    commandList_->SetGraphicsRootDescriptorTable(5, displacementHandle);
     frameIndexedD3d12DescriptorTableSets_ += 1u;
 
     ID3D12PipelineState* pso = selectWorldPipelineState(textureData);

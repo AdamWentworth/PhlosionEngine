@@ -22,6 +22,8 @@ void D3D12RenderBackend::createWorldPipeline() {
         "cbuffer VSConstants : register(b0) { float4x4 uViewProj; float4x4 uModel; float4 uSkinMeta; float4 uClipMeta; };"
         "cbuffer MaterialVsConstants : register(b1) { float _m0,_m1,_m2,_m3,_m4,_m5,_m6,_m7,_m8,_m9,_m10,uMaterialMode,uMaterialTimeSecVs,_m13; float4 uGeneratedBoundsMin; float4 uGeneratedBoundsMax; };"
         "StructuredBuffer<float4> gSkinMatrices : register(t7);"
+        "Texture2D gVertexDisplacementMap : register(t1);"
+        "SamplerState gVertexSampCC : register(s0);"
         "struct InstanceData { float4 model0; float4 model1; float4 model2; float4 model3; float4 color; uint4 skinMeta; };"
         "StructuredBuffer<InstanceData> gInstances : register(t6);"
         "struct VSIn { float3 pos : POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 nrm : NORMAL; float4 jnts : BLENDINDICES; float4 wgts : BLENDWEIGHT; float4 tan : TANGENT; float2 sourceUv1 : TEXCOORD1; float2 sourceUv2 : TEXCOORD2; };"
@@ -117,23 +119,21 @@ void D3D12RenderBackend::createWorldPipeline() {
         "  float4 localTangent = i.tan;"
         "  float normalLengthSquared = dot(localNormal, localNormal);"
         "  if (uMaterialMode > 2.5f && uMaterialMode < 3.5f && normalLengthSquared > 1e-10f) localPos += localNormal * rsqrt(normalLengthSquared) * 0.001f;"
+        // Scarlet's Unlit variation 48 samples DisplacementMap once in the
+        // vertex stage.  It does not use a clock or inferred sine-wave flow:
+        // the sampled red value is passed through sin(), multiplied by source
+        // vertex red and DisplacementHeight, then applied along the normal.
+        "  if (uMaterialMode > 26.5f && uMaterialMode < 27.5f && dot(localNormal, localNormal) > 1e-10f) {"
+        "    float2 displacementUv = float2("
+        "      (i.uv.x - uGeneratedBoundsMax.z) * uGeneratedBoundsMax.x,"
+        "      1.0f - (i.uv.y - uGeneratedBoundsMax.w) * uGeneratedBoundsMax.y);"
+        "    float displacement = sin(gVertexDisplacementMap.SampleLevel(gVertexSampCC, displacementUv, 0.0f).r);"
+        "    localPos += normalize(localNormal) * saturate(i.col.r) * max(uGeneratedBoundsMin.x, 0.0f) * displacement;"
+        "  }"
         "  if (skinMeta.x > 0.5f) {"
         "    localPos = applySkinningPos(i, localPos, skinMeta);"
         "    localNormal = applySkinningNormal(i, localNormal, skinMeta);"
         "    localTangent = applySkinningTangent(i, localTangent, skinMeta);"
-        "  }"
-        // Native layered-Unlit assets carry their displacement envelope in
-        // vertex red. Preserve the source base-to-tip weighting while driving
-        // the recovered DisplacementHeight with the shared material clock.
-        "  if (uMaterialMode > 26.5f && uMaterialMode < 27.5f && dot(localNormal, localNormal) > 1e-10f) {"
-        "    float sourceWeight = saturate(i.col.r);"
-        "    float motionWeight = lerp(0.08f, 1.0f, sourceWeight);"
-        "    float displacementHeight = max(uGeneratedBoundsMin.z, 0.0f);"
-        "    float2 flowSpeed = uGeneratedBoundsMax.xy;"
-        "    float phaseA = (i.uv.y * 13.0f + i.uv.x * 5.0f) + uMaterialTimeSecVs * (4.0f + abs(flowSpeed.x) * 18.0f);"
-        "    float phaseB = (i.uv.y * 7.0f - i.uv.x * 11.0f) - uMaterialTimeSecVs * (2.7f + abs(flowSpeed.y) * 14.0f);"
-        "    float displacement = sin(phaseA) * 0.62f + sin(phaseB) * 0.38f;"
-        "    localPos += normalize(localNormal) * displacementHeight * displacement * motionWeight;"
         "  }"
         "  float4 instanceWorld = applyInstancePos(inst, localPos);"
         "  float4 world = mul(uModel, instanceWorld);"
@@ -1706,31 +1706,9 @@ float authoredFireNoise(float4 p) {
 }
 
 float4 evalNativeLayeredUnlitDisplaced(PSIn i) {
-  float2 uvScale = max(abs(float2(uMaterialRect1U, uMaterialRect1V)), 0.0001f);
-  float2 uv = i.uv * uvScale + float2(uMaterialRect1W, uMaterialRect1H);
-  float displacementHeight = max(uMaterialRect0U, 0.0f);
   float emissionIntensity = max(uMaterialRect0V, 0.0f);
-  float2 flowSpeed = float2(uMaterialRect0W, uMaterialRect0H);
-
-  // The source displacement map supplies internal flow while the matching
-  // vertex stage applies its red-channel envelope to the silhouette.
-  float2 flowA = uv + float2(flowSpeed.x, -flowSpeed.y) * uMaterialTimeSec;
-  float2 flowB = uv + float2(-flowSpeed.y, -flowSpeed.x) * uMaterialTimeSec * 0.73f;
-  float displacementA = gNormalTex.Sample(gSampCC, flowA).r;
-  float displacementB = gNormalTex.Sample(gSampCC, flowB).r;
-  float sourceDisplacementWeight = saturate(i.col.r);
-  float motionWeight = lerp(0.08f, 1.0f, sourceDisplacementWeight);
-  float2 displacedUv = uv +
-      float2(displacementA - 0.5f, displacementB - 0.5f) *
-      displacementHeight * 0.32f * motionWeight;
-  float4 surface = gTex.Sample(gSampCC, displacedUv);
-  float flickerAmplitude = lerp(0.03f, 0.12f, sourceDisplacementWeight);
-  float flicker = lerp(
-      1.0f - flickerAmplitude,
-      1.0f + flickerAmplitude,
-      0.5f * (displacementA + displacementB));
-  float3 hdrSurface =
-      surface.rgb * max(emissionIntensity, 1.0f) * flicker;
+  float4 surface = gTex.Sample(gSampCC, i.uv);
+  float3 hdrSurface = surface.rgb * max(emissionIntensity, 1.0f);
   float peak = max(hdrSurface.r, max(hdrSurface.g, hdrSurface.b));
   if (peak > 1.0f) {
     float displayPeak = 1.0f - exp(-peak * 0.7f);
@@ -2441,7 +2419,15 @@ DualSourcePSOut mainDualSource(PSIn i, bool isFrontFace : SV_IsFrontFace) {
     materialSrvRange.OffsetInDescriptorsFromTableStart =
         D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParams[5]{};
+    D3D12_DESCRIPTOR_RANGE vertexDisplacementSrvRange{};
+    vertexDisplacementSrvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    vertexDisplacementSrvRange.NumDescriptors = 1;
+    vertexDisplacementSrvRange.BaseShaderRegister = 1;
+    vertexDisplacementSrvRange.RegisterSpace = 0;
+    vertexDisplacementSrvRange.OffsetInDescriptorsFromTableStart =
+        D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER rootParams[6]{};
     rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParams[0].Descriptor.ShaderRegister = 0;
     rootParams[0].Descriptor.RegisterSpace = 0;
@@ -2463,6 +2449,11 @@ DualSourcePSOut mainDualSource(PSIn i, bool isFrontFace : SV_IsFrontFace) {
     rootParams[4].Descriptor.ShaderRegister = 6;
     rootParams[4].Descriptor.RegisterSpace = 0;
     rootParams[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+    rootParams[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParams[5].DescriptorTable.NumDescriptorRanges = 1;
+    rootParams[5].DescriptorTable.pDescriptorRanges =
+        &vertexDisplacementSrvRange;
+    rootParams[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
 
     auto makeStaticWorldSampler = [](UINT shaderRegister,
                                      D3D12_TEXTURE_ADDRESS_MODE addressU,
@@ -2481,7 +2472,7 @@ DualSourcePSOut mainDualSource(PSIn i, bool isFrontFace : SV_IsFrontFace) {
         s.MaxLOD = D3D12_FLOAT32_MAX;
         s.ShaderRegister = shaderRegister;
         s.RegisterSpace = 0;
-        s.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        s.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
         return s;
     };
     std::array<D3D12_STATIC_SAMPLER_DESC, 9> worldSamplers = {

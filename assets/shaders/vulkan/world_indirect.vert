@@ -1,5 +1,6 @@
 #version 450
 #extension GL_ARB_shader_draw_parameters : require
+#extension GL_EXT_nonuniform_qualifier : require
 #extension GL_GOOGLE_include_directive : require
 
 layout(location = 0) in vec3 inPosition;
@@ -20,6 +21,8 @@ layout(std430, set = 1, binding = 4) readonly buffer WorldInstanceWords {
 } worldInstances;
 
 #include "world_indirect_state.glsl"
+
+layout(set = 0, binding = 1) uniform sampler2D normalTextures[PHLOSION_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
 
 layout(push_constant) uniform WorldIndirectPushConstants {
     mat4 viewProjection;
@@ -94,30 +97,28 @@ void main() {
     if (outlineExtrude > 0.0 && normalLengthSquared > 1e-10) {
         localPosition += localNormal * inversesqrt(normalLengthSquared) * outlineExtrude;
     }
+    // Match Scarlet Unlit variation 48 exactly: one static displacement-map
+    // sample weighted by source vertex red, before skeletal deformation.
+    float materialMode = drawState.materialParams.w;
+    if (materialMode > 26.5 && materialMode < 27.5 &&
+        dot(localNormal, localNormal) > 1e-10) {
+        vec2 displacementUv = vec2(
+            (inUv.x - drawState.specializedRect1.z) *
+                drawState.specializedRect1.x,
+            1.0 - (inUv.y - drawState.specializedRect1.w) *
+                drawState.specializedRect1.y);
+        float displacement = sin(textureLod(
+            normalTextures[nonuniformEXT(drawState.drawParams.x)],
+            displacementUv,
+            0.0).r);
+        localPosition += normalize(localNormal) *
+            clamp(inColor.r, 0.0, 1.0) *
+            max(drawState.specializedRect0.x, 0.0) * displacement;
+    }
     if (skinningParams.x > 0.5) {
         localPosition = applySkinning(localPosition, 1.0, skinningParams);
         localNormal = applySkinning(localNormal, 0.0, skinningParams);
         localTangent = applySkinning(localTangent, 0.0, skinningParams);
-    }
-    // Native layered-Unlit assets carry a source base-to-tip displacement
-    // envelope in vertex red.
-    float materialMode = drawState.materialParams.w;
-    if (materialMode > 26.5 && materialMode < 27.5 &&
-        dot(localNormal, localNormal) > 1e-10) {
-        float sourceWeight = clamp(inColor.r, 0.0, 1.0);
-        float motionWeight = mix(0.08, 1.0, sourceWeight);
-        float displacementHeight = max(drawState.specializedRect0.x, 0.0);
-        vec2 flowSpeed = drawState.specializedRect0.zw;
-        float time = drawState.specializedTimingFlagsAtlas.x;
-        float phaseA =
-            (inUv.y * 13.0 + inUv.x * 5.0) +
-            time * (4.0 + abs(flowSpeed.x) * 18.0);
-        float phaseB =
-            (inUv.y * 7.0 - inUv.x * 11.0) -
-            time * (2.7 + abs(flowSpeed.y) * 14.0);
-        float displacement = sin(phaseA) * 0.62 + sin(phaseB) * 0.38;
-        localPosition += normalize(localNormal) * displacementHeight *
-            displacement * motionWeight;
     }
 
     vec4 transformedPosition = instanceModel * vec4(localPosition, 1.0);

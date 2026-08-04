@@ -561,6 +561,8 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
         textureBindings[i].descriptorCount = 1u;
         textureBindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     }
+    textureBindings[1].stageFlags =
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo setLayoutInfo{
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};

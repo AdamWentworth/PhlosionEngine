@@ -10,6 +10,8 @@ layout(location = 6) in vec4 inTangent;
 layout(location = 7) in vec2 inSourceUv1;
 layout(location = 8) in vec2 inSourceUv2;
 
+layout(set = 0, binding = 1) uniform sampler2D normalTexture;
+
 layout(set = 1, binding = 1) uniform WorldSpecializedMaterialState {
     vec4 timingFlagsAtlas;
     vec4 rect0;
@@ -112,30 +114,29 @@ void main() {
     if (outlineExtrude > 0.0 && normalLengthSquared > 1e-10) {
         localPosition += localNormal * inversesqrt(normalLengthSquared) * outlineExtrude;
     }
+    // Scarlet Unlit variation 48 uses one static displacement-map sample,
+    // source vertex red, and DisplacementHeight.  The skeleton supplies the
+    // authored flame motion; this stage does not synthesize time scrolling.
+    float materialMode = pushData.materialParams.w;
+    if (materialMode > 26.5 && materialMode < 27.5 &&
+        dot(localNormal, localNormal) > 1e-10) {
+        vec2 displacementUv = vec2(
+            (inUv.x - worldSpecializedMaterial.rect1.z) *
+                worldSpecializedMaterial.rect1.x,
+            1.0 - (inUv.y - worldSpecializedMaterial.rect1.w) *
+                worldSpecializedMaterial.rect1.y);
+        float displacement = sin(textureLod(
+            normalTexture,
+            displacementUv,
+            0.0).r);
+        localPosition += normalize(localNormal) *
+            clamp(inColor.r, 0.0, 1.0) *
+            max(worldSpecializedMaterial.rect0.x, 0.0) * displacement;
+    }
     if (skinningParams.x > 0.5) {
         localPosition = applySkinning(localPosition, 1.0, skinningParams);
         localNormal = applySkinning(localNormal, 0.0, skinningParams);
         localTangent = applySkinning(localTangent, 0.0, skinningParams);
-    }
-    // Native layered-Unlit assets carry a source base-to-tip displacement
-    // envelope in vertex red.
-    float materialMode = pushData.materialParams.w;
-    if (materialMode > 26.5 && materialMode < 27.5 &&
-        dot(localNormal, localNormal) > 1e-10) {
-        float sourceWeight = clamp(inColor.r, 0.0, 1.0);
-        float motionWeight = mix(0.08, 1.0, sourceWeight);
-        float displacementHeight = max(worldSpecializedMaterial.rect0.x, 0.0);
-        vec2 flowSpeed = worldSpecializedMaterial.rect0.zw;
-        float time = worldSpecializedMaterial.timingFlagsAtlas.x;
-        float phaseA =
-            (inUv.y * 13.0 + inUv.x * 5.0) +
-            time * (4.0 + abs(flowSpeed.x) * 18.0);
-        float phaseB =
-            (inUv.y * 7.0 - inUv.x * 11.0) -
-            time * (2.7 + abs(flowSpeed.y) * 14.0);
-        float displacement = sin(phaseA) * 0.62 + sin(phaseB) * 0.38;
-        localPosition += normalize(localNormal) * displacementHeight *
-            displacement * motionWeight;
     }
 
     vec4 transformedPosition =
