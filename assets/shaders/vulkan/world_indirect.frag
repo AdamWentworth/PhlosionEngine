@@ -1735,7 +1735,7 @@ void main() {
                 normalTextures[nonuniformEXT(materialIndex)],
                 environmentTextures[nonuniformEXT(materialIndex)],
                 drawState.pbrFactors.x,
-                tailFireMaterial.flipbook1.z);
+                tailFireMaterial.rect0.x);
         }
     }
 

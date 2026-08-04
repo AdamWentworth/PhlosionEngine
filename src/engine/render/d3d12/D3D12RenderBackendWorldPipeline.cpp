@@ -2151,7 +2151,8 @@ float3 applyNativeEyeClearCoat(PSIn i,
   float ndl = max(dot(n, l), 0.0f);
   float ndh = max(dot(n, h), 0.0f);
   float vdh = max(dot(v, h), 0.0f);
-  float roughness = clamp(uMaterialFlipbook1Frames, 0.04f, 1.0f);
+  // Native EyeClearCoat params0.x carries RoughnessClearCoat.
+  float roughness = clamp(uMaterialRect0U, 0.04f, 1.0f);
   float distribution = distributionGGX(ndh, roughness);
   float geometry = geometrySchlickGGX(ndv, roughness) *
       geometrySchlickGGX(ndl, roughness);

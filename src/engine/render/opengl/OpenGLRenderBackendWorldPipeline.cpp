@@ -2383,7 +2383,10 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float ndl = max(dot(n, l), 0.0);
             float ndh = max(dot(n, h), 0.0);
             float vdh = max(dot(v, h), 0.0);
-            float roughness = clamp(uMaterialFlipbook1.z, 0.04, 1.0);
+            // Native EyeClearCoat params0.x stores RoughnessClearCoat.
+            // Reading the unused params3.z forced 0 -> 0.04 and produced an
+            // excessively silver grazing-angle reflection.
+            float roughness = clamp(uMaterialRect0.x, 0.04, 1.0);
             float distribution = distributionGGX(ndh, roughness);
             float geometry = geometrySchlickGGX(ndv, roughness) *
                 geometrySchlickGGX(ndl, roughness);

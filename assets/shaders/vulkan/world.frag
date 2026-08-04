@@ -1521,7 +1521,7 @@ void main() {
                 normalTexture,
                 environmentTexture,
                 pushData.pbrFactors.x,
-                worldSpecializedMaterial.flipbook1.z);
+                worldSpecializedMaterial.rect0.x);
         }
     }
 
