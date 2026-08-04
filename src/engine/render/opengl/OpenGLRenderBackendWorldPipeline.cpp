@@ -249,6 +249,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         uniform float uClipSpaceDepthBias;
         uniform float uMaterialMode;
         uniform float uMaterialTimeSec;
+        uniform float uMaterialFlags;
         uniform vec4 uMaterialRect0;
         uniform vec4 uMaterialRect1;
         uniform sampler2D uNormalTexture;
@@ -397,12 +398,15 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             // the noise on the authored flame mesh.
             if (uMaterialMode > 26.5 && uMaterialMode < 27.5 &&
                 dot(localNormal, localNormal) > 1e-10) {
+                bool exactSourceTrack = uMaterialFlags > 1.5;
                 float displacementScrollHz = max(uMaterialRect0.w, 0.0);
-                float displacementScroll = displacementScrollHz > 0.0
-                    ? fract(uMaterialTimeSec * displacementScrollHz)
-                    : 0.0;
-                vec2 displacementOffset =
-                    uMaterialRect1.zw + vec2(displacementScroll);
+                float displacementScroll =
+                    !exactSourceTrack && displacementScrollHz > 0.0
+                        ? fract(uMaterialTimeSec * displacementScrollHz)
+                        : 0.0;
+                vec2 displacementOffset = exactSourceTrack
+                    ? uMaterialRect1.zw
+                    : uMaterialRect1.zw + vec2(displacementScroll);
                 vec2 displacementUv = vec2(
                     (aUv.x - displacementOffset.x) * uMaterialRect1.x,
                     1.0 - ((1.0 - aUv.y) - displacementOffset.y) * uMaterialRect1.y);
@@ -1928,11 +1932,21 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         }
         vec4 evalNativeLayeredUnlitDisplaced() {
             float emissionIntensity = max(uMaterialRect0.y, 0.0);
+            bool exactSourceTrack = uMaterialFlags > 1.5;
             float baseScrollHz = max(uMaterialRect0.z, 0.0);
-            float baseOffsetU = baseScrollHz > 0.0
-                ? 1.0 - fract(uMaterialTimeSec * baseScrollHz)
-                : 0.0;
-            vec2 baseUv = vec2(vUv.x - baseOffsetU, vUv.y);
+            vec2 baseOffset = exactSourceTrack
+                ? uMaterialRect0.zw
+                : vec2(
+                    baseScrollHz > 0.0
+                        ? 1.0 - fract(uMaterialTimeSec * baseScrollHz)
+                        : 0.0,
+                    0.0);
+            vec2 baseScale = exactSourceTrack
+                ? vec2(uMaterialFlipbook0.w, uMaterialFlipbook1.w)
+                : vec2(1.0);
+            vec2 baseUv = vec2(
+                (vUv.x - baseOffset.x) * baseScale.x,
+                1.0 - ((1.0 - vUv.y) - baseOffset.y) * baseScale.y);
             // UVScaleOffset animates U across a horizontally seamless mask.
             // Explicit wrapping avoids a clamp-to-edge jump at each reset.
             baseUv.x = fract(baseUv.x);

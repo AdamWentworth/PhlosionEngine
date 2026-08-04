@@ -11,11 +11,22 @@ vec4 evaluateNativeLayeredUnlitDisplaced(
     sampler2D layerMaskMap,
     TailFireMaterialState materialState) {
     float emissionIntensity = max(materialState.rect0.y, 0.0);
+    bool exactSourceTrack = materialState.timingFlagsAtlas.y > 1.5;
     float baseScrollHz = max(materialState.rect0.z, 0.0);
-    float baseOffsetU = baseScrollHz > 0.0
-        ? 1.0 - fract(materialState.timingFlagsAtlas.x * baseScrollHz)
-        : 0.0;
-    vec2 baseUv = vec2(vertexUv.x - baseOffsetU, vertexUv.y);
+    vec2 baseOffset = exactSourceTrack
+        ? materialState.rect0.zw
+        : vec2(
+            baseScrollHz > 0.0
+                ? 1.0 - fract(
+                    materialState.timingFlagsAtlas.x * baseScrollHz)
+                : 0.0,
+            0.0);
+    vec2 baseScale = exactSourceTrack
+        ? vec2(materialState.flipbook0.w, materialState.flipbook1.w)
+        : vec2(1.0);
+    vec2 baseUv = vec2(
+        (vertexUv.x - baseOffset.x) * baseScale.x,
+        1.0 - ((1.0 - vertexUv.y) - baseOffset.y) * baseScale.y);
     // The native layer mask is horizontally seamless; wrap the animated U
     // coordinate so its sawtooth reset cannot expose a clamp-to-edge hitch.
     baseUv.x = fract(baseUv.x);

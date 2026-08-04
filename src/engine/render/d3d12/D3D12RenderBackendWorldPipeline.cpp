@@ -125,9 +125,10 @@ void D3D12RenderBackend::createWorldPipeline() {
         // sin(), multiplied by vertex red and DisplacementHeight, and applied
         // along the normal before skeletal deformation.
         "  if (uMaterialMode > 26.5f && uMaterialMode < 27.5f && dot(localNormal, localNormal) > 1e-10f) {"
+        "    bool exactSourceTrack = uMaterialFlagsVs > 1.5f;"
         "    float displacementScrollHz = max(uMaterialRect0Vs.w, 0.0f);"
-        "    float displacementScroll = displacementScrollHz > 0.0f ? frac(uMaterialTimeSecVs * displacementScrollHz) : 0.0f;"
-        "    float2 displacementOffset = uMaterialRect1Vs.zw + float2(displacementScroll, displacementScroll);"
+        "    float displacementScroll = !exactSourceTrack && displacementScrollHz > 0.0f ? frac(uMaterialTimeSecVs * displacementScrollHz) : 0.0f;"
+        "    float2 displacementOffset = exactSourceTrack ? uMaterialRect1Vs.zw : uMaterialRect1Vs.zw + float2(displacementScroll, displacementScroll);"
         "    float2 displacementUv = float2("
         "      (i.uv.x - displacementOffset.x) * uMaterialRect1Vs.x,"
         "      1.0f - ((1.0f - i.uv.y) - displacementOffset.y) * uMaterialRect1Vs.y);"
@@ -150,8 +151,8 @@ void D3D12RenderBackend::createWorldPipeline() {
         "  o.sourceUv1 = i.sourceUv1;"
         "  o.sourceUv2 = i.sourceUv2;"
         "  o.col = i.col * inst.color;"
-        "  float3 genDen = max(uGeneratedBoundsMax.xyz - uGeneratedBoundsMin.xyz, float3(1e-5f, 1e-5f, 1e-5f));"
-        "  o.generated = saturate((i.pos - uGeneratedBoundsMin.xyz) / genDen);"
+        "  float3 genDen = max(uMaterialRect1Vs.xyz - uMaterialRect0Vs.xyz, float3(1e-5f, 1e-5f, 1e-5f));"
+        "  o.generated = saturate((i.pos - uMaterialRect0Vs.xyz) / genDen);"
         "  o.worldPos = world.xyz;"
         "  float3x3 normalM = (float3x3)uModel;"
         "  float3 instanceNormal = applyInstanceLinear(inst, localNormal);"
@@ -1712,13 +1713,21 @@ float authoredFireNoise(float4 p) {
 
 float4 evalNativeLayeredUnlitDisplaced(PSIn i) {
   float emissionIntensity = max(uMaterialRect0V, 0.0f);
+  bool exactSourceTrack = uMaterialFlags > 1.5f;
   float baseScrollHz = max(uMaterialRect0W, 0.0f);
-  float baseOffsetU = baseScrollHz > 0.0f
-      ? 1.0f - frac(uMaterialTimeSec * baseScrollHz)
-      : 0.0f;
+  float2 baseOffset = exactSourceTrack
+      ? float2(uMaterialRect0W, uMaterialRect0H)
+      : float2(
+          baseScrollHz > 0.0f
+              ? 1.0f - frac(uMaterialTimeSec * baseScrollHz)
+              : 0.0f,
+          0.0f);
+  float2 baseScale = exactSourceTrack
+      ? float2(uMaterialFlipbook0Fps, uMaterialFlipbook1Fps)
+      : float2(1.0f, 1.0f);
   float2 baseUv = float2(
-      i.uv.x - baseOffsetU,
-      i.uv.y);
+      (i.uv.x - baseOffset.x) * baseScale.x,
+      1.0f - ((1.0f - i.uv.y) - baseOffset.y) * baseScale.y);
   baseUv.x = frac(baseUv.x);
   float4 base = gTex.Sample(gSampCC, baseUv);
   float4 weights = saturate(gMetallicRoughnessTex.Sample(gSampCC, baseUv));
@@ -2484,6 +2493,12 @@ DualSourcePSOut mainDualSource(PSIn i, bool isFrontFace : SV_IsFrontFace) {
                               vsBlob,
                               errBlob) ||
         !vsBlob) {
+        const std::string details = d3dCompileErrorMessage(errBlob.Get());
+        if (!details.empty()) {
+            throw std::runtime_error(
+                std::string("D3DCompile failed for world VS: ") +
+                details);
+        }
         throw std::runtime_error("D3DCompile failed for world VS.");
     }
     const std::string worldPsSource =

@@ -120,14 +120,17 @@ void main() {
     float materialMode = pushData.materialParams.w;
     if (materialMode > 26.5 && materialMode < 27.5 &&
         dot(localNormal, localNormal) > 1e-10) {
+        bool exactSourceTrack =
+            worldSpecializedMaterial.timingFlagsAtlas.y > 1.5;
         float displacementScrollHz =
             max(worldSpecializedMaterial.rect0.w, 0.0);
-        float displacementScroll = displacementScrollHz > 0.0
+        float displacementScroll = !exactSourceTrack && displacementScrollHz > 0.0
             ? fract(worldSpecializedMaterial.timingFlagsAtlas.x *
                     displacementScrollHz)
             : 0.0;
-        vec2 displacementOffset =
-            worldSpecializedMaterial.rect1.zw + vec2(displacementScroll);
+        vec2 displacementOffset = exactSourceTrack
+            ? worldSpecializedMaterial.rect1.zw
+            : worldSpecializedMaterial.rect1.zw + vec2(displacementScroll);
         vec2 displacementUv = vec2(
             (inUv.x - displacementOffset.x) *
                 worldSpecializedMaterial.rect1.x,

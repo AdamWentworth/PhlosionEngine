@@ -323,6 +323,9 @@ EditorGraphics createEditorGraphics(
                 "Requested editor renderer failed (") +
             exception.what() +
             "); using OpenGL compatibility mode.";
+        std::cerr
+            << "[Phlosion Editor][Renderer] "
+            << fallback.fallbackReason << '\n';
         return fallback;
     }
 }
