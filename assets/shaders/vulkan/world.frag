@@ -1309,9 +1309,10 @@ void main() {
             metallicRoughnessTexture,
             nativeUnlitMaterial);
         const float nativeToneMappingExposure = 1.15;
-        vec3 nativeMapped = tonemapACESFilmic(
-            max(surface.rgb, vec3(0.0)),
-            nativeToneMappingExposure);
+        vec3 nativeMapped = clamp(
+            max(surface.rgb, vec3(0.0)) * nativeToneMappingExposure,
+            vec3(0.0),
+            vec3(1.0));
         vec3 nativeResolved = pushData.shadingParams.w > 0.5
             ? nativeMapped
             : linearToSrgb(nativeMapped);

@@ -1720,16 +1720,21 @@ float4 evalNativeLayeredUnlitDisplaced(PSIn i) {
       uMaterialFlipbook1Cols,
       uMaterialFlipbook1Rows,
       uMaterialFlipbook1Frames);
-  color = lerp(color, layer1, weights.r);
+  // Scarlet's Unlit variation 48 applies every material-layer color as a
+  // multiplier of the shared base-color map, then composites each mask as a
+  // successive alpha-over operation.  Keeping that multiplication matters
+  // for the general native contract even though Charmander's fire base map is
+  // white.
+  color = lerp(color, base.rgb * layer1, weights.r);
   coverage += weights.r * (1.0f - coverage);
-  color = lerp(color, layer2, weights.g);
+  color = lerp(color, base.rgb * layer2, weights.g);
   coverage += weights.g * (1.0f - coverage);
-  color = lerp(color, float3(1.0f, 1.0f, 1.0f), weights.b);
+  color = lerp(color, base.rgb, weights.b);
   coverage += weights.b * (1.0f - coverage);
-  color = lerp(color, float3(1.0f, 1.0f, 1.0f), weights.a);
+  color = lerp(color, base.rgb, weights.a);
   coverage += weights.a * (1.0f - coverage);
   float4 surface = float4(
-      color / max(coverage, 1e-6f) * max(emissionIntensity, 1.0f),
+      color / max(coverage, 1e-6f) * emissionIntensity,
       1.0f);
   surface.a = 1.0f;
   return surface;
@@ -2167,9 +2172,15 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   if (uMaterialMode > 26.5f && uMaterialMode < 27.5f) {
     float4 surface = evalNativeLayeredUnlitDisplaced(i);
     const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
-    float3 mapped = applyViewerToneMapping(
+    // Do not feed Scarlet's authored HDR Unlit layer colors through the
+    // viewer ACES fit.  ACES pulls the saturated [5,.075,.0295] red and
+    // [4,.8,.18] orange layers toward the same pale yellow, erasing the
+    // source mask gradient as the animated flame mesh deforms.  The native
+    // shader writes emissive color directly; a channel-linear exposure/clamp
+    // is the closest available output transform until Scarlet's global
+    // post-process is represented as its own contract.
+    float3 mapped = linearToneMapping(
         max(surface.rgb, float3(0.0f, 0.0f, 0.0f)),
-        1.0f,
         toneMappingExposure);
     return float4(resolveWorldSceneColor(mapped), surface.a);
   }

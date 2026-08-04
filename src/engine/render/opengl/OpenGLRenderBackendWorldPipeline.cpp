@@ -1924,16 +1924,18 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             vec3 color = base.rgb * coverage;
             vec3 layer1 = uMaterialFlipbook0.xyz;
             vec3 layer2 = uMaterialFlipbook1.xyz;
-            color = mix(color, layer1, weights.r);
+            // Scarlet Unlit variation 48 multiplies every layer color by the
+            // shared base map before successive alpha-over compositing.
+            color = mix(color, base.rgb * layer1, weights.r);
             coverage += weights.r * (1.0 - coverage);
-            color = mix(color, layer2, weights.g);
+            color = mix(color, base.rgb * layer2, weights.g);
             coverage += weights.g * (1.0 - coverage);
-            color = mix(color, vec3(1.0), weights.b);
+            color = mix(color, base.rgb, weights.b);
             coverage += weights.b * (1.0 - coverage);
-            color = mix(color, vec3(1.0), weights.a);
+            color = mix(color, base.rgb, weights.a);
             coverage += weights.a * (1.0 - coverage);
             vec4 surface = vec4(
-                color / max(coverage, 1e-6) * max(emissionIntensity, 1.0),
+                color / max(coverage, 1e-6) * emissionIntensity,
                 1.0);
             surface.a = 1.0;
             return surface;
@@ -2415,9 +2417,11 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             if (uMaterialMode > 26.5 && uMaterialMode < 27.5) {
                 vec4 surface = evalNativeLayeredUnlitDisplaced();
                 const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
-                vec3 mapped = applyViewerToneMapping(
+                // Preserve the hue separation in Scarlet's authored HDR
+                // flame layers; the generic viewer ACES fit washes both into
+                // nearly the same pale yellow.
+                vec3 mapped = linearToneMapping(
                     max(surface.rgb, vec3(0.0)),
-                    1.0,
                     toneMappingExposure);
                 FragColor = vec4(resolveWorldSceneColor(mapped), surface.a);
                 return;

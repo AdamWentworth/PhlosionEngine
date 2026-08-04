@@ -15,16 +15,16 @@ vec4 evaluateNativeLayeredUnlitDisplaced(
     vec4 weights = clamp(texture(layerMaskMap, vertexUv), vec4(0.0), vec4(1.0));
     float coverage = clamp(1.0 - dot(weights, vec4(1.0)), 0.0, 1.0);
     vec3 color = base.rgb * coverage;
-    color = mix(color, materialState.flipbook0.rgb, weights.r);
+    color = mix(color, base.rgb * materialState.flipbook0.rgb, weights.r);
     coverage += weights.r * (1.0 - coverage);
-    color = mix(color, materialState.flipbook1.rgb, weights.g);
+    color = mix(color, base.rgb * materialState.flipbook1.rgb, weights.g);
     coverage += weights.g * (1.0 - coverage);
-    color = mix(color, vec3(1.0), weights.b);
+    color = mix(color, base.rgb, weights.b);
     coverage += weights.b * (1.0 - coverage);
-    color = mix(color, vec3(1.0), weights.a);
+    color = mix(color, base.rgb, weights.a);
     coverage += weights.a * (1.0 - coverage);
     return vec4(
-        color / max(coverage, 1e-6) * max(emissionIntensity, 1.0),
+        color / max(coverage, 1e-6) * emissionIntensity,
         1.0);
 }
 
