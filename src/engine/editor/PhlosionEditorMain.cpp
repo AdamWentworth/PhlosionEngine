@@ -4126,13 +4126,17 @@ int main(int argc, char** argv) {
                         panScale);
                 }
                 if (actions.assetPreviewZoom != 0.0f) {
+                    const float previewRadius =
+                        std::max(
+                            0.05f,
+                            project->assetPreviewView.boundsRadius);
                     assetPreviewCamera.zoom(
                         actions.assetPreviewZoom *
                         std::max(
-                            0.12f,
-                            project->assetPreviewView
-                                    .boundsRadius *
-                                0.28f));
+                            0.08f,
+                            previewRadius * 0.34f),
+                        std::max(0.025f, previewRadius * 0.06f),
+                        std::max(12.0f, previewRadius * 12.0f));
                 }
             }
 

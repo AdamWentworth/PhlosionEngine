@@ -44,13 +44,19 @@ void Camera3D::move(const glm::vec3& delta) {
 }
 
 void Camera3D::zoom(float delta) {
+    zoom(delta, kMinZoomDistance, kMaxZoomDistance);
+}
+
+void Camera3D::zoom(float delta, float minDistance, float maxDistance) {
     glm::vec3 offset = position - target;
     const float dist = glm::length(offset);
     if (dist < 1e-5f) return;
 
     const glm::vec3 dirToCamera = offset / dist;
+    minDistance = std::max(minDistance, 1e-4f);
+    maxDistance = std::max(maxDistance, minDistance);
     const float newDist =
-        std::clamp(dist - delta, kMinZoomDistance, kMaxZoomDistance);
+        std::clamp(dist - delta, minDistance, maxDistance);
     position = target + dirToCamera * newDist;
 }
 

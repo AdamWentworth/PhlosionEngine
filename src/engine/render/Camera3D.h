@@ -14,6 +14,7 @@ public:
 
     void move(const glm::vec3& delta);       // NEW
     void zoom(float delta);                  // NEW
+    void zoom(float delta, float minDistance, float maxDistance);
     void panPlanar(float screenDx, float screenDy, float scale);
 
     // NEW: orbit camera position around its current target
