@@ -77,7 +77,7 @@ static bool envTruthy(const char* name) {
 
 // Cache format constants
 static constexpr uint64_t kModelCacheMagic = 0x4C444D434150554FULL; // "PACMDML" in little-endian-ish
-static constexpr uint32_t kModelCacheVersion = 8;
+static constexpr uint32_t kModelCacheVersion = 9;
 
 #pragma pack(push, 1)
 struct CacheHeader {
@@ -177,6 +177,9 @@ bool Model::tryLoadCache(const std::string& filepath)
                 if (!readPod(in, n.t)) return false;
                 if (!readPod(in, n.r)) return false;
                 if (!readPod(in, n.s)) return false;
+                uint8_t ssc = 0;
+                if (!readPod(in, ssc)) return false;
+                n.segmentScaleCompensate = (ssc != 0);
                 uint8_t hm = 0;
                 if (!readPod(in, hm)) return false;
                 n.hasMatrix = (hm != 0);
@@ -580,6 +583,8 @@ void Model::writeCache(const std::string& filepath,
             if (!writePod(out, n.t)) { warn("writePod failed"); return; }
             if (!writePod(out, n.r)) { warn("writePod failed"); return; }
             if (!writePod(out, n.s)) { warn("writePod failed"); return; }
+            uint8_t ssc = n.segmentScaleCompensate ? 1u : 0u;
+            if (!writePod(out, ssc)) { warn("writePod failed"); return; }
             uint8_t hm = n.hasMatrix ? 1u : 0u;
             if (!writePod(out, hm)) { warn("writePod failed"); return; }
             if (!writePod(out, n.matrix)) { warn("writePod failed"); return; }

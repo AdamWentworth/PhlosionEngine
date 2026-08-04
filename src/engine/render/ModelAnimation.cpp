@@ -290,6 +290,19 @@ void Model::buildPoseMatrices(float timeSec,
     std::function<void(int, const glm::mat4&)> dfs = [&](int node, const glm::mat4& parentM) {
         if (node < 0 || node >= (int)outLocal.size()) return;
         glm::mat4 localM = trsToMat4(outLocal[node]);
+        const int parentNode = parent[static_cast<std::size_t>(node)];
+        if (outLocal[node].segmentScaleCompensate &&
+            parentNode >= 0 && parentNode < nodeCount) {
+            const glm::vec3 parentScale = outLocal[static_cast<std::size_t>(parentNode)].s;
+            const glm::vec3 inverseParentScale(
+                std::abs(parentScale.x) > 1e-8f ? 1.0f / parentScale.x : 1.0f,
+                std::abs(parentScale.y) > 1e-8f ? 1.0f / parentScale.y : 1.0f,
+                std::abs(parentScale.z) > 1e-8f ? 1.0f / parentScale.z : 1.0f);
+            // Game Freak's row-vector rule is local * inverseParentScale *
+            // parentWorld. Transposed into GLM's column-vector convention it
+            // becomes parentWorld * inverseParentScale * local.
+            localM = glm::scale(glm::mat4(1.0f), inverseParentScale) * localM;
+        }
         glm::mat4 global = parentM * localM;
         outGlobal[node] = global;
 

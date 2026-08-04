@@ -13,6 +13,10 @@ struct NodeTRS {
     glm::vec3 t{0.0f};
     glm::quat r{1.0f, 0.0f, 0.0f, 0.0f};
     glm::vec3 s{1.0f};
+    // Some authored skeletons cancel the immediate parent's local scale
+    // before evaluating this node. Game Freak rigs use this for helper
+    // children beneath squash/stretch bones; omitting it distorts limbs.
+    bool segmentScaleCompensate = false;
     bool hasMatrix = false;
     glm::mat4 matrix{1.0f};
 };
