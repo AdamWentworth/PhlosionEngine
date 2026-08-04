@@ -115,6 +115,7 @@ void main() {
                 drawState.specializedRect1.x,
             1.0 - ((1.0 - inUv.y) - displacementOffset.y) *
                 drawState.specializedRect1.y);
+        displacementUv = fract(displacementUv);
         float displacement = sin(textureLod(
             normalTextures[nonuniformEXT(drawState.drawParams.x)],
             displacementUv,

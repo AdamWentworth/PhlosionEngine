@@ -133,6 +133,10 @@ void main() {
                 worldSpecializedMaterial.rect1.x,
             1.0 - ((1.0 - inUv.y) - displacementOffset.y) *
                 worldSpecializedMaterial.rect1.y);
+        // Scarlet's displacement noise is authored as a periodic texture.
+        // Explicit wrapping keeps the UVScaleOffset3 reset continuous even
+        // when the extracted sampler metadata resolves to clamp-to-edge.
+        displacementUv = fract(displacementUv);
         float displacement = sin(textureLod(
             normalTexture,
             displacementUv,

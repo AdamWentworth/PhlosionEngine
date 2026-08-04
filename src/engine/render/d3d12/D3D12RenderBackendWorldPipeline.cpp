@@ -131,6 +131,7 @@ void D3D12RenderBackend::createWorldPipeline() {
         "    float2 displacementUv = float2("
         "      (i.uv.x - displacementOffset.x) * uMaterialRect1Vs.x,"
         "      1.0f - ((1.0f - i.uv.y) - displacementOffset.y) * uMaterialRect1Vs.y);"
+        "    displacementUv = frac(displacementUv);"
         "    float displacement = sin(gVertexDisplacementMap.SampleLevel(gVertexSampCC, displacementUv, 0.0f).r);"
         "    localPos += normalize(localNormal) * saturate(i.col.r) * max(uMaterialRect0Vs.x, 0.0f) * displacement;"
         "  }"
@@ -1718,6 +1719,7 @@ float4 evalNativeLayeredUnlitDisplaced(PSIn i) {
   float2 baseUv = float2(
       i.uv.x - baseOffsetU,
       i.uv.y);
+  baseUv.x = frac(baseUv.x);
   float4 base = gTex.Sample(gSampCC, baseUv);
   float4 weights = saturate(gMetallicRoughnessTex.Sample(gSampCC, baseUv));
   float coverage = saturate(

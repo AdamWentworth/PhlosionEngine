@@ -16,6 +16,9 @@ vec4 evaluateNativeLayeredUnlitDisplaced(
         ? 1.0 - fract(materialState.timingFlagsAtlas.x * baseScrollHz)
         : 0.0;
     vec2 baseUv = vec2(vertexUv.x - baseOffsetU, vertexUv.y);
+    // The native layer mask is horizontally seamless; wrap the animated U
+    // coordinate so its sawtooth reset cannot expose a clamp-to-edge hitch.
+    baseUv.x = fract(baseUv.x);
     vec4 base = texture(baseColorMap, baseUv);
     vec4 weights = clamp(texture(layerMaskMap, baseUv), vec4(0.0), vec4(1.0));
     float coverage = clamp(1.0 - dot(weights, vec4(1.0)), 0.0, 1.0);

@@ -406,6 +406,12 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 vec2 displacementUv = vec2(
                     (aUv.x - displacementOffset.x) * uMaterialRect1.x,
                     1.0 - ((1.0 - aUv.y) - displacementOffset.y) * uMaterialRect1.y);
+                // The animated Scarlet fire maps are periodic on the axes
+                // driven by UVScaleOffset3.  The extracted sampler metadata
+                // reports clamp, but clamping turns each sawtooth reset into
+                // a visible hitch.  Wrap the authored coordinates explicitly
+                // so the nearly identical texture borders meet at the loop.
+                displacementUv = fract(displacementUv);
                 float displacement = sin(
                     textureLod(uNormalTexture, displacementUv, 0.0).r);
                 localPos += normalize(localNormal) *
@@ -1927,6 +1933,9 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 ? 1.0 - fract(uMaterialTimeSec * baseScrollHz)
                 : 0.0;
             vec2 baseUv = vec2(vUv.x - baseOffsetU, vUv.y);
+            // UVScaleOffset animates U across a horizontally seamless mask.
+            // Explicit wrapping avoids a clamp-to-edge jump at each reset.
+            baseUv.x = fract(baseUv.x);
             vec4 base = texture(uTexture, baseUv);
             vec4 weights = clamp(
                 texture(uMetallicRoughnessTexture, baseUv),
