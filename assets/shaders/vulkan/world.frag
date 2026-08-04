@@ -1521,7 +1521,8 @@ void main() {
                 normalTexture,
                 environmentTexture,
                 pushData.pbrFactors.x,
-                worldSpecializedMaterial.rect0.x);
+                worldSpecializedMaterial.rect0.x,
+                worldSpecializedMaterial.rect1.w);
         }
     }
 

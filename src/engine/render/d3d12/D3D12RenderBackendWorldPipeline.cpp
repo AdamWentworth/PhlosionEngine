@@ -2153,6 +2153,7 @@ float3 applyNativeEyeClearCoat(PSIn i,
   float vdh = max(dot(v, h), 0.0f);
   // Native EyeClearCoat params0.x carries RoughnessClearCoat.
   float roughness = clamp(uMaterialRect0U, 0.04f, 1.0f);
+  float clearCoatCoverage = saturate(uMaterialRect1H);
   float distribution = distributionGGX(ndh, roughness);
   float geometry = geometrySchlickGGX(ndv, roughness) *
       geometrySchlickGGX(ndl, roughness);
@@ -2164,8 +2165,10 @@ float3 applyNativeEyeClearCoat(PSIn i,
   float3 environment = sampleNeutralEnvironment(reflection, roughness) *
       fresnelSchlickRoughness(ndv, float3(0.04f, 0.04f, 0.04f), roughness) *
       __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-  return max(linearColor * (float3(1.0f, 1.0f, 1.0f) - fresnel * 0.18f) +
-                 direct + environment,
+  return max(linearColor *
+                 (float3(1.0f, 1.0f, 1.0f) -
+                  fresnel * (0.18f * clearCoatCoverage)) +
+                 (direct + environment) * clearCoatCoverage,
              float3(0.0f, 0.0f, 0.0f));
 }
 

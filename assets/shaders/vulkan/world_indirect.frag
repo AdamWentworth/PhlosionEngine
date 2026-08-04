@@ -1735,7 +1735,8 @@ void main() {
                 normalTextures[nonuniformEXT(materialIndex)],
                 environmentTextures[nonuniformEXT(materialIndex)],
                 drawState.pbrFactors.x,
-                tailFireMaterial.rect0.x);
+                tailFireMaterial.rect0.x,
+                tailFireMaterial.rect1.w);
         }
     }
 

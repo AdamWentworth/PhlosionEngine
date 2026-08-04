@@ -214,7 +214,8 @@ vec3 evaluateNativeEyeClearCoat(vec3 linearColor,
                                 sampler2D normalMap,
                                 sampler2D environmentMap,
                                 float normalScale,
-                                float clearCoatRoughness) {
+                                float clearCoatRoughness,
+                                float clearCoatCoverage) {
     vec3 normal = mappedWorldNormal(
         uv, position, sourceNormal, sourceTangent, normalMap, normalScale);
     vec3 cameraForward = safeNormalize(
@@ -247,7 +248,10 @@ vec3 evaluateNativeEyeClearCoat(vec3 linearColor,
     vec3 environment = sampleNeutralEnvironment(
         environmentMap, reflection, roughness) *
         fresnelSchlickRoughness(normalDotView, vec3(0.04), roughness) * 0.44;
+    clearCoatCoverage = clamp(clearCoatCoverage, 0.0, 1.0);
     return max(
-        linearColor * (vec3(1.0) - fresnel * 0.18) + direct + environment,
+        linearColor *
+            (vec3(1.0) - fresnel * (0.18 * clearCoatCoverage)) +
+            (direct + environment) * clearCoatCoverage,
         vec3(0.0));
 }

@@ -2387,6 +2387,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             // Reading the unused params3.z forced 0 -> 0.04 and produced an
             // excessively silver grazing-angle reflection.
             float roughness = clamp(uMaterialRect0.x, 0.04, 1.0);
+            float clearCoatCoverage = clamp(uMaterialRect1.w, 0.0, 1.0);
             float distribution = distributionGGX(ndh, roughness);
             float geometry = geometrySchlickGGX(ndv, roughness) *
                 geometrySchlickGGX(ndl, roughness);
@@ -2399,7 +2400,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 fresnelSchlickRoughness(ndv, vec3(0.04), roughness) *
                 __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
             return max(
-                linearColor * (vec3(1.0) - fresnel * 0.18) + direct + environment,
+                linearColor *
+                    (vec3(1.0) - fresnel * (0.18 * clearCoatCoverage)) +
+                    (direct + environment) * clearCoatCoverage,
                 vec3(0.0));
         }
 
