@@ -2114,6 +2114,13 @@ float3 applyWorldLitModel(PSIn i,
   float3 specularIBL = envRadiance * singleScattering + multiScattering * cosineWeightedIrradiance;
   diffuseIBL *= __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
   specularIBL *= __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+  // Plain Game Freak Eye materials carry a negative coat-coverage marker.
+  // Keep their authored direct/mask highlight without adding the generic
+  // neutral-room reflection. EyeClearCoat keeps its literal source coverage.
+  if (uMaterialMode > 27.5f && uMaterialMode < 28.5f &&
+      uMaterialRect1H < -0.5f) {
+    specularIBL = float3(0.0f, 0.0f, 0.0f);
+  }
   diffuseIBL *= ao;
   float specularOcclusion = computeSpecularOcclusion(NdotV, ao, roughness);
   specularIBL *= specularOcclusion;

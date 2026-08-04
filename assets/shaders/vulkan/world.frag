@@ -1507,7 +1507,9 @@ void main() {
             emissiveTexture,
             environmentTexture,
             pushData.pbrFactors,
-            pushData.emissiveAndCamera.rgb);
+            pushData.emissiveAndCamera.rgb,
+            (materialMode > 27.5 && materialMode < 28.5 &&
+             worldSpecializedMaterial.rect1.w < -0.5) ? 0.0 : 1.0);
         if (materialMode > 27.5 && materialMode < 28.5) {
             linearColor = evaluateNativeEyeClearCoat(
                 linearColor,

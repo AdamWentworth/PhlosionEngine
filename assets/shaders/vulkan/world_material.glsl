@@ -144,7 +144,8 @@ vec3 evaluateWorldMaterial(vec3 albedo,
                            sampler2D emissiveMap,
                            sampler2D environmentMap,
                            vec4 factors,
-                           vec3 emissiveFactor) {
+                           vec3 emissiveFactor,
+                           float specularIblScale) {
     vec3 normal = mappedWorldNormal(
         uv, position, sourceNormal, sourceTangent, normalMap, factors.x);
     vec3 cameraForward = safeNormalize(
@@ -196,6 +197,7 @@ vec3 evaluateWorldMaterial(vec3 albedo,
     vec3 specularIbl =
         (environmentRadiance * singleScattering +
          multiScattering * cosineWeightedIrradiance) * 0.44;
+    specularIbl *= clamp(specularIblScale, 0.0, 1.0);
     specularIbl *= computeSpecularOcclusion(normalDotView, occlusion, roughness);
     vec3 ambient = diffuseWeight * albedo * 0.56;
     vec3 emissive = clamp(texture(emissiveMap, uv).rgb, 0.0, 1.0) *

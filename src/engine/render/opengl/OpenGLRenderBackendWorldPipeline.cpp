@@ -2346,6 +2346,15 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 specularIBL = envRadiance * singleScattering + multiScattering * cosineWeightedIrradiance;
             diffuseIBL *= __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
             specularIBL *= __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+            // Plain Game Freak Eye materials carry a negative coat-coverage
+            // marker. Their authored glint is an explicit mask plus direct
+            // response, so the neutral-room reflection would double that
+            // response and make the eye look glassy. EyeClearCoat keeps its
+            // non-negative source coverage and the ordinary PBR IBL path.
+            if (uMaterialMode > 27.5 && uMaterialMode < 28.5 &&
+                uMaterialRect1.w < -0.5) {
+                specularIBL = vec3(0.0);
+            }
             diffuseIBL *= ao;
             float specularOcclusion = computeSpecularOcclusion(NdotV, ao, roughness);
             specularIBL *= specularOcclusion;
