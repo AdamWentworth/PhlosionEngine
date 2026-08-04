@@ -114,16 +114,24 @@ void main() {
     if (outlineExtrude > 0.0 && normalLengthSquared > 1e-10) {
         localPosition += localNormal * inversesqrt(normalLengthSquared) * outlineExtrude;
     }
-    // Scarlet Unlit variation 48 uses one static displacement-map sample,
-    // source vertex red, and DisplacementHeight.  The skeleton supplies the
-    // authored flame motion; this stage does not synthesize time scrolling.
+    // Scarlet's always-on loop01 channel scrolls UVScaleOffset3 independently
+    // of the selected skeletal clip. Preserve that material animation before
+    // applying source vertex red and DisplacementHeight.
     float materialMode = pushData.materialParams.w;
     if (materialMode > 26.5 && materialMode < 27.5 &&
         dot(localNormal, localNormal) > 1e-10) {
+        float displacementScrollHz =
+            max(worldSpecializedMaterial.rect0.w, 0.0);
+        float displacementScroll = displacementScrollHz > 0.0
+            ? fract(worldSpecializedMaterial.timingFlagsAtlas.x *
+                    displacementScrollHz)
+            : 0.0;
+        vec2 displacementOffset =
+            worldSpecializedMaterial.rect1.zw + vec2(displacementScroll);
         vec2 displacementUv = vec2(
-            (inUv.x - worldSpecializedMaterial.rect1.z) *
+            (inUv.x - displacementOffset.x) *
                 worldSpecializedMaterial.rect1.x,
-            1.0 - ((1.0 - inUv.y) - worldSpecializedMaterial.rect1.w) *
+            1.0 - ((1.0 - inUv.y) - displacementOffset.y) *
                 worldSpecializedMaterial.rect1.y);
         float displacement = sin(textureLod(
             normalTexture,

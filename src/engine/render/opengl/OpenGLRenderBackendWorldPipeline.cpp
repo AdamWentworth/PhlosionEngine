@@ -391,14 +391,21 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 normalLengthSquared > 1e-10) {
                 localPos += localNormal * inversesqrt(normalLengthSquared) * 0.001;
             }
-            // Scarlet Unlit variation 48 uses a single static displacement
-            // sample weighted by source vertex red.  Animation of the tail
-            // flame comes from the authored skeleton, not inferred scrolling.
+            // Scarlet's always-on loop01 channel animates UVScaleOffset3 for
+            // the displacement sample independently of the selected skeleton
+            // clip. Preserve that source material clock instead of freezing
+            // the noise on the authored flame mesh.
             if (uMaterialMode > 26.5 && uMaterialMode < 27.5 &&
                 dot(localNormal, localNormal) > 1e-10) {
+                float displacementScrollHz = max(uMaterialRect0.w, 0.0);
+                float displacementScroll = displacementScrollHz > 0.0
+                    ? fract(uMaterialTimeSec * displacementScrollHz)
+                    : 0.0;
+                vec2 displacementOffset =
+                    uMaterialRect1.zw + vec2(displacementScroll);
                 vec2 displacementUv = vec2(
-                    (aUv.x - uMaterialRect1.z) * uMaterialRect1.x,
-                    1.0 - ((1.0 - aUv.y) - uMaterialRect1.w) * uMaterialRect1.y);
+                    (aUv.x - displacementOffset.x) * uMaterialRect1.x,
+                    1.0 - ((1.0 - aUv.y) - displacementOffset.y) * uMaterialRect1.y);
                 float displacement = sin(
                     textureLod(uNormalTexture, displacementUv, 0.0).r);
                 localPos += normalize(localNormal) *
@@ -1915,9 +1922,14 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         }
         vec4 evalNativeLayeredUnlitDisplaced() {
             float emissionIntensity = max(uMaterialRect0.y, 0.0);
-            vec4 base = texture(uTexture, vUv);
+            float baseScrollHz = max(uMaterialRect0.z, 0.0);
+            float baseOffsetU = baseScrollHz > 0.0
+                ? 1.0 - fract(uMaterialTimeSec * baseScrollHz)
+                : 0.0;
+            vec2 baseUv = vec2(vUv.x - baseOffsetU, vUv.y);
+            vec4 base = texture(uTexture, baseUv);
             vec4 weights = clamp(
-                texture(uMetallicRoughnessTexture, vUv),
+                texture(uMetallicRoughnessTexture, baseUv),
                 vec4(0.0),
                 vec4(1.0));
             float coverage = clamp(1.0 - dot(weights, vec4(1.0)), 0.0, 1.0);

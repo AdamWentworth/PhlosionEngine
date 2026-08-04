@@ -20,7 +20,7 @@ void D3D12RenderBackend::createWorldPipeline() {
 #if defined(_WIN32)
     static constexpr char kVsSource[] =
         "cbuffer VSConstants : register(b0) { float4x4 uViewProj; float4x4 uModel; float4 uSkinMeta; float4 uClipMeta; };"
-        "cbuffer MaterialVsConstants : register(b1) { float _m0,_m1,_m2,_m3,_m4,_m5,_m6,_m7,_m8,_m9,_m10,uMaterialMode,uMaterialTimeSecVs,_m13; float4 uGeneratedBoundsMin; float4 uGeneratedBoundsMax; };"
+        "cbuffer MaterialVsConstants : register(b1) { float _m0,_m1,_m2,_m3,_m4,_m5,_m6,_m7,_m8,_m9,_m10,uMaterialMode,uMaterialTimeSecVs,uMaterialFlagsVs,uMaterialAtlasWidthVs,uMaterialAtlasHeightVs; float4 uMaterialRect0Vs; float4 uMaterialRect1Vs; };"
         "StructuredBuffer<float4> gSkinMatrices : register(t7);"
         "Texture2D gVertexDisplacementMap : register(t1);"
         "SamplerState gVertexSampCC : register(s0);"
@@ -119,16 +119,20 @@ void D3D12RenderBackend::createWorldPipeline() {
         "  float4 localTangent = i.tan;"
         "  float normalLengthSquared = dot(localNormal, localNormal);"
         "  if (uMaterialMode > 2.5f && uMaterialMode < 3.5f && normalLengthSquared > 1e-10f) localPos += localNormal * rsqrt(normalLengthSquared) * 0.001f;"
-        // Scarlet's Unlit variation 48 samples DisplacementMap once in the
-        // vertex stage.  It does not use a clock or inferred sine-wave flow:
-        // the sampled red value is passed through sin(), multiplied by source
-        // vertex red and DisplacementHeight, then applied along the normal.
+        // Scarlet's continuously enabled loop01 material animation scrolls
+        // UVScaleOffset3 while Unlit variation 48 samples DisplacementMap in
+        // the vertex stage. The sampled red value is then passed through
+        // sin(), multiplied by vertex red and DisplacementHeight, and applied
+        // along the normal before skeletal deformation.
         "  if (uMaterialMode > 26.5f && uMaterialMode < 27.5f && dot(localNormal, localNormal) > 1e-10f) {"
+        "    float displacementScrollHz = max(uMaterialRect0Vs.w, 0.0f);"
+        "    float displacementScroll = displacementScrollHz > 0.0f ? frac(uMaterialTimeSecVs * displacementScrollHz) : 0.0f;"
+        "    float2 displacementOffset = uMaterialRect1Vs.zw + float2(displacementScroll, displacementScroll);"
         "    float2 displacementUv = float2("
-        "      (i.uv.x - uGeneratedBoundsMax.z) * uGeneratedBoundsMax.x,"
-        "      1.0f - ((1.0f - i.uv.y) - uGeneratedBoundsMax.w) * uGeneratedBoundsMax.y);"
+        "      (i.uv.x - displacementOffset.x) * uMaterialRect1Vs.x,"
+        "      1.0f - ((1.0f - i.uv.y) - displacementOffset.y) * uMaterialRect1Vs.y);"
         "    float displacement = sin(gVertexDisplacementMap.SampleLevel(gVertexSampCC, displacementUv, 0.0f).r);"
-        "    localPos += normalize(localNormal) * saturate(i.col.r) * max(uGeneratedBoundsMin.x, 0.0f) * displacement;"
+        "    localPos += normalize(localNormal) * saturate(i.col.r) * max(uMaterialRect0Vs.x, 0.0f) * displacement;"
         "  }"
         "  if (skinMeta.x > 0.5f) {"
         "    localPos = applySkinningPos(i, localPos, skinMeta);"
@@ -1707,8 +1711,15 @@ float authoredFireNoise(float4 p) {
 
 float4 evalNativeLayeredUnlitDisplaced(PSIn i) {
   float emissionIntensity = max(uMaterialRect0V, 0.0f);
-  float4 base = gTex.Sample(gSampCC, i.uv);
-  float4 weights = saturate(gMetallicRoughnessTex.Sample(gSampCC, i.uv));
+  float baseScrollHz = max(uMaterialRect0W, 0.0f);
+  float baseOffsetU = baseScrollHz > 0.0f
+      ? 1.0f - frac(uMaterialTimeSec * baseScrollHz)
+      : 0.0f;
+  float2 baseUv = float2(
+      i.uv.x - baseOffsetU,
+      i.uv.y);
+  float4 base = gTex.Sample(gSampCC, baseUv);
+  float4 weights = saturate(gMetallicRoughnessTex.Sample(gSampCC, baseUv));
   float coverage = saturate(
       1.0f - dot(weights, float4(1.0f, 1.0f, 1.0f, 1.0f)));
   float3 color = base.rgb * coverage;

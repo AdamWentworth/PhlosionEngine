@@ -97,15 +97,23 @@ void main() {
     if (outlineExtrude > 0.0 && normalLengthSquared > 1e-10) {
         localPosition += localNormal * inversesqrt(normalLengthSquared) * outlineExtrude;
     }
-    // Match Scarlet Unlit variation 48 exactly: one static displacement-map
-    // sample weighted by source vertex red, before skeletal deformation.
+    // The controller's continuously enabled loop01 channel animates
+    // UVScaleOffset3 in parallel with the selected skeletal clip.
     float materialMode = drawState.materialParams.w;
     if (materialMode > 26.5 && materialMode < 27.5 &&
         dot(localNormal, localNormal) > 1e-10) {
+        float displacementScrollHz =
+            max(drawState.specializedRect0.w, 0.0);
+        float displacementScroll = displacementScrollHz > 0.0
+            ? fract(drawState.specializedTimingFlagsAtlas.x *
+                    displacementScrollHz)
+            : 0.0;
+        vec2 displacementOffset =
+            drawState.specializedRect1.zw + vec2(displacementScroll);
         vec2 displacementUv = vec2(
-            (inUv.x - drawState.specializedRect1.z) *
+            (inUv.x - displacementOffset.x) *
                 drawState.specializedRect1.x,
-            1.0 - (inUv.y - drawState.specializedRect1.w) *
+            1.0 - ((1.0 - inUv.y) - displacementOffset.y) *
                 drawState.specializedRect1.y);
         float displacement = sin(textureLod(
             normalTextures[nonuniformEXT(drawState.drawParams.x)],

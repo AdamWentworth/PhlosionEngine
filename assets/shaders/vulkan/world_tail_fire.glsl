@@ -11,8 +11,13 @@ vec4 evaluateNativeLayeredUnlitDisplaced(
     sampler2D layerMaskMap,
     TailFireMaterialState materialState) {
     float emissionIntensity = max(materialState.rect0.y, 0.0);
-    vec4 base = texture(baseColorMap, vertexUv);
-    vec4 weights = clamp(texture(layerMaskMap, vertexUv), vec4(0.0), vec4(1.0));
+    float baseScrollHz = max(materialState.rect0.z, 0.0);
+    float baseOffsetU = baseScrollHz > 0.0
+        ? 1.0 - fract(materialState.timingFlagsAtlas.x * baseScrollHz)
+        : 0.0;
+    vec2 baseUv = vec2(vertexUv.x - baseOffsetU, vertexUv.y);
+    vec4 base = texture(baseColorMap, baseUv);
+    vec4 weights = clamp(texture(layerMaskMap, baseUv), vec4(0.0), vec4(1.0));
     float coverage = clamp(1.0 - dot(weights, vec4(1.0)), 0.0, 1.0);
     vec3 color = base.rgb * coverage;
     color = mix(color, base.rgb * materialState.flipbook0.rgb, weights.r);
