@@ -126,7 +126,7 @@ void D3D12RenderBackend::createWorldPipeline() {
         "  if (uMaterialMode > 26.5f && uMaterialMode < 27.5f && dot(localNormal, localNormal) > 1e-10f) {"
         "    float2 displacementUv = float2("
         "      (i.uv.x - uGeneratedBoundsMax.z) * uGeneratedBoundsMax.x,"
-        "      1.0f - (i.uv.y - uGeneratedBoundsMax.w) * uGeneratedBoundsMax.y);"
+        "      1.0f - ((1.0f - i.uv.y) - uGeneratedBoundsMax.w) * uGeneratedBoundsMax.y);"
         "    float displacement = sin(gVertexDisplacementMap.SampleLevel(gVertexSampCC, displacementUv, 0.0f).r);"
         "    localPos += normalize(localNormal) * saturate(i.col.r) * max(uGeneratedBoundsMin.x, 0.0f) * displacement;"
         "  }"
@@ -1707,14 +1707,30 @@ float authoredFireNoise(float4 p) {
 
 float4 evalNativeLayeredUnlitDisplaced(PSIn i) {
   float emissionIntensity = max(uMaterialRect0V, 0.0f);
-  float4 surface = gTex.Sample(gSampCC, i.uv);
-  float3 hdrSurface = surface.rgb * max(emissionIntensity, 1.0f);
-  float peak = max(hdrSurface.r, max(hdrSurface.g, hdrSurface.b));
-  if (peak > 1.0f) {
-    float displayPeak = 1.0f - exp(-peak * 0.7f);
-    hdrSurface *= displayPeak / peak;
-  }
-  surface.rgb = hdrSurface;
+  float4 base = gTex.Sample(gSampCC, i.uv);
+  float4 weights = saturate(gMetallicRoughnessTex.Sample(gSampCC, i.uv));
+  float coverage = saturate(
+      1.0f - dot(weights, float4(1.0f, 1.0f, 1.0f, 1.0f)));
+  float3 color = base.rgb * coverage;
+  float3 layer1 = float3(
+      uMaterialFlipbook0Cols,
+      uMaterialFlipbook0Rows,
+      uMaterialFlipbook0Frames);
+  float3 layer2 = float3(
+      uMaterialFlipbook1Cols,
+      uMaterialFlipbook1Rows,
+      uMaterialFlipbook1Frames);
+  color = lerp(color, layer1, weights.r);
+  coverage += weights.r * (1.0f - coverage);
+  color = lerp(color, layer2, weights.g);
+  coverage += weights.g * (1.0f - coverage);
+  color = lerp(color, float3(1.0f, 1.0f, 1.0f), weights.b);
+  coverage += weights.b * (1.0f - coverage);
+  color = lerp(color, float3(1.0f, 1.0f, 1.0f), weights.a);
+  coverage += weights.a * (1.0f - coverage);
+  float4 surface = float4(
+      color / max(coverage, 1e-6f) * max(emissionIntensity, 1.0f),
+      1.0f);
   surface.a = 1.0f;
   return surface;
 }
@@ -2095,6 +2111,45 @@ float3 applyWorldLitModel(PSIn i,
   return max(shaded + emissive, float3(0.0f, 0.0f, 0.0f));
 }
 
+float3 applyNativeEyeClearCoat(PSIn i,
+                               float3 linearColor,
+                               float3 n,
+                               float3 cameraPos,
+                               float3 cameraForwardPacked,
+                               float3 cameraTarget) {
+  float3 camForward = safeNormalize(
+      cameraForwardPacked,
+      normalize(float3(0.0f, -0.6139406f, -0.7893522f)));
+  float3 camRight = cross(camForward, float3(0.0f, 1.0f, 0.0f));
+  if (dot(camRight, camRight) < 1e-6f) {
+    camRight = cross(camForward, float3(0.0f, 0.0f, 1.0f));
+  }
+  camRight = safeNormalize(camRight, float3(1.0f, 0.0f, 0.0f));
+  float3 v = safeNormalize(cameraPos - i.worldPos, -camForward);
+  float3 lightPos = cameraPos + camRight * 0.5f - camForward * 0.8660254f;
+  float3 l = safeNormalize(lightPos - cameraTarget, float3(0.45f, 0.86f, 0.24f));
+  float3 h = safeNormalize(v + l, n);
+  float ndv = max(dot(n, v), 0.0f);
+  float ndl = max(dot(n, l), 0.0f);
+  float ndh = max(dot(n, h), 0.0f);
+  float vdh = max(dot(v, h), 0.0f);
+  float roughness = clamp(uMaterialFlipbook1Frames, 0.04f, 1.0f);
+  float distribution = distributionGGX(ndh, roughness);
+  float geometry = geometrySchlickGGX(ndv, roughness) *
+      geometrySchlickGGX(ndl, roughness);
+  float3 fresnel = fresnelSchlick(vdh, float3(0.04f, 0.04f, 0.04f));
+  float3 direct = distribution * geometry * fresnel /
+      max(4.0f * ndv * ndl, 1e-4f) *
+      (__PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265f) * ndl;
+  float3 reflection = reflect(-v, n);
+  float3 environment = sampleNeutralEnvironment(reflection, roughness) *
+      fresnelSchlickRoughness(ndv, float3(0.04f, 0.04f, 0.04f), roughness) *
+      __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+  return max(linearColor * (float3(1.0f, 1.0f, 1.0f) - fresnel * 0.18f) +
+                 direct + environment,
+             float3(0.0f, 0.0f, 0.0f));
+}
+
 float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraPos, float3 cameraForwardPacked) {
   return linearColor;
 }
@@ -2111,7 +2166,12 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   }
   if (uMaterialMode > 26.5f && uMaterialMode < 27.5f) {
     float4 surface = evalNativeLayeredUnlitDisplaced(i);
-    return float4(resolveWorldSceneColor(surface.rgb), surface.a);
+    const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
+    float3 mapped = applyViewerToneMapping(
+        max(surface.rgb, float3(0.0f, 0.0f, 0.0f)),
+        1.0f,
+        toneMappingExposure);
+    return float4(resolveWorldSceneColor(mapped), surface.a);
   }
   if (uMaterialMode > 3.5f && uMaterialMode < 4.5f) {
     float3 groundLinear = evaluateLgpeFieldGroundSurface(i);
@@ -2327,6 +2387,23 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
                                    cameraPos,
                                    cameraForward,
                                    cameraTarget);
+    if (uMaterialMode > 27.5f && uMaterialMode < 28.5f) {
+      float3 eyeNormal = computeMappedNormal(
+          i,
+          isFrontFace,
+          wrappedUv,
+          uvDx,
+          uvDy,
+          useNormalTexture,
+          normalScale);
+      outLinear = applyNativeEyeClearCoat(
+          i,
+          outLinear,
+          eyeNormal,
+          cameraPos,
+          cameraForward,
+          cameraTarget);
+    }
   }
   const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
   const float toneMappingMode = 1.0f;

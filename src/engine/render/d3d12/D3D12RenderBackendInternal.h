@@ -264,7 +264,8 @@ inline WorldPsConstants makeWorldPsConstants(
         textureData->lightProjectionUvRowV;
     // D3D12 root signature is constrained to 64 DWORD. For lit model mode (materialMode >= 2),
     // repurpose fire-tail payload slots to carry PBR/camera data needed for three-gltf-viewer parity.
-    if (textureData->materialMode >= 2u) {
+    if (textureData->materialMode >= 2u &&
+        textureData->materialMode != 27u) {
         const bool hasNormal =
             textureData->normalRgba && textureData->normalWidth > 0 && textureData->normalHeight > 0;
         const bool hasMetallicRoughness =

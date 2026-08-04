@@ -1444,10 +1444,16 @@ void main() {
     if (materialMode > 26.5 && materialMode < 27.5) {
         vec4 surface = evaluateNativeLayeredUnlitDisplaced(
             baseColorTextures[nonuniformEXT(materialIndex)],
-            normalTextures[nonuniformEXT(materialIndex)],
-            tailFireMaterial,
-            vertexColor.r);
-        writeWorldColor(vec4(encodeLgpeFinalColor(surface.rgb), surface.a));
+            metallicRoughnessTextures[nonuniformEXT(materialIndex)],
+            tailFireMaterial);
+        const float nativeToneMappingExposure = 1.15;
+        vec3 nativeMapped = tonemapACESFilmic(
+            max(surface.rgb, vec3(0.0)),
+            nativeToneMappingExposure);
+        vec3 nativeResolved = sceneColorPostEnabled
+            ? nativeMapped
+            : linearToSrgb(nativeMapped);
+        writeWorldColor(vec4(nativeResolved, surface.a));
         return;
     }
     if (materialMode > 3.5 && materialMode < 4.5) {
@@ -1697,7 +1703,8 @@ void main() {
         alpha = clamp(vertexColor.a, 0.0, 1.0);
     }
 
-    if (materialMode >= 1.5 && materialMode < 2.5) {
+    if ((materialMode >= 1.5 && materialMode < 2.5) ||
+        (materialMode > 27.5 && materialMode < 28.5)) {
         linearColor = evaluateWorldMaterial(
             linearColor,
             vertexUv,
@@ -1714,6 +1721,21 @@ void main() {
             environmentTextures[nonuniformEXT(materialIndex)],
             drawState.pbrFactors,
             drawState.emissiveAndCamera.rgb);
+        if (materialMode > 27.5 && materialMode < 28.5) {
+            linearColor = evaluateNativeEyeClearCoat(
+                linearColor,
+                vertexUv,
+                worldPosition,
+                vertexNormal,
+                vertexTangent,
+                worldView.cameraPosition.xyz,
+                worldView.cameraForward.xyz,
+                worldView.cameraTarget.xyz,
+                normalTextures[nonuniformEXT(materialIndex)],
+                environmentTextures[nonuniformEXT(materialIndex)],
+                drawState.pbrFactors.x,
+                tailFireMaterial.flipbook1.z);
+        }
     }
 
     const float toneMappingExposure = 1.15;

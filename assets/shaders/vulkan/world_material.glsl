@@ -202,3 +202,52 @@ vec3 evaluateWorldMaterial(vec3 albedo,
                     max(emissiveFactor, vec3(0.0));
     return max(direct + diffuseIbl + specularIbl + ambient + emissive, vec3(0.0));
 }
+
+vec3 evaluateNativeEyeClearCoat(vec3 linearColor,
+                                vec2 uv,
+                                vec3 position,
+                                vec3 sourceNormal,
+                                vec4 sourceTangent,
+                                vec3 cameraPosition,
+                                vec3 cameraForwardPacked,
+                                vec3 cameraTarget,
+                                sampler2D normalMap,
+                                sampler2D environmentMap,
+                                float normalScale,
+                                float clearCoatRoughness) {
+    vec3 normal = mappedWorldNormal(
+        uv, position, sourceNormal, sourceTangent, normalMap, normalScale);
+    vec3 cameraForward = safeNormalize(
+        cameraForwardPacked,
+        normalize(vec3(0.0, -0.6139406, -0.7893522)));
+    vec3 cameraRight = cross(cameraForward, vec3(0.0, 1.0, 0.0));
+    if (dot(cameraRight, cameraRight) < 1e-6) {
+        cameraRight = cross(cameraForward, vec3(0.0, 0.0, 1.0));
+    }
+    cameraRight = safeNormalize(cameraRight, vec3(1.0, 0.0, 0.0));
+    vec3 view = safeNormalize(cameraPosition - position, -cameraForward);
+    vec3 lightPosition =
+        cameraPosition + cameraRight * 0.5 - cameraForward * 0.8660254;
+    vec3 light = safeNormalize(
+        lightPosition - cameraTarget, vec3(0.45, 0.86, 0.24));
+    vec3 halfVector = safeNormalize(view + light, normal);
+    float normalDotView = max(dot(normal, view), 0.0);
+    float normalDotLight = max(dot(normal, light), 0.0);
+    float normalDotHalf = max(dot(normal, halfVector), 0.0);
+    float viewDotHalf = max(dot(view, halfVector), 0.0);
+    float roughness = clamp(clearCoatRoughness, 0.04, 1.0);
+    float distribution = distributionGGX(normalDotHalf, roughness);
+    float geometry = geometrySchlickGGX(normalDotView, roughness) *
+                     geometrySchlickGGX(normalDotLight, roughness);
+    vec3 fresnel = fresnelSchlick(viewDotHalf, vec3(0.04));
+    vec3 direct = distribution * geometry * fresnel /
+                  max(4.0 * normalDotView * normalDotLight, 1e-4) *
+                  (0.72 * 3.14159265) * normalDotLight;
+    vec3 reflection = reflect(-view, normal);
+    vec3 environment = sampleNeutralEnvironment(
+        environmentMap, reflection, roughness) *
+        fresnelSchlickRoughness(normalDotView, vec3(0.04), roughness) * 0.44;
+    return max(
+        linearColor * (vec3(1.0) - fresnel * 0.18) + direct + environment,
+        vec3(0.0));
+}

@@ -8,21 +8,24 @@ struct TailFireMaterialState {
 
 vec4 evaluateNativeLayeredUnlitDisplaced(
     sampler2D baseColorMap,
-    sampler2D displacementMap,
-    TailFireMaterialState materialState,
-    float sourceDisplacementWeight) {
+    sampler2D layerMaskMap,
+    TailFireMaterialState materialState) {
     float emissionIntensity = max(materialState.rect0.y, 0.0);
-    vec4 surface = texture(baseColorMap, vertexUv);
-    vec3 hdrSurface =
-        surface.rgb * max(emissionIntensity, 1.0);
-    float peak = max(hdrSurface.r, max(hdrSurface.g, hdrSurface.b));
-    if (peak > 1.0) {
-        float displayPeak = 1.0 - exp(-peak * 0.7);
-        hdrSurface *= displayPeak / peak;
-    }
-    surface.rgb = hdrSurface;
-    surface.a = 1.0;
-    return surface;
+    vec4 base = texture(baseColorMap, vertexUv);
+    vec4 weights = clamp(texture(layerMaskMap, vertexUv), vec4(0.0), vec4(1.0));
+    float coverage = clamp(1.0 - dot(weights, vec4(1.0)), 0.0, 1.0);
+    vec3 color = base.rgb * coverage;
+    color = mix(color, materialState.flipbook0.rgb, weights.r);
+    coverage += weights.r * (1.0 - coverage);
+    color = mix(color, materialState.flipbook1.rgb, weights.g);
+    coverage += weights.g * (1.0 - coverage);
+    color = mix(color, vec3(1.0), weights.b);
+    coverage += weights.b * (1.0 - coverage);
+    color = mix(color, vec3(1.0), weights.a);
+    coverage += weights.a * (1.0 - coverage);
+    return vec4(
+        color / max(coverage, 1e-6) * max(emissionIntensity, 1.0),
+        1.0);
 }
 
 float tailFireHash11(float value) {

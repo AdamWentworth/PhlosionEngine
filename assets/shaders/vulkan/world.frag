@@ -1306,10 +1306,16 @@ void main() {
             worldSpecializedMaterial.flipbook1);
         vec4 surface = evaluateNativeLayeredUnlitDisplaced(
             baseColorTexture,
-            normalTexture,
-            nativeUnlitMaterial,
-            vertexColor.r);
-        writeWorldColor(vec4(encodeLgpeFinalColor(surface.rgb), surface.a));
+            metallicRoughnessTexture,
+            nativeUnlitMaterial);
+        const float nativeToneMappingExposure = 1.15;
+        vec3 nativeMapped = tonemapACESFilmic(
+            max(surface.rgb, vec3(0.0)),
+            nativeToneMappingExposure);
+        vec3 nativeResolved = pushData.shadingParams.w > 0.5
+            ? nativeMapped
+            : linearToSrgb(nativeMapped);
+        writeWorldColor(vec4(nativeResolved, surface.a));
         return;
     }
     if (materialMode > 3.5 && materialMode < 4.5) {
@@ -1483,7 +1489,8 @@ void main() {
         alpha = clamp(vertexColor.a, 0.0, 1.0);
     }
 
-    if (materialMode >= 1.5 && materialMode < 2.5) {
+    if ((materialMode >= 1.5 && materialMode < 2.5) ||
+        (materialMode > 27.5 && materialMode < 28.5)) {
         linearColor = evaluateWorldMaterial(
             linearColor,
             vertexUv,
@@ -1500,6 +1507,21 @@ void main() {
             environmentTexture,
             pushData.pbrFactors,
             pushData.emissiveAndCamera.rgb);
+        if (materialMode > 27.5 && materialMode < 28.5) {
+            linearColor = evaluateNativeEyeClearCoat(
+                linearColor,
+                vertexUv,
+                worldPosition,
+                vertexNormal,
+                vertexTangent,
+                worldView.cameraPosition.xyz,
+                worldView.cameraForward.xyz,
+                worldView.cameraTarget.xyz,
+                normalTexture,
+                environmentTexture,
+                pushData.pbrFactors.x,
+                worldSpecializedMaterial.flipbook1.z);
+        }
     }
 
     const float toneMappingExposure = 1.15;

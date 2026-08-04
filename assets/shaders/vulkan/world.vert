@@ -123,7 +123,7 @@ void main() {
         vec2 displacementUv = vec2(
             (inUv.x - worldSpecializedMaterial.rect1.z) *
                 worldSpecializedMaterial.rect1.x,
-            1.0 - (inUv.y - worldSpecializedMaterial.rect1.w) *
+            1.0 - ((1.0 - inUv.y) - worldSpecializedMaterial.rect1.w) *
                 worldSpecializedMaterial.rect1.y);
         float displacement = sin(textureLod(
             normalTexture,

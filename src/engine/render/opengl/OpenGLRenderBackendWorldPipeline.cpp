@@ -398,7 +398,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 dot(localNormal, localNormal) > 1e-10) {
                 vec2 displacementUv = vec2(
                     (aUv.x - uMaterialRect1.z) * uMaterialRect1.x,
-                    1.0 - (aUv.y - uMaterialRect1.w) * uMaterialRect1.y);
+                    1.0 - ((1.0 - aUv.y) - uMaterialRect1.w) * uMaterialRect1.y);
                 float displacement = sin(
                     textureLod(uNormalTexture, displacementUv, 0.0).r);
                 localPos += normalize(localNormal) *
@@ -1915,15 +1915,26 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         }
         vec4 evalNativeLayeredUnlitDisplaced() {
             float emissionIntensity = max(uMaterialRect0.y, 0.0);
-            vec4 surface = texture(uTexture, vUv);
-            vec3 hdrSurface =
-                surface.rgb * max(emissionIntensity, 1.0);
-            float peak = max(hdrSurface.r, max(hdrSurface.g, hdrSurface.b));
-            if (peak > 1.0) {
-                float displayPeak = 1.0 - exp(-peak * 0.7);
-                hdrSurface *= displayPeak / peak;
-            }
-            surface.rgb = hdrSurface;
+            vec4 base = texture(uTexture, vUv);
+            vec4 weights = clamp(
+                texture(uMetallicRoughnessTexture, vUv),
+                vec4(0.0),
+                vec4(1.0));
+            float coverage = clamp(1.0 - dot(weights, vec4(1.0)), 0.0, 1.0);
+            vec3 color = base.rgb * coverage;
+            vec3 layer1 = uMaterialFlipbook0.xyz;
+            vec3 layer2 = uMaterialFlipbook1.xyz;
+            color = mix(color, layer1, weights.r);
+            coverage += weights.r * (1.0 - coverage);
+            color = mix(color, layer2, weights.g);
+            coverage += weights.g * (1.0 - coverage);
+            color = mix(color, vec3(1.0), weights.b);
+            coverage += weights.b * (1.0 - coverage);
+            color = mix(color, vec3(1.0), weights.a);
+            coverage += weights.a * (1.0 - coverage);
+            vec4 surface = vec4(
+                color / max(coverage, 1e-6) * max(emissionIntensity, 1.0),
+                1.0);
             surface.a = 1.0;
             return surface;
         }
@@ -2332,6 +2343,40 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             return max(shaded + emissive, vec3(0.0));
         }
 
+        vec3 applyNativeEyeClearCoat(vec3 linearColor, vec3 n) {
+            vec3 camForward = safeNormalize(
+                uCameraForward,
+                normalize(vec3(0.0, -0.6139406, -0.7893522)));
+            vec3 camRight = cross(camForward, vec3(0.0, 1.0, 0.0));
+            if (dot(camRight, camRight) < 1e-6) {
+                camRight = cross(camForward, vec3(0.0, 0.0, 1.0));
+            }
+            camRight = safeNormalize(camRight, vec3(1.0, 0.0, 0.0));
+            vec3 v = safeNormalize(uCameraPos - vWorldPos, -camForward);
+            vec3 lightPos = uCameraPos + camRight * 0.5 - camForward * 0.8660254;
+            vec3 l = safeNormalize(lightPos - uCameraTarget, vec3(0.45, 0.86, 0.24));
+            vec3 h = safeNormalize(v + l, n);
+            float ndv = max(dot(n, v), 0.0);
+            float ndl = max(dot(n, l), 0.0);
+            float ndh = max(dot(n, h), 0.0);
+            float vdh = max(dot(v, h), 0.0);
+            float roughness = clamp(uMaterialFlipbook1.z, 0.04, 1.0);
+            float distribution = distributionGGX(ndh, roughness);
+            float geometry = geometrySchlickGGX(ndv, roughness) *
+                geometrySchlickGGX(ndl, roughness);
+            vec3 fresnel = fresnelSchlick(vdh, vec3(0.04));
+            vec3 direct = distribution * geometry * fresnel /
+                max(4.0 * ndv * ndl, 1e-4) *
+                (__PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265) * ndl;
+            vec3 reflection = reflect(-v, n);
+            vec3 environment = sampleNeutralEnvironment(reflection, roughness) *
+                fresnelSchlickRoughness(ndv, vec3(0.04), roughness) *
+                __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+            return max(
+                linearColor * (vec3(1.0) - fresnel * 0.18) + direct + environment,
+                vec3(0.0));
+        }
+
         vec3 applyCharacterInking(vec3 linearColor, vec3 n) {
             if (uCharacterInkingEnabled < 0.5) return linearColor;
 
@@ -2369,7 +2414,12 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             }
             if (uMaterialMode > 26.5 && uMaterialMode < 27.5) {
                 vec4 surface = evalNativeLayeredUnlitDisplaced();
-                FragColor = vec4(resolveWorldSceneColor(surface.rgb), surface.a);
+                const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
+                vec3 mapped = applyViewerToneMapping(
+                    max(surface.rgb, vec3(0.0)),
+                    1.0,
+                    toneMappingExposure);
+                FragColor = vec4(resolveWorldSceneColor(mapped), surface.a);
                 return;
             }
             if (uMaterialMode > 3.5 && uMaterialMode < 4.5) {
@@ -2595,6 +2645,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             if (uMaterialMode >= 1.5) {
                 vec3 n = computeMappedNormal(wrappedUv, uvDx, uvDy);
                 outLinear = applyWorldLitModel(outLinear, n, wrappedUv, uvDx, uvDy);
+                if (uMaterialMode > 27.5 && uMaterialMode < 28.5) {
+                    outLinear = applyNativeEyeClearCoat(outLinear, n);
+                }
             }
             const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
             const float toneMappingMode = 1.0;
