@@ -3420,7 +3420,7 @@ EditorShellActions EditorShell::drawWorkspace(
                     preview.vertexCount,
                     preview.triangleCount);
                 ImGui::TextDisabled(
-                    "%u materials  %u textures  %u bones  %zu clips",
+                    "%u materials  %u bound texture slots  %u bones  %zu clips",
                     preview.materialCount,
                     preview.textureCount,
                     preview.boneCount,
