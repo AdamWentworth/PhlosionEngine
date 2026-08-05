@@ -3275,11 +3275,16 @@ EditorShellActions EditorShell::drawWorkspace(
                 if (ImGui::BeginCombo(
                         "##PrefabAnimation",
                         animationLabel)) {
+                    const bool bindPoseSelected =
+                        impl_->assetPreviewAnimationIndex < 0;
                     if (ImGui::Selectable(
                             "Bind pose",
-                            impl_->assetPreviewAnimationIndex < 0)) {
+                            bindPoseSelected)) {
                         impl_->assetPreviewAnimationIndex = -1;
                         optionsChanged = true;
+                    }
+                    if (bindPoseSelected) {
+                        ImGui::SetItemDefaultFocus();
                     }
                     if (animations) {
                         for (std::size_t index = 0u;
@@ -3293,14 +3298,19 @@ EditorShellActions EditorShell::drawWorkspace(
                                 std::to_string(
                                     animation.durationSeconds) +
                                 "s)";
+                            const bool selected =
+                                impl_->
+                                    assetPreviewAnimationIndex ==
+                                static_cast<int>(index);
                             if (ImGui::Selectable(
                                     label.c_str(),
-                                    impl_->
-                                            assetPreviewAnimationIndex ==
-                                        static_cast<int>(index))) {
+                                    selected)) {
                                 impl_->assetPreviewAnimationIndex =
                                     static_cast<int>(index);
                                 optionsChanged = true;
+                            }
+                            if (selected) {
+                                ImGui::SetItemDefaultFocus();
                             }
                         }
                     }
