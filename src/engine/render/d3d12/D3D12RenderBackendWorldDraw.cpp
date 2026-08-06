@@ -814,13 +814,8 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
         textureData, useTexture, worldSceneColorPassActive_);
     if (textureData &&
         textureData->materialMode >= 2u &&
-        textureData->materialMode != 27u &&
-        (textureData->materialMode != 28u ||
-         pbrDebugViewMode() > 0)) {
+        textureData->materialMode != 27u) {
         // Reuse an unused packed slot in lit model mode for shader debug-view selection.
-        // Native eye mode uses the same slot for its negative
-        // PointLightIndex/highlight payload unless a debug view was explicitly
-        // requested.
         worldPs.materialFlipbook1Fps = static_cast<float>(pbrDebugViewMode());
     }
     D3D12_GPU_DESCRIPTOR_HANDLE materialHandle = srvHeap_->GetGPUDescriptorHandleForHeapStart();
@@ -1029,9 +1024,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
         textureData, useTexture, worldSceneColorPassActive_);
     if (textureData &&
         textureData->materialMode >= 2u &&
-        textureData->materialMode != 27u &&
-        (textureData->materialMode != 28u ||
-         pbrDebugViewMode() > 0)) {
+        textureData->materialMode != 27u) {
         worldPs.materialFlipbook1Fps = static_cast<float>(pbrDebugViewMode());
     }
     D3D12_GPU_DESCRIPTOR_HANDLE materialHandle = srvHeap_->GetGPUDescriptorHandleForHeapStart();

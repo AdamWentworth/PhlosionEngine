@@ -2389,12 +2389,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             return max(shaded + emissive, vec3(0.0));
         }
 
-        vec3 applyNativeEyeClearCoat(
-            vec3 linearColor,
-            vec3 n,
-            vec2 sampleUv,
-            vec2 uvDx,
-            vec2 uvDy) {
+        vec3 applyNativeEyeClearCoat(vec3 linearColor, vec3 n) {
             vec3 camForward = safeNormalize(
                 uCameraForward,
                 normalize(vec3(0.0, -0.6139406, -0.7893522)));
@@ -2403,26 +2398,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 camRight = cross(camForward, vec3(0.0, 0.0, 1.0));
             }
             camRight = safeNormalize(camRight, vec3(1.0, 0.0, 0.0));
-            vec3 camUp = safeNormalize(
-                cross(camRight, camForward),
-                vec3(0.0, 1.0, 0.0));
             vec3 v = safeNormalize(uCameraPos - vWorldPos, -camForward);
-            if (dot(n, v) < 0.0) {
-                n = -n;
-            }
-            float packedHighlight = max(-uMaterialFlipbook1.w, 0.0);
-            float highlightEnabled = packedHighlight >= 99.5 ? 1.0 : 0.0;
-            float highlightPayload =
-                packedHighlight - highlightEnabled * 100.0;
-            float pointLightIndex = floor(highlightPayload * 0.1 + 1e-4);
-            float highlightRoughness = clamp(
-                highlightPayload - pointLightIndex * 10.0,
-                0.02,
-                0.99);
-            float pointLightSide = pointLightIndex > 1.5 ? -1.0 : 1.0;
-            vec3 lightPos = uCameraPos +
-                camRight * (0.36 * pointLightSide) + camUp * 0.28 -
-                camForward * 0.8660254;
+            vec3 lightPos = uCameraPos + camRight * 0.5 - camForward * 0.8660254;
             vec3 l = safeNormalize(lightPos - uCameraTarget, vec3(0.45, 0.86, 0.24));
             vec3 h = safeNormalize(v + l, n);
             float ndv = max(dot(n, v), 0.0);
@@ -2433,16 +2410,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             // Reading the unused params3.z forced 0 -> 0.04 and produced an
             // excessively silver grazing-angle reflection.
             float roughness = clamp(uMaterialRect0.x, 0.04, 1.0);
-            float eyeCoverage = clamp(
-                sampleTextureWithWrap(
-                    uMetallicRoughnessTexture,
-                    sampleUv,
-                    uvDx,
-                    uvDy).r,
-                0.0,
-                1.0);
-            float clearCoatCoverage =
-                clamp(uMaterialRect1.w, 0.0, 1.0) * eyeCoverage;
+            float clearCoatCoverage = clamp(uMaterialRect1.w, 0.0, 1.0);
             float distribution = distributionGGX(ndh, roughness);
             float geometry = geometrySchlickGGX(ndv, roughness) *
                 geometrySchlickGGX(ndl, roughness);
@@ -2454,14 +2422,11 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 environment = sampleNeutralEnvironment(reflection, roughness) *
                 fresnelSchlickRoughness(ndv, vec3(0.04), roughness) *
                 __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-            vec3 coated =
+            return max(
                 linearColor *
                     (vec3(1.0) - fresnel * (0.18 * clearCoatCoverage)) +
-                    (direct + environment) * clearCoatCoverage;
-            float highlightPower = mix(448.0, 64.0, highlightRoughness);
-            float highlight = pow(ndh, highlightPower) * eyeCoverage *
-                highlightEnabled;
-            return max(coated + vec3(highlight * 4.0), vec3(0.0));
+                    (direct + environment) * clearCoatCoverage,
+                vec3(0.0));
         }
 
         vec3 applyCharacterInking(vec3 linearColor, vec3 n) {
@@ -2735,12 +2700,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 vec3 n = computeMappedNormal(wrappedUv, uvDx, uvDy);
                 outLinear = applyWorldLitModel(outLinear, n, wrappedUv, uvDx, uvDy);
                 if (uMaterialMode > 27.5 && uMaterialMode < 28.5) {
-                    outLinear = applyNativeEyeClearCoat(
-                        outLinear,
-                        n,
-                        wrappedUv,
-                        uvDx,
-                        uvDy);
+                    outLinear = applyNativeEyeClearCoat(outLinear, n);
                 }
             }
             const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
