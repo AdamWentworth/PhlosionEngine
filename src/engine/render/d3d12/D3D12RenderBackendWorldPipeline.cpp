@@ -2148,6 +2148,10 @@ float3 applyWorldLitModel(PSIn i,
 float3 applyNativeEyeClearCoat(PSIn i,
                                float3 linearColor,
                                float3 n,
+                               float2 sampleUv,
+                               float2 uvDx,
+                               float2 uvDy,
+                               bool useMetallicRoughnessTexture,
                                float3 cameraPos,
                                float3 cameraForwardPacked,
                                float3 cameraTarget) {
@@ -2159,8 +2163,30 @@ float3 applyNativeEyeClearCoat(PSIn i,
     camRight = cross(camForward, float3(0.0f, 0.0f, 1.0f));
   }
   camRight = safeNormalize(camRight, float3(1.0f, 0.0f, 0.0f));
+  float3 camUp = safeNormalize(
+      cross(camRight, camForward),
+      float3(0.0f, 1.0f, 0.0f));
   float3 v = safeNormalize(cameraPos - i.worldPos, -camForward);
-  float3 lightPos = cameraPos + camRight * 0.5f - camForward * 0.8660254f;
+  if (dot(n, v) < 0.0f) {
+    n = -n;
+  }
+  // Mode 28 transports the native highlight controls in a negative value so
+  // it cannot activate the ordinary positive PBR debug-view selector:
+  //   100 + PointLightIndex * 10 + RoughnessHighlight.
+  float packedHighlight = max(-uMaterialFlipbook1Fps, 0.0f);
+  float highlightEnabled = packedHighlight >= 99.5f ? 1.0f : 0.0f;
+  float highlightPayload = packedHighlight - highlightEnabled * 100.0f;
+  float pointLightIndex = floor(highlightPayload * 0.1f + 1e-4f);
+  float highlightRoughness = clamp(
+      highlightPayload - pointLightIndex * 10.0f,
+      0.02f,
+      0.99f);
+  // Scarlet assigns point light 1 to l_eye and 2 to r_eye. Keep the two
+  // camera-relative lights paired with their source eye instead of forcing
+  // both meshes through one world-space highlight.
+  float pointLightSide = pointLightIndex > 1.5f ? -1.0f : 1.0f;
+  float3 lightPos = cameraPos + camRight * (0.36f * pointLightSide) +
+      camUp * 0.28f - camForward * 0.8660254f;
   float3 l = safeNormalize(lightPos - cameraTarget, float3(0.45f, 0.86f, 0.24f));
   float3 h = safeNormalize(v + l, n);
   float ndv = max(dot(n, v), 0.0f);
@@ -2171,7 +2197,16 @@ float3 applyNativeEyeClearCoat(PSIn i,
   // roughness and Rect1H for camera Z. Native eye coat roughness/coverage are
   // therefore carried in the otherwise-unused mode-28 flipbook/time slots.
   float roughness = clamp(uMaterialFlipbook1Frames, 0.04f, 1.0f);
-  float clearCoatCoverage = saturate(uMaterialTimeSec);
+  float eyeCoverage = useMetallicRoughnessTexture
+      ? saturate(sampleTextureWithWrap(
+            gMetallicRoughnessTex,
+            sampleUv,
+            uvDx,
+            uvDy,
+            uWrapS,
+            uWrapT).r)
+      : 1.0f;
+  float clearCoatCoverage = saturate(uMaterialTimeSec) * eyeCoverage;
   float distribution = distributionGGX(ndh, roughness);
   float geometry = geometrySchlickGGX(ndv, roughness) *
       geometrySchlickGGX(ndl, roughness);
@@ -2183,10 +2218,17 @@ float3 applyNativeEyeClearCoat(PSIn i,
   float3 environment = sampleNeutralEnvironment(reflection, roughness) *
       fresnelSchlickRoughness(ndv, float3(0.04f, 0.04f, 0.04f), roughness) *
       __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-  return max(linearColor *
+  float3 coated = linearColor *
                  (float3(1.0f, 1.0f, 1.0f) -
                   fresnel * (0.18f * clearCoatCoverage)) +
-                 (direct + environment) * clearCoatCoverage,
+                 (direct + environment) * clearCoatCoverage;
+  // Layer 5 is Scarlet's authored white eye glint. NormalMap1 has already
+  // supplied its spherical normal field during cooking; evaluate that lobe
+  // against the current view/light instead of freezing it into a texture.
+  float highlightPower = lerp(448.0f, 64.0f, highlightRoughness);
+  float highlight = pow(ndh, highlightPower) * eyeCoverage *
+      highlightEnabled;
+  return max(coated + highlight.xxx * 4.0f,
              float3(0.0f, 0.0f, 0.0f));
 }
 
@@ -2446,6 +2488,10 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
           i,
           outLinear,
           eyeNormal,
+          wrappedUv,
+          uvDx,
+          uvDy,
+          useMetallicRoughnessTexture,
           cameraPos,
           cameraForward,
           cameraTarget);

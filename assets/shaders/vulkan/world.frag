@@ -1521,10 +1521,12 @@ void main() {
                 worldView.cameraForward.xyz,
                 worldView.cameraTarget.xyz,
                 normalTexture,
+                metallicRoughnessTexture,
                 environmentTexture,
                 pushData.pbrFactors.x,
                 worldSpecializedMaterial.rect0.x,
-                worldSpecializedMaterial.rect1.w);
+                worldSpecializedMaterial.rect1.w,
+                worldSpecializedMaterial.flipbook1.w);
         }
     }
 

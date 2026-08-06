@@ -1735,10 +1735,12 @@ void main() {
                 worldView.cameraForward.xyz,
                 worldView.cameraTarget.xyz,
                 normalTextures[nonuniformEXT(materialIndex)],
+                metallicRoughnessTextures[nonuniformEXT(materialIndex)],
                 environmentTextures[nonuniformEXT(materialIndex)],
                 drawState.pbrFactors.x,
                 tailFireMaterial.rect0.x,
-                tailFireMaterial.rect1.w);
+                tailFireMaterial.rect1.w,
+                tailFireMaterial.flipbook1.w);
         }
     }
 

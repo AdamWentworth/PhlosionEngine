@@ -214,10 +214,12 @@ vec3 evaluateNativeEyeClearCoat(vec3 linearColor,
                                 vec3 cameraForwardPacked,
                                 vec3 cameraTarget,
                                 sampler2D normalMap,
+                                sampler2D metallicRoughnessMap,
                                 sampler2D environmentMap,
                                 float normalScale,
                                 float clearCoatRoughness,
-                                float clearCoatCoverage) {
+                                float clearCoatCoverage,
+                                float packedHighlightSlot) {
     vec3 normal = mappedWorldNormal(
         uv, position, sourceNormal, sourceTangent, normalMap, normalScale);
     vec3 cameraForward = safeNormalize(
@@ -228,9 +230,22 @@ vec3 evaluateNativeEyeClearCoat(vec3 linearColor,
         cameraRight = cross(cameraForward, vec3(0.0, 0.0, 1.0));
     }
     cameraRight = safeNormalize(cameraRight, vec3(1.0, 0.0, 0.0));
+    vec3 cameraUp = safeNormalize(
+        cross(cameraRight, cameraForward), vec3(0.0, 1.0, 0.0));
     vec3 view = safeNormalize(cameraPosition - position, -cameraForward);
-    vec3 lightPosition =
-        cameraPosition + cameraRight * 0.5 - cameraForward * 0.8660254;
+    if (dot(normal, view) < 0.0) {
+        normal = -normal;
+    }
+    float packedHighlight = max(-packedHighlightSlot, 0.0);
+    float highlightEnabled = packedHighlight >= 99.5 ? 1.0 : 0.0;
+    float highlightPayload = packedHighlight - highlightEnabled * 100.0;
+    float pointLightIndex = floor(highlightPayload * 0.1 + 1e-4);
+    float highlightRoughness = clamp(
+        highlightPayload - pointLightIndex * 10.0, 0.02, 0.99);
+    float pointLightSide = pointLightIndex > 1.5 ? -1.0 : 1.0;
+    vec3 lightPosition = cameraPosition +
+        cameraRight * (0.36 * pointLightSide) + cameraUp * 0.28 -
+        cameraForward * 0.8660254;
     vec3 light = safeNormalize(
         lightPosition - cameraTarget, vec3(0.45, 0.86, 0.24));
     vec3 halfVector = safeNormalize(view + light, normal);
@@ -250,10 +265,15 @@ vec3 evaluateNativeEyeClearCoat(vec3 linearColor,
     vec3 environment = sampleNeutralEnvironment(
         environmentMap, reflection, roughness) *
         fresnelSchlickRoughness(normalDotView, vec3(0.04), roughness) * 0.44;
-    clearCoatCoverage = clamp(clearCoatCoverage, 0.0, 1.0);
-    return max(
+    float eyeCoverage = clamp(texture(metallicRoughnessMap, uv).r, 0.0, 1.0);
+    clearCoatCoverage =
+        clamp(clearCoatCoverage, 0.0, 1.0) * eyeCoverage;
+    vec3 coated =
         linearColor *
             (vec3(1.0) - fresnel * (0.18 * clearCoatCoverage)) +
-            (direct + environment) * clearCoatCoverage,
-        vec3(0.0));
+            (direct + environment) * clearCoatCoverage;
+    float highlightPower = mix(448.0, 64.0, highlightRoughness);
+    float highlight = pow(normalDotHalf, highlightPower) * eyeCoverage *
+        highlightEnabled;
+    return max(coated + vec3(highlight * 4.0), vec3(0.0));
 }
