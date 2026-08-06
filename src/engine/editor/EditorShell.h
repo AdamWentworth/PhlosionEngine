@@ -205,6 +205,7 @@ struct WorkspaceAssetPreview {
     std::uint32_t boneCount = 0u;
     std::uint32_t activeElementCount = 0u;
     int animationIndex = -1;
+    int graphicsQuality = 3;
     float animationTimeSeconds = 0.0f;
     float animationDurationSeconds = 0.0f;
     float boundsRadius = 1.0f;
@@ -369,6 +370,7 @@ struct EditorShellActions {
     bool assetPreviewSeekRequested = false;
     float assetPreviewSeekTimeSeconds = 0.0f;
     int assetPreviewAnimationIndex = -1;
+    int assetPreviewGraphicsQuality = 3;
     float assetPreviewPlaybackSpeed = 1.0f;
     bool assetPreviewAnimationPlaying = true;
     bool assetPreviewShowMesh = true;

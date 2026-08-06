@@ -1928,6 +1928,7 @@ void refreshAssetPreviewView(LoadedProject& project) {
             .activeElementCount =
                 info.activeElementCount,
             .animationIndex = info.animationIndex,
+            .graphicsQuality = info.graphicsQuality,
             .animationTimeSeconds =
                 info.animationTimeSeconds,
             .animationDurationSeconds =
@@ -4072,6 +4073,9 @@ int main(int argc, char** argv) {
                             .animationIndex =
                                 actions
                                     .assetPreviewAnimationIndex,
+                            .graphicsQuality =
+                                actions
+                                    .assetPreviewGraphicsQuality,
                             .playbackSpeed =
                                 actions
                                     .assetPreviewPlaybackSpeed,

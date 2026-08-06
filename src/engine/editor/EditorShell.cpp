@@ -575,6 +575,8 @@ struct EditorShell::Impl {
     EditorViewportKind selectedViewport =
         EditorViewportKind::Scene;
     int assetPreviewAnimationIndex = -1;
+    int assetPreviewGraphicsQuality = 3;
+    bool assetPreviewGraphicsQualityOverridden = false;
     float assetPreviewPlaybackSpeed = 1.0f;
     bool assetPreviewAnimationPlaying = true;
     bool assetPreviewShowMesh = true;
@@ -1104,6 +1106,8 @@ EditorShellActions EditorShell::drawWorkspace(
     }
     actions.assetPreviewAnimationIndex =
         impl_->assetPreviewAnimationIndex;
+    actions.assetPreviewGraphicsQuality =
+        impl_->assetPreviewGraphicsQuality;
     actions.assetPreviewPlaybackSpeed =
         impl_->assetPreviewPlaybackSpeed;
     actions.assetPreviewAnimationPlaying =
@@ -3164,6 +3168,7 @@ EditorShellActions EditorShell::drawWorkspace(
         } else {
             const auto& preview =
                 *workspace.assetPreview;
+            bool optionsChanged = false;
             if (impl_->activeAssetPreviewId !=
                 preview.assetId) {
                 impl_->activeAssetPreviewId =
@@ -3177,8 +3182,16 @@ EditorShellActions EditorShell::drawWorkspace(
                 impl_->assetPreviewShowTextures = true;
                 impl_->assetPreviewShowWireframe = false;
                 impl_->assetPreviewShowSkeleton = false;
+                if (!impl_->
+                        assetPreviewGraphicsQualityOverridden) {
+                    impl_->assetPreviewGraphicsQuality =
+                        std::clamp(
+                            preview.graphicsQuality,
+                            0,
+                            3);
+                }
+                optionsChanged = true;
             }
-            bool optionsChanged = false;
             if (ImGui::Button(
                     impl_->assetPreviewAnimationPlaying
                         ? "Pause"
@@ -3356,6 +3369,26 @@ EditorShellActions EditorShell::drawWorkspace(
 
             if (preview.kind ==
                 WorkspaceAssetPreviewKind::Model) {
+                constexpr const char* qualityNames[] = {
+                    "Low", "Medium", "High", "Ultra"};
+                ImGui::TextUnformatted("Graphics Quality");
+                ImGui::SetNextItemWidth(-1.0f);
+                if (ImGui::Combo(
+                        "##AssetPreviewGraphicsQuality",
+                        &impl_->assetPreviewGraphicsQuality,
+                        qualityNames,
+                        static_cast<int>(
+                            std::size(qualityNames)))) {
+                    impl_->
+                        assetPreviewGraphicsQualityOverridden =
+                            true;
+                    optionsChanged = true;
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip(
+                        "Preview the same model texture and material "
+                        "quality policy used by the game.");
+                }
                 if (ImGui::Checkbox(
                         "Mesh",
                         &impl_->assetPreviewShowMesh)) {
@@ -3439,6 +3472,8 @@ EditorShellActions EditorShell::drawWorkspace(
                 actions.assetPreviewOptionsChanged = true;
                 actions.assetPreviewAnimationIndex =
                     impl_->assetPreviewAnimationIndex;
+                actions.assetPreviewGraphicsQuality =
+                    impl_->assetPreviewGraphicsQuality;
                 actions.assetPreviewPlaybackSpeed =
                     impl_->assetPreviewPlaybackSpeed;
                 actions.assetPreviewAnimationPlaying =
