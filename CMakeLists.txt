@@ -432,6 +432,7 @@ if (PHLOSION_BUILD_TESTS)
     include(CTest)
     add_executable(PhlosionEngineTests
         tests/TestMain.cpp
+        tests/TestCamera3D.cpp
         tests/TestEditorRendererPreference.cpp
         tests/TestProjectDescriptor.cpp
         tests/TestPhlosionAuthoredScene.cpp
@@ -442,6 +443,7 @@ if (PHLOSION_BUILD_TESTS)
         PRIVATE
             Phlosion::Core
             Phlosion::EditorCore
+            Phlosion::Render
     )
     if (MSVC)
         target_compile_options(PhlosionEngineTests PRIVATE

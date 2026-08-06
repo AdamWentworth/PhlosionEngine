@@ -3204,7 +3204,7 @@ EditorShellActions EditorShell::drawWorkspace(
             }
             ImGui::SameLine();
             ImGui::TextDisabled(
-                "LMB/RMB orbit  MMB pan  Wheel zoom");
+                "LMB pan  RMB orbit  Wheel zoom");
 
             const float previewWidth = std::max(
                 160.0f,
@@ -3238,19 +3238,19 @@ EditorShellActions EditorShell::drawWorkspace(
             }
             if (ImGui::IsItemHovered()) {
                 ImGuiIO& io = ImGui::GetIO();
-                const bool orbiting =
-                    ImGui::IsMouseDragging(
-                        ImGuiMouseButton_Left) ||
-                    ImGui::IsMouseDragging(
-                        ImGuiMouseButton_Right);
-                if (orbiting) {
+                if (ImGui::IsMouseDragging(
+                        ImGuiMouseButton_Right)) {
                     actions.assetPreviewOrbitYaw =
                         -io.MouseDelta.x * 0.008f;
                     actions.assetPreviewOrbitPitch =
                         -io.MouseDelta.y * 0.008f;
                 }
-                if (ImGui::IsMouseDragging(
-                        ImGuiMouseButton_Middle)) {
+                const bool panning =
+                    ImGui::IsMouseDragging(
+                        ImGuiMouseButton_Left) ||
+                    ImGui::IsMouseDragging(
+                        ImGuiMouseButton_Middle);
+                if (panning) {
                     actions.assetPreviewPanX =
                         io.MouseDelta.x;
                     actions.assetPreviewPanY =

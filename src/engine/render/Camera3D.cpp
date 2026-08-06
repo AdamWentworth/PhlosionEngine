@@ -84,6 +84,39 @@ void Camera3D::panPlanar(float screenDx, float screenDy, float scale) {
     move(delta);
 }
 
+void Camera3D::panViewPlane(
+    float screenDx,
+    float screenDy,
+    float scale) {
+    glm::vec3 forward = target - position;
+    const float forwardLen = glm::length(forward);
+    if (forwardLen <= 1e-5f) {
+        forward = glm::vec3(0.0f, 0.0f, -1.0f);
+    } else {
+        forward /= forwardLen;
+    }
+
+    glm::vec3 right = glm::cross(forward, upVector);
+    const float rightLen = glm::length(right);
+    if (rightLen <= 1e-5f) {
+        right = glm::vec3(1.0f, 0.0f, 0.0f);
+    } else {
+        right /= rightLen;
+    }
+
+    glm::vec3 viewUp = glm::cross(right, forward);
+    const float viewUpLen = glm::length(viewUp);
+    if (viewUpLen <= 1e-5f) {
+        viewUp = glm::vec3(0.0f, 1.0f, 0.0f);
+    } else {
+        viewUp /= viewUpLen;
+    }
+
+    const glm::vec3 delta =
+        (-right * screenDx + viewUp * screenDy) * scale;
+    move(delta);
+}
+
 void Camera3D::orbit(float yawDeltaRad, float pitchDeltaRad) {
     glm::vec3 offset = position - target;
     float r = glm::length(offset);

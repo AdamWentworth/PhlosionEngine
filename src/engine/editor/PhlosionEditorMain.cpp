@@ -4120,7 +4120,7 @@ int main(int argc, char** argv) {
                             project->assetPreviewView
                                     .boundsRadius *
                                 0.0025f);
-                    assetPreviewCamera.panPlanar(
+                    assetPreviewCamera.panViewPlane(
                         actions.assetPreviewPanX,
                         actions.assetPreviewPanY,
                         panScale);

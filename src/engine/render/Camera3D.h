@@ -16,6 +16,7 @@ public:
     void zoom(float delta);                  // NEW
     void zoom(float delta, float minDistance, float maxDistance);
     void panPlanar(float screenDx, float screenDy, float scale);
+    void panViewPlane(float screenDx, float screenDy, float scale);
 
     // NEW: orbit camera position around its current target
     // yawDeltaRad: rotate around world up (Y)
