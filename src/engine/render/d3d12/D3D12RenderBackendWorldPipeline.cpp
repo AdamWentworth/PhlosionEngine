@@ -2145,8 +2145,10 @@ float3 applyWorldLitModel(PSIn i,
   // the viewer light. The proportional fill preserves dark pupils, and the
   // emissive guard leaves glinting Eye/EyeClearCoat materials unchanged.
   if (uMaterialMode > 27.5f && uMaterialMode < 28.5f &&
-      uMaterialTimeSec < -0.5f && !useEmissiveTexture) {
-    shaded = lerp(shaded, albedo, 0.25f);
+      uMaterialTimeSec < -0.5f &&
+      (uMaterialTimeSec < -1.5f || !useEmissiveTexture)) {
+    float eyeDiffuseFill = uMaterialTimeSec < -1.5f ? 0.60f : 0.25f;
+    shaded = lerp(shaded, albedo, eyeDiffuseFill);
   }
 
   float3 emissiveTex = useEmissiveTexture

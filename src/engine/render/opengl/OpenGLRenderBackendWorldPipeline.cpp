@@ -2384,8 +2384,11 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             // proportional fill keeps dark pupils dark, while glinting eye
             // materials retain their authored response.
             if (uMaterialMode > 27.5 && uMaterialMode < 28.5 &&
-                uMaterialRect1.w < -0.5 && uUseEmissiveTexture < 0.5) {
-                shaded = mix(shaded, albedo, 0.25);
+                uMaterialRect1.w < -0.5 &&
+                (uMaterialRect1.w < -1.5 || uUseEmissiveTexture < 0.5)) {
+                float eyeDiffuseFill =
+                    uMaterialRect1.w < -1.5 ? 0.60 : 0.25;
+                shaded = mix(shaded, albedo, eyeDiffuseFill);
             }
 
             vec3 emissiveTex = clamp(

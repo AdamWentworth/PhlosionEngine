@@ -1729,7 +1729,12 @@ void main() {
             drawState.pbrFactors,
             drawState.emissiveAndCamera.rgb,
             (materialMode > 27.5 && materialMode < 28.5 &&
-             tailFireMaterial.rect1.w < -0.5) ? 0.0 : 1.0);
+             tailFireMaterial.rect1.w < -1.5)
+                ? -1.0
+                : (materialMode > 27.5 && materialMode < 28.5 &&
+                   tailFireMaterial.rect1.w < -0.5)
+                    ? 0.0
+                    : 1.0);
         if (materialMode > 27.5 && materialMode < 28.5) {
             linearColor = evaluateNativeEyeClearCoat(
                 linearColor,
