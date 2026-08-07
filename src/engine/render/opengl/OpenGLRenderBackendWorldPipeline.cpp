@@ -2377,6 +2377,17 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 ambientLight = kD * albedo * ambientColor * ambientIntensity;
             vec3 shaded = direct + ibl + ambientLight;
 
+            // Plain Game Freak Eye materials without an authored
+            // highlight/emissive payload use a softer diffuse response than
+            // the body PBR shader. Preserve a modest amount of their baked
+            // layer color so pale recessed eyes do not collapse to charcoal;
+            // proportional fill keeps dark pupils dark, while glinting eye
+            // materials retain their authored response.
+            if (uMaterialMode > 27.5 && uMaterialMode < 28.5 &&
+                uMaterialRect1.w < -0.5 && uUseEmissiveTexture < 0.5) {
+                shaded = mix(shaded, albedo, 0.25);
+            }
+
             vec3 emissiveTex = clamp(
                 sampleTextureWithWrap(
                     uEmissiveTexture,

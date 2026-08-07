@@ -2138,6 +2138,17 @@ float3 applyWorldLitModel(PSIn i,
   float3 ambientLight = kD * albedo * ambientColor * ambientIntensity;
   float3 shaded = direct + ibl + ambientLight;
 
+  // Plain Game Freak Eye materials without an authored highlight/emissive
+  // payload use a softer diffuse response than the body PBR shader. Keep a
+  // modest amount of the baked layer color visible so pale sclerae do not
+  // collapse to charcoal when their small, recessed normals face away from
+  // the viewer light. The proportional fill preserves dark pupils, and the
+  // emissive guard leaves glinting Eye/EyeClearCoat materials unchanged.
+  if (uMaterialMode > 27.5f && uMaterialMode < 28.5f &&
+      uMaterialTimeSec < -0.5f && !useEmissiveTexture) {
+    shaded = lerp(shaded, albedo, 0.25f);
+  }
+
   float3 emissiveTex = useEmissiveTexture
       ? saturate(sampleTextureWithWrap(gEmissiveTex, sampleUv, uvDx, uvDy, uWrapS, uWrapT).rgb)
       : float3(1.0f, 1.0f, 1.0f);
