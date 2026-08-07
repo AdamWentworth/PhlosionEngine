@@ -1750,6 +1750,16 @@ void main() {
 
     const float toneMappingExposure = 1.15;
     vec3 mapped = tonemapACESFilmic(max(linearColor, vec3(0.0)), toneMappingExposure);
+    if (vertexColor.a > 1.0005) {
+        float studioMask = smoothstep(
+            0.01,
+            0.055,
+            max(mapped.r, max(mapped.g, mapped.b)));
+        mapped = clamp(
+            mapped * 1.25 + vec3(0.10) * studioMask,
+            vec3(0.0),
+            vec3(1.0));
+    }
     vec3 resolvedColor = sceneColorPostEnabled
         ? mapped
         : linearToSrgb(mapped);

@@ -2718,6 +2718,19 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
             const float toneMappingMode = 1.0;
             vec3 mapped = applyViewerToneMapping(max(outLinear, vec3(0.0)), toneMappingMode, toneMappingExposure);
+            if (max(vColor.a, uVertexColorMul.a) > 1.0005) {
+                // Match the lifted neutral studio presentation used by the
+                // Blender material-preview reference without changing game
+                // lighting or the inspector grid/background.
+                float studioMask = smoothstep(
+                    0.01,
+                    0.055,
+                    max(mapped.r, max(mapped.g, mapped.b)));
+                mapped = clamp(
+                    mapped * 1.25 + vec3(0.10) * studioMask,
+                    vec3(0.0),
+                    vec3(1.0));
+            }
             vec3 outSrgb = resolveWorldSceneColor(mapped);
             float mainOutA = outA;
             if (uDualSourceBlendEnabled > 0.5) {

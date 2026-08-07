@@ -2469,6 +2469,13 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
       max(outLinear, float3(0.0f, 0.0f, 0.0f)),
       toneMappingMode,
       toneMappingExposure);
+  if (max(i.col.a, uVertexColorMulA) > 1.0005f) {
+    const float studioMask = smoothstep(
+        0.01f,
+        0.055f,
+        max(mapped.r, max(mapped.g, mapped.b)));
+    mapped = saturate(mapped * 1.25f + 0.10f.xxx * studioMask);
+  }
   float3 outSrgb = resolveWorldSceneColor(mapped);
   return float4(outSrgb, outA);
 }
