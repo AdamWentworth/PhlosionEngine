@@ -82,15 +82,28 @@ vec3 evaluateDirectPbr(vec3 normal,
            directIntensity * normalDotLight;
 }
 
+vec4 sampleWorldMaterialTexture(sampler2D map,
+                                vec2 uv,
+                                float textureDetailLodBias) {
+    float lodScale = exp2(textureDetailLodBias);
+    return textureGrad(
+        map,
+        uv,
+        dFdx(uv) * lodScale,
+        dFdy(uv) * lodScale);
+}
+
 vec3 mappedWorldNormal(vec2 uv,
                        vec3 position,
                        vec3 sourceNormal,
                        vec4 sourceTangent,
                        sampler2D map,
+                       float textureDetailLodBias,
                        float normalScale) {
     float faceDirection = gl_FrontFacing ? 1.0 : -1.0;
     vec3 normal = safeNormalize(sourceNormal, vec3(0.0, 1.0, 0.0)) * faceDirection;
-    vec3 texel = texture(map, uv).xyz;
+    vec3 texel = sampleWorldMaterialTexture(
+        map, uv, textureDetailLodBias).xyz;
     vec2 mappedXY = (texel.xy * 2.0 - 1.0) * max(normalScale, 0.0) * 1.25;
     float authoredZ = texel.z * 2.0 - 1.0;
     float reconstructedZ = sqrt(max(1.0 - clamp(dot(mappedXY, mappedXY), 0.0, 1.0), 0.0));
@@ -143,11 +156,18 @@ vec3 evaluateWorldMaterial(vec3 albedo,
                            sampler2D occlusionMap,
                            sampler2D emissiveMap,
                            sampler2D environmentMap,
+                           float textureDetailLodBias,
                            vec4 factors,
                            vec3 emissiveFactor,
                            float specularIblScale) {
     vec3 normal = mappedWorldNormal(
-        uv, position, sourceNormal, sourceTangent, normalMap, factors.x);
+        uv,
+        position,
+        sourceNormal,
+        sourceTangent,
+        normalMap,
+        textureDetailLodBias,
+        factors.x);
     vec3 cameraForward = safeNormalize(
         cameraForwardPacked,
         normalize(vec3(0.0, -0.6139406, -0.7893522)));
@@ -161,10 +181,15 @@ vec3 evaluateWorldMaterial(vec3 albedo,
         cameraPosition + cameraRight * 0.5 - cameraForward * 0.8660254;
     vec3 light = safeNormalize(
         lightPosition - cameraTarget, vec3(0.45, 0.86, 0.24));
-    vec3 orm = texture(metallicRoughnessMap, uv).rgb;
+    vec3 orm = sampleWorldMaterialTexture(
+        metallicRoughnessMap, uv, textureDetailLodBias).rgb;
     float metallic = clamp(orm.b * factors.y, 0.0, 1.0);
     float roughness = clamp(orm.g * factors.z, 0.16, 1.0);
-    float occlusion = mix(1.0, texture(occlusionMap, uv).r, factors.w);
+    float occlusion = mix(
+        1.0,
+        sampleWorldMaterialTexture(
+            occlusionMap, uv, textureDetailLodBias).r,
+        factors.w);
     vec3 reflectanceAtNormal = mix(vec3(0.04), albedo, metallic);
 
     vec3 direct = evaluateDirectPbr(
@@ -200,9 +225,22 @@ vec3 evaluateWorldMaterial(vec3 albedo,
     specularIbl *= clamp(specularIblScale, 0.0, 1.0);
     specularIbl *= computeSpecularOcclusion(normalDotView, occlusion, roughness);
     vec3 ambient = diffuseWeight * albedo * 0.56;
-    vec3 emissive = clamp(texture(emissiveMap, uv).rgb, 0.0, 1.0) *
+    vec3 shaded = direct + diffuseIbl + specularIbl + ambient;
+    if (specularIblScale < 0.5 &&
+        max(emissiveFactor.r, max(emissiveFactor.g, emissiveFactor.b)) <=
+            1e-6) {
+        // Match the plain Game Freak Eye response used by the other
+        // backends: pale recessed eye layers retain a modest diffuse fill,
+        // while the proportional blend preserves their dark pupils.
+        shaded = mix(shaded, albedo, 0.25);
+    }
+    vec3 emissive = clamp(
+        sampleWorldMaterialTexture(
+            emissiveMap, uv, textureDetailLodBias).rgb,
+        0.0,
+        1.0) *
                     max(emissiveFactor, vec3(0.0));
-    return max(direct + diffuseIbl + specularIbl + ambient + emissive, vec3(0.0));
+    return max(shaded + emissive, vec3(0.0));
 }
 
 vec3 evaluateNativeEyeClearCoat(vec3 linearColor,
@@ -219,7 +257,13 @@ vec3 evaluateNativeEyeClearCoat(vec3 linearColor,
                                 float clearCoatRoughness,
                                 float clearCoatCoverage) {
     vec3 normal = mappedWorldNormal(
-        uv, position, sourceNormal, sourceTangent, normalMap, normalScale);
+        uv,
+        position,
+        sourceNormal,
+        sourceTangent,
+        normalMap,
+        0.0,
+        normalScale);
     vec3 cameraForward = safeNormalize(
         cameraForwardPacked,
         normalize(vec3(0.0, -0.6139406, -0.7893522)));

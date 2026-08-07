@@ -1473,7 +1473,12 @@ void main() {
         return;
     }
 
-    vec4 sampled = texture(baseColorTexture, vertexUv);
+    float textureDetailLodBias =
+        materialMode >= 1.5 && materialMode < 2.5
+            ? worldSpecializedMaterial.flipbook1.z
+            : 0.0;
+    vec4 sampled = sampleWorldMaterialTexture(
+        baseColorTexture, vertexUv, textureDetailLodBias);
     vec3 linearColor = clamp(sampled.rgb, 0.0, 1.0) * clamp(vertexColor.rgb, 0.0, 1.0);
     float alpha = clamp(vertexColor.a * sampled.a, 0.0, 1.0);
 
@@ -1506,6 +1511,7 @@ void main() {
             occlusionTexture,
             emissiveTexture,
             environmentTexture,
+            textureDetailLodBias,
             pushData.pbrFactors,
             pushData.emissiveAndCamera.rgb,
             (materialMode > 27.5 && materialMode < 28.5 &&

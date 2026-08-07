@@ -1685,9 +1685,14 @@ void main() {
         return;
     }
 
-    vec4 sampled = texture(
+    float textureDetailLodBias =
+        materialMode >= 1.5 && materialMode < 2.5
+            ? drawState.specializedFlipbook1.z
+            : 0.0;
+    vec4 sampled = sampleWorldMaterialTexture(
         baseColorTextures[nonuniformEXT(materialIndex)],
-        vertexUv);
+        vertexUv,
+        textureDetailLodBias);
     vec3 linearColor = clamp(sampled.rgb, 0.0, 1.0) * clamp(vertexColor.rgb, 0.0, 1.0);
     float alpha = clamp(vertexColor.a * sampled.a, 0.0, 1.0);
 
@@ -1720,6 +1725,7 @@ void main() {
             occlusionTextures[nonuniformEXT(materialIndex)],
             emissiveTextures[nonuniformEXT(materialIndex)],
             environmentTextures[nonuniformEXT(materialIndex)],
+            textureDetailLodBias,
             drawState.pbrFactors,
             drawState.emissiveAndCamera.rgb,
             (materialMode > 27.5 && materialMode < 28.5 &&
