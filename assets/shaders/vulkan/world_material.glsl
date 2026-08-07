@@ -226,17 +226,13 @@ vec3 evaluateWorldMaterial(vec3 albedo,
     specularIbl *= computeSpecularOcclusion(normalDotView, occlusion, roughness);
     vec3 ambient = diffuseWeight * albedo * 0.56;
     vec3 shaded = direct + diffuseIbl + specularIbl + ambient;
-    bool nativeLayeredIris = specularIblScale < -0.5;
     if (specularIblScale < 0.5 &&
-        (nativeLayeredIris ||
-         max(emissiveFactor.r, max(emissiveFactor.g, emissiveFactor.b)) <=
-             1e-6)) {
+        max(emissiveFactor.r, max(emissiveFactor.g, emissiveFactor.b)) <=
+            1e-6) {
         // Match the plain Game Freak Eye response used by the other
-        // backends: pale recessed eye layers retain a diffuse fill, while
-        // the proportional blend preserves their dark pupils. A layered
-        // translucent iris keeps the stronger native fill even when its
-        // separate authored catchlight uses the emissive texture channel.
-        shaded = mix(shaded, albedo, nativeLayeredIris ? 0.60 : 0.25);
+        // backends: pale recessed eye layers retain a modest diffuse fill,
+        // while the proportional blend preserves their dark pupils.
+        shaded = mix(shaded, albedo, 0.25);
     }
     vec3 emissive = clamp(
         sampleWorldMaterialTexture(
