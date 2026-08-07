@@ -2267,7 +2267,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 uvDx,
                 uvDy).xyz;
             vec2 mapXY = normalTexel.xy * 2.0 - 1.0;
-            mapXY *= max(uNormalScale, 0.0) * 1.25;
+            // glTF normalTexture.scale is the complete authored X/Y scale.
+            mapXY *= max(uNormalScale, 0.0);
             // Support both standard tangent-space normals (RGB) and packed XY normals
             // used by some assets where blue is authored as 0 and Z is reconstructed.
             float authoredZ = normalTexel.z * 2.0 - 1.0;
