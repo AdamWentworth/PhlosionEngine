@@ -1758,5 +1758,9 @@ void main() {
     vec3 resolvedColor = sceneColorPostEnabled
         ? mapped
         : linearToSrgb(mapped);
+    if (materialMode > 27.5 && materialMode < 28.5 &&
+        tailFireMaterial.rect1.w < -1.5) {
+        resolvedColor *= 0.90;
+    }
     writeWorldColor(vec4(resolvedColor, alpha));
 }

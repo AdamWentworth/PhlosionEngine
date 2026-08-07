@@ -2471,6 +2471,10 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
       toneMappingMode,
       toneMappingExposure);
   float3 outSrgb = resolveWorldSceneColor(mapped);
+  if (uMaterialMode > 27.5f && uMaterialMode < 28.5f &&
+      uMaterialTimeSec < -1.5f) {
+    outSrgb *= 0.90f;
+  }
   return float4(outSrgb, outA);
 }
 

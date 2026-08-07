@@ -1544,5 +1544,11 @@ void main() {
     vec3 resolvedColor = pushData.shadingParams.w > 0.5
         ? mapped
         : linearToSrgb(mapped);
+    if (materialMode > 27.5 && materialMode < 28.5 &&
+        worldSpecializedMaterial.rect1.w < -1.5) {
+        // Premultiplied layered-eye transmission: RGB carries the pale iris
+        // reflection/tint while alpha independently attenuates the pupil.
+        resolvedColor *= 0.90;
+    }
     writeWorldColor(vec4(resolvedColor, alpha));
 }

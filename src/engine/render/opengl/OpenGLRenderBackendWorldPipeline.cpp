@@ -2721,6 +2721,10 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             const float toneMappingMode = 1.0;
             vec3 mapped = applyViewerToneMapping(max(outLinear, vec3(0.0)), toneMappingMode, toneMappingExposure);
             vec3 outSrgb = resolveWorldSceneColor(mapped);
+            if (uMaterialMode > 27.5 && uMaterialMode < 28.5 &&
+                uMaterialRect1.w < -1.5) {
+                outSrgb *= 0.90;
+            }
             float mainOutA = outA;
             if (uDualSourceBlendEnabled > 0.5) {
                 mainOutA = floor(clamp(outA, 0.0, 1.0) * 63.0 + 0.5) / 63.0;
