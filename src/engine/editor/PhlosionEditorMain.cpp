@@ -2,6 +2,7 @@
 
 #include "engine/assets/phlosion/PhlosionResourceContainer.h"
 #include "engine/editor/EditorProjectPlugin.h"
+#include "engine/editor/EditorProjectPluginContract.h"
 #include "engine/editor/EditorPackagePlugin.h"
 #include "engine/editor/D3D12EditorRenderSurface.h"
 #include "engine/editor/EditorRenderSurface.h"
@@ -2058,32 +2059,34 @@ std::unique_ptr<LoadedProject> loadProject(
         return nullptr;
     }
 
-    const auto abiVersion =
+    const auto getContract =
         loaded->library.function<
-            engine::editor::EditorProjectPluginAbiVersionFn>(
-            engine::editor::kEditorProjectPluginAbiSymbol);
-    const auto createRuntime =
-        loaded->library.function<
-            engine::editor::CreateEditorProjectRuntimeFn>(
-            engine::editor::kCreateEditorProjectRuntimeSymbol);
-    loaded->destroyRuntime =
-        loaded->library.function<
-            engine::editor::DestroyEditorProjectRuntimeFn>(
-            engine::editor::kDestroyEditorProjectRuntimeSymbol);
-    if (!abiVersion || !createRuntime ||
-        !loaded->destroyRuntime) {
+            engine::editor::EditorProjectPluginContractFn>(
+            engine::editor::kEditorProjectPluginContractSymbol);
+    if (!getContract) {
         outError =
-            "Project editor plugin is missing required Phlosion symbols: " +
-            loaded->pluginPath.generic_string();
+            "Project editor plugin is missing the required ABI contract "
+            "symbol '" +
+            std::string(
+                engine::editor::kEditorProjectPluginContractSymbol) +
+            "': " + loaded->pluginPath.generic_string() +
+            "\nRebuild the " +
+            loaded->descriptor.editorPlugin.library + " target for " +
+            std::string(PHLOSION_EDITOR_BUILD_CONFIGURATION) +
+            " and rebuild PhlosionEditor for the same configuration.";
         return nullptr;
     }
-    if (abiVersion() !=
-        engine::editor::kEditorProjectPluginAbiVersion) {
-        outError =
-            "Project editor plugin ABI does not match this Phlosion Editor.";
+    const auto* contract = getContract();
+    if (!engine::editor::validateEditorProjectPluginContract(
+            contract,
+            PHLOSION_EDITOR_BUILD_CONFIGURATION,
+            outError)) {
+        outError +=
+            "\nPlugin: " + loaded->pluginPath.generic_string();
         return nullptr;
     }
-    loaded->runtime = createRuntime();
+    loaded->destroyRuntime = contract->destroyRuntime;
+    loaded->runtime = contract->createRuntime();
     if (!loaded->runtime) {
         outError =
             "Project editor plugin could not create its runtime.";

@@ -13,7 +13,9 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 28u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 29u;
+inline constexpr char kEditorProjectPluginContractSymbol[] =
+    "phlosionEditorProjectPluginContract";
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
     "phlosionEditorProjectPluginAbiVersion";
 inline constexpr char kCreateEditorProjectRuntimeSymbol[] =
@@ -719,6 +721,115 @@ using EditorProjectPluginAbiVersionFn = std::uint32_t (*)();
 using CreateEditorProjectRuntimeFn = IEditorProjectRuntime* (*)();
 using DestroyEditorProjectRuntimeFn =
     void (*)(IEditorProjectRuntime*);
+
+struct EditorProjectPluginContract {
+    std::uint32_t abiVersion = 0u;
+    std::uint32_t structureSize = 0u;
+    std::uint64_t layoutFingerprint = 0u;
+    const char* buildConfiguration = nullptr;
+    const char* compilerAbi = nullptr;
+    CreateEditorProjectRuntimeFn createRuntime = nullptr;
+    DestroyEditorProjectRuntimeFn destroyRuntime = nullptr;
+};
+
+using EditorProjectPluginContractFn =
+    const EditorProjectPluginContract* (*)();
+
+namespace detail {
+
+constexpr std::uint64_t appendEditorProjectAbiValue(
+    std::uint64_t hash,
+    std::uint64_t value) noexcept {
+    for (int byte = 0; byte < 8; ++byte) {
+        hash ^= value & 0xffu;
+        hash *= 1099511628211ull;
+        value >>= 8u;
+    }
+    return hash;
+}
+
+template <typename T>
+constexpr std::uint64_t appendEditorProjectAbiType(
+    std::uint64_t hash) noexcept {
+    hash = appendEditorProjectAbiValue(hash, sizeof(T));
+    return appendEditorProjectAbiValue(hash, alignof(T));
+}
+
+constexpr std::uint64_t editorProjectPluginLayoutFingerprint() noexcept {
+    std::uint64_t hash = 14695981039346656037ull;
+#define PHLOSION_EDITOR_ABI_TYPE(type) \
+    hash = appendEditorProjectAbiType<type>(hash)
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectOpenContext);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectCameraContext);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectRenderContext);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectStats);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectSceneContext);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectGamePreview);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectAsset);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectAssetPreviewKind);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectGamePreviewContext);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectAssetPreviewOptions);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectAssetPreviewInfo);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectAssetAnimation);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectLayoutCapability);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectLayoutViewport);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectGridRegion);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectLayoutObject);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectLayoutEdit);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectLayoutObjectCommand);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectCommandFieldKind);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectCommandField);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectCommand);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectCommandValue);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectCommandResult);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectTerrainTileCoordinate);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectTerrainTile);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectTerrainSurface);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectTerrainPrefabKind);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectTerrainPrefab);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectTerrainTileStamp);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectTerrainTileEditRequest);
+    PHLOSION_EDITOR_ABI_TYPE(IEditorProjectRuntime);
+    PHLOSION_EDITOR_ABI_TYPE(IRenderBackend);
+    PHLOSION_EDITOR_ABI_TYPE(ProjectDescriptor);
+    PHLOSION_EDITOR_ABI_TYPE(std::string);
+    PHLOSION_EDITOR_ABI_TYPE(EditorProjectPluginContract);
+#undef PHLOSION_EDITOR_ABI_TYPE
+    return hash;
+}
+
+} // namespace detail
+
+inline constexpr std::uint64_t kEditorProjectPluginLayoutFingerprint =
+    detail::editorProjectPluginLayoutFingerprint();
+
+#define PHLOSION_EDITOR_STRINGIZE_DETAIL(value) #value
+#define PHLOSION_EDITOR_STRINGIZE(value) \
+    PHLOSION_EDITOR_STRINGIZE_DETAIL(value)
+#if defined(_MSC_VER)
+#if defined(_ITERATOR_DEBUG_LEVEL)
+inline constexpr char kEditorProjectPluginCompilerAbi[] =
+    "msvc-" PHLOSION_EDITOR_STRINGIZE(_MSC_VER)
+    ";iterator-debug-level="
+    PHLOSION_EDITOR_STRINGIZE(_ITERATOR_DEBUG_LEVEL);
+#else
+inline constexpr char kEditorProjectPluginCompilerAbi[] =
+    "msvc-" PHLOSION_EDITOR_STRINGIZE(_MSC_VER)
+    ";iterator-debug-level=unknown";
+#endif
+#elif defined(__clang__)
+inline constexpr char kEditorProjectPluginCompilerAbi[] =
+    "clang-" PHLOSION_EDITOR_STRINGIZE(__clang_major__) "."
+    PHLOSION_EDITOR_STRINGIZE(__clang_minor__);
+#elif defined(__GNUC__)
+inline constexpr char kEditorProjectPluginCompilerAbi[] =
+    "gcc-" PHLOSION_EDITOR_STRINGIZE(__GNUC__) "."
+    PHLOSION_EDITOR_STRINGIZE(__GNUC_MINOR__);
+#else
+inline constexpr char kEditorProjectPluginCompilerAbi[] = "unknown";
+#endif
+#undef PHLOSION_EDITOR_STRINGIZE
+#undef PHLOSION_EDITOR_STRINGIZE_DETAIL
 
 } // namespace engine::editor
 

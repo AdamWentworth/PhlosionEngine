@@ -329,6 +329,7 @@ phlosion_apply_settings(engine_runtime)
 
 add_library(engine_editor_core STATIC
     src/engine/editor/EditorRendererPreference.cpp
+    src/engine/editor/EditorProjectPluginContract.cpp
     src/engine/editor/ProjectDescriptor.cpp
 )
 target_link_libraries(engine_editor_core
@@ -378,6 +379,23 @@ if (PHLOSION_BUILD_EDITOR)
         VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
     phlosion_apply_settings(PhlosionEditor)
+
+    add_executable(PhlosionEditorPluginProbe
+        src/engine/editor/EditorProjectPluginProbe.cpp
+    )
+    target_link_libraries(PhlosionEditorPluginProbe
+        PRIVATE
+            engine_editor_core
+    )
+    target_compile_definitions(PhlosionEditorPluginProbe
+        PRIVATE
+            PHLOSION_EDITOR_BUILD_CONFIGURATION="$<CONFIG>"
+    )
+    if (CMAKE_DL_LIBS)
+        target_link_libraries(
+            PhlosionEditorPluginProbe PRIVATE ${CMAKE_DL_LIBS})
+    endif()
+    phlosion_apply_settings(PhlosionEditorPluginProbe)
 endif()
 
 add_library(engine_tools_vfx_preview STATIC
@@ -434,6 +452,7 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestMain.cpp
         tests/TestCamera3D.cpp
         tests/TestEditorRendererPreference.cpp
+        tests/TestEditorProjectPluginContract.cpp
         tests/TestProjectDescriptor.cpp
         tests/TestPhlosionAuthoredScene.cpp
         tests/TestPhlosionResourceContainer.cpp
