@@ -1951,13 +1951,9 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             // UVScaleOffset animates U across a horizontally seamless mask.
             // Explicit wrapping avoids a clamp-to-edge jump at each reset.
             baseUv.x = fract(baseUv.x);
-            vec4 base = texture(
-                uTexture, baseUv, litTextureDetailLodBias());
+            vec4 base = texture(uTexture, baseUv);
             vec4 weights = clamp(
-                texture(
-                    uMetallicRoughnessTexture,
-                    baseUv,
-                    litTextureDetailLodBias()),
+                texture(uMetallicRoughnessTexture, baseUv),
                 vec4(0.0),
                 vec4(1.0));
             float coverage = clamp(1.0 - dot(weights, vec4(1.0)), 0.0, 1.0);

@@ -41,7 +41,7 @@ constexpr int kGlMirroredRepeat = 33648;
 bool worldTextureMipChainEnabled() {
     static const bool enabled = []() {
         const auto env = engine::env::get("PHLOSION_BACKEND_WORLD_TEXTURE_MIPS");
-        if (!env.has_value()) return true;
+        if (!env.has_value()) return false;
         const std::string raw = *env;
         return raw != "0" && raw != "false" && raw != "FALSE" &&
                raw != "off" && raw != "OFF";

@@ -9,8 +9,7 @@ struct TailFireMaterialState {
 vec4 evaluateNativeLayeredUnlitDisplaced(
     sampler2D baseColorMap,
     sampler2D layerMaskMap,
-    TailFireMaterialState materialState,
-    float textureDetailLodBias) {
+    TailFireMaterialState materialState) {
     float emissionIntensity = max(materialState.rect0.y, 0.0);
     bool exactSourceTrack = materialState.timingFlagsAtlas.y > 1.5;
     float baseScrollHz = max(materialState.rect0.z, 0.0);
@@ -31,11 +30,8 @@ vec4 evaluateNativeLayeredUnlitDisplaced(
     // The native layer mask is horizontally seamless; wrap the animated U
     // coordinate so its sawtooth reset cannot expose a clamp-to-edge hitch.
     baseUv.x = fract(baseUv.x);
-    vec4 base = texture(baseColorMap, baseUv, textureDetailLodBias);
-    vec4 weights = clamp(
-        texture(layerMaskMap, baseUv, textureDetailLodBias),
-        vec4(0.0),
-        vec4(1.0));
+    vec4 base = texture(baseColorMap, baseUv);
+    vec4 weights = clamp(texture(layerMaskMap, baseUv), vec4(0.0), vec4(1.0));
     float coverage = clamp(1.0 - dot(weights, vec4(1.0)), 0.0, 1.0);
     vec3 color = base.rgb * coverage;
     color = mix(color, base.rgb * materialState.flipbook0.rgb, weights.r);

@@ -74,9 +74,7 @@ inline WorldSpecializedMaterialState makeWorldSpecializedMaterialState(
         texture->materialFlipbook1Frames,
         texture->materialFlipbook1Fps};
     out.projectedShadowMatrix = texture->projectedShadowMatrix;
-    const bool modelTextureDetailBias =
-        texture->materialMode == 2u || texture->materialMode == 27u ||
-        texture->materialMode == 28u;
+    const bool modelTextureDetailBias = texture->materialMode == 2u;
     out.projectedShadowParams = {
         texture->projectedShadowEnabled != 0u &&
                 texture->projectedShadowRgba &&

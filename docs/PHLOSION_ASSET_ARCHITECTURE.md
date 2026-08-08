@@ -96,11 +96,10 @@ GPU-native, universal, lossless, or other appropriate payloads. Source-faithful
 Game Freak work must retain authored mip chains, colorspace, sampler evidence,
 and provenance; KTX2 does not authorize a lossy conversion.
 
-When a decoded RGBA8 runtime texture has no authored mip chain, the OpenGL,
-D3D12, and Vulkan backends generate one by default. This keeps texture-detail
-LOD controls meaningful for legacy single-level cooks without replacing an
-authored chain. Set `PHLOSION_BACKEND_WORLD_TEXTURE_MIPS=0` only for focused
-diagnostics that need to disable that fallback.
+OpenGL, D3D12, and Vulkan preserve authored mip chains. Decoded RGBA8 textures
+without authored levels remain single-level by default, matching the stable
+asset-preview policy. Set `PHLOSION_BACKEND_WORLD_TEXTURE_MIPS=1` only when a
+focused diagnostic explicitly needs generated fallback levels.
 
 ### Audio
 

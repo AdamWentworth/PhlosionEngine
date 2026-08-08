@@ -256,13 +256,11 @@ inline WorldPsConstants makeWorldPsConstants(
         : 0.0f;
     constants.projectedShadowSamplingScale =
         (std::max)(textureData->projectedShadowSamplingScale, 0.0f);
-    const bool modelTextureDetailBias =
-        textureData->materialMode == 2u ||
-        textureData->materialMode == 27u ||
-        textureData->materialMode == 28u;
-    // Model materials do not consume projected-shadow bias. The game writes
-    // their quality LOD bias into this existing ABI-stable slot, including the
-    // negative Ultra value. Environment materials retain the shadow meaning.
+    const bool modelTextureDetailBias = textureData->materialMode == 2u;
+    // Standard model material mode 2 does not consume projected-shadow bias.
+    // The game writes its quality LOD bias into this existing ABI-stable slot,
+    // including the negative Ultra value. Native packed modes bypass the
+    // generic quality policy; environment materials retain the shadow meaning.
     constants.projectedShadowBias = modelTextureDetailBias
         ? textureData->projectedShadowBias
         : (std::max)(textureData->projectedShadowBias, 0.0f);

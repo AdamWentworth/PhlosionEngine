@@ -1307,11 +1307,7 @@ void main() {
         vec4 surface = evaluateNativeLayeredUnlitDisplaced(
             baseColorTexture,
             metallicRoughnessTexture,
-            nativeUnlitMaterial,
-            clamp(
-                worldSpecializedMaterial.projectedShadowParams.w,
-                -0.75,
-                1.25));
+            nativeUnlitMaterial);
         const float nativeToneMappingExposure = 1.15;
         vec3 nativeMapped = clamp(
             max(surface.rgb, vec3(0.0)) * nativeToneMappingExposure,
@@ -1477,10 +1473,13 @@ void main() {
         return;
     }
 
-    float textureDetailLodBias = clamp(
-        worldSpecializedMaterial.projectedShadowParams.w,
-        -0.75,
-        1.25);
+    float textureDetailLodBias =
+        materialMode >= 1.5 && materialMode < 2.5
+            ? clamp(
+                worldSpecializedMaterial.projectedShadowParams.w,
+                -0.75,
+                1.25)
+            : 0.0;
     vec4 sampled = sampleWorldMaterialTexture(
         baseColorTexture, vertexUv, textureDetailLodBias);
     vec3 linearColor = clamp(sampled.rgb, 0.0, 1.0) * clamp(vertexColor.rgb, 0.0, 1.0);
