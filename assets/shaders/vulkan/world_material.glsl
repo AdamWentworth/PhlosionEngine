@@ -104,10 +104,7 @@ vec3 mappedWorldNormal(vec2 uv,
     vec3 normal = safeNormalize(sourceNormal, vec3(0.0, 1.0, 0.0)) * faceDirection;
     vec3 texel = sampleWorldMaterialTexture(
         map, uv, textureDetailLodBias).xyz;
-    // glTF's normalTexture.scale applies directly to the tangent-space X/Y
-    // components. Do not add an engine-wide strength boost here: authored
-    // normal fields such as Golduck's forehead jewel become oversteepened.
-    vec2 mappedXY = (texel.xy * 2.0 - 1.0) * max(normalScale, 0.0);
+    vec2 mappedXY = (texel.xy * 2.0 - 1.0) * max(normalScale, 0.0) * 1.25;
     float authoredZ = texel.z * 2.0 - 1.0;
     float reconstructedZ = sqrt(max(1.0 - clamp(dot(mappedXY, mappedXY), 0.0, 1.0), 0.0));
     float mappedZ = mix(authoredZ, reconstructedZ, texel.z <= (1.5 / 255.0) ? 1.0 : 0.0);

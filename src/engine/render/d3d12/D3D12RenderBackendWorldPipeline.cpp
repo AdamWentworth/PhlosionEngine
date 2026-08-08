@@ -2013,8 +2013,7 @@ float3 computeMappedNormal(PSIn i,
 
   float3 normalTexel = sampleTextureWithWrap(gNormalTex, sampleUv, uvDx, uvDy, uWrapS, uWrapT).xyz;
   float2 mapXY = normalTexel.xy * 2.0f - 1.0f;
-  // glTF normalTexture.scale is the complete authored X/Y scale.
-  mapXY *= max(normalScale, 0.0f);
+  mapXY *= max(normalScale, 0.0f) * 1.25f;
   // Support standard RGB tangent-space normals and packed-XY normals (blue=0).
   float authoredZ = normalTexel.z * 2.0f - 1.0f;
   float reconZ = sqrt(max(1.0f - saturate(dot(mapXY, mapXY)), 0.0f));
@@ -2469,13 +2468,6 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
       max(outLinear, float3(0.0f, 0.0f, 0.0f)),
       toneMappingMode,
       toneMappingExposure);
-  if (max(i.col.a, uVertexColorMulA) > 1.0005f) {
-    const float studioMask = smoothstep(
-        0.01f,
-        0.055f,
-        max(mapped.r, max(mapped.g, mapped.b)));
-    mapped = saturate(mapped * 1.25f + 0.10f.xxx * studioMask);
-  }
   float3 outSrgb = resolveWorldSceneColor(mapped);
   return float4(outSrgb, outA);
 }
