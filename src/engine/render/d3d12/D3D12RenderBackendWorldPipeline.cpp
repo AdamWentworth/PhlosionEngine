@@ -250,7 +250,7 @@ bool isClampWrap(float mode) { return abs(mode - 33071.0f) < 0.5f; }
 bool isMirrorWrap(float mode) { return abs(mode - 33648.0f) < 0.5f; }
 float litTextureDetailLodBias() {
   if (uMaterialMode < 1.5f || uMaterialMode >= 2.5f) return 0.0f;
-  return clamp(uProjectedShadowBias, -0.75f, 1.25f);
+  return clamp(uMaterialFlipbook1Frames, -0.75f, 1.25f);
 }
 float4 sampleTextureWithWrap(Texture2D tex,
                              float2 uv,

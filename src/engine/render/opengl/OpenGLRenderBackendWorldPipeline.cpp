@@ -222,7 +222,6 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         worldMaterialModeLoc_ >= 0 && worldMaterialTimeLoc_ >= 0 && worldMaterialFlagsLoc_ >= 0 &&
         worldMaterialAtlasSizeLoc_ >= 0 && worldMaterialRect0Loc_ >= 0 && worldMaterialRect1Loc_ >= 0 &&
         worldMaterialFlipbook0Loc_ >= 0 && worldMaterialFlipbook1Loc_ >= 0 &&
-        worldTextureDetailLodBiasLoc_ >= 0 &&
         worldSceneColorPostEnabledLoc_ >= 0 &&
         worldSkinningEnabledLoc_ >= 0 && worldSkinningModeLoc_ >= 0 && worldSkinMatrixCountLoc_ >= 0) {
         return;
@@ -487,7 +486,6 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         uniform vec4  uMaterialRect1;
         uniform vec4  uMaterialFlipbook0;
         uniform vec4  uMaterialFlipbook1;
-        uniform float uTextureDetailLodBias;
         uniform sampler2D uTexture;
         uniform sampler2D uNormalTexture;
         uniform sampler2D uMetallicRoughnessTexture;
@@ -535,7 +533,8 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             return clamp(uv, halfTexel, vec2(1.0) - halfTexel);
         }
         float litTextureDetailLodBias() {
-            return clamp(uTextureDetailLodBias, -0.75, 1.25);
+            if (uMaterialMode < 1.5 || uMaterialMode >= 2.5) return 0.0;
+            return clamp(uMaterialFlipbook1.z, -0.75, 1.25);
         }
         vec4 sampleTextureWithWrap(sampler2D tex, vec2 uv, vec2 uvDx, vec2 uvDy) {
             float lodScale = exp2(litTextureDetailLodBias());
@@ -2822,8 +2821,6 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
     worldMaterialRect1Loc_ = glGetUniformLocation(worldProgram_, "uMaterialRect1");
     worldMaterialFlipbook0Loc_ = glGetUniformLocation(worldProgram_, "uMaterialFlipbook0");
     worldMaterialFlipbook1Loc_ = glGetUniformLocation(worldProgram_, "uMaterialFlipbook1");
-    worldTextureDetailLodBiasLoc_ =
-        glGetUniformLocation(worldProgram_, "uTextureDetailLodBias");
     worldSkinningEnabledLoc_ = glGetUniformLocation(worldProgram_, "uSkinningEnabled");
     worldSkinningModeLoc_ = glGetUniformLocation(worldProgram_, "uSkinningMode");
     worldSkinMatrixCountLoc_ = glGetUniformLocation(worldProgram_, "uSkinMatrixCount");
@@ -2838,7 +2835,6 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
         worldMaterialModeLoc_ < 0 || worldMaterialTimeLoc_ < 0 || worldMaterialFlagsLoc_ < 0 ||
         worldMaterialAtlasSizeLoc_ < 0 || worldMaterialRect0Loc_ < 0 || worldMaterialRect1Loc_ < 0 ||
         worldMaterialFlipbook0Loc_ < 0 || worldMaterialFlipbook1Loc_ < 0 ||
-        worldTextureDetailLodBiasLoc_ < 0 ||
         worldLightProjectionUvRowULoc_ < 0 ||
         worldLightProjectionUvRowVLoc_ < 0 ||
         worldProjectedShadowTextureSamplerLoc_ < 0 ||
@@ -3009,7 +3005,6 @@ void OpenGLRenderBackend::destroyWorldPipeline() {
     worldMaterialRect1Loc_ = -1;
     worldMaterialFlipbook0Loc_ = -1;
     worldMaterialFlipbook1Loc_ = -1;
-    worldTextureDetailLodBiasLoc_ = -1;
     worldSkinningEnabledLoc_ = -1;
     worldSkinningModeLoc_ = -1;
     worldSkinMatrixCountLoc_ = -1;

@@ -74,7 +74,6 @@ inline WorldSpecializedMaterialState makeWorldSpecializedMaterialState(
         texture->materialFlipbook1Frames,
         texture->materialFlipbook1Fps};
     out.projectedShadowMatrix = texture->projectedShadowMatrix;
-    const bool modelTextureDetailBias = texture->materialMode == 2u;
     out.projectedShadowParams = {
         texture->projectedShadowEnabled != 0u &&
                 texture->projectedShadowRgba &&
@@ -84,7 +83,7 @@ inline WorldSpecializedMaterialState makeWorldSpecializedMaterialState(
             : 0.0f,
         std::max(texture->projectedShadowSamplingScale, 0.0f),
         std::max(texture->projectedShadowBias, 0.0f),
-        modelTextureDetailBias ? texture->projectedShadowBias : 0.0f};
+        0.0f};
     out.lightProjectionUvRowU = texture->lightProjectionUvRowU;
     out.lightProjectionUvRowV = texture->lightProjectionUvRowV;
     return out;

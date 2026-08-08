@@ -96,11 +96,6 @@ GPU-native, universal, lossless, or other appropriate payloads. Source-faithful
 Game Freak work must retain authored mip chains, colorspace, sampler evidence,
 and provenance; KTX2 does not authorize a lossy conversion.
 
-OpenGL, D3D12, and Vulkan preserve authored mip chains. Decoded RGBA8 textures
-without authored levels remain single-level by default, matching the stable
-asset-preview policy. Set `PHLOSION_BACKEND_WORLD_TEXTURE_MIPS=1` only when a
-focused diagnostic explicitly needs generated fallback levels.
-
 ### Audio
 
 WAV or FLAC remains suitable for source masters. Runtime choices include Opus,

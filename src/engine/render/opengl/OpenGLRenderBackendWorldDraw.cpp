@@ -291,7 +291,6 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
         worldMaterialModeLoc_ < 0 || worldMaterialTimeLoc_ < 0 || worldMaterialFlagsLoc_ < 0 ||
         worldMaterialAtlasSizeLoc_ < 0 || worldMaterialRect0Loc_ < 0 || worldMaterialRect1Loc_ < 0 ||
         worldMaterialFlipbook0Loc_ < 0 || worldMaterialFlipbook1Loc_ < 0 ||
-        worldTextureDetailLodBiasLoc_ < 0 ||
         worldSkinningEnabledLoc_ < 0 || worldSkinningModeLoc_ < 0 || worldSkinMatrixCountLoc_ < 0) {
         return;
     }
@@ -901,12 +900,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
                 texture ? texture->materialFlipbook1Frames : 1.0f,
                 (texture && materialMode >= 2u && materialMode != 27u)
                     ? static_cast<float>(pbrDebugViewMode())
-                     : (texture ? texture->materialFlipbook1Fps : 0.0f));
-    glUniform1f(
-        worldTextureDetailLodBiasLoc_,
-        texture && materialMode == 2u
-            ? texture->projectedShadowBias
-            : 0.0f);
+                    : (texture ? texture->materialFlipbook1Fps : 0.0f));
     constexpr int kMaxGpuSkinMatrices = 128;
     const bool gpuSkinningEnabled =
         texture &&

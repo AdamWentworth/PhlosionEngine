@@ -1475,10 +1475,7 @@ void main() {
 
     float textureDetailLodBias =
         materialMode >= 1.5 && materialMode < 2.5
-            ? clamp(
-                worldSpecializedMaterial.projectedShadowParams.w,
-                -0.75,
-                1.25)
+            ? worldSpecializedMaterial.flipbook1.z
             : 0.0;
     vec4 sampled = sampleWorldMaterialTexture(
         baseColorTexture, vertexUv, textureDetailLodBias);

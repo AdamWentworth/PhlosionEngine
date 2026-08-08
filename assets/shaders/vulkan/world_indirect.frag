@@ -1687,10 +1687,7 @@ void main() {
 
     float textureDetailLodBias =
         materialMode >= 1.5 && materialMode < 2.5
-            ? clamp(
-                drawState.specializedProjectedShadowParams.w,
-                -0.75,
-                1.25)
+            ? drawState.specializedFlipbook1.z
             : 0.0;
     vec4 sampled = sampleWorldMaterialTexture(
         baseColorTextures[nonuniformEXT(materialIndex)],
