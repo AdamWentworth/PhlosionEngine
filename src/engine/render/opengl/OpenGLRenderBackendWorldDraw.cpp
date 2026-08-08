@@ -904,7 +904,11 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
                      : (texture ? texture->materialFlipbook1Fps : 0.0f));
     glUniform1f(
         worldTextureDetailLodBiasLoc_,
-        texture ? texture->textureDetailLodBias : 0.0f);
+        texture &&
+                (materialMode == 2u || materialMode == 27u ||
+                 materialMode == 28u)
+            ? texture->projectedShadowBias
+            : 0.0f);
     constexpr int kMaxGpuSkinMatrices = 128;
     const bool gpuSkinningEnabled =
         texture &&

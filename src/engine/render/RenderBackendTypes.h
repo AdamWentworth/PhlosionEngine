@@ -92,6 +92,9 @@ struct WorldTextureMipLevel {
     int height = 0;
 };
 
+// ABI-exposed to editor project DLLs. Do not insert, remove, or reorder fields
+// without an explicit plugin ABI version transition; a stale project DLL can
+// otherwise reinterpret later pointers as material values (or vice versa).
 struct WorldTextureData {
     const char* key = nullptr;
     const char* cacheKey = nullptr;
@@ -199,9 +202,6 @@ struct WorldTextureData {
     float emissiveFactorR = 0.0f;
     float emissiveFactorG = 0.0f;
     float emissiveFactorB = 0.0f;
-    // Presentation-quality LOD bias is independent of source material payloads.
-    // Native shaders use the legacy flipbook fields for unrelated parameters.
-    float textureDetailLodBias = 0.0f;
     float vertexColorMulR = 1.0f;
     float vertexColorMulG = 1.0f;
     float vertexColorMulB = 1.0f;
@@ -391,6 +391,9 @@ inline bool worldSceneGeometrySourceSemanticsValid(
     return geometry.sourceVertexCount == geometry.vertexCount;
 }
 
+// ABI-exposed to editor project DLLs under the same compatibility contract as
+// WorldTextureData. Keep presentation-only state in existing mode-specific
+// payload slots unless the editor plugin ABI is deliberately versioned.
 struct WorldSceneMaterial {
     WorldSceneMaterialHandle handle{};
     std::string textureKey;
@@ -495,7 +498,6 @@ struct WorldSceneMaterial {
     float emissiveFactorR = 0.0f;
     float emissiveFactorG = 0.0f;
     float emissiveFactorB = 0.0f;
-    float textureDetailLodBias = 0.0f;
     std::uint8_t characterInkingEnabled = 0u;
     float materialTimeSec = 0.0f;
     float materialFlags = 0.0f;
