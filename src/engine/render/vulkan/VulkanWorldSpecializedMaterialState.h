@@ -83,7 +83,7 @@ inline WorldSpecializedMaterialState makeWorldSpecializedMaterialState(
             : 0.0f,
         std::max(texture->projectedShadowSamplingScale, 0.0f),
         std::max(texture->projectedShadowBias, 0.0f),
-        0.0f};
+        texture->textureDetailLodBias};
     out.lightProjectionUvRowU = texture->lightProjectionUvRowU;
     out.lightProjectionUvRowV = texture->lightProjectionUvRowV;
     return out;

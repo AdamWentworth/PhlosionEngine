@@ -258,6 +258,7 @@ private:
     int worldMaterialRect1Loc_ = -1;
     int worldMaterialFlipbook0Loc_ = -1;
     int worldMaterialFlipbook1Loc_ = -1;
+    int worldTextureDetailLodBiasLoc_ = -1;
     int worldSkinningEnabledLoc_ = -1;
     int worldSkinningModeLoc_ = -1;
     int worldSkinMatrixCountLoc_ = -1;

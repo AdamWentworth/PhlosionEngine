@@ -249,8 +249,10 @@ float2 clampWrappedUvToTexelCenter(float2 uv) {
 bool isClampWrap(float mode) { return abs(mode - 33071.0f) < 0.5f; }
 bool isMirrorWrap(float mode) { return abs(mode - 33648.0f) < 0.5f; }
 float litTextureDetailLodBias() {
-  if (uMaterialMode < 1.5f || uMaterialMode >= 2.5f) return 0.0f;
-  return clamp(uMaterialFlipbook1Frames, -0.75f, 1.25f);
+  if ((uMaterialMode < 1.5f || uMaterialMode >= 2.5f) &&
+      (uMaterialMode < 26.5f || uMaterialMode >= 27.5f) &&
+      (uMaterialMode < 27.5f || uMaterialMode >= 28.5f)) return 0.0f;
+  return clamp(uProjectedShadowBias, -0.75f, 1.25f);
 }
 float4 sampleTextureWithWrap(Texture2D tex,
                              float2 uv,
@@ -1729,8 +1731,10 @@ float4 evalNativeLayeredUnlitDisplaced(PSIn i) {
       (i.uv.x - baseOffset.x) * baseScale.x,
       1.0f - ((1.0f - i.uv.y) - baseOffset.y) * baseScale.y);
   baseUv.x = frac(baseUv.x);
-  float4 base = gTex.Sample(gSampCC, baseUv);
-  float4 weights = saturate(gMetallicRoughnessTex.Sample(gSampCC, baseUv));
+  float4 base = gTex.SampleBias(
+      gSampCC, baseUv, litTextureDetailLodBias());
+  float4 weights = saturate(gMetallicRoughnessTex.SampleBias(
+      gSampCC, baseUv, litTextureDetailLodBias()));
   float coverage = saturate(
       1.0f - dot(weights, float4(1.0f, 1.0f, 1.0f, 1.0f)));
   float3 color = base.rgb * coverage;

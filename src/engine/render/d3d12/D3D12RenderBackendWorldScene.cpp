@@ -141,6 +141,7 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     tex.emissiveFactorR = material.emissiveFactorR;
     tex.emissiveFactorG = material.emissiveFactorG;
     tex.emissiveFactorB = material.emissiveFactorB;
+    tex.textureDetailLodBias = material.textureDetailLodBias;
     tex.characterInkingEnabled = material.characterInkingEnabled;
     tex.materialTimeSec = material.materialTimeSec;
     tex.materialFlags = material.materialFlags;

@@ -199,6 +199,9 @@ struct WorldTextureData {
     float emissiveFactorR = 0.0f;
     float emissiveFactorG = 0.0f;
     float emissiveFactorB = 0.0f;
+    // Presentation-quality LOD bias is independent of source material payloads.
+    // Native shaders use the legacy flipbook fields for unrelated parameters.
+    float textureDetailLodBias = 0.0f;
     float vertexColorMulR = 1.0f;
     float vertexColorMulG = 1.0f;
     float vertexColorMulB = 1.0f;
@@ -492,6 +495,7 @@ struct WorldSceneMaterial {
     float emissiveFactorR = 0.0f;
     float emissiveFactorG = 0.0f;
     float emissiveFactorB = 0.0f;
+    float textureDetailLodBias = 0.0f;
     std::uint8_t characterInkingEnabled = 0u;
     float materialTimeSec = 0.0f;
     float materialFlags = 0.0f;

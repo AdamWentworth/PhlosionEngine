@@ -258,6 +258,14 @@ inline WorldPsConstants makeWorldPsConstants(
         (std::max)(textureData->projectedShadowSamplingScale, 0.0f);
     constants.projectedShadowBias =
         (std::max)(textureData->projectedShadowBias, 0.0f);
+    if (textureData->materialMode == 2u ||
+        textureData->materialMode == 27u ||
+        textureData->materialMode == 28u) {
+        // These model shaders do not consume projected-shadow bias. Reuse
+        // that PS-only slot for the independent quality LOD bias without
+        // disturbing the source-packed flipbook parameters.
+        constants.projectedShadowBias = textureData->textureDetailLodBias;
+    }
     constants.lightProjectionUvRowU =
         textureData->lightProjectionUvRowU;
     constants.lightProjectionUvRowV =

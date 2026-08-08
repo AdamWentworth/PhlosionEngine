@@ -1445,7 +1445,11 @@ void main() {
         vec4 surface = evaluateNativeLayeredUnlitDisplaced(
             baseColorTextures[nonuniformEXT(materialIndex)],
             metallicRoughnessTextures[nonuniformEXT(materialIndex)],
-            tailFireMaterial);
+            tailFireMaterial,
+            clamp(
+                drawState.specializedProjectedShadowParams.w,
+                -0.75,
+                1.25));
         const float nativeToneMappingExposure = 1.15;
         vec3 nativeMapped = clamp(
             max(surface.rgb, vec3(0.0)) * nativeToneMappingExposure,
@@ -1685,10 +1689,10 @@ void main() {
         return;
     }
 
-    float textureDetailLodBias =
-        materialMode >= 1.5 && materialMode < 2.5
-            ? drawState.specializedFlipbook1.z
-            : 0.0;
+    float textureDetailLodBias = clamp(
+        drawState.specializedProjectedShadowParams.w,
+        -0.75,
+        1.25);
     vec4 sampled = sampleWorldMaterialTexture(
         baseColorTextures[nonuniformEXT(materialIndex)],
         vertexUv,
