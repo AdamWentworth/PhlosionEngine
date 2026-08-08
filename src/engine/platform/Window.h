@@ -18,7 +18,8 @@ public:
            int width,
            int height,
            GraphicsApi graphicsApi = GraphicsApi::OpenGL,
-           bool vsyncEnabled = true);
+           bool vsyncEnabled = true,
+           bool visible = true);
     ~Window();
 
     SDL_Window* getSDLWindow() const { return window; }

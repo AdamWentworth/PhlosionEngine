@@ -13,7 +13,8 @@ Window::Window(const std::string& title,
                int width,
                int height,
                GraphicsApi graphicsApi_,
-               bool vsyncEnabled_)
+               bool vsyncEnabled_,
+               bool visible)
     : graphicsApi(graphicsApi_)
     , vsyncEnabled(vsyncEnabled_) {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -25,7 +26,8 @@ Window::Window(const std::string& title,
     // Allow the click that focuses the window to also propagate as a mouse click.
     SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
 
-    Uint32 flags = SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE;
+    Uint32 flags = (visible ? SDL_WINDOW_SHOWN : SDL_WINDOW_HIDDEN) |
+                   SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE;
 
     if (graphicsApi == GraphicsApi::OpenGL) {
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
@@ -69,9 +71,11 @@ Window::Window(const std::string& title,
         SDL_GL_SetSwapInterval(vsyncEnabled ? 1 : 0);
     }
 
-    // Request foreground/focus on startup so the first user click is less likely
-    // to be interpreted as focus-only by the OS/window manager.
-    SDL_RaiseWindow(window);
+    if (visible) {
+        // Request foreground/focus on interactive startup so the first user
+        // click is less likely to be interpreted as focus-only by the OS.
+        SDL_RaiseWindow(window);
+    }
 }
 
 Window::~Window() {

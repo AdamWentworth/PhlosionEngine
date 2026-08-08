@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -62,10 +63,15 @@ struct Arguments {
     std::string gamePreview;
     std::string assetPreview;
     std::optional<int> assetPreviewAnimation;
+    std::optional<int> assetPreviewQuality;
     std::optional<float> assetPreviewTime;
     std::optional<
         engine::editor::EditorRendererPreference>
         rendererPreference;
+    std::filesystem::path stateDirectory;
+    std::filesystem::path metricsOutput;
+    std::optional<float> fixedDeltaSeconds;
+    bool hidden = false;
     int frameLimit = 0;
 };
 
@@ -93,11 +99,19 @@ Arguments parseArguments(int argc, char** argv) {
         constexpr std::string_view
             assetPreviewAnimationPrefix =
                 "--asset-preview-animation=";
+        constexpr std::string_view assetPreviewQualityPrefix =
+            "--asset-preview-quality=";
         constexpr std::string_view assetPreviewTimePrefix =
             "--asset-preview-time=";
         constexpr std::string_view framesPrefix = "--frames=";
         constexpr std::string_view rendererPrefix =
             "--renderer=";
+        constexpr std::string_view stateDirectoryPrefix =
+            "--state-directory=";
+        constexpr std::string_view metricsOutputPrefix =
+            "--metrics-output=";
+        constexpr std::string_view fixedDeltaPrefix =
+            "--fixed-delta=";
         if (argument.rfind(projectPrefix, 0u) == 0u) {
             result.project = argument.substr(projectPrefix.size());
         } else if (
@@ -121,6 +135,34 @@ Arguments parseArguments(int argc, char** argv) {
                     : std::stoi(value);
         } else if (
             argument.rfind(
+                assetPreviewQualityPrefix,
+                0u) == 0u) {
+            std::string value = argument.substr(
+                assetPreviewQualityPrefix.size());
+            std::transform(
+                value.begin(),
+                value.end(),
+                value.begin(),
+                [](unsigned char character) {
+                    return static_cast<char>(
+                        std::tolower(character));
+                });
+            if (value == "low") {
+                result.assetPreviewQuality = 0;
+            } else if (value == "medium") {
+                result.assetPreviewQuality = 1;
+            } else if (value == "high") {
+                result.assetPreviewQuality = 2;
+            } else if (value == "ultra") {
+                result.assetPreviewQuality = 3;
+            } else {
+                result.assetPreviewQuality = std::clamp(
+                    std::stoi(value),
+                    0,
+                    3);
+            }
+        } else if (
+            argument.rfind(
                 assetPreviewTimePrefix,
                 0u) == 0u) {
             result.assetPreviewTime = std::max(
@@ -138,6 +180,22 @@ Arguments parseArguments(int argc, char** argv) {
                     parseEditorRendererPreference(
                         argument.substr(
                             rendererPrefix.size()));
+        } else if (
+            argument.rfind(stateDirectoryPrefix, 0u) == 0u) {
+            result.stateDirectory =
+                argument.substr(stateDirectoryPrefix.size());
+        } else if (
+            argument.rfind(metricsOutputPrefix, 0u) == 0u) {
+            result.metricsOutput =
+                argument.substr(metricsOutputPrefix.size());
+        } else if (
+            argument.rfind(fixedDeltaPrefix, 0u) == 0u) {
+            result.fixedDeltaSeconds = std::clamp(
+                std::stof(argument.substr(fixedDeltaPrefix.size())),
+                0.0001f,
+                0.05f);
+        } else if (argument == "--hidden") {
+            result.hidden = true;
         } else if (!argument.empty() && argument.front() != '-') {
             result.project = argument;
         }
@@ -227,10 +285,13 @@ struct EditorGraphics {
 };
 
 EditorGraphics createEditorGraphics(
-    engine::editor::EditorRendererPreference requested) {
+    engine::editor::EditorRendererPreference requested,
+    bool visible,
+    bool vsyncEnabled) {
     using engine::editor::EditorRendererPreference;
     const auto create =
-        [](EditorRendererPreference preference) {
+        [visible, vsyncEnabled](
+            EditorRendererPreference preference) {
             EditorGraphics graphics;
             if (preference ==
                 EditorRendererPreference::D3D12) {
@@ -241,7 +302,8 @@ EditorGraphics createEditorGraphics(
                         1440,
                         900,
                         Window::GraphicsApi::Native,
-                        true);
+                        vsyncEnabled,
+                        visible);
                 int width = 0;
                 int height = 0;
                 graphics.window->getDrawableSize(
@@ -254,7 +316,7 @@ EditorGraphics createEditorGraphics(
                             getSDLWindow(),
                         std::max(1, width),
                         std::max(1, height),
-                        true);
+                        vsyncEnabled);
                 graphics.activePreference =
                     EditorRendererPreference::D3D12;
                 return graphics;
@@ -271,7 +333,8 @@ EditorGraphics createEditorGraphics(
                         1440,
                         900,
                         Window::GraphicsApi::Vulkan,
-                        true);
+                        vsyncEnabled,
+                        visible);
                 int width = 0;
                 int height = 0;
                 graphics.window->getDrawableSize(
@@ -284,7 +347,7 @@ EditorGraphics createEditorGraphics(
                             getSDLWindow(),
                         std::max(1, width),
                         std::max(1, height),
-                        true);
+                        vsyncEnabled);
                 graphics.activePreference =
                     EditorRendererPreference::Vulkan;
                 return graphics;
@@ -295,7 +358,8 @@ EditorGraphics createEditorGraphics(
                     1440,
                     900,
                     Window::GraphicsApi::OpenGL,
-                    true);
+                    vsyncEnabled,
+                    visible);
             if (!gladLoadGLLoader(
                     reinterpret_cast<GLADloadproc>(
                         SDL_GL_GetProcAddress))) {
@@ -1328,6 +1392,9 @@ struct LoadedProject {
     engine::editor::WorkspaceAssetPreview
         assetPreviewView;
     std::string activeGamePreviewId = "main-menu";
+    std::vector<std::pair<std::string, double>>
+        loadPhaseMilliseconds;
+    double totalLoadMilliseconds = 0.0;
 };
 
 using EditorClock = std::chrono::steady_clock;
@@ -1340,13 +1407,233 @@ double elapsedMilliseconds(
         .count();
 }
 
-void logProjectLoadPhase(
+double logProjectLoadPhase(
     const char* phase,
     const EditorClock::time_point phaseStart) {
+    const double milliseconds =
+        elapsedMilliseconds(phaseStart);
     std::cerr
         << "[PhlosionEditor][ProjectLoad] "
         << phase << '='
-        << elapsedMilliseconds(phaseStart) << "ms\n";
+        << milliseconds << "ms\n";
+    return milliseconds;
+}
+
+nlohmann::json metricSummary(
+    const std::vector<double>& samples,
+    std::size_t skip = 0u) {
+    nlohmann::json result;
+    if (skip >= samples.size()) {
+        result["sample_count"] = 0u;
+        return result;
+    }
+    std::vector<double> selected(
+        samples.begin() + static_cast<std::ptrdiff_t>(skip),
+        samples.end());
+    std::sort(selected.begin(), selected.end());
+    double total = 0.0;
+    for (const double sample : selected) {
+        total += sample;
+    }
+    const std::size_t percentileIndex =
+        std::min(
+            selected.size() - 1u,
+            static_cast<std::size_t>(
+                std::ceil(
+                    static_cast<double>(selected.size()) *
+                    0.95)) -
+                1u);
+    result["sample_count"] = selected.size();
+    result["mean_ms"] = total / static_cast<double>(selected.size());
+    result["min_ms"] = selected.front();
+    result["max_ms"] = selected.back();
+    result["p95_ms"] = selected[percentileIndex];
+    return result;
+}
+
+void writeAutomationMetrics(
+    const Arguments& arguments,
+    const LoadedProject* project,
+    const IRenderBackend& renderer,
+    int width,
+    int height,
+    int frameCount,
+    int selectedAssetPreviewIndex,
+    const std::vector<double>& cpuFrameMilliseconds,
+    const std::vector<double>& presentWaitMilliseconds,
+    const std::vector<double>& gpuFrameMilliseconds) {
+    if (arguments.metricsOutput.empty()) {
+        return;
+    }
+
+    nlohmann::json document;
+    document["schema"] = "phlosion-editor-baseline-metrics-v1";
+    document["capture"] = {
+        {"hidden", arguments.hidden},
+        {"frames", frameCount},
+        {"width", width},
+        {"height", height},
+        {"fixed_delta_seconds",
+         arguments.fixedDeltaSeconds
+             ? nlohmann::json(*arguments.fixedDeltaSeconds)
+             : nlohmann::json(nullptr)},
+        {"requested_asset", arguments.assetPreview},
+        {"requested_quality",
+         arguments.assetPreviewQuality
+             ? nlohmann::json(*arguments.assetPreviewQuality)
+             : nlohmann::json(nullptr)}};
+    document["renderer"] = {
+        {"backend",
+         renderer.backendId() ? renderer.backendId() : "unknown"},
+        {"gpu_name", renderer.activeGpuName()},
+        {"gpu_is_discrete", renderer.activeGpuIsDiscrete()},
+        {"cpu_frame_all", metricSummary(cpuFrameMilliseconds)},
+        {"cpu_frame_steady",
+         metricSummary(cpuFrameMilliseconds, 10u)},
+        {"present_wait_all",
+         metricSummary(presentWaitMilliseconds)},
+        {"present_wait_steady",
+         metricSummary(presentWaitMilliseconds, 10u)},
+        {"gpu_frame_all", metricSummary(gpuFrameMilliseconds)},
+        {"gpu_frame_steady",
+         metricSummary(gpuFrameMilliseconds, 10u)}};
+
+    IRenderBackend::BackendFrameStats backendStats{};
+    const bool backendStatsValid =
+        renderer.getLastFrameStats(backendStats);
+    document["renderer"]["last_frame_stats"] = {
+        {"valid", backendStatsValid},
+        {"draw_calls", backendStats.drawCalls},
+        {"triangles", backendStats.triangles},
+        {"indexed_opaque_draws",
+         backendStats.indexedOpaqueDraws},
+        {"indexed_blend_draws",
+         backendStats.indexedBlendDraws},
+        {"indexed_cached_draws",
+         backendStats.indexedCachedDraws},
+        {"indexed_dynamic_draws",
+         backendStats.indexedDynamicDraws},
+        {"indexed_instanced_draws",
+         backendStats.indexedInstancedDraws},
+        {"geometry_switches",
+         backendStats.indexedGeometrySwitches},
+        {"material_switches",
+         backendStats.indexedMaterialSwitches},
+        {"texture_switches",
+         backendStats.indexedTextureSwitches},
+        {"fast_scene_instances",
+         backendStats.fastSceneInstances},
+        {"fast_scene_draw_classes",
+         backendStats.fastSceneDrawClasses},
+        {"fast_scene_visible_skeletons",
+         backendStats.fastSceneVisibleSkeletons},
+        {"fast_scene_palette_upload_bytes",
+         backendStats.fastScenePaletteUploadBytes}};
+
+    if (project && project->runtime) {
+        const auto projectStats = project->runtime->stats();
+        document["project"] = {
+            {"id", project->descriptor.projectId},
+            {"display_name", project->descriptor.displayName},
+            {"descriptor", project->descriptorPath.generic_string()},
+            {"scene_count", projectStats.sceneCount},
+            {"material_count", projectStats.materialCount},
+            {"draw_class_count", projectStats.drawClassCount},
+            {"visible_triangles", projectStats.visibleTriangleCount},
+            {"shadow_triangles", projectStats.shadowTriangleCount},
+            {"archive_file_count", projectStats.archiveFileCount},
+            {"load_total_ms", project->totalLoadMilliseconds}};
+        nlohmann::json phases = nlohmann::json::object();
+        for (const auto& [phase, milliseconds] :
+             project->loadPhaseMilliseconds) {
+            phases[phase] = milliseconds;
+        }
+        document["project"]["load_phases_ms"] =
+            std::move(phases);
+        if (project->activeSceneIndex < project->sceneViews.size()) {
+            const auto& scene =
+                project->sceneViews[project->activeSceneIndex];
+            document["project"]["active_scene"] = {
+                {"id", scene.id},
+                {"display_name", scene.displayName},
+                {"path", scene.path}};
+        }
+
+        if (selectedAssetPreviewIndex >= 0 &&
+            static_cast<std::size_t>(selectedAssetPreviewIndex) <
+                project->assetViews.size()) {
+            const auto& asset = project->assetViews[
+                static_cast<std::size_t>(selectedAssetPreviewIndex)];
+            const auto& preview = project->assetPreviewView;
+            const std::filesystem::path resolvedAssetPath =
+                asset.path.find("://") != std::string::npos
+                    ? std::filesystem::path{}
+                    : (project->root / asset.path).lexically_normal();
+            std::uint64_t packageBytes = 0u;
+            std::uint64_t packageFileCount = 0u;
+            std::error_code packageError;
+            if (!resolvedAssetPath.empty()) {
+                for (std::filesystem::directory_iterator iterator(
+                         resolvedAssetPath.parent_path(),
+                         packageError),
+                     end;
+                     !packageError && iterator != end;
+                     iterator.increment(packageError)) {
+                    if (!iterator->is_regular_file(packageError) ||
+                        packageError) {
+                        continue;
+                    }
+                    packageBytes += iterator->file_size(packageError);
+                    if (packageError) {
+                        break;
+                    }
+                    ++packageFileCount;
+                }
+            }
+            document["asset_preview"] = {
+                {"id", preview.assetId},
+                {"path", asset.path},
+                {"ready", preview.ready},
+                {"graphics_quality", preview.graphicsQuality},
+                {"animation_index", preview.animationIndex},
+                {"vertex_count", preview.vertexCount},
+                {"triangle_count", preview.triangleCount},
+                {"material_count", preview.materialCount},
+                {"texture_count", preview.textureCount},
+                {"bone_count", preview.boneCount},
+                {"object_package_file_count", packageFileCount},
+                {"object_package_bytes", packageBytes},
+                {"decoded_object_cache_hits", nullptr},
+                {"decoded_object_cache_misses", nullptr},
+                {"cache_note",
+                 "The current direct PHLO preview path has no decoded-object cache counters; backend cached draws are reported separately."}};
+        }
+    }
+
+    std::error_code directoryError;
+    const auto parent = arguments.metricsOutput.parent_path();
+    if (!parent.empty()) {
+        std::filesystem::create_directories(
+            parent,
+            directoryError);
+    }
+    if (directoryError) {
+        throw std::runtime_error(
+            "Could not create metrics directory: " +
+            directoryError.message());
+    }
+    std::ofstream output(
+        arguments.metricsOutput,
+        std::ios::trunc);
+    if (!output) {
+        throw std::runtime_error(
+            "Could not open metrics output: " +
+            arguments.metricsOutput.generic_string());
+    }
+    output << document.dump(2) << '\n';
+    std::cerr
+        << "[PhlosionEditor][Automation] metrics="
+        << arguments.metricsOutput.generic_string() << '\n';
 }
 
 void refreshLayoutObjectViews(LoadedProject& project) {
@@ -2042,7 +2329,9 @@ std::unique_ptr<LoadedProject> loadProject(
             &outError)) {
         return nullptr;
     }
-    logProjectLoadPhase("descriptor", phaseStart);
+    loaded->loadPhaseMilliseconds.emplace_back(
+        "descriptor",
+        logProjectLoadPhase("descriptor", phaseStart));
     phaseStart = EditorClock::now();
     if (!std::filesystem::is_regular_file(
             loaded->pluginPath)) {
@@ -2092,7 +2381,9 @@ std::unique_ptr<LoadedProject> loadProject(
             "Project editor plugin could not create its runtime.";
         return nullptr;
     }
-    logProjectLoadPhase("plugin", phaseStart);
+    loaded->loadPhaseMilliseconds.emplace_back(
+        "plugin",
+        logProjectLoadPhase("plugin", phaseStart));
     phaseStart = EditorClock::now();
 
     loaded->root =
@@ -2196,7 +2487,9 @@ std::unique_ptr<LoadedProject> loadProject(
             << dependency.id << " version=" << dependency.version
             << '\n';
     }
-    logProjectLoadPhase("editor-packages", phaseStart);
+    loaded->loadPhaseMilliseconds.emplace_back(
+        "editor-packages",
+        logProjectLoadPhase("editor-packages", phaseStart));
     phaseStart = EditorClock::now();
     loaded->assetViews =
         discoverCookedAssets(
@@ -2374,7 +2667,9 @@ std::unique_ptr<LoadedProject> loadProject(
                     executable.generic_string(),
                 .available = available});
     }
-    logProjectLoadPhase("catalogs", phaseStart);
+    loaded->loadPhaseMilliseconds.emplace_back(
+        "catalogs",
+        logProjectLoadPhase("catalogs", phaseStart));
     phaseStart = EditorClock::now();
     const engine::editor::EditorProjectOpenContext openContext{
         .descriptor = &loaded->descriptor,
@@ -2387,7 +2682,9 @@ std::unique_ptr<LoadedProject> loadProject(
     appendProjectAssets(
         *loaded->runtime,
         loaded->assetViews);
-    logProjectLoadPhase("project_open", phaseStart);
+    loaded->loadPhaseMilliseconds.emplace_back(
+        "project_open",
+        logProjectLoadPhase("project_open", phaseStart));
     phaseStart = EditorClock::now();
 
     const glm::vec3 cameraPosition = camera.getPosition();
@@ -2398,7 +2695,9 @@ std::unique_ptr<LoadedProject> loadProject(
         .cameraForward3 = glm::value_ptr(cameraForward),
         .cameraTarget3 = glm::value_ptr(cameraTarget)};
     loaded->runtime->prewarm(renderer, cameraContext);
-    logProjectLoadPhase("scene_prewarm", phaseStart);
+    loaded->loadPhaseMilliseconds.emplace_back(
+        "scene_prewarm",
+        logProjectLoadPhase("scene_prewarm", phaseStart));
     phaseStart = EditorClock::now();
     refreshLayoutObjectViews(*loaded);
     refreshTerrainTileViews(*loaded);
@@ -2451,14 +2750,18 @@ std::unique_ptr<LoadedProject> loadProject(
                 .value =
                     std::to_string(previewCount)});
     }
-    logProjectLoadPhase("workspace", phaseStart);
+    loaded->loadPhaseMilliseconds.emplace_back(
+        "workspace",
+        logProjectLoadPhase("workspace", phaseStart));
     loaded->status =
         loaded->runtime->status()
             ? loaded->runtime->status()
             : "Project loaded.";
+    loaded->totalLoadMilliseconds =
+        elapsedMilliseconds(loadStart);
     std::cerr
         << "[PhlosionEditor][ProjectLoad] total="
-        << elapsedMilliseconds(loadStart)
+        << loaded->totalLoadMilliseconds
         << "ms game_preview=deferred\n";
     outError.clear();
     return loaded;
@@ -2870,9 +3173,9 @@ bool relaunchEditor(
 } // namespace
 
 int main(int argc, char** argv) {
-    const Arguments arguments = parseArguments(argc, argv);
     int result = 0;
     try {
+        const Arguments arguments = parseArguments(argc, argv);
         if (SDL_Init(0) != 0) {
             throw std::runtime_error(
                 std::string(
@@ -2880,7 +3183,11 @@ int main(int argc, char** argv) {
                 SDL_GetError());
         }
         const std::filesystem::path stateDirectory =
-            editorStateDirectory();
+            arguments.stateDirectory.empty()
+                ? editorStateDirectory()
+                : std::filesystem::absolute(
+                      arguments.stateDirectory)
+                      .lexically_normal();
         const auto rendererPreference =
             arguments.rendererPreference.value_or(
                 loadRendererPreference(
@@ -2893,18 +3200,33 @@ int main(int argc, char** argv) {
                         currentEditorHostPlatform());
         EditorGraphics graphics =
             createEditorGraphics(
-                resolvedRendererPreference);
+                resolvedRendererPreference,
+                !arguments.hidden,
+                !arguments.hidden);
         Window& window = *graphics.window;
         IRenderBackend& renderer =
             *graphics.renderer;
-        WindowPlacement windowPlacement =
-            loadWindowPlacement(stateDirectory);
-        applyWindowPlacement(
-            window.getSDLWindow(),
-            windowPlacement);
-        updateWindowPlacement(
-            window.getSDLWindow(),
-            windowPlacement);
+        WindowPlacement windowPlacement;
+        if (!arguments.hidden) {
+            windowPlacement =
+                loadWindowPlacement(stateDirectory);
+            applyWindowPlacement(
+                window.getSDLWindow(),
+                windowPlacement);
+            updateWindowPlacement(
+                window.getSDLWindow(),
+                windowPlacement);
+        }
+        std::cerr
+            << "[PhlosionEditor][Automation] hidden="
+            << (arguments.hidden ? "true" : "false")
+            << " state=" << stateDirectory.generic_string()
+            << " fixed_delta="
+            << (arguments.fixedDeltaSeconds
+                    ? std::to_string(
+                          *arguments.fixedDeltaSeconds)
+                    : "realtime")
+            << '\n';
 
         int width = 0;
         int height = 0;
@@ -2962,7 +3284,9 @@ int main(int argc, char** argv) {
                 editor);
 
         std::vector<std::string> recentProjects =
-            loadRecentProjects(stateDirectory);
+            arguments.hidden
+                ? std::vector<std::string>{}
+                : loadRecentProjects(stateDirectory);
         std::unique_ptr<LoadedProject> project;
         std::optional<std::filesystem::path> pendingProject;
         if (!arguments.project.empty()) {
@@ -2998,13 +3322,27 @@ int main(int argc, char** argv) {
         std::filesystem::path restartProjectPath;
         using Clock = std::chrono::steady_clock;
         auto previous = Clock::now();
+        std::vector<double> cpuFrameMilliseconds;
+        std::vector<double> presentWaitMilliseconds;
+        std::vector<double> gpuFrameMilliseconds;
+        if (arguments.frameLimit > 0) {
+            cpuFrameMilliseconds.reserve(
+                static_cast<std::size_t>(arguments.frameLimit));
+            presentWaitMilliseconds.reserve(
+                static_cast<std::size_t>(arguments.frameLimit));
+            gpuFrameMilliseconds.reserve(
+                static_cast<std::size_t>(arguments.frameLimit));
+        }
 
         while (running) {
             const auto now = Clock::now();
-            const float deltaSeconds = std::min(
-                0.05f,
-                std::chrono::duration<float>(
-                    now - previous).count());
+            const auto frameStart = now;
+            const float deltaSeconds =
+                arguments.fixedDeltaSeconds.value_or(
+                    std::min(
+                        0.05f,
+                        std::chrono::duration<float>(
+                            now - previous).count()));
             previous = now;
             if (playState ==
                 engine::editor::EditorPlayState::Playing) {
@@ -3041,9 +3379,11 @@ int main(int argc, char** argv) {
                     camera.setAspectRatio(
                         static_cast<float>(width) /
                         static_cast<float>(height));
-                    updateWindowPlacement(
-                        window.getSDLWindow(),
-                        windowPlacement);
+                    if (!arguments.hidden) {
+                        updateWindowPlacement(
+                            window.getSDLWindow(),
+                            windowPlacement);
+                    }
                 } else if (
                     event.type == SDL_WINDOWEVENT &&
                     (event.window.event ==
@@ -3052,9 +3392,11 @@ int main(int argc, char** argv) {
                          SDL_WINDOWEVENT_MAXIMIZED ||
                      event.window.event ==
                          SDL_WINDOWEVENT_RESTORED)) {
-                    updateWindowPlacement(
-                        window.getSDLWindow(),
-                        windowPlacement);
+                    if (!arguments.hidden) {
+                        updateWindowPlacement(
+                            window.getSDLWindow(),
+                            windowPlacement);
+                    }
                 } else if (
                     project &&
                     activeViewport ==
@@ -3130,9 +3472,11 @@ int main(int argc, char** argv) {
                     promoteRecentProject(
                         recentProjects,
                         candidate->descriptorPath);
-                    saveRecentProjects(
-                        stateDirectory,
-                        recentProjects);
+                    if (!arguments.hidden) {
+                        saveRecentProjects(
+                            stateDirectory,
+                            recentProjects);
+                    }
                     project = std::move(candidate);
                     browserError.clear();
                     browserStatus = "Project loaded.";
@@ -3219,14 +3563,29 @@ int main(int argc, char** argv) {
                                     selectedAssetPreviewIndex,
                                     previewError)) {
                                 if (arguments
-                                        .assetPreviewAnimation) {
+                                        .assetPreviewAnimation ||
+                                    arguments
+                                        .assetPreviewQuality ||
+                                    arguments.assetPreviewTime) {
+                                    const auto currentOptions =
+                                        project->runtime->
+                                            assetPreviewInfo();
                                     project->runtime->
                                         setAssetPreviewOptions(
                                             engine::editor::
                                                 EditorProjectAssetPreviewOptions{
                                                     .animationIndex =
-                                                        *arguments
-                                                             .assetPreviewAnimation,
+                                                        arguments
+                                                            .assetPreviewAnimation
+                                                            .value_or(
+                                                                currentOptions
+                                                                    .animationIndex),
+                                                    .graphicsQuality =
+                                                        arguments
+                                                            .assetPreviewQuality
+                                                            .value_or(
+                                                                currentOptions
+                                                                    .graphicsQuality),
                                                     .seekTimeSeconds =
                                                         arguments.assetPreviewTime
                                                             .value_or(0.0f),
@@ -3617,6 +3976,17 @@ int main(int argc, char** argv) {
             editor.render();
             renderer.endFrame();
             window.swapBuffers();
+            cpuFrameMilliseconds.push_back(
+                elapsedMilliseconds(frameStart));
+            IRenderBackend::BackendFrameTimings frameTimings{};
+            if (renderer.getLastFrameTimings(frameTimings)) {
+                presentWaitMilliseconds.push_back(
+                    frameTimings.presentWaitMs);
+                if (frameTimings.gpuFrameValid) {
+                    gpuFrameMilliseconds.push_back(
+                        frameTimings.gpuFrameMs);
+                }
+            }
 
             assetPreviewWidth =
                 std::max(1, actions.assetPreviewWidth);
@@ -4421,12 +4791,25 @@ int main(int argc, char** argv) {
             }
         }
 
-        updateWindowPlacement(
-            window.getSDLWindow(),
-            windowPlacement);
-        saveWindowPlacement(
-            stateDirectory,
-            windowPlacement);
+        writeAutomationMetrics(
+            arguments,
+            project.get(),
+            renderer,
+            width,
+            height,
+            frameCount,
+            selectedAssetPreviewIndex,
+            cpuFrameMilliseconds,
+            presentWaitMilliseconds,
+            gpuFrameMilliseconds);
+        if (!arguments.hidden) {
+            updateWindowPlacement(
+                window.getSDLWindow(),
+                windowPlacement);
+            saveWindowPlacement(
+                stateDirectory,
+                windowPlacement);
+        }
         project.reset();
         sceneSurface->shutdown();
         gameSurface->shutdown();

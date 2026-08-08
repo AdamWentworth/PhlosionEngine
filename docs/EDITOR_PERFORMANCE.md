@@ -28,3 +28,38 @@ Use this repeatable smoke benchmark from the engine repository:
 
 Run once without `--game-preview` to measure editing startup, then with
 `--game-preview=<id>` to measure the explicitly requested gameplay warmup.
+
+For unattended visual/performance qualification, use the automation switches
+instead of starting an interactive editor:
+
+```powershell
+.\build\Debug\PhlosionEditor.exe `
+  --project=D:\Projects\YourGame\phlosion.project.json `
+  --renderer=vulkan --hidden `
+  --state-directory=D:\Temp\phlosion-editor-state `
+  --asset-preview=Example.phlo `
+  --asset-preview-quality=ultra `
+  --asset-preview-animation=bind --asset-preview-time=0 `
+  --fixed-delta=0.016666667 --frames=90 `
+  --metrics-output=D:\Temp\phlosion-editor-metrics.json
+```
+
+`--hidden` creates the SDL window with `SDL_WINDOW_HIDDEN` and suppresses the
+startup raise/focus request, persistent recent-project writes, and persistent
+window placement. It also disables vsync so frame metrics measure work rather
+than the presentation interval. Pair it with a dedicated `--state-directory`
+so ImGui layout state cannot affect or overwrite the interactive editor.
+
+`--asset-preview-quality` accepts `low`, `medium`, `high`, `ultra`, or `0`-`3`.
+`--fixed-delta` makes animation/simulation input deterministic. The metrics
+document records project-load phases, all-frame and post-warmup CPU/present/GPU
+summaries, last-frame backend submission statistics, project statistics, and
+selected-asset package bytes. The current direct PHLO preview has no decoded
+object-cache layer, so those cache hit/miss fields are explicitly `null` rather
+than fabricated; backend cached-draw counts remain available.
+
+Screenshot capture is backend-owned through
+`PHLOSION_BACKEND_SCREENSHOT_PATH` and
+`PHLOSION_BACKEND_SCREENSHOT_FRAME`. Project repositories should wrap these
+low-level switches in a checked baseline command that verifies editor/plugin
+compatibility, isolates state, and rejects renderer fallback.
