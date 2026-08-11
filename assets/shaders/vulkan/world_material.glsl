@@ -226,21 +226,117 @@ vec3 evaluateWorldMaterial(vec3 albedo,
     specularIbl *= computeSpecularOcclusion(normalDotView, occlusion, roughness);
     vec3 ambient = diffuseWeight * albedo * 0.56;
     vec3 shaded = direct + diffuseIbl + specularIbl + ambient;
-    if (specularIblScale < 0.5 &&
-        max(emissiveFactor.r, max(emissiveFactor.g, emissiveFactor.b)) <=
-            1e-6) {
-        // Match the plain Game Freak Eye response used by the other
-        // backends: pale recessed eye layers retain a modest diffuse fill,
-        // while the proportional blend preserves their dark pupils.
-        shaded = mix(shaded, albedo, 0.25);
-    }
     vec3 emissive = clamp(
         sampleWorldMaterialTexture(
             emissiveMap, uv, textureDetailLodBias).rgb,
         0.0,
         1.0) *
                     max(emissiveFactor, vec3(0.0));
+    if (specularIblScale < 0.5) {
+        // PLA may encode only a sparse layer-5 catchlight in this map. Gate
+        // the plain-Eye diffuse fill per pixel so authored emissive regions
+        // stay exact without darkening the rest of Geodude's eye.
+        float emissiveCoverage = clamp(
+            max(emissive.r, max(emissive.g, emissive.b)),
+            0.0,
+            1.0);
+        shaded = mix(
+            shaded,
+            albedo,
+            0.25 * (1.0 - emissiveCoverage));
+    }
     return max(shaded + emissive, vec3(0.0));
+}
+
+vec3 evaluateNativeGastlyFace(vec3 albedo,
+                              vec2 uv,
+                              vec3 position,
+                              vec3 sourceNormal,
+                              vec4 sourceTangent,
+                              vec3 cameraPosition,
+                              vec3 cameraForwardPacked,
+                              vec3 cameraTarget,
+                              sampler2D normalMap,
+                              sampler2D shadowSpecMap,
+                              sampler2D occlusionMap,
+                              sampler2D rimMaskMap,
+                              float textureDetailLodBias,
+                              float normalScale,
+                              float occlusionStrength,
+                              bool concealTongue) {
+    vec3 normal = mappedWorldNormal(
+        uv,
+        position,
+        sourceNormal,
+        sourceTangent,
+        normalMap,
+        textureDetailLodBias,
+        normalScale);
+    vec3 cameraForward = safeNormalize(
+        cameraForwardPacked,
+        normalize(vec3(0.0, -0.6139406, -0.7893522)));
+    vec3 cameraRight = cross(cameraForward, vec3(0.0, 1.0, 0.0));
+    if (dot(cameraRight, cameraRight) < 1e-6) {
+        cameraRight = cross(cameraForward, vec3(0.0, 0.0, 1.0));
+    }
+    cameraRight = safeNormalize(cameraRight, vec3(1.0, 0.0, 0.0));
+    vec3 cameraUp = safeNormalize(
+        cross(cameraRight, cameraForward),
+        vec3(0.0, 1.0, 0.0));
+    vec3 view = safeNormalize(cameraPosition - position, -cameraForward);
+    vec3 light = safeNormalize(
+        cameraRight * 0.45 + cameraUp * 0.86 - cameraForward * 0.24,
+        vec3(0.45, 0.86, 0.24));
+    vec4 shadowSpec = sampleWorldMaterialTexture(
+        shadowSpecMap,
+        uv,
+        textureDetailLodBias);
+    float tongueMask = smoothstep(0.48, 0.52, shadowSpec.a);
+    if (concealTongue && tongueMask > 0.5) {
+        discard;
+    }
+    float occlusion = mix(
+        1.0,
+        sampleWorldMaterialTexture(
+            occlusionMap,
+            uv,
+            textureDetailLodBias).r,
+        clamp(occlusionStrength, 0.0, 1.0));
+    float halfLambert = clamp(dot(normal, light) * 0.5 + 0.6, 0.0, 1.0);
+    float shadowAmount = (1.0 - halfLambert) * 0.7;
+    vec3 shaded = mix(albedo, shadowSpec.rgb, shadowAmount) * occlusion;
+
+    vec3 halfVector = safeNormalize(view + light, normal);
+    float sourceSpecularMask = max(shadowSpec.a - 0.5 * tongueMask, 0.0);
+    float specular = pow(max(dot(normal, halfVector), 0.0), 32.0) *
+        sourceSpecularMask;
+    // Z-A gives the tongue a broad, soft highlight and much gentler
+    // self-shadowing than the surrounding spectral body. Applying the body
+    // shadow ramp to it flattened the central groove into hard-looking slabs.
+    float tongueDiffuse = mix(
+        0.82,
+        1.06,
+        smoothstep(0.0, 1.0, halfLambert));
+    vec3 tongueShaded = albedo * tongueDiffuse * mix(1.0, occlusion, 0.25);
+    float ndh = max(dot(normal, halfVector), 0.0);
+    float tongueSpecular =
+        pow(ndh, 12.0) * 0.105 + pow(ndh, 48.0) * 0.04;
+    shaded = mix(shaded, tongueShaded, tongueMask);
+    specular = mix(specular, tongueSpecular, tongueMask);
+    float edge = clamp(1.0 - max(dot(normal, view), 0.0), 0.0, 1.0);
+    float rimDomain = clamp((edge - 0.4) / 0.6, 0.0, 1.0);
+    float rimMask = sampleWorldMaterialTexture(
+        rimMaskMap,
+        uv,
+        textureDetailLodBias).r;
+    float rim = pow(rimDomain, 5.0) * 0.8 * rimMask;
+    float backRim = clamp(-dot(normal, view), 0.0, 1.0) *
+        0.08 * rimMask;
+    rim *= mix(1.0, 0.18, tongueMask);
+    backRim *= mix(1.0, 0.18, tongueMask);
+    return max(
+        shaded + vec3(specular) + albedo * (rim + backRim),
+        vec3(0.0));
 }
 
 vec3 evaluateNativeEyeClearCoat(vec3 linearColor,

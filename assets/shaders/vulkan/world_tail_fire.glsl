@@ -42,9 +42,12 @@ vec4 evaluateNativeLayeredUnlitDisplaced(
     coverage += weights.b * (1.0 - coverage);
     color = mix(color, base.rgb, weights.a);
     coverage += weights.a * (1.0 - coverage);
+    float alpha = materialState.timingFlagsAtlas.y > 2.5
+        ? clamp(vertexColor.a, 0.0, 1.0)
+        : 1.0;
     return vec4(
         color / max(coverage, 1e-6) * emissionIntensity,
-        1.0);
+        alpha);
 }
 
 float tailFireHash11(float value) {

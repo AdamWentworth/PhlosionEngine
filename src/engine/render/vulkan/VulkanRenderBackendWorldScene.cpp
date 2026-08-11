@@ -143,6 +143,7 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     texture.blendMode = material.blendMode;
     texture.dualSourceBlendEnabled = material.dualSourceBlendEnabled;
     texture.materialMode = material.materialMode;
+    texture.clipSpaceDepthBias = material.clipSpaceDepthBias;
     texture.alphaCutoff = material.alphaCutoff;
     texture.normalScale = material.normalScale;
     texture.metallicFactor = material.metallicFactor;

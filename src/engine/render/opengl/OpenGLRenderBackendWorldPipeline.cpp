@@ -1972,8 +1972,34 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             vec4 surface = vec4(
                 color / max(coverage, 1e-6) * emissionIntensity,
                 1.0);
-            surface.a = 1.0;
+            // SSSEffect subtype 3 uses the complete dynamic alpha. Cached
+            // world-scene draws carry it in vColor; direct indexed draws
+            // carry it in uVertexColorMul. Ignoring either path leaves hidden
+            // smoke puffs visible on one of the submission routes.
+            surface.a = uMaterialFlags > 2.5
+                ? clamp(vColor.a * uVertexColorMul.a, 0.0, 1.0)
+                : 1.0;
             return surface;
+        }
+
+        vec3 applyNativeGastlySmokeLighting(vec3 color) {
+            vec3 normal = normalize(vWorldNormal);
+            vec3 toCamera = uCameraPos - vWorldPos;
+            float toCameraLengthSquared = dot(toCamera, toCamera);
+            vec3 viewDirection = toCameraLengthSquared > 1e-10
+                ? toCamera * inversesqrt(toCameraLengthSquared)
+                : vec3(0.0, 0.0, 1.0);
+            float facing = clamp(dot(normal, viewDirection), -1.0, 1.0);
+            // Z-A IkCharacter: HalfLambertBias=.1, ShadowStrength=.7,
+            // RimLightOffset=.2, RimLightContrast=2,
+            // RimLightIntensity=.8, BackRimLightIntensity=.01.
+            float halfLambert = clamp(facing * 0.5 + 0.6, 0.0, 1.0);
+            float diffuse = mix(1.0, halfLambert, 0.7);
+            float edge = clamp(1.0 - max(facing, 0.0), 0.0, 1.0);
+            float rimDomain = clamp((edge - 0.2) / 0.8, 0.0, 1.0);
+            float rim = rimDomain * rimDomain * 0.8;
+            float backRim = clamp(-facing, 0.0, 1.0) * 0.01;
+            return max(color * (diffuse + rim + backRim), vec3(0.0));
         }
 
         vec4 evalAuthoredFireMesh() {
@@ -2377,17 +2403,6 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 ambientLight = kD * albedo * ambientColor * ambientIntensity;
             vec3 shaded = direct + ibl + ambientLight;
 
-            // Plain Game Freak Eye materials without an authored
-            // highlight/emissive payload use a softer diffuse response than
-            // the body PBR shader. Preserve a modest amount of their baked
-            // layer color so pale recessed eyes do not collapse to charcoal;
-            // proportional fill keeps dark pupils dark, while glinting eye
-            // materials retain their authored response.
-            if (uMaterialMode > 27.5 && uMaterialMode < 28.5 &&
-                uMaterialRect1.w < -0.5 && uUseEmissiveTexture < 0.5) {
-                shaded = mix(shaded, albedo, 0.25);
-            }
-
             vec3 emissiveTex = clamp(
                 sampleTextureWithWrap(
                     uEmissiveTexture,
@@ -2397,7 +2412,113 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 0.0,
                 1.0);
             vec3 emissive = emissiveTex * max(uEmissiveFactor, vec3(0.0));
+            // PLA's plain Eye shader can carry a sparse layer-5 catchlight in
+            // the emissive texture while the rest of the eye still needs its
+            // softer native diffuse response. A material-wide emissive guard
+            // incorrectly disabled that response for Geodude's entire eye.
+            // Gate the fill per pixel instead: authored emissive regions stay
+            // exact, while non-emissive sclera/iris pixels retain their baked
+            // layer color. The proportional blend still preserves pupils.
+            if (uMaterialMode > 27.5 && uMaterialMode < 28.5 &&
+                uMaterialRect1.w < -0.5) {
+                float emissiveCoverage = clamp(
+                    max(emissive.r, max(emissive.g, emissive.b)),
+                    0.0,
+                    1.0);
+                shaded = mix(
+                    shaded,
+                    albedo,
+                    0.25 * (1.0 - emissiveCoverage));
+            }
             return max(shaded + emissive, vec3(0.0));
+        }
+
+        vec3 applyNativeGastlyFace(
+            vec3 albedo,
+            vec3 normal,
+            vec2 sampleUv,
+            vec2 uvDx,
+            vec2 uvDy) {
+            vec3 cameraForward = safeNormalize(
+                uCameraForward,
+                normalize(vec3(0.0, -0.6139406, -0.7893522)));
+            vec3 cameraRight = cross(cameraForward, vec3(0.0, 1.0, 0.0));
+            if (dot(cameraRight, cameraRight) < 1e-6) {
+                cameraRight = cross(cameraForward, vec3(0.0, 0.0, 1.0));
+            }
+            cameraRight = safeNormalize(cameraRight, vec3(1.0, 0.0, 0.0));
+            vec3 cameraUp = safeNormalize(
+                cross(cameraRight, cameraForward),
+                vec3(0.0, 1.0, 0.0));
+            vec3 view = safeNormalize(uCameraPos - vWorldPos, -cameraForward);
+            vec3 light = safeNormalize(
+                cameraRight * 0.45 + cameraUp * 0.86 - cameraForward * 0.24,
+                vec3(0.45, 0.86, 0.24));
+            vec4 shadowSpec = uUseMetallicRoughnessTexture > 0.5
+                ? sampleTextureWithWrap(
+                      uMetallicRoughnessTexture,
+                      sampleUv,
+                      uvDx,
+                      uvDy)
+                : vec4(0.0);
+            float tongueMask = smoothstep(0.48, 0.52, shadowSpec.a);
+            if (uMaterialRect0.w > 0.5 && tongueMask > 0.5) {
+                discard;
+            }
+            float occlusion = uUseOcclusionTexture > 0.5
+                ? mix(
+                      1.0,
+                      sampleTextureWithWrap(
+                          uOcclusionTexture,
+                          sampleUv,
+                          uvDx,
+                          uvDy).r,
+                      clamp(uOcclusionStrength, 0.0, 1.0))
+                : 1.0;
+            float halfLambert = clamp(
+                dot(normal, light) * 0.5 + 0.6,
+                0.0,
+                1.0);
+            float shadowAmount = (1.0 - halfLambert) * 0.7;
+            vec3 shaded = mix(albedo, shadowSpec.rgb, shadowAmount) * occlusion;
+            vec3 halfVector = safeNormalize(view + light, normal);
+            float sourceSpecularMask = max(
+                shadowSpec.a - 0.5 * tongueMask,
+                0.0);
+            float specular = pow(
+                max(dot(normal, halfVector), 0.0),
+                32.0) * sourceSpecularMask;
+            float tongueDiffuse = mix(
+                0.82,
+                1.06,
+                smoothstep(0.0, 1.0, halfLambert));
+            vec3 tongueShaded = albedo * tongueDiffuse *
+                mix(1.0, occlusion, 0.25);
+            float ndh = max(dot(normal, halfVector), 0.0);
+            float tongueSpecular = pow(ndh, 12.0) * 0.105 +
+                pow(ndh, 48.0) * 0.04;
+            shaded = mix(shaded, tongueShaded, tongueMask);
+            specular = mix(specular, tongueSpecular, tongueMask);
+            float edge = clamp(
+                1.0 - max(dot(normal, view), 0.0),
+                0.0,
+                1.0);
+            float rimDomain = clamp((edge - 0.4) / 0.6, 0.0, 1.0);
+            float rimMask = uUseEmissiveTexture > 0.5
+                ? sampleTextureWithWrap(
+                      uEmissiveTexture,
+                      sampleUv,
+                      uvDx,
+                      uvDy).r
+                : 1.0;
+            float rim = pow(rimDomain, 5.0) * 0.8 * rimMask;
+            float backRim = clamp(-dot(normal, view), 0.0, 1.0) *
+                0.08 * rimMask;
+            rim *= mix(1.0, 0.18, tongueMask);
+            backRim *= mix(1.0, 0.18, tongueMask);
+            return max(
+                shaded + vec3(specular) + albedo * (rim + backRim),
+                vec3(0.0));
         }
 
         vec3 applyNativeEyeClearCoat(vec3 linearColor, vec3 n) {
@@ -2477,6 +2598,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             }
             if (uMaterialMode > 26.5 && uMaterialMode < 27.5) {
                 vec4 surface = evalNativeLayeredUnlitDisplaced();
+                if (uMaterialFlags > 2.5) {
+                    surface.rgb = applyNativeGastlySmokeLighting(surface.rgb);
+                }
                 const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
                 // Preserve the hue separation in Scarlet's authored HDR
                 // flame layers; the generic viewer ACES fit washes both into
@@ -2653,7 +2777,15 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             }
             vec4 tex = vec4(1.0);
             vec3 outLinear = clamp(vColor.rgb * uVertexColorMul.rgb, 0.0, 1.0);
-            vec2 rawUv = vUv;
+            bool animatedEyeMaterial =
+                (uMaterialMode > 28.5 && uMaterialMode < 30.5);
+            vec2 rawUv = animatedEyeMaterial
+                ? vec2(
+                      vUv.x * uLightProjectionUvRowU.x +
+                          uLightProjectionUvRowU.z,
+                      vUv.y * uLightProjectionUvRowU.y +
+                          uLightProjectionUvRowU.w)
+                : vUv;
             vec2 wrappedUv = vec2(applyWrap(rawUv.x, uWrapS), applyWrap(rawUv.y, uWrapT));
             bool clampS = abs(uWrapS - 33071.0) < 0.5;
             bool clampT = abs(uWrapT - 33071.0) < 0.5;
@@ -2663,7 +2795,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             // Keep derivative source aligned with D3D12 path for exact sampler parity.
             vec2 uvDx = dFdx(wrappedUv);
             vec2 uvDy = dFdy(wrappedUv);
-            float pbrDebugView = uMaterialFlipbook1.w;
+            float pbrDebugView = animatedEyeMaterial
+                ? 0.0
+                : uMaterialFlipbook1.w;
             if (uUseTexture > 0.5) {
                 tex = sampleTextureWithWrap(uTexture, wrappedUv, uvDx, uvDy);
                 outLinear = clamp(tex.rgb, 0.0, 1.0) * outLinear;
@@ -2709,8 +2843,25 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             }
             if (uMaterialMode >= 1.5) {
                 vec3 n = computeMappedNormal(wrappedUv, uvDx, uvDy);
-                outLinear = applyWorldLitModel(outLinear, n, wrappedUv, uvDx, uvDy);
-                if (uMaterialMode > 27.5 && uMaterialMode < 28.5) {
+                bool nativeGastlyFace =
+                    uMaterialMode > 30.5 &&
+                    uMaterialFlags > 3.5 &&
+                    uMaterialFlags < 4.5;
+                outLinear = nativeGastlyFace
+                    ? applyNativeGastlyFace(
+                          outLinear,
+                          n,
+                          wrappedUv,
+                          uvDx,
+                          uvDy)
+                    : applyWorldLitModel(
+                          outLinear,
+                          n,
+                          wrappedUv,
+                          uvDx,
+                          uvDy);
+                if ((uMaterialMode > 27.5 && uMaterialMode < 28.5) ||
+                    (uMaterialMode > 29.5 && uMaterialMode < 30.5)) {
                     outLinear = applyNativeEyeClearCoat(outLinear, n);
                 }
             }

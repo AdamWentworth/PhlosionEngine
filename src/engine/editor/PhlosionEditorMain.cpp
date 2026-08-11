@@ -2172,25 +2172,36 @@ void rebuildProjectHierarchy(
     appendFolder(appendFolder, root, 2);
 }
 
-void refreshAssetPreviewView(LoadedProject& project) {
+void refreshAssetPreviewView(
+    LoadedProject& project,
+    bool rebuildAnimationCatalog = false) {
     const auto info =
         project.runtime->assetPreviewInfo();
-    project.assetPreviewAnimations.clear();
-    project.assetPreviewAnimations.reserve(
-        info.animationCount);
-    for (std::size_t index = 0u;
-         index < info.animationCount;
-         ++index) {
-        const auto animation =
-            project.runtime->assetPreviewAnimation(index);
-        project.assetPreviewAnimations.push_back(
-            engine::editor::WorkspaceAssetAnimation{
-                .name =
-                    animation.name
-                        ? animation.name
-                        : "Unnamed clip",
-                .durationSeconds =
-                    animation.durationSeconds});
+    const std::string_view infoAssetId =
+        info.assetId ? info.assetId : "";
+    rebuildAnimationCatalog =
+        rebuildAnimationCatalog ||
+        project.assetPreviewView.assetId != infoAssetId ||
+        project.assetPreviewAnimations.size() !=
+            info.animationCount;
+    if (rebuildAnimationCatalog) {
+        project.assetPreviewAnimations.clear();
+        project.assetPreviewAnimations.reserve(
+            info.animationCount);
+        for (std::size_t index = 0u;
+             index < info.animationCount;
+             ++index) {
+            const auto animation =
+                project.runtime->assetPreviewAnimation(index);
+            project.assetPreviewAnimations.push_back(
+                engine::editor::WorkspaceAssetAnimation{
+                    .name =
+                        animation.name
+                            ? animation.name
+                            : "Unnamed clip",
+                    .durationSeconds =
+                        animation.durationSeconds});
+        }
     }
     project.assetPreviewView =
         engine::editor::WorkspaceAssetPreview{
@@ -2283,7 +2294,7 @@ bool selectAssetPreview(
         return false;
     }
     selectedAssetPreviewIndex = assetIndex;
-    refreshAssetPreviewView(project);
+    refreshAssetPreviewView(project, true);
     resetAssetPreviewCamera(camera, project.assetPreviewView);
     project.status =
         "Previewing " + asset.typeName + ": " +

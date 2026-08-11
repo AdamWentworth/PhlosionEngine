@@ -1758,8 +1758,39 @@ float4 evalNativeLayeredUnlitDisplaced(PSIn i) {
   float4 surface = float4(
       color / max(coverage, 1e-6f) * emissionIntensity,
       1.0f);
-  surface.a = 1.0f;
+  // SSSEffect subtype 3 uses the complete dynamic alpha. World-scene draws
+  // carry it in i.col; direct indexed draws carry it in uVertexColorMulA.
+  // Authored Unlit fire remains opaque.
+  surface.a = uMaterialFlags > 2.5f
+      ? saturate(i.col.a * uVertexColorMulA)
+      : 1.0f;
   return surface;
+}
+
+float3 applyNativeGastlySmokeLighting(PSIn i, float3 color) {
+  float3 normal = normalize(i.worldNormal);
+  float3 cameraPos = float3(
+      uMaterialFlipbook0Cols,
+      uMaterialFlipbook0Rows,
+      uMaterialFlipbook0Frames);
+  float3 toCamera = cameraPos - i.worldPos;
+  float toCameraLengthSquared = dot(toCamera, toCamera);
+  float3 viewDirection = toCameraLengthSquared > 1e-10f
+      ? toCamera * rsqrt(toCameraLengthSquared)
+      : float3(0.0f, 0.0f, 1.0f);
+  float facing = clamp(dot(normal, viewDirection), -1.0f, 1.0f);
+  // Z-A IkCharacter: HalfLambertBias=.1, ShadowStrength=.7,
+  // RimLightOffset=.2, RimLightContrast=2, RimLightIntensity=.8,
+  // BackRimLightIntensity=.01.
+  float halfLambert = saturate(facing * 0.5f + 0.6f);
+  float diffuse = lerp(1.0f, halfLambert, 0.7f);
+  float edge = saturate(1.0f - max(facing, 0.0f));
+  float rimDomain = saturate((edge - 0.2f) / 0.8f);
+  float rim = rimDomain * rimDomain * 0.8f;
+  float backRim = saturate(-facing) * 0.01f;
+  return max(
+      color * (diffuse + rim + backRim),
+      float3(0.0f, 0.0f, 0.0f));
 }
 
 float4 evalAuthoredFireMesh(PSIn i) {
@@ -2047,6 +2078,111 @@ float3 computeMappedNormal(PSIn i,
   return mapped;
 }
 
+float3 applyNativeGastlyFace(PSIn i,
+                             bool isFrontFace,
+                             float3 albedo,
+                             float2 sampleUv,
+                             float2 uvDx,
+                             float2 uvDy,
+                             bool useNormalTexture,
+                             bool useMetallicRoughnessTexture,
+                             bool useOcclusionTexture,
+                             bool useEmissiveTexture,
+                             float normalScale,
+                             float occlusionStrength,
+                             float3 cameraPos,
+                             float3 cameraForwardPacked,
+                             float3 cameraTarget,
+                             bool concealTongue) {
+  float3 normal = computeMappedNormal(
+      i,
+      isFrontFace,
+      sampleUv,
+      uvDx,
+      uvDy,
+      useNormalTexture,
+      normalScale);
+  float3 cameraForward = safeNormalize(
+      cameraForwardPacked,
+      normalize(float3(0.0f, -0.6139406f, -0.7893522f)));
+  float3 cameraRight = cross(cameraForward, float3(0.0f, 1.0f, 0.0f));
+  if (dot(cameraRight, cameraRight) < 1e-6f) {
+    cameraRight = cross(cameraForward, float3(0.0f, 0.0f, 1.0f));
+  }
+  cameraRight = safeNormalize(cameraRight, float3(1.0f, 0.0f, 0.0f));
+  float3 cameraUp = safeNormalize(
+      cross(cameraRight, cameraForward),
+      float3(0.0f, 1.0f, 0.0f));
+  float3 view = safeNormalize(cameraPos - i.worldPos, -cameraForward);
+  float3 light = safeNormalize(
+      cameraRight * 0.45f + cameraUp * 0.86f - cameraForward * 0.24f,
+      float3(0.45f, 0.86f, 0.24f));
+  float4 shadowSpec = useMetallicRoughnessTexture
+      ? sampleTextureWithWrap(
+            gMetallicRoughnessTex,
+            sampleUv,
+            uvDx,
+            uvDy,
+            uWrapS,
+            uWrapT)
+      : float4(0.0f, 0.0f, 0.0f, 0.0f);
+  float occlusion = useOcclusionTexture
+      ? lerp(
+            1.0f,
+            sampleTextureWithWrap(
+                gOcclusionTex,
+                sampleUv,
+                uvDx,
+                uvDy,
+                uWrapS,
+                uWrapT).r,
+            saturate(occlusionStrength))
+      : 1.0f;
+  float halfLambert = saturate(dot(normal, light) * 0.5f + 0.6f);
+  float shadowAmount = (1.0f - halfLambert) * 0.7f;
+  float3 shaded = lerp(albedo, shadowSpec.rgb, shadowAmount) * occlusion;
+  float3 halfVector = safeNormalize(view + light, normal);
+  float tongueMask = smoothstep(0.48f, 0.52f, shadowSpec.a);
+  if (concealTongue && tongueMask > 0.5f) {
+    discard;
+  }
+  float sourceSpecularMask = max(
+      shadowSpec.a - 0.5f * tongueMask,
+      0.0f);
+  float specular = pow(max(dot(normal, halfVector), 0.0f), 32.0f) *
+      sourceSpecularMask;
+  float tongueDiffuse = lerp(
+      0.82f,
+      1.06f,
+      smoothstep(0.0f, 1.0f, halfLambert));
+  float3 tongueShaded = albedo * tongueDiffuse *
+      lerp(1.0f, occlusion, 0.25f);
+  float ndh = max(dot(normal, halfVector), 0.0f);
+  float tongueSpecular = pow(ndh, 12.0f) * 0.105f +
+      pow(ndh, 48.0f) * 0.04f;
+  shaded = lerp(shaded, tongueShaded, tongueMask);
+  specular = lerp(specular, tongueSpecular, tongueMask);
+  float edge = saturate(1.0f - max(dot(normal, view), 0.0f));
+  float rimDomain = saturate((edge - 0.4f) / 0.6f);
+  float rimMask = useEmissiveTexture
+      ? sampleTextureWithWrap(
+            gEmissiveTex,
+            sampleUv,
+            uvDx,
+            uvDy,
+            uWrapS,
+            uWrapT).r
+      : 1.0f;
+  float rim = pow(rimDomain, 5.0f) * 0.8f * rimMask;
+  float backRim = saturate(-dot(normal, view)) * 0.08f * rimMask;
+  rim *= lerp(1.0f, 0.18f, tongueMask);
+  backRim *= lerp(1.0f, 0.18f, tongueMask);
+  return max(
+      shaded + float3(specular, specular, specular) +
+          albedo * (rim + backRim),
+      float3(0.0f, 0.0f, 0.0f));
+}
+
 float3 applyWorldLitModel(PSIn i,
                           bool isFrontFace,
                           float3 linearColor,
@@ -2138,21 +2274,19 @@ float3 applyWorldLitModel(PSIn i,
   float3 ambientLight = kD * albedo * ambientColor * ambientIntensity;
   float3 shaded = direct + ibl + ambientLight;
 
-  // Plain Game Freak Eye materials without an authored highlight/emissive
-  // payload use a softer diffuse response than the body PBR shader. Keep a
-  // modest amount of the baked layer color visible so pale sclerae do not
-  // collapse to charcoal when their small, recessed normals face away from
-  // the viewer light. The proportional fill preserves dark pupils, and the
-  // emissive guard leaves glinting Eye/EyeClearCoat materials unchanged.
-  if (uMaterialMode > 27.5f && uMaterialMode < 28.5f &&
-      uMaterialTimeSec < -0.5f && !useEmissiveTexture) {
-    shaded = lerp(shaded, albedo, 0.25f);
-  }
-
   float3 emissiveTex = useEmissiveTexture
       ? saturate(sampleTextureWithWrap(gEmissiveTex, sampleUv, uvDx, uvDy, uWrapS, uWrapT).rgb)
       : float3(1.0f, 1.0f, 1.0f);
   float3 emissive = emissiveTex * max(emissiveFactor, float3(0.0f, 0.0f, 0.0f));
+  // PLA's plain Eye shader can carry a sparse layer-5 catchlight in the
+  // emissive texture while the rest of the eye still needs its softer native
+  // diffuse response. Gate the fill per pixel so the catchlight stays exact
+  // without making Geodude's non-emissive sclera/iris collapse to charcoal.
+  if (uMaterialMode > 27.5f && uMaterialMode < 28.5f &&
+      uMaterialTimeSec < -0.5f) {
+    float emissiveCoverage = saturate(max(emissive.r, max(emissive.g, emissive.b)));
+    shaded = lerp(shaded, albedo, 0.25f * (1.0f - emissiveCoverage));
+  }
   return max(shaded + emissive, float3(0.0f, 0.0f, 0.0f));
 }
 
@@ -2217,6 +2351,9 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   }
   if (uMaterialMode > 26.5f && uMaterialMode < 27.5f) {
     float4 surface = evalNativeLayeredUnlitDisplaced(i);
+    if (uMaterialFlags > 2.5f) {
+      surface.rgb = applyNativeGastlySmokeLighting(i, surface.rgb);
+    }
     const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
     // Do not feed Scarlet's authored HDR Unlit layer colors through the
     // viewer ACES fit.  ACES pulls the saturated [5,.075,.0295] red and
@@ -2360,7 +2497,18 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   }
   float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
   float3 outLinear = saturate(i.col.rgb * float3(uVertexColorMulR, uVertexColorMulG, uVertexColorMulB));
-  float2 wrappedUv = float2(applyWrap(i.uv.x, uWrapS), applyWrap(i.uv.y, uWrapT));
+  const bool animatedEyeMaterial =
+      uMaterialMode > 28.5f && uMaterialMode < 30.5f;
+  const float2 materialUv = animatedEyeMaterial
+      ? float2(
+            i.uv.x * uLightProjectionUvRowU.x +
+                uLightProjectionUvRowU.z,
+            i.uv.y * uLightProjectionUvRowU.y +
+                uLightProjectionUvRowU.w)
+      : i.uv;
+  float2 wrappedUv = float2(
+      applyWrap(materialUv.x, uWrapS),
+      applyWrap(materialUv.y, uWrapT));
   bool clampS = isClampWrap(uWrapS);
   bool clampT = isClampWrap(uWrapT);
   if (clampS || clampT) {
@@ -2384,7 +2532,10 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
     if (outA < saturate(uAlphaCutoff)) discard;
     outA = saturate(i.col.a * uVertexColorMulA);
   }
-  const float pbrDebugView = uMaterialFlipbook1Fps;
+  const float pbrDebugView =
+      (animatedEyeMaterial || uMaterialMode > 30.5f)
+      ? 0.0f
+      : uMaterialFlipbook1Fps;
   if (uMaterialMode >= 1.5f && pbrDebugView > 0.5f) {
     float3 dbg = float3(0.0f, 0.0f, 0.0f);
     if (pbrDebugView < 1.5f) {
@@ -2426,25 +2577,50 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
     const float3 cameraPos = float3(uMaterialRect1V, uMaterialRect1W, uMaterialRect1H);
     const float3 cameraForward = float3(uMaterialFlipbook0Cols, uMaterialFlipbook0Rows, uMaterialFlipbook0Frames);
     const float3 cameraTarget = float3(uMaterialFlipbook0Fps, uMaterialFlipbook1Cols, uMaterialFlipbook1Rows);
-    outLinear = applyWorldLitModel(i,
-                                   isFrontFace,
-                                   outLinear,
-                                   wrappedUv,
-                                   uvDx,
-                                   uvDy,
-                                   useNormalTexture,
-                                   useMetallicRoughnessTexture,
-                                   useOcclusionTexture,
-                                   useEmissiveTexture,
-                                   normalScale,
-                                   metallicFactor,
-                                   roughnessFactor,
-                                   occlusionStrength,
-                                   emissiveFactor,
-                                   cameraPos,
-                                   cameraForward,
-                                   cameraTarget);
-    if (uMaterialMode > 27.5f && uMaterialMode < 28.5f) {
+    const bool nativeGastlyFace =
+        uMaterialMode > 30.5f &&
+        uMaterialFlipbook1Fps > 3.5f &&
+        uMaterialFlipbook1Fps < 4.5f;
+    if (nativeGastlyFace) {
+      outLinear = applyNativeGastlyFace(
+          i,
+          isFrontFace,
+          outLinear,
+          wrappedUv,
+          uvDx,
+          uvDy,
+          useNormalTexture,
+          useMetallicRoughnessTexture,
+          useOcclusionTexture,
+          useEmissiveTexture,
+          normalScale,
+          occlusionStrength,
+          cameraPos,
+          cameraForward,
+          cameraTarget,
+          uMaterialTimeSec > 0.5f);
+    } else {
+      outLinear = applyWorldLitModel(i,
+                                     isFrontFace,
+                                     outLinear,
+                                     wrappedUv,
+                                     uvDx,
+                                     uvDy,
+                                     useNormalTexture,
+                                     useMetallicRoughnessTexture,
+                                     useOcclusionTexture,
+                                     useEmissiveTexture,
+                                     normalScale,
+                                     metallicFactor,
+                                     roughnessFactor,
+                                     occlusionStrength,
+                                     emissiveFactor,
+                                     cameraPos,
+                                     cameraForward,
+                                     cameraTarget);
+    }
+    if ((uMaterialMode > 27.5f && uMaterialMode < 28.5f) ||
+        (uMaterialMode > 29.5f && uMaterialMode < 30.5f)) {
       float3 eyeNormal = computeMappedNormal(
           i,
           isFrontFace,

@@ -1277,6 +1277,23 @@ vec3 encodeLgpeFinalColor(vec3 linearColor) {
         : encodeLgpeFinalColorNative(linearColor);
 }
 
+vec3 applyNativeGastlySmokeLighting(vec3 color) {
+    vec3 normal = normalize(vertexNormal);
+    vec3 viewDirection = normalize(
+        worldView.cameraPosition.xyz - worldPosition);
+    float facing = clamp(dot(normal, viewDirection), -1.0, 1.0);
+    // Z-A IkCharacter: HalfLambertBias=.1, ShadowStrength=.7,
+    // RimLightOffset=.2, RimLightContrast=2, RimLightIntensity=.8,
+    // BackRimLightIntensity=.01.
+    float halfLambert = clamp(facing * 0.5 + 0.6, 0.0, 1.0);
+    float diffuse = mix(1.0, halfLambert, 0.7);
+    float edge = clamp(1.0 - max(facing, 0.0), 0.0, 1.0);
+    float rimDomain = clamp((edge - 0.2) / 0.8, 0.0, 1.0);
+    float rim = rimDomain * rimDomain * 0.8;
+    float backRim = clamp(-facing, 0.0, 1.0) * 0.01;
+    return max(color * (diffuse + rim + backRim), vec3(0.0));
+}
+
 void main() {
     float alphaMode = pushData.materialParams.x;
     float alphaCutoff = pushData.materialParams.y;
@@ -1308,6 +1325,9 @@ void main() {
             baseColorTexture,
             metallicRoughnessTexture,
             nativeUnlitMaterial);
+        if (worldSpecializedMaterial.timingFlagsAtlas.y > 2.5) {
+            surface.rgb = applyNativeGastlySmokeLighting(surface.rgb);
+        }
         const float nativeToneMappingExposure = 1.15;
         vec3 nativeMapped = clamp(
             max(surface.rgb, vec3(0.0)) * nativeToneMappingExposure,
@@ -1473,12 +1493,24 @@ void main() {
         return;
     }
 
+    bool animatedEyeMaterial =
+        materialMode > 28.5 && materialMode < 30.5;
+    vec2 materialUv = animatedEyeMaterial
+        ? vec2(
+              vertexUv.x *
+                      worldSpecializedMaterial.lightProjectionUvRowU.x +
+                  worldSpecializedMaterial.lightProjectionUvRowU.z,
+              vertexUv.y *
+                      worldSpecializedMaterial.lightProjectionUvRowU.y +
+                  worldSpecializedMaterial.lightProjectionUvRowU.w)
+        : vertexUv;
     float textureDetailLodBias =
-        materialMode >= 1.5 && materialMode < 2.5
+        ((materialMode >= 1.5 && materialMode < 2.5) ||
+         (materialMode > 28.5 && materialMode < 29.5))
             ? worldSpecializedMaterial.flipbook1.z
             : 0.0;
     vec4 sampled = sampleWorldMaterialTexture(
-        baseColorTexture, vertexUv, textureDetailLodBias);
+        baseColorTexture, materialUv, textureDetailLodBias);
     vec3 linearColor = clamp(sampled.rgb, 0.0, 1.0) * clamp(vertexColor.rgb, 0.0, 1.0);
     float alpha = clamp(vertexColor.a * sampled.a, 0.0, 1.0);
 
@@ -1496,30 +1528,54 @@ void main() {
     }
 
     if ((materialMode >= 1.5 && materialMode < 2.5) ||
-        (materialMode > 27.5 && materialMode < 28.5)) {
-        linearColor = evaluateWorldMaterial(
-            linearColor,
-            vertexUv,
-            worldPosition,
-            vertexNormal,
-            vertexTangent,
-            worldView.cameraPosition.xyz,
-            worldView.cameraForward.xyz,
-            worldView.cameraTarget.xyz,
-            normalTexture,
-            metallicRoughnessTexture,
-            occlusionTexture,
-            emissiveTexture,
-            environmentTexture,
-            textureDetailLodBias,
-            pushData.pbrFactors,
-            pushData.emissiveAndCamera.rgb,
-            (materialMode > 27.5 && materialMode < 28.5 &&
-             worldSpecializedMaterial.rect1.w < -0.5) ? 0.0 : 1.0);
-        if (materialMode > 27.5 && materialMode < 28.5) {
+        (materialMode > 27.5 && materialMode < 31.5)) {
+        bool nativeGastlyFace =
+            materialMode > 30.5 &&
+            worldSpecializedMaterial.timingFlagsAtlas.y > 3.5 &&
+            worldSpecializedMaterial.timingFlagsAtlas.y < 4.5;
+        linearColor = nativeGastlyFace
+            ? evaluateNativeGastlyFace(
+                  linearColor,
+                  materialUv,
+                  worldPosition,
+                  vertexNormal,
+                  vertexTangent,
+                  worldView.cameraPosition.xyz,
+                  worldView.cameraForward.xyz,
+                  worldView.cameraTarget.xyz,
+                  normalTexture,
+                  metallicRoughnessTexture,
+                  occlusionTexture,
+                  emissiveTexture,
+                  textureDetailLodBias,
+                  pushData.pbrFactors.x,
+                  pushData.pbrFactors.w,
+                  worldSpecializedMaterial.rect0.w > 0.5)
+            : evaluateWorldMaterial(
+                  linearColor,
+                  materialUv,
+                  worldPosition,
+                  vertexNormal,
+                  vertexTangent,
+                  worldView.cameraPosition.xyz,
+                  worldView.cameraForward.xyz,
+                  worldView.cameraTarget.xyz,
+                  normalTexture,
+                  metallicRoughnessTexture,
+                  occlusionTexture,
+                  emissiveTexture,
+                  environmentTexture,
+                  textureDetailLodBias,
+                  pushData.pbrFactors,
+                  pushData.emissiveAndCamera.rgb,
+                  (((materialMode > 27.5 && materialMode < 28.5) ||
+                    (materialMode > 29.5 && materialMode < 30.5)) &&
+                   worldSpecializedMaterial.rect1.w < -0.5) ? 0.0 : 1.0);
+        if ((materialMode > 27.5 && materialMode < 28.5) ||
+            (materialMode > 29.5 && materialMode < 30.5)) {
             linearColor = evaluateNativeEyeClearCoat(
                 linearColor,
-                vertexUv,
+                materialUv,
                 worldPosition,
                 vertexNormal,
                 vertexTangent,
@@ -1533,7 +1589,6 @@ void main() {
                 worldSpecializedMaterial.rect1.w);
         }
     }
-
     const float toneMappingExposure = 1.15;
     vec3 mapped = tonemapACESFilmic(max(linearColor, vec3(0.0)), toneMappingExposure);
     vec3 resolvedColor = pushData.shadingParams.w > 0.5

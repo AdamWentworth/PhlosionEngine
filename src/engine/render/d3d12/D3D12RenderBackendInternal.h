@@ -303,6 +303,15 @@ inline WorldPsConstants makeWorldPsConstants(
         constants.materialFlipbook0Fps = textureData->cameraTargetX;
         constants.materialFlipbook1Cols = textureData->cameraTargetY;
         constants.materialFlipbook1Rows = textureData->cameraTargetZ;
+        if (textureData->materialMode == 31u) {
+            // Generic PBR uses materialFlags for texture-presence bits on
+            // D3D12. Preserve the source-qualified facial-overlay subtype in
+            // a camera-packing slot that mode 31 otherwise leaves unused, and
+            // carry its per-pose tongue concealment guard in the unused
+            // material clock slot.
+            constants.materialFlipbook1Fps = textureData->materialFlags;
+            constants.materialTimeSec = textureData->materialRect0H;
+        }
 
         // Native Game Freak eye materials need two source-only clear-coat
         // values in addition to the generic PBR factors and camera payload.
@@ -311,7 +320,8 @@ inline WorldPsConstants makeWorldPsConstants(
         // roughness and coverage marker in PS-only slots that mode 28 does not
         // otherwise consume. In particular, this prevents the eye coat from
         // changing when the camera crosses the world-Z origin.
-        if (textureData->materialMode == 28u) {
+        if (textureData->materialMode == 28u ||
+            textureData->materialMode == 30u) {
             constants.materialFlipbook1Frames = textureData->materialRect0U;
             constants.materialTimeSec = textureData->materialRect1H;
         }
@@ -507,6 +517,17 @@ inline WorldPsConstants makeWorldPsConstants(
             constants.materialRect0H = textureData->materialRect0U;
             constants.materialRect1U = textureData->materialRect0V;
         }
+    }
+
+    // Native mode 27 normally consumes the flipbook payload as authored
+    // layer colors. Gastly's source-qualified variant bakes all four layer
+    // colors into the animated atlas, leaving flipbook0.xyz free for the
+    // camera position required by its IkCharacter rim response.
+    if (textureData->materialMode == 27u &&
+        textureData->materialFlags > 2.5f) {
+        constants.materialFlipbook0Cols = textureData->cameraPosX;
+        constants.materialFlipbook0Rows = textureData->cameraPosY;
+        constants.materialFlipbook0Frames = textureData->cameraPosZ;
     }
 
     return constants;

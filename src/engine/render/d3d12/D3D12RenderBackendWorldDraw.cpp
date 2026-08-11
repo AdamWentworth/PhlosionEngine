@@ -814,7 +814,8 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
         textureData, useTexture, worldSceneColorPassActive_);
     if (textureData &&
         textureData->materialMode >= 2u &&
-        textureData->materialMode != 27u) {
+        textureData->materialMode != 27u &&
+        textureData->materialMode != 31u) {
         // Reuse an unused packed slot in lit model mode for shader debug-view selection.
         worldPs.materialFlipbook1Fps = static_cast<float>(pbrDebugViewMode());
     }
@@ -1024,7 +1025,8 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
         textureData, useTexture, worldSceneColorPassActive_);
     if (textureData &&
         textureData->materialMode >= 2u &&
-        textureData->materialMode != 27u) {
+        textureData->materialMode != 27u &&
+        textureData->materialMode != 31u) {
         worldPs.materialFlipbook1Fps = static_cast<float>(pbrDebugViewMode());
     }
     D3D12_GPU_DESCRIPTOR_HANDLE materialHandle = srvHeap_->GetGPUDescriptorHandleForHeapStart();
