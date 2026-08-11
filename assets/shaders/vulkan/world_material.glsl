@@ -159,6 +159,7 @@ vec3 evaluateWorldMaterial(vec3 albedo,
                            float textureDetailLodBias,
                            vec4 factors,
                            vec3 emissiveFactor,
+                           float dielectricSpecularIntensity,
                            float specularIblScale) {
     vec3 normal = mappedWorldNormal(
         uv,
@@ -181,8 +182,8 @@ vec3 evaluateWorldMaterial(vec3 albedo,
         cameraPosition + cameraRight * 0.5 - cameraForward * 0.8660254;
     vec3 light = safeNormalize(
         lightPosition - cameraTarget, vec3(0.45, 0.86, 0.24));
-    vec3 orm = sampleWorldMaterialTexture(
-        metallicRoughnessMap, uv, textureDetailLodBias).rgb;
+    vec4 orm = sampleWorldMaterialTexture(
+        metallicRoughnessMap, uv, textureDetailLodBias);
     float metallic = clamp(orm.b * factors.y, 0.0, 1.0);
     float roughness = clamp(orm.g * factors.z, 0.16, 1.0);
     float occlusion = mix(
@@ -190,7 +191,14 @@ vec3 evaluateWorldMaterial(vec3 albedo,
         sampleWorldMaterialTexture(
             occlusionMap, uv, textureDetailLodBias).r,
         factors.w);
-    vec3 reflectanceAtNormal = mix(vec3(0.04), albedo, metallic);
+    float dielectricSpecular = dielectricSpecularIntensity >= 0.0
+        ? clamp(dielectricSpecularIntensity, 0.0, 1.0) *
+              clamp(orm.a, 0.0, 1.0)
+        : 0.04;
+    vec3 reflectanceAtNormal = mix(
+        vec3(dielectricSpecular),
+        albedo,
+        metallic);
 
     vec3 direct = evaluateDirectPbr(
         normal, view, light, albedo, reflectanceAtNormal, roughness, metallic);

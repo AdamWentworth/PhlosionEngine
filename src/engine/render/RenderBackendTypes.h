@@ -11,6 +11,11 @@
 
 namespace engine::render::backend {
 
+// Opt-in marker for ordinary PBR materials whose metallic/roughness alpha
+// stores a source-authored dielectric specular mask. materialRect0U carries
+// that source shader's scalar specular intensity.
+inline constexpr float kNativeSpecularStrengthMaterialFlag = 5.0f;
+
 struct BackendFrameTimings {
     float presentWaitMs = 0.0f;
     float gpuFrameMs = 0.0f;

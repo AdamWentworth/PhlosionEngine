@@ -1782,6 +1782,11 @@ void main() {
                   textureDetailLodBias,
                   drawState.pbrFactors,
                   drawState.emissiveAndCamera.rgb,
+                  (materialMode > 1.5 && materialMode < 2.5 &&
+                   drawState.specializedTimingFlagsAtlas.y > 4.5 &&
+                   drawState.specializedTimingFlagsAtlas.y < 5.5)
+                      ? clamp(drawState.specializedRect0.x, 0.0, 1.0)
+                      : -1.0,
                   (((materialMode > 27.5 && materialMode < 28.5) ||
                     (materialMode > 29.5 && materialMode < 30.5)) &&
                    tailFireMaterial.rect1.w < -0.5) ? 0.0 : 1.0);

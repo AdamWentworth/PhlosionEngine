@@ -2191,18 +2191,20 @@ float3 applyWorldLitModel(PSIn i,
                           float2 uvDy,
                           bool useNormalTexture,
                           bool useMetallicRoughnessTexture,
+                          bool useSpecularStrengthTexture,
                           bool useOcclusionTexture,
                           bool useEmissiveTexture,
                           float normalScale,
                           float metallicFactor,
                           float roughnessFactor,
+                          float specularIntensity,
                           float occlusionStrength,
                           float3 emissiveFactor,
                           float3 cameraPos,
                           float3 cameraForwardPacked,
                           float3 cameraTarget) {
   float3 n = computeMappedNormal(i, isFrontFace, sampleUv, uvDx, uvDy, useNormalTexture, normalScale);
-  float3 orm = float3(1.0f, 1.0f, 1.0f);
+  float4 orm = float4(1.0f, 1.0f, 1.0f, 1.0f);
   if (useMetallicRoughnessTexture) {
     orm = sampleTextureWithWrap(
               gMetallicRoughnessTex,
@@ -2210,7 +2212,7 @@ float3 applyWorldLitModel(PSIn i,
               uvDx,
               uvDy,
               uWrapS,
-              uWrapT).rgb;
+              uWrapT);
   }
   float roughness = clamp(orm.g * saturate(roughnessFactor), 0.16f, 1.0f);
   float metallic = clamp(orm.b * saturate(metallicFactor), 0.0f, 1.0f);
@@ -2221,7 +2223,13 @@ float3 applyWorldLitModel(PSIn i,
   }
 
   float3 albedo = saturate(linearColor);
-  float3 F0 = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metallic);
+  float dielectricSpecular = useSpecularStrengthTexture
+      ? saturate(specularIntensity) * saturate(orm.a)
+      : 0.04f;
+  float3 F0 = lerp(
+      float3(dielectricSpecular, dielectricSpecular, dielectricSpecular),
+      albedo,
+      metallic);
   float3 diffuseColor = albedo * (1.0f - metallic);
   const float specularF90 = 1.0f;
   float3 camForward = safeNormalize(cameraForwardPacked, normalize(float3(0.0f, -0.6139406f, -0.7893522f)));
@@ -2568,6 +2576,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
     const bool useMetallicRoughnessTexture = (pbrFlags & (1 << 1)) != 0;
     const bool useOcclusionTexture = (pbrFlags & (1 << 2)) != 0;
     const bool useEmissiveTexture = (pbrFlags & (1 << 3)) != 0;
+    const bool useSpecularStrengthTexture = (pbrFlags & (1 << 4)) != 0;
     const float normalScale = max(uMaterialAtlasWidth, 0.0f);
     const float metallicFactor = saturate(uMaterialAtlasHeight);
     const float roughnessFactor = saturate(uMaterialRect0U);
@@ -2608,11 +2617,13 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
                                      uvDy,
                                      useNormalTexture,
                                      useMetallicRoughnessTexture,
+                                     useSpecularStrengthTexture,
                                      useOcclusionTexture,
                                      useEmissiveTexture,
                                      normalScale,
                                      metallicFactor,
                                      roughnessFactor,
+                                     uMaterialFlipbook1Frames,
                                      occlusionStrength,
                                      emissiveFactor,
                                      cameraPos,

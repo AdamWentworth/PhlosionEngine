@@ -2330,11 +2330,11 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
         }
 
         vec3 applyWorldLitModel(vec3 linearColor, vec3 n, vec2 sampleUv, vec2 uvDx, vec2 uvDy) {
-            vec3 orm = sampleTextureWithWrap(
+            vec4 orm = sampleTextureWithWrap(
                 uMetallicRoughnessTexture,
                 sampleUv,
                 uvDx,
-                uvDy).rgb;
+                uvDy);
             float roughness = clamp(orm.g * clamp(uRoughnessFactor, 0.0, 1.0), 0.16, 1.0);
             float metallic = clamp(orm.b * clamp(uMetallicFactor, 0.0, 1.0), 0.0, 1.0);
             float occTex = sampleTextureWithWrap(
@@ -2345,7 +2345,13 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float ao = mix(1.0, occTex, clamp(uOcclusionStrength, 0.0, 1.0));
 
             vec3 albedo = clamp(linearColor, 0.0, 1.0);
-            vec3 F0 = mix(vec3(0.04), albedo, metallic);
+            bool useSpecularStrengthTexture =
+                uMaterialMode > 1.5 && uMaterialMode < 2.5 &&
+                uMaterialFlags > 4.5 && uMaterialFlags < 5.5;
+            float dielectricSpecular = useSpecularStrengthTexture
+                ? clamp(uMaterialRect0.x, 0.0, 1.0) * clamp(orm.a, 0.0, 1.0)
+                : 0.04;
+            vec3 F0 = mix(vec3(dielectricSpecular), albedo, metallic);
             vec3 diffuseColor = albedo * (1.0 - metallic);
             const float specularF90 = 1.0;
             vec3 camForward = safeNormalize(

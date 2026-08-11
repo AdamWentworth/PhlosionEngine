@@ -1568,6 +1568,11 @@ void main() {
                   textureDetailLodBias,
                   pushData.pbrFactors,
                   pushData.emissiveAndCamera.rgb,
+                  (materialMode > 1.5 && materialMode < 2.5 &&
+                   worldSpecializedMaterial.timingFlagsAtlas.y > 4.5 &&
+                   worldSpecializedMaterial.timingFlagsAtlas.y < 5.5)
+                      ? clamp(worldSpecializedMaterial.rect0.x, 0.0, 1.0)
+                      : -1.0,
                   (((materialMode > 27.5 && materialMode < 28.5) ||
                     (materialMode > 29.5 && materialMode < 30.5)) &&
                    worldSpecializedMaterial.rect1.w < -0.5) ? 0.0 : 1.0);

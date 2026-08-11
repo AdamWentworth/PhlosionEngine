@@ -282,6 +282,15 @@ inline WorldPsConstants makeWorldPsConstants(
         if (hasMetallicRoughness) pbrFlags |= 1u << 1;  // useMetallicRoughnessTexture
         if (hasOcclusion) pbrFlags |= 1u << 2;          // useOcclusionTexture
         if (hasEmissive) pbrFlags |= 1u << 3;           // useEmissiveTexture
+        const bool hasNativeSpecularStrength =
+            textureData->materialMode == 2u &&
+            textureData->materialFlags >
+                backend::kNativeSpecularStrengthMaterialFlag - 0.5f &&
+            textureData->materialFlags <
+                backend::kNativeSpecularStrengthMaterialFlag + 0.5f;
+        if (hasNativeSpecularStrength) {
+            pbrFlags |= 1u << 4; // use metallic/roughness alpha as specular mask
+        }
         constants.materialFlags = static_cast<float>(pbrFlags);
 
         // PBR factor packing.
@@ -303,6 +312,13 @@ inline WorldPsConstants makeWorldPsConstants(
         constants.materialFlipbook0Fps = textureData->cameraTargetX;
         constants.materialFlipbook1Cols = textureData->cameraTargetY;
         constants.materialFlipbook1Rows = textureData->cameraTargetZ;
+        if (hasNativeSpecularStrength) {
+            // Generic mode 2 leaves this PS-only slot free. Preserve the
+            // source IkCharacter SpecularIntensity without growing the fixed
+            // 64-DWORD D3D12 root signature.
+            constants.materialFlipbook1Frames =
+                std::clamp(textureData->materialRect0U, 0.0f, 1.0f);
+        }
         if (textureData->materialMode == 31u) {
             // Generic PBR uses materialFlags for texture-presence bits on
             // D3D12. Preserve the source-qualified facial-overlay subtype in
