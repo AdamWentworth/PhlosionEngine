@@ -1719,7 +1719,7 @@ void main() {
     float textureDetailLodBias =
         ((materialMode >= 1.5 && materialMode < 2.5) ||
          (materialMode > 28.5 && materialMode < 29.5) ||
-         (materialMode > 31.5 && materialMode < 32.5))
+         (materialMode > 31.5 && materialMode < 33.5))
             ? drawState.specializedFlipbook1.z
             : 0.0;
     vec4 sampled = sampleWorldMaterialTexture(
@@ -1743,14 +1743,32 @@ void main() {
     }
 
     if ((materialMode >= 1.5 && materialMode < 2.5) ||
-        (materialMode > 27.5 && materialMode < 32.5)) {
+        (materialMode > 27.5 && materialMode < 33.5)) {
         bool nativeGastlyFace =
             materialMode > 30.5 &&
             drawState.specializedTimingFlagsAtlas.y > 3.5 &&
             drawState.specializedTimingFlagsAtlas.y < 4.5;
         bool nativeIkCharacter =
             materialMode > 31.5 && materialMode < 32.5;
-        if (nativeIkCharacter) {
+        bool nativeSssFur =
+            materialMode > 32.5 && materialMode < 33.5;
+        if (nativeSssFur) {
+            linearColor = evaluateNativeSssFur(
+                linearColor,
+                materialUv,
+                worldPosition,
+                vertexNormal,
+                vertexTangent,
+                worldView.cameraPosition.xyz,
+                worldView.cameraForward.xyz,
+                normalTextures[nonuniformEXT(materialIndex)],
+                metallicRoughnessTextures[nonuniformEXT(materialIndex)],
+                occlusionTextures[nonuniformEXT(materialIndex)],
+                emissiveTextures[nonuniformEXT(materialIndex)],
+                textureDetailLodBias,
+                drawState.pbrFactors,
+                drawState.emissiveAndCamera.rgb);
+        } else if (nativeIkCharacter) {
             linearColor = evaluateNativeIkCharacter(
                 linearColor,
                 materialUv,

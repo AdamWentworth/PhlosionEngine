@@ -249,7 +249,11 @@ float2 clampWrappedUvToTexelCenter(float2 uv) {
 bool isClampWrap(float mode) { return abs(mode - 33071.0f) < 0.5f; }
 bool isMirrorWrap(float mode) { return abs(mode - 33648.0f) < 0.5f; }
 float litTextureDetailLodBias() {
-  if (uMaterialMode < 1.5f || uMaterialMode >= 2.5f) return 0.0f;
+  const bool qualityControlled =
+      (uMaterialMode > 1.5f && uMaterialMode < 2.5f) ||
+      (uMaterialMode > 28.5f && uMaterialMode < 29.5f) ||
+      (uMaterialMode > 31.5f && uMaterialMode < 33.5f);
+  if (!qualityControlled) return 0.0f;
   return clamp(uMaterialFlipbook1Frames, -0.75f, 1.25f);
 }
 float4 sampleTextureWithWrap(Texture2D tex,
@@ -2398,6 +2402,122 @@ float3 applyNativeIkCharacter(PSIn i,
       float3(0.0f, 0.0f, 0.0f));
 }
 
+float3 applyNativeSssFur(PSIn i,
+                         bool isFrontFace,
+                         float3 linearColor,
+                         float2 sampleUv,
+                         float2 uvDx,
+                         float2 uvDy,
+                         bool useNormalTexture,
+                         bool useMetallicRoughnessTexture,
+                         bool useOcclusionTexture,
+                         bool useSssMaskTexture,
+                         float normalScale,
+                         float roughnessFactor,
+                         float occlusionStrength,
+                         float3 subsurfaceColor,
+                         float3 cameraPos,
+                         float3 cameraForwardPacked) {
+  float3 normal = computeMappedNormal(
+      i,
+      isFrontFace,
+      sampleUv,
+      uvDx,
+      uvDy,
+      useNormalTexture,
+      normalScale);
+  float3 cameraForward = safeNormalize(
+      cameraForwardPacked,
+      normalize(float3(0.0f, -0.6139406f, -0.7893522f)));
+  float3 cameraRight = cross(cameraForward, float3(0.0f, 1.0f, 0.0f));
+  if (dot(cameraRight, cameraRight) < 1e-6f) {
+    cameraRight = cross(cameraForward, float3(0.0f, 0.0f, 1.0f));
+  }
+  cameraRight = safeNormalize(cameraRight, float3(1.0f, 0.0f, 0.0f));
+  float3 cameraUp = safeNormalize(
+      cross(cameraRight, cameraForward),
+      float3(0.0f, 1.0f, 0.0f));
+  float3 viewDirection = safeNormalize(cameraPos - i.worldPos, -cameraForward);
+  float3 lightDirection = safeNormalize(
+      cameraRight * 0.45f + cameraUp * 0.86f - cameraForward * 0.24f,
+      float3(0.45f, 0.86f, 0.24f));
+  float3 halfDirection = safeNormalize(
+      lightDirection + viewDirection,
+      normal);
+  float roughness = useMetallicRoughnessTexture
+      ? clamp(
+            sampleTextureWithWrap(
+                gMetallicRoughnessTex,
+                sampleUv,
+                uvDx,
+                uvDy,
+                uWrapS,
+                uWrapT).g * saturate(roughnessFactor),
+            0.04f,
+            1.0f)
+      : 1.0f;
+  float coarseRoughness = useMetallicRoughnessTexture
+      ? clamp(
+            sampleTextureWithWrap(
+                gMetallicRoughnessTex,
+                sampleUv,
+                uvDx * 4.0f,
+                uvDy * 4.0f,
+                uWrapS,
+                uWrapT).g * saturate(roughnessFactor),
+            0.04f,
+            1.0f)
+      : roughness;
+  float ao = useOcclusionTexture
+      ? lerp(
+            1.0f,
+            sampleTextureWithWrap(
+                gOcclusionTex,
+                sampleUv,
+                uvDx,
+                uvDy,
+                uWrapS,
+                uWrapT).r,
+            saturate(occlusionStrength))
+      : 1.0f;
+  float sssMask = useSssMaskTexture
+      ? sampleTextureWithWrap(
+            gEmissiveTex,
+            sampleUv,
+            uvDx,
+            uvDy,
+            uWrapS,
+            uWrapT).r
+      : 0.0f;
+  float3 albedo = saturate(linearColor);
+  float3 subsurfaceTint = lerp(
+      albedo,
+      max(subsurfaceColor, float3(0.0f, 0.0f, 0.0f)),
+      0.35f);
+  float3 diffuse = albedo;
+  float wrappedNdotL = saturate((dot(normal, lightDirection) + 0.5f) / 1.5f);
+  float subsurfaceFill = saturate(sssMask) *
+      (1.0f - max(dot(normal, lightDirection), 0.0f)) * 0.08f;
+  float specularPower = lerp(16.0f, 96.0f, 1.0f - roughness);
+  float sourceSpecular = pow(
+      max(dot(normal, halfDirection), 0.0f),
+      specularPower) * 0.04f * 0.45f;
+  float qualityDetail = saturate(
+      (0.90f - litTextureDetailLodBias()) / 1.30f);
+  float fibreRelief = saturate(
+      (coarseRoughness - roughness) * 3.25f);
+  float nDotV = saturate(dot(normal, viewDirection));
+  float velvet = pow(1.0f - nDotV, 2.5f);
+  float fibreSheen = qualityDetail * wrappedNdotL *
+      (fibreRelief * (0.22f + 0.20f * velvet) + velvet * 0.08f);
+  return max(
+      diffuse * (0.34f + 0.78f * wrappedNdotL) * ao +
+          subsurfaceTint * subsurfaceFill +
+          float3(sourceSpecular, sourceSpecular, sourceSpecular) +
+          albedo * fibreSheen,
+      float3(0.0f, 0.0f, 0.0f));
+}
+
 float3 applyNativeEyeClearCoat(PSIn i,
                                float3 linearColor,
                                float3 n,
@@ -2692,7 +2812,27 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         uMaterialFlipbook1Fps < 4.5f;
     const bool nativeIkCharacter =
         uMaterialMode > 31.5f && uMaterialMode < 32.5f;
-    if (nativeIkCharacter) {
+    const bool nativeSssFur =
+        uMaterialMode > 32.5f && uMaterialMode < 33.5f;
+    if (nativeSssFur) {
+      outLinear = applyNativeSssFur(
+          i,
+          isFrontFace,
+          outLinear,
+          wrappedUv,
+          uvDx,
+          uvDy,
+          useNormalTexture,
+          useMetallicRoughnessTexture,
+          useOcclusionTexture,
+          useEmissiveTexture,
+          normalScale,
+          roughnessFactor,
+          occlusionStrength,
+          emissiveFactor,
+          cameraPos,
+          cameraForward);
+    } else if (nativeIkCharacter) {
       outLinear = applyNativeIkCharacter(
           i,
           isFrontFace,

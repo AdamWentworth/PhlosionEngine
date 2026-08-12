@@ -343,6 +343,108 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         vec3(0.0));
 }
 
+vec3 evaluateNativeSssFur(vec3 albedo,
+                          vec2 uv,
+                          vec3 position,
+                          vec3 sourceNormal,
+                          vec4 sourceTangent,
+                          vec3 cameraPosition,
+                          vec3 cameraForwardPacked,
+                          sampler2D normalMap,
+                          sampler2D roughnessMap,
+                          sampler2D occlusionMap,
+                          sampler2D sssMaskMap,
+                          float textureDetailLodBias,
+                          vec4 factors,
+                          vec3 subsurfaceColor) {
+    vec3 normal = mappedWorldNormal(
+        uv,
+        position,
+        sourceNormal,
+        sourceTangent,
+        normalMap,
+        textureDetailLodBias,
+        factors.x);
+    vec3 cameraForward = safeNormalize(
+        cameraForwardPacked,
+        normalize(vec3(0.0, -0.6139406, -0.7893522)));
+    vec3 cameraRight = cross(cameraForward, vec3(0.0, 1.0, 0.0));
+    if (dot(cameraRight, cameraRight) < 1e-6) {
+        cameraRight = cross(cameraForward, vec3(0.0, 0.0, 1.0));
+    }
+    cameraRight = safeNormalize(cameraRight, vec3(1.0, 0.0, 0.0));
+    vec3 cameraUp = safeNormalize(
+        cross(cameraRight, cameraForward),
+        vec3(0.0, 1.0, 0.0));
+    vec3 viewDirection = safeNormalize(
+        cameraPosition - position,
+        -cameraForward);
+    vec3 lightDirection = safeNormalize(
+        cameraRight * 0.45 + cameraUp * 0.86 - cameraForward * 0.24,
+        vec3(0.45, 0.86, 0.24));
+    vec3 halfDirection = safeNormalize(
+        lightDirection + viewDirection,
+        normal);
+    float roughness = clamp(
+        sampleWorldMaterialTexture(
+            roughnessMap,
+            uv,
+            textureDetailLodBias).g * clamp(factors.z, 0.0, 1.0),
+        0.04,
+        1.0);
+    float coarseRoughness = clamp(
+        sampleWorldMaterialTexture(
+            roughnessMap,
+            uv,
+            textureDetailLodBias + 2.0).g * clamp(factors.z, 0.0, 1.0),
+        0.04,
+        1.0);
+    float ao = mix(
+        1.0,
+        sampleWorldMaterialTexture(
+            occlusionMap,
+            uv,
+            textureDetailLodBias).r,
+        clamp(factors.w, 0.0, 1.0));
+    float sssMask = sampleWorldMaterialTexture(
+        sssMaskMap,
+        uv,
+        textureDetailLodBias).r;
+    vec3 sourceAlbedo = clamp(albedo, 0.0, 1.0);
+    vec3 subsurfaceTint = mix(
+        sourceAlbedo,
+        max(subsurfaceColor, vec3(0.0)),
+        0.35);
+    vec3 diffuse = sourceAlbedo;
+    float wrappedNdotL = clamp(
+        (dot(normal, lightDirection) + 0.5) / 1.5,
+        0.0,
+        1.0);
+    float subsurfaceFill = clamp(sssMask, 0.0, 1.0) *
+        (1.0 - max(dot(normal, lightDirection), 0.0)) * 0.08;
+    float specularPower = mix(16.0, 96.0, 1.0 - roughness);
+    float sourceSpecular = pow(
+        max(dot(normal, halfDirection), 0.0),
+        specularPower) * 0.04 * 0.45;
+    float qualityDetail = clamp(
+        (0.90 - textureDetailLodBias) / 1.30,
+        0.0,
+        1.0);
+    float fibreRelief = clamp(
+        (coarseRoughness - roughness) * 3.25,
+        0.0,
+        1.0);
+    float nDotV = clamp(dot(normal, viewDirection), 0.0, 1.0);
+    float velvet = pow(1.0 - nDotV, 2.5);
+    float fibreSheen = qualityDetail * wrappedNdotL *
+        (fibreRelief * (0.22 + 0.20 * velvet) + velvet * 0.08);
+    return max(
+        diffuse * (0.34 + 0.78 * wrappedNdotL) * ao +
+            subsurfaceTint * subsurfaceFill +
+            vec3(sourceSpecular) + sourceAlbedo * fibreSheen,
+        vec3(0.0));
+}
+
 vec3 evaluateNativeGastlyFace(vec3 albedo,
                               vec2 uv,
                               vec3 position,

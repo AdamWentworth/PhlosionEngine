@@ -1,6 +1,7 @@
 #include "engine/render/vulkan/VulkanRenderBackendInternal.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <stdexcept>
@@ -9,6 +10,7 @@
 
 #include <stb_image.h>
 
+#include "engine/core/Environment.h"
 #include "engine/render/SpriteTextureCardArt.h"
 
 namespace {
@@ -24,6 +26,138 @@ VkSamplerAddressMode addressModeFromGl(int wrap) {
     if (wrap == 33071) return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     if (wrap == 33648) return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
     return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+}
+
+bool worldTextureMipChainEnabled() {
+    static const bool enabled = []() -> bool {
+        const auto env = engine::env::get(
+            "PHLOSION_BACKEND_WORLD_TEXTURE_MIPS");
+        if (!env.has_value()) return true;
+        const std::string raw = *env;
+        return raw != "0" && raw != "false" && raw != "FALSE" &&
+               raw != "off" && raw != "OFF";
+    }();
+    return enabled;
+}
+
+struct CpuMipLevel {
+    int width = 0;
+    int height = 0;
+    std::vector<unsigned char> rgba;
+};
+
+float srgbByteToLinear(unsigned char value) {
+    const float c = static_cast<float>(value) / 255.0f;
+    return c <= 0.04045f
+        ? c / 12.92f
+        : std::pow((c + 0.055f) / 1.055f, 2.4f);
+}
+
+unsigned char linearToSrgbByte(float linear) {
+    const float c = std::clamp(linear, 0.0f, 1.0f);
+    const float srgb = c <= 0.0031308f
+        ? c * 12.92f
+        : 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f;
+    return static_cast<unsigned char>(std::clamp(
+        static_cast<int>(std::lround(srgb * 255.0f)),
+        0,
+        255));
+}
+
+int wrapTexelIndex(int index, int size, int wrapMode) {
+    if (size <= 1) return 0;
+    if (wrapMode == 33071) {
+        return std::clamp(index, 0, size - 1);
+    }
+    if (wrapMode == 33648) {
+        const int period = size * 2;
+        int wrapped = index % period;
+        if (wrapped < 0) wrapped += period;
+        return wrapped >= size ? period - 1 - wrapped : wrapped;
+    }
+    int wrapped = index % size;
+    if (wrapped < 0) wrapped += size;
+    return wrapped;
+}
+
+std::vector<CpuMipLevel> buildRgbaMipChain(
+    const unsigned char* pixels,
+    int width,
+    int height,
+    int wrapS,
+    int wrapT,
+    bool srgb) {
+    std::vector<CpuMipLevel> chain;
+    if (!pixels || width <= 0 || height <= 0) return chain;
+    chain.push_back(CpuMipLevel{
+        width,
+        height,
+        std::vector<unsigned char>(
+            pixels,
+            pixels + static_cast<std::size_t>(width) *
+                static_cast<std::size_t>(height) * 4u)});
+    while (chain.back().width > 1 || chain.back().height > 1) {
+        const CpuMipLevel& previous = chain.back();
+        CpuMipLevel next;
+        next.width = std::max(previous.width / 2, 1);
+        next.height = std::max(previous.height / 2, 1);
+        next.rgba.resize(
+            static_cast<std::size_t>(next.width) *
+            static_cast<std::size_t>(next.height) * 4u);
+        for (int y = 0; y < next.height; ++y) {
+            for (int x = 0; x < next.width; ++x) {
+                float sums[4]{};
+                for (int oy = 0; oy < 2; ++oy) {
+                    const int sourceY = wrapTexelIndex(
+                        y * 2 + oy,
+                        previous.height,
+                        wrapT);
+                    for (int ox = 0; ox < 2; ++ox) {
+                        const int sourceX = wrapTexelIndex(
+                            x * 2 + ox,
+                            previous.width,
+                            wrapS);
+                        const std::size_t sourceOffset =
+                            (static_cast<std::size_t>(sourceY) *
+                                 static_cast<std::size_t>(previous.width) +
+                             static_cast<std::size_t>(sourceX)) * 4u;
+                        for (int channel = 0; channel < 3; ++channel) {
+                            sums[channel] += srgb
+                                ? srgbByteToLinear(
+                                      previous.rgba[sourceOffset + channel])
+                                : static_cast<float>(
+                                      previous.rgba[sourceOffset + channel]) /
+                                      255.0f;
+                        }
+                        sums[3] += static_cast<float>(
+                            previous.rgba[sourceOffset + 3u]) / 255.0f;
+                    }
+                }
+                const std::size_t targetOffset =
+                    (static_cast<std::size_t>(y) *
+                         static_cast<std::size_t>(next.width) +
+                     static_cast<std::size_t>(x)) * 4u;
+                for (int channel = 0; channel < 3; ++channel) {
+                    const float average = sums[channel] * 0.25f;
+                    next.rgba[targetOffset + channel] = srgb
+                        ? linearToSrgbByte(average)
+                        : static_cast<unsigned char>(std::clamp(
+                              static_cast<int>(
+                                  std::lround(average * 255.0f)),
+                              0,
+                              255));
+                }
+                next.rgba[targetOffset + 3u] =
+                    static_cast<unsigned char>(std::clamp(
+                        static_cast<int>(
+                            std::lround(sums[3] * 0.25f * 255.0f)),
+                        0,
+                        255));
+            }
+        }
+        chain.push_back(std::move(next));
+    }
+    return chain;
 }
 
 } // namespace
@@ -116,6 +250,39 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTextureWithForma
         if (authoredMipChainValid) {
             stagingByteCount += static_cast<VkDeviceSize>(mip.width) *
                                 static_cast<VkDeviceSize>(mip.height) * 4u;
+        }
+    }
+    std::vector<CpuMipLevel> generatedMipChain;
+    std::vector<IRenderBackend::WorldTextureMipLevel> generatedMipLevels;
+    const bool rgba8 =
+        format == VK_FORMAT_R8G8B8A8_SRGB ||
+        format == VK_FORMAT_R8G8B8A8_UNORM;
+    if (!authoredMipChainValid && rgba8 && worldTextureMipChainEnabled()) {
+        generatedMipChain = buildRgbaMipChain(
+            static_cast<const unsigned char*>(pixels),
+            width,
+            height,
+            wrapS,
+            wrapT,
+            format == VK_FORMAT_R8G8B8A8_SRGB);
+        generatedMipLevels.reserve(generatedMipChain.size());
+        for (const CpuMipLevel& mip : generatedMipChain) {
+            generatedMipLevels.push_back({
+                mip.rgba.data(),
+                mip.width,
+                mip.height});
+        }
+        if (generatedMipLevels.size() > 1u) {
+            authoredMipLevels = generatedMipLevels.data();
+            authoredMipLevelCount = static_cast<std::uint32_t>(
+                generatedMipLevels.size());
+            authoredMipChainValid = true;
+            stagingByteCount = 0u;
+            for (const auto& mip : generatedMipLevels) {
+                stagingByteCount +=
+                    static_cast<VkDeviceSize>(mip.width) *
+                    static_cast<VkDeviceSize>(mip.height) * 4u;
+            }
         }
     }
     const std::uint32_t mipLevelCount =

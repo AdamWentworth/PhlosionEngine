@@ -533,7 +533,11 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             return clamp(uv, halfTexel, vec2(1.0) - halfTexel);
         }
         float litTextureDetailLodBias() {
-            if (uMaterialMode < 1.5 || uMaterialMode >= 2.5) return 0.0;
+            bool qualityControlled =
+                (uMaterialMode > 1.5 && uMaterialMode < 2.5) ||
+                (uMaterialMode > 28.5 && uMaterialMode < 29.5) ||
+                (uMaterialMode > 31.5 && uMaterialMode < 33.5);
+            if (!qualityControlled) return 0.0;
             return clamp(uMaterialFlipbook1.z, -0.75, 1.25);
         }
         vec4 sampleTextureWithWrap(sampler2D tex, vec2 uv, vec2 uvDx, vec2 uvDy) {
@@ -2515,6 +2519,109 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 vec3(0.0));
         }
 
+        vec3 applyNativeSssFur(
+            vec3 linearColor,
+            vec3 n,
+            vec2 sampleUv,
+            vec2 uvDx,
+            vec2 uvDy) {
+            vec3 cameraForward = safeNormalize(
+                uCameraForward,
+                normalize(vec3(0.0, -0.6139406, -0.7893522)));
+            vec3 cameraRight = cross(cameraForward, vec3(0.0, 1.0, 0.0));
+            if (dot(cameraRight, cameraRight) < 1e-6) {
+                cameraRight = cross(cameraForward, vec3(0.0, 0.0, 1.0));
+            }
+            cameraRight = safeNormalize(cameraRight, vec3(1.0, 0.0, 0.0));
+            vec3 cameraUp = safeNormalize(
+                cross(cameraRight, cameraForward),
+                vec3(0.0, 1.0, 0.0));
+            vec3 viewDirection = safeNormalize(
+                uCameraPos - vWorldPos,
+                -cameraForward);
+            vec3 lightDirection = safeNormalize(
+                cameraRight * 0.45 + cameraUp * 0.86 - cameraForward * 0.24,
+                vec3(0.45, 0.86, 0.24));
+            vec3 halfDirection = safeNormalize(
+                lightDirection + viewDirection,
+                n);
+
+            float roughness = uUseMetallicRoughnessTexture > 0.5
+                ? clamp(
+                      sampleTextureWithWrap(
+                          uMetallicRoughnessTexture,
+                          sampleUv,
+                          uvDx,
+                          uvDy).g * clamp(uRoughnessFactor, 0.0, 1.0),
+                      0.04,
+                      1.0)
+                : 1.0;
+            float coarseRoughness = uUseMetallicRoughnessTexture > 0.5
+                ? clamp(
+                      sampleTextureWithWrap(
+                          uMetallicRoughnessTexture,
+                          sampleUv,
+                          uvDx * 4.0,
+                          uvDy * 4.0).g * clamp(uRoughnessFactor, 0.0, 1.0),
+                      0.04,
+                      1.0)
+                : roughness;
+            float ao = uUseOcclusionTexture > 0.5
+                ? mix(
+                      1.0,
+                      sampleTextureWithWrap(
+                          uOcclusionTexture,
+                          sampleUv,
+                          uvDx,
+                          uvDy).r,
+                      clamp(uOcclusionStrength, 0.0, 1.0))
+                : 1.0;
+            float sssMask = uUseEmissiveTexture > 0.5
+                ? sampleTextureWithWrap(
+                      uEmissiveTexture,
+                      sampleUv,
+                      uvDx,
+                      uvDy).r
+                : 0.0;
+            vec3 albedo = clamp(linearColor, 0.0, 1.0);
+            vec3 subsurfaceTint = mix(
+                albedo,
+                max(uEmissiveFactor, vec3(0.0)),
+                0.35);
+            vec3 diffuse = albedo;
+            float wrappedNdotL = clamp(
+                (dot(n, lightDirection) + 0.5) / 1.5,
+                0.0,
+                1.0);
+            float subsurfaceFill = clamp(sssMask, 0.0, 1.0) *
+                (1.0 - max(dot(n, lightDirection), 0.0)) * 0.08;
+            float specularPower = mix(16.0, 96.0, 1.0 - roughness);
+            float sourceSpecular = pow(
+                max(dot(n, halfDirection), 0.0),
+                specularPower) * 0.04 * 0.45;
+            // SV's roughness atlas carries directional fibre strokes. Recover
+            // that authored high-frequency signal against a coarser sample,
+            // then feed only positive strands into the coat lobe. This makes
+            // fur catch light without dirtying or recoloring the base map.
+            float qualityDetail = clamp(
+                (0.90 - litTextureDetailLodBias()) / 1.30,
+                0.0,
+                1.0);
+            float fibreRelief = clamp(
+                (coarseRoughness - roughness) * 3.25,
+                0.0,
+                1.0);
+            float nDotV = clamp(dot(n, viewDirection), 0.0, 1.0);
+            float velvet = pow(1.0 - nDotV, 2.5);
+            float fibreSheen = qualityDetail * wrappedNdotL *
+                (fibreRelief * (0.22 + 0.20 * velvet) + velvet * 0.08);
+            return max(
+                diffuse * (0.34 + 0.78 * wrappedNdotL) * ao +
+                    subsurfaceTint * subsurfaceFill +
+                    vec3(sourceSpecular) + albedo * fibreSheen,
+                vec3(0.0));
+        }
+
         vec3 applyNativeGastlyFace(
             vec3 albedo,
             vec3 normal,
@@ -2931,7 +3038,16 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     uMaterialFlags < 4.5;
                 bool nativeIkCharacter =
                     uMaterialMode > 31.5 && uMaterialMode < 32.5;
-                if (nativeIkCharacter) {
+                bool nativeSssFur =
+                    uMaterialMode > 32.5 && uMaterialMode < 33.5;
+                if (nativeSssFur) {
+                    outLinear = applyNativeSssFur(
+                        outLinear,
+                        n,
+                        wrappedUv,
+                        uvDx,
+                        uvDy);
+                } else if (nativeIkCharacter) {
                     outLinear = applyNativeIkCharacter(
                         outLinear,
                         n,

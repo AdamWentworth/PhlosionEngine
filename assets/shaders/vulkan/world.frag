@@ -1507,7 +1507,7 @@ void main() {
     float textureDetailLodBias =
         ((materialMode >= 1.5 && materialMode < 2.5) ||
          (materialMode > 28.5 && materialMode < 29.5) ||
-         (materialMode > 31.5 && materialMode < 32.5))
+         (materialMode > 31.5 && materialMode < 33.5))
             ? worldSpecializedMaterial.flipbook1.z
             : 0.0;
     vec4 sampled = sampleWorldMaterialTexture(
@@ -1529,14 +1529,32 @@ void main() {
     }
 
     if ((materialMode >= 1.5 && materialMode < 2.5) ||
-        (materialMode > 27.5 && materialMode < 32.5)) {
+        (materialMode > 27.5 && materialMode < 33.5)) {
         bool nativeGastlyFace =
             materialMode > 30.5 &&
             worldSpecializedMaterial.timingFlagsAtlas.y > 3.5 &&
             worldSpecializedMaterial.timingFlagsAtlas.y < 4.5;
         bool nativeIkCharacter =
             materialMode > 31.5 && materialMode < 32.5;
-        if (nativeIkCharacter) {
+        bool nativeSssFur =
+            materialMode > 32.5 && materialMode < 33.5;
+        if (nativeSssFur) {
+            linearColor = evaluateNativeSssFur(
+                linearColor,
+                materialUv,
+                worldPosition,
+                vertexNormal,
+                vertexTangent,
+                worldView.cameraPosition.xyz,
+                worldView.cameraForward.xyz,
+                normalTexture,
+                metallicRoughnessTexture,
+                occlusionTexture,
+                emissiveTexture,
+                textureDetailLodBias,
+                pushData.pbrFactors,
+                pushData.emissiveAndCamera.rgb);
+        } else if (nativeIkCharacter) {
             linearColor = evaluateNativeIkCharacter(
                 linearColor,
                 materialUv,

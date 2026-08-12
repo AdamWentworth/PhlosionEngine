@@ -39,7 +39,11 @@ bool isTailFireWorldTextureKey(const char* key) {
 bool worldTextureMipChainEnabled() {
     static const bool enabled = []() -> bool {
         const auto env = engine::env::get("PHLOSION_BACKEND_WORLD_TEXTURE_MIPS");
-        if (!env.has_value()) return false;
+        // World materials use explicit quality-tier LOD bias. Without a mip
+        // chain that control is a no-op and high-frequency authored surface
+        // maps (notably SV fur roughness) alias into grime. Mips are therefore
+        // the normal path; the environment switch remains an emergency opt-out.
+        if (!env.has_value()) return true;
         const std::string raw = *env;
         if (raw == "0" || raw == "false" || raw == "FALSE" || raw == "off" || raw == "OFF") {
             return false;
