@@ -254,6 +254,12 @@ float litTextureDetailLodBias() {
       (uMaterialMode > 28.5f && uMaterialMode < 29.5f) ||
       (uMaterialMode > 31.5f && uMaterialMode < 33.5f);
   if (!qualityControlled) return 0.0f;
+  if (uMaterialMode > 31.5f && uMaterialMode < 32.5f) {
+    float profileField = floor(max(uMaterialFlipbook1Fps, 0.0f) / 1000.0f);
+    float packedRemainder = max(uMaterialFlipbook1Fps, 0.0f) -
+        profileField * 1000.0f;
+    return clamp(floor(packedRemainder) * 0.01f - 1.0f, -0.75f, 1.25f);
+  }
   return clamp(uMaterialFlipbook1Frames, -0.75f, 1.25f);
 }
 float4 sampleTextureWithWrap(Texture2D tex,
@@ -2048,15 +2054,7 @@ float3 computeMappedNormal(PSIn i,
 
   float3 normalTexel = sampleTextureWithWrap(gNormalTex, sampleUv, uvDx, uvDy, uWrapS, uWrapT).xyz;
   float2 mapXY = normalTexel.xy * 2.0f - 1.0f;
-  float nativeDetailScale =
-      uMaterialMode > 31.5f && uMaterialMode < 32.5f
-          ? lerp(
-                0.95f,
-                1.45f,
-                saturate(
-                    (0.90f - litTextureDetailLodBias()) / 1.30f))
-          : 1.0f;
-  mapXY *= max(normalScale, 0.0f) * nativeDetailScale * 1.25f;
+  mapXY *= max(normalScale, 0.0f) * 1.25f;
   // Support standard RGB tangent-space normals and two-channel packed XY
   // normals. Decoded XY maps can use blue=0 or blue=255 as a sentinel, so
   // reconstruct Z for both encodings.
@@ -2379,12 +2377,17 @@ float3 applyNativeIkCharacter(PSIn i,
   float ao = saturate(lerp(
       1.0f,
       surfaceControl.r,
-      max(occlusionStrength, 0.0f)));
+      saturate(occlusionStrength)));
   float metallic = saturate(surfaceControl.g);
   float specularOffset = surfaceControl.b * 1.5f - 0.5f;
   float specularContrast = surfaceControl.a * 5.0f;
-  float reflectionBlur = max(uMaterialRect0U, 0.0f);
-  float diffusionLevels = saturate(uMaterialRect0V);
+  // D3D12's fixed 64-DWORD root signature repacks mode-32 rect0.xyz into
+  // otherwise-unused PS-only fields; see makeWorldPsConstants().
+  float reflectionBlur = max(uMaterialTimeSec, 0.0f);
+  float packedSurface = max(uMaterialFlipbook1Fps, 0.0f);
+  float surfaceProfile = floor(packedSurface / 1000.0f);
+  float packedSurfaceRemainder = packedSurface - surfaceProfile * 1000.0f;
+  float diffusionLevels = saturate(frac(packedSurfaceRemainder));
   float normalDotLightSigned = dot(normal, lightDirection);
   float lambert = max(normalDotLightSigned, 0.0f);
   float wrappedLambert = saturate(
@@ -2401,12 +2404,18 @@ float3 applyNativeIkCharacter(PSIn i,
       diffusionLevels);
   float shadowAmount =
       (1.0f - halfLambert) * saturate(shadowStrength);
+  float qualityDetail = saturate(
+      (0.90f - litTextureDetailLodBias()) / 1.30f);
   float3 albedo = saturate(linearColor);
   float3 shadowTint = lerp(
       float3(1.0f, 1.0f, 1.0f),
       shadowSpec.rgb,
       shadowAmount);
   float3 shaded = albedo * shadowTint * ao;
+  bool fibreSurface = abs(surfaceProfile - 1.0f) < 0.25f &&
+      useEmissiveTexture;
+  bool featherSurface = abs(surfaceProfile - 2.0f) < 0.25f &&
+      useNormalTexture;
   float4 rimResponse = useEmissiveTexture
       ? sampleTextureWithWrap(
             gEmissiveTex,
@@ -2415,7 +2424,7 @@ float3 applyNativeIkCharacter(PSIn i,
             uvDy,
             uWrapS,
             uWrapT)
-      : float4(0.0f, 0.0f, 0.0f, 0.0f);
+      : float4(0.0f, 0.0f, 0.0f, 1.0f);
   float facing = dot(normal, viewDirection);
   float edge = saturate(1.0f - max(facing, 0.0f));
   float rimOffset = clamp(rimParameters.r, 0.0f, 0.99f);
@@ -2424,27 +2433,67 @@ float3 applyNativeIkCharacter(PSIn i,
   float rim = pow(rimDomain, max(rimParameters.g, 1.0f)) * rimResponse.r;
   float backRim = saturate(-facing) * rimResponse.g;
   float specularStrength = saturate(shadowSpec.a);
-  float qualityDetail = saturate(
-      (0.90f - litTextureDetailLodBias()) / 1.30f);
-  float coarseFibre = useEmissiveTexture
+  // Surface carriers deliberately use a sharper sample than base color so
+  // their 1024px directional strokes survive the small Inspector preview.
+  float fineFibre = fibreSurface
       ? sampleTextureWithWrap(
             gEmissiveTex,
             sampleUv,
-            uvDx * 4.0f,
-            uvDy * 4.0f,
+            uvDx * exp2(-1.25f),
+            uvDy * exp2(-1.25f),
             uWrapS,
             uWrapT).a
       : 1.0f;
-  float fineFibre = rimResponse.a;
-  float fibreStroke = saturate(abs(coarseFibre - fineFibre) * 4.0f);
-  float fibreCoverage = saturate((1.0f - fineFibre) * 0.30f);
-  float fibreRelief = max(fibreStroke, fibreCoverage);
-  // Constant alpha is neutral. Only source-qualified compatible fibre
-  // atlases can produce this fine-versus-coarse coat lobe.
-  float fibreSheen = qualityDetail * halfLambert * (1.0f - metallic) *
-      fibreRelief * (0.34f + 0.24f * pow(edge, 2.5f));
-  float3 nativeBase = shaded + albedo *
-      (rim + backRim + fibreSheen);
+  float coarseFibre = fibreSurface
+      ? sampleTextureWithWrap(
+            gEmissiveTex,
+            sampleUv,
+            uvDx * exp2(1.25f),
+            uvDy * exp2(1.25f),
+            uWrapS,
+            uWrapT).a
+      : 1.0f;
+  float fibreRelief = saturate(
+      abs(coarseFibre - fineFibre) * 10.0f);
+  float fibreSignal = saturate(1.0f - fineFibre);
+  float velvet = pow(edge, 2.5f);
+  float surfaceDetailLight = 0.35f + 0.65f * halfLambert;
+  // Source-authored strand lift is additive-only: no whole-body dirt tint and
+  // no dark eye seam. Missing payloads remain neutral at lower quality tiers.
+  float fibreSheen = qualityDetail * surfaceDetailLight *
+      (1.0f - metallic) *
+      (fibreSignal * (0.90f + 0.20f * velvet) +
+       fibreRelief * (0.30f + 0.15f * velvet));
+
+  float2 fineFeatherNormal = featherSurface
+      ? sampleTextureWithWrap(
+            gNormalTex,
+            sampleUv,
+            uvDx * exp2(-1.0f),
+            uvDy * exp2(-1.0f),
+            uWrapS,
+            uWrapT).xy * 2.0f - 1.0f
+      : float2(0.0f, 0.0f);
+  float2 coarseFeatherNormal = featherSurface
+      ? sampleTextureWithWrap(
+            gNormalTex,
+            sampleUv,
+            uvDx * exp2(1.25f),
+            uvDy * exp2(1.25f),
+            uWrapS,
+            uWrapT).xy * 2.0f - 1.0f
+      : fineFeatherNormal;
+  float featherRelief = saturate(max(
+      length(fineFeatherNormal - coarseFeatherNormal) * 10.0f,
+      length(fineFeatherNormal) * 0.50f));
+  float featherSheen = featherSurface
+      ? qualityDetail * surfaceDetailLight * (1.0f - metallic) *
+          featherRelief * (0.65f + pow(edge, 2.0f) * 0.06f)
+      : 0.0f;
+  float3 featherTint = lerp(albedo, float3(1.0f, 1.0f, 1.0f), 0.50f);
+  float3 nativeBase = shaded +
+      albedo * (rim + backRim + fibreSheen) +
+      featherTint * featherSheen;
 
   // The decompiled Z-A IkCharacter body program carries no generic
   // roughness/PBR coat. Preserve its layer-resolved specular shape, metal

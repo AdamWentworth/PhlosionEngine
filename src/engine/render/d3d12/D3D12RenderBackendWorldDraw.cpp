@@ -815,8 +815,12 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
     if (textureData &&
         textureData->materialMode >= 2u &&
         textureData->materialMode != 27u &&
-        textureData->materialMode != 31u) {
-        // Reuse an unused packed slot in lit model mode for shader debug-view selection.
+        textureData->materialMode != 31u &&
+        textureData->materialMode !=
+            engine::render::backend::kNativeIkCharacterMaterialMode) {
+        // Reuse an unused packed slot in ordinary lit modes for shader debug
+        // view selection. Native IkCharacter owns this slot for its surface
+        // profile, quality LOD, and diffusion payload.
         worldPs.materialFlipbook1Fps = static_cast<float>(pbrDebugViewMode());
     }
     D3D12_GPU_DESCRIPTOR_HANDLE materialHandle = srvHeap_->GetGPUDescriptorHandleForHeapStart();
@@ -1026,7 +1030,11 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     if (textureData &&
         textureData->materialMode >= 2u &&
         textureData->materialMode != 27u &&
-        textureData->materialMode != 31u) {
+        textureData->materialMode != 31u &&
+        textureData->materialMode !=
+            engine::render::backend::kNativeIkCharacterMaterialMode) {
+        // Keep mode 32's native surface/profile payload intact; see the
+        // uncached path above.
         worldPs.materialFlipbook1Fps = static_cast<float>(pbrDebugViewMode());
     }
     D3D12_GPU_DESCRIPTOR_HANDLE materialHandle = srvHeap_->GetGPUDescriptorHandleForHeapStart();

@@ -284,9 +284,6 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         (0.90 - textureDetailLodBias) / 1.30,
         0.0,
         1.0);
-    // Z-A authors feather/scale/stone relief in the normal atlas. Let
-    // High/Ultra recover that source detail without inventing surface gloss.
-    float nativeNormalScale = factors.x * mix(0.95, 1.45, qualityDetail);
     vec3 normal = mappedWorldNormal(
         uv,
         position,
@@ -294,7 +291,7 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         sourceTangent,
         normalMap,
         textureDetailLodBias,
-        nativeNormalScale);
+        factors.x);
     vec3 cameraForward = safeNormalize(
         cameraForwardPacked,
         normalize(vec3(0.0, -0.6139406, -0.7893522)));
@@ -320,7 +317,7 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         uv,
         textureDetailLodBias);
     float occlusion = clamp(
-        mix(1.0, surfaceControl.r, max(factors.w, 0.0)),
+        mix(1.0, surfaceControl.r, clamp(factors.w, 0.0, 1.0)),
         0.0,
         1.0);
     float metallic = clamp(surfaceControl.g, 0.0, 1.0);
@@ -350,13 +347,17 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     vec3 sourceAlbedo = clamp(albedo, 0.0, 1.0);
     vec3 shadowTint = mix(vec3(1.0), shadowSpec.rgb, shadowAmount);
     vec3 shaded = sourceAlbedo * shadowTint * occlusion;
+    bool fibreSurface = abs(surfaceParameters.z - 1.0) < 0.25 &&
+        rimParameters.b > 0.5;
+    bool featherSurface = abs(surfaceParameters.z - 2.0) < 0.25 &&
+        factors.x > 0.001;
     float specularStrength = clamp(shadowSpec.a, 0.0, 1.0);
     vec4 rimResponse = rimParameters.b > 0.5
         ? sampleWorldMaterialTexture(
               rimResponseMap,
               uv,
               textureDetailLodBias)
-        : vec4(0.0);
+        : vec4(0.0, 0.0, 0.0, 1.0);
     float facing = dot(normal, viewDirection);
     float edge = clamp(1.0 - max(facing, 0.0), 0.0, 1.0);
     float rimOffset = clamp(rimParameters.r, 0.0, 0.99);
@@ -368,21 +369,65 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         rimDomain,
         max(rimParameters.g, 1.0)) * rimResponse.r;
     float backRim = clamp(-facing, 0.0, 1.0) * rimResponse.g;
-    float coarseFibre = sampleWorldMaterialTexture(
-        rimResponseMap,
-        uv,
-        textureDetailLodBias + 2.0).a;
-    float fineFibre = rimResponse.a;
-    float fibreStroke = clamp(abs(coarseFibre - fineFibre) * 4.0, 0.0, 1.0);
-    float fibreCoverage = clamp((1.0 - fineFibre) * 0.30, 0.0, 1.0);
-    float fibreRelief = max(fibreStroke, fibreCoverage);
-    // A constant alpha is neutral. Only source-qualified compatible fibre
-    // atlases create the fine-versus-coarse difference required for a coat
-    // lobe, so ordinary bodies such as Haunter cannot enter this path.
-    float fibreSheen = qualityDetail * halfLambert * (1.0 - metallic) *
-        fibreRelief * (0.34 + 0.24 * pow(edge, 2.5));
-    vec3 nativeBase = shaded + sourceAlbedo *
-        (rim + backRim + fibreSheen);
+    // Surface carriers need a slightly sharper sample than color at this
+    // thumbnail scale; otherwise their 1024px strokes prefilter to flat gray.
+    float fineFibre = fibreSurface
+        ? sampleWorldMaterialTexture(
+              rimResponseMap,
+              uv,
+              textureDetailLodBias - 1.25).a
+        : 1.0;
+    float coarseFibre = fibreSurface
+        ? sampleWorldMaterialTexture(
+              rimResponseMap,
+              uv,
+              textureDetailLodBias + 1.25).a
+        : 1.0;
+    float fibreRelief = clamp(
+        abs(coarseFibre - fineFibre) * 10.0,
+        0.0,
+        1.0);
+    float fibreSignal = clamp(1.0 - fineFibre, 0.0, 1.0);
+    float velvet = pow(edge, 2.5);
+    float surfaceDetailLight = 0.35 + 0.65 * halfLambert;
+    // The compatible SV roughness atlas is a directional strand field. Use
+    // its filtered fine/coarse separation as positive-only coat lift: this
+    // survives the Inspector's small preview without turning the base color
+    // into grime or drawing dark seams around the eyes. Missing optional data
+    // remains neutral at lower quality tiers.
+    float fibreSheen = qualityDetail * surfaceDetailLight *
+        (1.0 - metallic) *
+        (fibreSignal * (0.90 + 0.20 * velvet) +
+         fibreRelief * (0.30 + 0.15 * velvet));
+
+    vec2 fineFeatherNormal = featherSurface
+        ? sampleWorldMaterialTexture(
+              normalMap,
+              uv,
+              textureDetailLodBias - 1.0).xy * 2.0 - 1.0
+        : vec2(0.0);
+    vec2 coarseFeatherNormal = featherSurface
+        ? sampleWorldMaterialTexture(
+              normalMap,
+              uv,
+              textureDetailLodBias + 1.25).xy * 2.0 - 1.0
+        : fineFeatherNormal;
+    float featherRelief = clamp(max(
+        length(fineFeatherNormal - coarseFeatherNormal) * 10.0,
+        length(fineFeatherNormal) * 0.50),
+        0.0,
+        1.0);
+    // Relief is already near zero on the atlas' hard, flat beak/claw regions.
+    // A second specular threshold incorrectly rejected the feathers as well.
+    // The additive-only response cannot draw dark seams around the eyes.
+    float featherSheen = featherSurface
+        ? qualityDetail * surfaceDetailLight * (1.0 - metallic) *
+            featherRelief * (0.65 + pow(edge, 2.0) * 0.06)
+        : 0.0;
+    vec3 featherTint = mix(sourceAlbedo, vec3(1.0), 0.50);
+    vec3 nativeBase = shaded +
+        sourceAlbedo * (rim + backRim + fibreSheen) +
+        featherTint * featherSheen;
 
     // IkCharacter's decompiled Z-A body variant has no roughness input or
     // generic PBR outer coat. It shapes direct specular from the authored

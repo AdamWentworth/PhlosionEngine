@@ -2297,17 +2297,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 uvDx,
                 uvDy).xyz;
             vec2 mapXY = normalTexel.xy * 2.0 - 1.0;
-            float nativeDetailScale =
-                uMaterialMode > 31.5 && uMaterialMode < 32.5
-                    ? mix(
-                          0.95,
-                          1.45,
-                          clamp(
-                              (0.90 - litTextureDetailLodBias()) / 1.30,
-                              0.0,
-                              1.0))
-                    : 1.0;
-            mapXY *= max(uNormalScale, 0.0) * nativeDetailScale * 1.25;
+            mapXY *= max(uNormalScale, 0.0) * 1.25;
             // Support both standard tangent-space normals (RGB) and
             // two-channel packed XY normals. Decoded XY maps can use either
             // blue=0 or blue=255 as a sentinel; reconstruct Z in both cases.
@@ -2495,7 +2485,10 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                       uvDy)
                 : vec4(1.0, 0.0, 1.0 / 3.0, 0.0);
             float ao = clamp(
-                mix(1.0, surfaceControl.r, max(uOcclusionStrength, 0.0)),
+                mix(
+                    1.0,
+                    surfaceControl.r,
+                    clamp(uOcclusionStrength, 0.0, 1.0)),
                 0.0,
                 1.0);
             float metallic = clamp(surfaceControl.g, 0.0, 1.0);
@@ -2503,6 +2496,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float specularContrast = surfaceControl.a * 5.0;
             float reflectionBlur = max(uMaterialRect0.x, 0.0);
             float diffusionLevels = clamp(uMaterialRect0.y, 0.0, 1.0);
+            float surfaceProfile = uMaterialRect0.z;
             float normalDotLightSigned = dot(n, lightDirection);
             float lambert = max(normalDotLightSigned, 0.0);
             float wrappedLambert = clamp(
@@ -2521,16 +2515,26 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 diffusionLevels);
             float shadowAmount =
                 (1.0 - halfLambert) * clamp(uRoughnessFactor, 0.0, 1.0);
+            float qualityDetail = clamp(
+                (0.90 - litTextureDetailLodBias()) / 1.30,
+                0.0,
+                1.0);
             vec3 albedo = clamp(linearColor, 0.0, 1.0);
             vec3 shadowTint = mix(vec3(1.0), shadowSpec.rgb, shadowAmount);
             vec3 shaded = albedo * shadowTint * ao;
+            bool fibreSurface =
+                abs(surfaceProfile - 1.0) < 0.25 &&
+                uUseEmissiveTexture > 0.5;
+            bool featherSurface =
+                abs(surfaceProfile - 2.0) < 0.25 &&
+                uUseNormalTexture > 0.5;
             vec4 rimResponse = uUseEmissiveTexture > 0.5
                 ? sampleTextureWithWrap(
                       uEmissiveTexture,
                       sampleUv,
                       uvDx,
                       uvDy)
-                : vec4(0.0);
+                : vec4(0.0, 0.0, 0.0, 1.0);
             float facing = dot(n, viewDirection);
             float edge = clamp(1.0 - max(facing, 0.0), 0.0, 1.0);
             float rimOffset = clamp(uEmissiveFactor.r, 0.0, 0.99);
@@ -2543,34 +2547,65 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 max(uEmissiveFactor.g, 1.0)) * rimResponse.r;
             float backRim = clamp(-facing, 0.0, 1.0) * rimResponse.g;
             float specularStrength = clamp(shadowSpec.a, 0.0, 1.0);
-            float qualityDetail = clamp(
-                (0.90 - litTextureDetailLodBias()) / 1.30,
-                0.0,
-                1.0);
-            float coarseFibre = uUseEmissiveTexture > 0.5
+            // Use a sharper surface-carrier sample than base color so the
+            // 1024px directional strokes survive the Inspector thumbnail.
+            float fineFibre = fibreSurface
                 ? sampleTextureWithWrap(
                       uEmissiveTexture,
                       sampleUv,
-                      uvDx * 4.0,
-                      uvDy * 4.0).a
+                      uvDx * exp2(-1.25),
+                      uvDy * exp2(-1.25)).a
                 : 1.0;
-            float fineFibre = rimResponse.a;
-            float fibreStroke = clamp(
-                abs(coarseFibre - fineFibre) * 4.0,
+            float coarseFibre = fibreSurface
+                ? sampleTextureWithWrap(
+                      uEmissiveTexture,
+                      sampleUv,
+                      uvDx * exp2(1.25),
+                      uvDy * exp2(1.25)).a
+                : 1.0;
+            float fibreRelief = clamp(
+                abs(coarseFibre - fineFibre) * 10.0,
                 0.0,
                 1.0);
-            float fibreCoverage = clamp(
-                (1.0 - fineFibre) * 0.30,
-                0.0,
-                1.0);
-            float fibreRelief = max(fibreStroke, fibreCoverage);
-            // Constant alpha is neutral. Only source-qualified compatible
-            // fibre atlases can produce this fine-versus-coarse coat lobe.
-            float fibreSheen = qualityDetail * halfLambert *
+            float fibreSignal = clamp(1.0 - fineFibre, 0.0, 1.0);
+            float velvet = pow(edge, 2.5);
+            float surfaceDetailLight = 0.35 + 0.65 * halfLambert;
+            // Source-authored strand lift is additive-only: no whole-body
+            // dirt tint and no dark eye seam. Missing payloads stay neutral.
+            float fibreSheen = qualityDetail * surfaceDetailLight *
                 (1.0 - metallic) *
-                fibreRelief * (0.34 + 0.24 * pow(edge, 2.5));
-            vec3 nativeBase = shaded + albedo *
-                (rim + backRim + fibreSheen);
+                (fibreSignal * (0.90 + 0.20 * velvet) +
+                 fibreRelief * (0.30 + 0.15 * velvet));
+
+            vec2 fineFeatherNormal = featherSurface
+                ? sampleTextureWithWrap(
+                      uNormalTexture,
+                      sampleUv,
+                      uvDx * exp2(-1.0),
+                      uvDy * exp2(-1.0)).xy * 2.0 - 1.0
+                : vec2(0.0);
+            vec2 coarseFeatherNormal = featherSurface
+                ? sampleTextureWithWrap(
+                      uNormalTexture,
+                      sampleUv,
+                      uvDx * exp2(1.25),
+                      uvDy * exp2(1.25)).xy * 2.0 - 1.0
+                : fineFeatherNormal;
+            float featherRelief = clamp(max(
+                length(fineFeatherNormal - coarseFeatherNormal) * 10.0,
+                length(fineFeatherNormal) * 0.50),
+                0.0,
+                1.0);
+            float featherSheen = featherSurface
+                ? qualityDetail * surfaceDetailLight *
+                    (1.0 - metallic) *
+                    featherRelief *
+                    (0.65 + pow(edge, 2.0) * 0.06)
+                : 0.0;
+            vec3 featherTint = mix(albedo, vec3(1.0), 0.50);
+            vec3 nativeBase = shaded +
+                albedo * (rim + backRim + fibreSheen) +
+                featherTint * featherSheen;
 
             // The decompiled Z-A IkCharacter body program carries no generic
             // roughness/PBR coat. Preserve its layer-resolved specular shape,
