@@ -1786,7 +1786,7 @@ void main() {
                 textureDetailLodBias,
                 drawState.pbrFactors,
                 drawState.emissiveAndCamera.rgb,
-                drawState.specializedRect0.x);
+                drawState.specializedRect0);
         } else if (nativeGastlyFace) {
             linearColor = evaluateNativeGastlyFace(
                 linearColor,

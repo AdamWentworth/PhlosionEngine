@@ -279,7 +279,7 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
                                float textureDetailLodBias,
                                vec4 factors,
                                vec3 rimParameters,
-                               float surfaceRoughness) {
+                               vec4 surfaceParameters) {
     vec3 normal = mappedWorldNormal(
         uv,
         position,
@@ -308,18 +308,36 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         shadowSpecMap,
         uv,
         textureDetailLodBias);
+    vec4 surfaceControl = sampleWorldMaterialTexture(
+        occlusionMap,
+        uv,
+        textureDetailLodBias);
     float occlusion = mix(
         1.0,
-        sampleWorldMaterialTexture(
-            occlusionMap,
-            uv,
-            textureDetailLodBias).r,
+        surfaceControl.r,
         clamp(factors.w, 0.0, 1.0));
-    float halfLambert = clamp(
-        dot(normal, lightDirection) * 0.5 +
-            (0.5 + clamp(factors.y, 0.0, 1.0)),
+    float metallic = clamp(surfaceControl.g, 0.0, 1.0);
+    float specularOffset = surfaceControl.b * 1.5 - 0.5;
+    float specularContrast = surfaceControl.a * 5.0;
+    float reflectionBlur = max(surfaceParameters.x, 0.0);
+    float diffusionLevels = clamp(surfaceParameters.y, 0.0, 1.0);
+    float normalDotLightSigned = dot(normal, lightDirection);
+    float lambert = max(normalDotLightSigned, 0.0);
+    float wrappedLambert = clamp(
+        normalDotLightSigned * 0.5 + 0.5,
         0.0,
         1.0);
+    // HalfLambertBias is a response selector, not an additive light bias.
+    // Adding a source value of 1 saturated every normal and erased stone,
+    // feather, and skin relief. Blend ordinary and wrapped Lambert instead.
+    float halfLambert = mix(
+        lambert,
+        wrappedLambert,
+        clamp(factors.y, 0.0, 1.0));
+    halfLambert = mix(
+        halfLambert,
+        sqrt(max(halfLambert, 0.0)),
+        diffusionLevels);
     float shadowAmount =
         (1.0 - halfLambert) * clamp(factors.z, 0.0, 1.0);
     vec3 sourceAlbedo = clamp(albedo, 0.0, 1.0);
@@ -344,57 +362,54 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     float backRim = clamp(-facing, 0.0, 1.0) * rimResponse.g;
     vec3 nativeBase = shaded + sourceAlbedo * (rim + backRim);
 
-    // The source shader feeds this colored composition into an ordinary
-    // normal-mapped dielectric surface. Retaining that outer stage restores
-    // the authored coat/feather/scale relief on otherwise flat front faces.
-    float roughness = clamp(surfaceRoughness, 0.16, 1.0);
-    vec3 sourceF0 = vec3(clamp(shadowSpec.a, 0.0, 1.0));
-    vec3 direct = evaluateDirectPbr(
-        normal,
-        viewDirection,
-        lightDirection,
-        nativeBase,
-        sourceF0,
-        roughness,
-        0.0);
+    // IkCharacter's decompiled Z-A body variant has no roughness input or
+    // generic PBR outer coat. It shapes direct specular from the authored
+    // mask plus per-layer offset/contrast, and samples a local reflection
+    // cube with ReflectionsBlur. Reproduce that contract with Phlosion's
+    // neutral environment instead of flattening every material to 0.5
+    // roughness.
+    vec3 halfDirection = safeNormalize(
+        lightDirection + viewDirection,
+        normal);
+    float normalDotHalf = max(dot(normal, halfDirection), 0.0);
     float normalDotView = max(dot(normal, viewDirection), 0.0);
-    vec3 fresnel = fresnelSchlickRoughness(
-        normalDotView,
-        sourceF0,
-        roughness);
+    float normalDotLight = lambert;
+    float specularDomain = clamp(
+        normalDotHalf + specularOffset,
+        0.0,
+        1.0);
+    float specularExponent = mix(
+        8.0,
+        64.0,
+        clamp(specularContrast / 5.0, 0.0, 1.0));
+    float specularLobe = pow(specularDomain, specularExponent);
+    float specularStrength = clamp(shadowSpec.a, 0.0, 1.0);
+    float surfaceSpecular = max(specularStrength, metallic);
+    vec3 specularColor = mix(vec3(1.0), sourceAlbedo, metallic);
+    vec3 directSpecular = specularColor * surfaceSpecular * specularLobe *
+        normalDotLight * 0.72;
     vec3 reflection = reflect(-viewDirection, normal);
-    vec3 environmentIrradiance = 3.14159265 *
-        sampleNeutralEnvironment(environmentMap, normal, 1.0);
+    float reflectionRoughness = clamp(
+        reflectionBlur * 0.16,
+        0.04,
+        0.92);
     vec3 environmentRadiance = sampleNeutralEnvironment(
         environmentMap,
         reflection,
-        roughness);
-    vec3 singleScattering;
-    vec3 multiScattering;
-    computeMultiscattering(
-        normal,
-        viewDirection,
-        sourceF0,
-        roughness,
-        singleScattering,
-        multiScattering);
-    vec3 cosineWeightedIrradiance = environmentIrradiance / 3.14159265;
-    vec3 totalScattering = singleScattering + multiScattering;
-    float remainingEnergy = 1.0 - max(
-        max(totalScattering.r, totalScattering.g),
-        totalScattering.b);
-    vec3 diffuseIbl = nativeBase * max(remainingEnergy, 0.0) *
-        cosineWeightedIrradiance * 1.26;
-    vec3 specularIbl =
-        (environmentRadiance * singleScattering +
-         multiScattering * cosineWeightedIrradiance) * 0.44;
-    specularIbl *= computeSpecularOcclusion(
-        normalDotView,
-        occlusion,
-        roughness);
-    vec3 ambient = (vec3(1.0) - fresnel) * nativeBase * 0.56;
+        reflectionRoughness);
+    float grazingResponse = mix(
+        1.0,
+        1.35,
+        pow(1.0 - normalDotView, 5.0));
+    vec3 environmentSpecular = environmentRadiance *
+        specularColor * surfaceSpecular * grazingResponse *
+        computeSpecularOcclusion(
+            normalDotView,
+            occlusion,
+            reflectionRoughness) * 0.44;
+    vec3 diffuse = nativeBase * (1.0 - metallic * 0.85);
     return max(
-        direct + diffuseIbl + specularIbl + ambient,
+        diffuse + directSpecular + environmentSpecular,
         vec3(0.0));
 }
 

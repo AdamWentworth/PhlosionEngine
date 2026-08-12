@@ -2359,20 +2359,38 @@ float3 applyNativeIkCharacter(PSIn i,
             uWrapS,
             uWrapT)
       : float4(1.0f, 1.0f, 1.0f, 0.0f);
-  float ao = 1.0f;
-  if (useOcclusionTexture) {
-    float sampledAo = sampleTextureWithWrap(
-        gOcclusionTex,
-        sampleUv,
-        uvDx,
-        uvDy,
-        uWrapS,
-        uWrapT).r;
-    ao = lerp(1.0f, sampledAo, saturate(occlusionStrength));
-  }
-  float halfLambert = saturate(
-      dot(normal, lightDirection) * 0.5f +
-      (0.5f + saturate(halfLambertBias)));
+  float4 surfaceControl = useOcclusionTexture
+      ? sampleTextureWithWrap(
+            gOcclusionTex,
+            sampleUv,
+            uvDx,
+            uvDy,
+            uWrapS,
+            uWrapT)
+      : float4(1.0f, 0.0f, 1.0f / 3.0f, 0.0f);
+  float ao = lerp(
+      1.0f,
+      surfaceControl.r,
+      saturate(occlusionStrength));
+  float metallic = saturate(surfaceControl.g);
+  float specularOffset = surfaceControl.b * 1.5f - 0.5f;
+  float specularContrast = surfaceControl.a * 5.0f;
+  float reflectionBlur = max(uMaterialRect0U, 0.0f);
+  float diffusionLevels = saturate(uMaterialRect0V);
+  float normalDotLightSigned = dot(normal, lightDirection);
+  float lambert = max(normalDotLightSigned, 0.0f);
+  float wrappedLambert = saturate(
+      normalDotLightSigned * 0.5f + 0.5f);
+  // HalfLambertBias selects between ordinary and wrapped Lambert; treating
+  // it as an additive term saturates the normal response at source value 1.
+  float halfLambert = lerp(
+      lambert,
+      wrappedLambert,
+      saturate(halfLambertBias));
+  halfLambert = lerp(
+      halfLambert,
+      sqrt(max(halfLambert, 0.0f)),
+      diffusionLevels);
   float shadowAmount =
       (1.0f - halfLambert) * saturate(shadowStrength);
   float3 albedo = saturate(linearColor);
@@ -2399,65 +2417,48 @@ float3 applyNativeIkCharacter(PSIn i,
   float backRim = saturate(-facing) * rimResponse.g;
   float3 nativeBase = shaded + albedo * (rim + backRim);
 
-  // The native colored half-Lambert/rim composition is the base color of a
-  // second, normal-mapped dielectric pass. Without this outer pass the
-  // authored Z-A coat and feather relief is nearly invisible on front faces.
-  float surfaceRoughness = clamp(uMaterialRect0U, 0.16f, 1.0f);
-  float3 sourceF0 = float3(
-      saturate(shadowSpec.a),
-      saturate(shadowSpec.a),
-      saturate(shadowSpec.a));
-  float3 direct = evalDirectPbr(
-      normal,
-      viewDirection,
-      lightDirection,
-      float3(1.0f, 1.0f, 1.0f) *
-          (__PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265f),
-      nativeBase,
-      sourceF0,
-      surfaceRoughness,
-      0.0f);
+  // The decompiled Z-A IkCharacter body program carries no generic
+  // roughness/PBR coat. Preserve its layer-resolved specular shape, metal
+  // response, reflection blur and diffusion controls.
+  float3 halfDirection = safeNormalize(
+      lightDirection + viewDirection,
+      normal);
+  float normalDotHalf = max(dot(normal, halfDirection), 0.0f);
   float normalDotView = max(dot(normal, viewDirection), 0.0f);
-  float3 fresnel = fresnelSchlickRoughness(
-      normalDotView,
-      sourceF0,
-      surfaceRoughness);
+  float normalDotLight = lambert;
+  float specularDomain = saturate(normalDotHalf + specularOffset);
+  float specularExponent = lerp(
+      8.0f,
+      64.0f,
+      saturate(specularContrast / 5.0f));
+  float specularLobe = pow(specularDomain, specularExponent);
+  float specularStrength = saturate(shadowSpec.a);
+  float surfaceSpecular = max(specularStrength, metallic);
+  float3 specularColor = lerp(float3(1.0f, 1.0f, 1.0f), albedo, metallic);
+  float3 directSpecular = specularColor * surfaceSpecular * specularLobe *
+      normalDotLight * 0.72f;
   float3 reflection = reflect(-viewDirection, normal);
-  float3 environmentIrradiance =
-      3.14159265f * sampleNeutralEnvironment(normal, 1.0f);
-  float3 environmentRadiance =
-      sampleNeutralEnvironment(reflection, surfaceRoughness);
-  float3 singleScattering = float3(0.0f, 0.0f, 0.0f);
-  float3 multiScattering = float3(0.0f, 0.0f, 0.0f);
-  computeMultiscattering(
-      normal,
-      viewDirection,
-      sourceF0,
+  float reflectionRoughness = clamp(
+      reflectionBlur * 0.16f,
+      0.04f,
+      0.92f);
+  float3 environmentRadiance = sampleNeutralEnvironment(
+      reflection,
+      reflectionRoughness);
+  float grazingResponse = lerp(
       1.0f,
-      surfaceRoughness,
-      singleScattering,
-      multiScattering);
-  float3 cosineWeightedIrradiance =
-      environmentIrradiance * (1.0f / 3.14159265f);
-  float3 totalScattering = singleScattering + multiScattering;
-  float remainingEnergy = 1.0f - max(
-      max(totalScattering.r, totalScattering.g),
-      totalScattering.b);
-  float3 diffuseIbl = nativeBase * max(remainingEnergy, 0.0f) *
-      cosineWeightedIrradiance * __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
-  float3 specularIbl =
-      (environmentRadiance * singleScattering +
-       multiScattering * cosineWeightedIrradiance) *
+      1.35f,
+      pow(1.0f - normalDotView, 5.0f));
+  float3 environmentSpecular = environmentRadiance *
+      specularColor * surfaceSpecular * grazingResponse *
+      computeSpecularOcclusion(
+          normalDotView,
+          ao,
+          reflectionRoughness) *
       __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-  specularIbl *= computeSpecularOcclusion(
-      normalDotView,
-      ao,
-      surfaceRoughness);
-  float3 ambient =
-      (float3(1.0f, 1.0f, 1.0f) - fresnel) * nativeBase *
-      __PHLOSION_PBR_AMBIENT_INTENSITY__;
+  float3 diffuse = nativeBase * (1.0f - metallic * 0.85f);
   return max(
-      direct + diffuseIbl + specularIbl + ambient,
+      diffuse + directSpecular + environmentSpecular,
       float3(0.0f, 0.0f, 0.0f));
 }
 
