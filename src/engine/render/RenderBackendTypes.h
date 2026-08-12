@@ -15,6 +15,7 @@ namespace engine::render::backend {
 // stores a source-authored dielectric specular mask. materialRect0U carries
 // that source shader's scalar specular intensity.
 inline constexpr float kNativeSpecularStrengthMaterialFlag = 5.0f;
+inline constexpr std::uint8_t kNativeIkCharacterMaterialMode = 32u;
 
 struct BackendFrameTimings {
     float presentWaitMs = 0.0f;

@@ -256,6 +256,93 @@ vec3 evaluateWorldMaterial(vec3 albedo,
     return max(shaded + emissive, vec3(0.0));
 }
 
+vec3 evaluateNativeIkCharacter(vec3 albedo,
+                               vec2 uv,
+                               vec3 position,
+                               vec3 sourceNormal,
+                               vec4 sourceTangent,
+                               vec3 cameraPosition,
+                               vec3 cameraForwardPacked,
+                               vec3 cameraTarget,
+                               sampler2D normalMap,
+                               sampler2D shadowSpecMap,
+                               sampler2D occlusionMap,
+                               sampler2D rimResponseMap,
+                               float textureDetailLodBias,
+                               vec4 factors,
+                               vec3 rimParameters) {
+    vec3 normal = mappedWorldNormal(
+        uv,
+        position,
+        sourceNormal,
+        sourceTangent,
+        normalMap,
+        textureDetailLodBias,
+        factors.x);
+    vec3 cameraForward = safeNormalize(
+        cameraForwardPacked,
+        normalize(vec3(0.0, -0.6139406, -0.7893522)));
+    vec3 cameraRight = cross(cameraForward, vec3(0.0, 1.0, 0.0));
+    if (dot(cameraRight, cameraRight) < 1e-6) {
+        cameraRight = cross(cameraForward, vec3(0.0, 0.0, 1.0));
+    }
+    cameraRight = safeNormalize(cameraRight, vec3(1.0, 0.0, 0.0));
+    vec3 viewDirection = safeNormalize(
+        cameraPosition - position,
+        -cameraForward);
+    vec3 lightPosition =
+        cameraPosition + cameraRight * 0.5 - cameraForward * 0.8660254;
+    vec3 lightDirection = safeNormalize(
+        lightPosition - cameraTarget,
+        vec3(0.45, 0.86, 0.24));
+    vec4 shadowSpec = sampleWorldMaterialTexture(
+        shadowSpecMap,
+        uv,
+        textureDetailLodBias);
+    float occlusion = mix(
+        1.0,
+        sampleWorldMaterialTexture(
+            occlusionMap,
+            uv,
+            textureDetailLodBias).r,
+        clamp(factors.w, 0.0, 1.0));
+    float halfLambert = clamp(
+        dot(normal, lightDirection) * 0.5 +
+            (0.5 + clamp(factors.y, 0.0, 1.0)),
+        0.0,
+        1.0);
+    float shadowAmount =
+        (1.0 - halfLambert) * clamp(factors.z, 0.0, 1.0);
+    vec3 sourceAlbedo = clamp(albedo, 0.0, 1.0);
+    vec3 shadowTint = mix(vec3(1.0), shadowSpec.rgb, shadowAmount);
+    vec3 shaded = sourceAlbedo * shadowTint * occlusion;
+    vec3 halfVector = safeNormalize(
+        viewDirection + lightDirection,
+        normal);
+    float specular =
+        pow(max(dot(normal, halfVector), 0.0), 32.0) * shadowSpec.a;
+    vec2 rimResponse = rimParameters.b > 0.5
+        ? sampleWorldMaterialTexture(
+              rimResponseMap,
+              uv,
+              textureDetailLodBias).rg
+        : vec2(0.0);
+    float facing = dot(normal, viewDirection);
+    float edge = clamp(1.0 - max(facing, 0.0), 0.0, 1.0);
+    float rimOffset = clamp(rimParameters.r, 0.0, 0.99);
+    float rimDomain = clamp(
+        (edge - rimOffset) / max(1.0 - rimOffset, 1e-4),
+        0.0,
+        1.0);
+    float rim = pow(
+        rimDomain,
+        max(rimParameters.g, 1.0)) * rimResponse.r;
+    float backRim = clamp(-facing, 0.0, 1.0) * rimResponse.g;
+    return max(
+        shaded + vec3(specular) + sourceAlbedo * (rim + backRim),
+        vec3(0.0));
+}
+
 vec3 evaluateNativeGastlyFace(vec3 albedo,
                               vec2 uv,
                               vec3 position,

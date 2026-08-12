@@ -2298,6 +2298,106 @@ float3 applyWorldLitModel(PSIn i,
   return max(shaded + emissive, float3(0.0f, 0.0f, 0.0f));
 }
 
+float3 applyNativeIkCharacter(PSIn i,
+                              bool isFrontFace,
+                              float3 linearColor,
+                              float2 sampleUv,
+                              float2 uvDx,
+                              float2 uvDy,
+                              bool useNormalTexture,
+                              bool useMetallicRoughnessTexture,
+                              bool useOcclusionTexture,
+                              bool useEmissiveTexture,
+                              float normalScale,
+                              float halfLambertBias,
+                              float shadowStrength,
+                              float occlusionStrength,
+                              float3 rimParameters,
+                              float3 cameraPos,
+                              float3 cameraForwardPacked,
+                              float3 cameraTarget) {
+  float3 normal = computeMappedNormal(
+      i,
+      isFrontFace,
+      sampleUv,
+      uvDx,
+      uvDy,
+      useNormalTexture,
+      normalScale);
+  float3 cameraForward = safeNormalize(
+      cameraForwardPacked,
+      normalize(float3(0.0f, -0.6139406f, -0.7893522f)));
+  float3 cameraRight = cross(cameraForward, float3(0.0f, 1.0f, 0.0f));
+  if (dot(cameraRight, cameraRight) < 1e-6f) {
+    cameraRight = cross(cameraForward, float3(0.0f, 0.0f, 1.0f));
+  }
+  cameraRight = safeNormalize(cameraRight, float3(1.0f, 0.0f, 0.0f));
+  float3 viewDirection = safeNormalize(
+      cameraPos - i.worldPos,
+      -cameraForward);
+  float3 lightPosition =
+      cameraPos + cameraRight * 0.5f - cameraForward * 0.8660254f;
+  float3 lightDirection = safeNormalize(
+      lightPosition - cameraTarget,
+      float3(0.45f, 0.86f, 0.24f));
+  float4 shadowSpec = useMetallicRoughnessTexture
+      ? sampleTextureWithWrap(
+            gMetallicRoughnessTex,
+            sampleUv,
+            uvDx,
+            uvDy,
+            uWrapS,
+            uWrapT)
+      : float4(1.0f, 1.0f, 1.0f, 0.0f);
+  float ao = 1.0f;
+  if (useOcclusionTexture) {
+    float sampledAo = sampleTextureWithWrap(
+        gOcclusionTex,
+        sampleUv,
+        uvDx,
+        uvDy,
+        uWrapS,
+        uWrapT).r;
+    ao = lerp(1.0f, sampledAo, saturate(occlusionStrength));
+  }
+  float halfLambert = saturate(
+      dot(normal, lightDirection) * 0.5f +
+      (0.5f + saturate(halfLambertBias)));
+  float shadowAmount =
+      (1.0f - halfLambert) * saturate(shadowStrength);
+  float3 albedo = saturate(linearColor);
+  float3 shadowTint = lerp(
+      float3(1.0f, 1.0f, 1.0f),
+      shadowSpec.rgb,
+      shadowAmount);
+  float3 shaded = albedo * shadowTint * ao;
+  float3 halfVector = safeNormalize(
+      viewDirection + lightDirection,
+      normal);
+  float specular =
+      pow(max(dot(normal, halfVector), 0.0f), 32.0f) * shadowSpec.a;
+  float2 rimResponse = useEmissiveTexture
+      ? sampleTextureWithWrap(
+            gEmissiveTex,
+            sampleUv,
+            uvDx,
+            uvDy,
+            uWrapS,
+            uWrapT).rg
+      : float2(0.0f, 0.0f);
+  float facing = dot(normal, viewDirection);
+  float edge = saturate(1.0f - max(facing, 0.0f));
+  float rimOffset = clamp(rimParameters.r, 0.0f, 0.99f);
+  float rimDomain = saturate(
+      (edge - rimOffset) / max(1.0f - rimOffset, 1e-4f));
+  float rim = pow(rimDomain, max(rimParameters.g, 1.0f)) * rimResponse.r;
+  float backRim = saturate(-facing) * rimResponse.g;
+  return max(
+      shaded + float3(specular, specular, specular) +
+          albedo * (rim + backRim),
+      float3(0.0f, 0.0f, 0.0f));
+}
+
 float3 applyNativeEyeClearCoat(PSIn i,
                                float3 linearColor,
                                float3 n,
@@ -2590,7 +2690,29 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         uMaterialMode > 30.5f &&
         uMaterialFlipbook1Fps > 3.5f &&
         uMaterialFlipbook1Fps < 4.5f;
-    if (nativeGastlyFace) {
+    const bool nativeIkCharacter =
+        uMaterialMode > 31.5f && uMaterialMode < 32.5f;
+    if (nativeIkCharacter) {
+      outLinear = applyNativeIkCharacter(
+          i,
+          isFrontFace,
+          outLinear,
+          wrappedUv,
+          uvDx,
+          uvDy,
+          useNormalTexture,
+          useMetallicRoughnessTexture,
+          useOcclusionTexture,
+          useEmissiveTexture,
+          normalScale,
+          metallicFactor,
+          roughnessFactor,
+          occlusionStrength,
+          emissiveFactor,
+          cameraPos,
+          cameraForward,
+          cameraTarget);
+    } else if (nativeGastlyFace) {
       outLinear = applyNativeGastlyFace(
           i,
           isFrontFace,

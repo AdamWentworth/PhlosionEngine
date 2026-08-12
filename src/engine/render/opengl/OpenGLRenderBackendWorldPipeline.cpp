@@ -2439,6 +2439,82 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             return max(shaded + emissive, vec3(0.0));
         }
 
+        vec3 applyNativeIkCharacter(
+            vec3 linearColor,
+            vec3 n,
+            vec2 sampleUv,
+            vec2 uvDx,
+            vec2 uvDy) {
+            vec3 cameraForward = safeNormalize(
+                uCameraForward,
+                normalize(vec3(0.0, -0.6139406, -0.7893522)));
+            vec3 cameraRight = cross(cameraForward, vec3(0.0, 1.0, 0.0));
+            if (dot(cameraRight, cameraRight) < 1e-6) {
+                cameraRight = cross(cameraForward, vec3(0.0, 0.0, 1.0));
+            }
+            cameraRight = safeNormalize(cameraRight, vec3(1.0, 0.0, 0.0));
+            vec3 viewDirection = safeNormalize(
+                uCameraPos - vWorldPos,
+                -cameraForward);
+            vec3 lightPosition =
+                uCameraPos + cameraRight * 0.5 - cameraForward * 0.8660254;
+            vec3 lightDirection = safeNormalize(
+                lightPosition - uCameraTarget,
+                vec3(0.45, 0.86, 0.24));
+            vec4 shadowSpec = uUseMetallicRoughnessTexture > 0.5
+                ? sampleTextureWithWrap(
+                      uMetallicRoughnessTexture,
+                      sampleUv,
+                      uvDx,
+                      uvDy)
+                : vec4(1.0, 1.0, 1.0, 0.0);
+            float ao = 1.0;
+            if (uUseOcclusionTexture > 0.5) {
+                float sampledAo = sampleTextureWithWrap(
+                    uOcclusionTexture,
+                    sampleUv,
+                    uvDx,
+                    uvDy).r;
+                ao = mix(1.0, sampledAo, clamp(uOcclusionStrength, 0.0, 1.0));
+            }
+            float halfLambert = clamp(
+                dot(n, lightDirection) * 0.5 +
+                    (0.5 + clamp(uMetallicFactor, 0.0, 1.0)),
+                0.0,
+                1.0);
+            float shadowAmount =
+                (1.0 - halfLambert) * clamp(uRoughnessFactor, 0.0, 1.0);
+            vec3 albedo = clamp(linearColor, 0.0, 1.0);
+            vec3 shadowTint = mix(vec3(1.0), shadowSpec.rgb, shadowAmount);
+            vec3 shaded = albedo * shadowTint * ao;
+            vec3 halfVector = safeNormalize(
+                viewDirection + lightDirection,
+                n);
+            float specular =
+                pow(max(dot(n, halfVector), 0.0), 32.0) * shadowSpec.a;
+            vec2 rimResponse = uUseEmissiveTexture > 0.5
+                ? sampleTextureWithWrap(
+                      uEmissiveTexture,
+                      sampleUv,
+                      uvDx,
+                      uvDy).rg
+                : vec2(0.0);
+            float facing = dot(n, viewDirection);
+            float edge = clamp(1.0 - max(facing, 0.0), 0.0, 1.0);
+            float rimOffset = clamp(uEmissiveFactor.r, 0.0, 0.99);
+            float rimDomain = clamp(
+                (edge - rimOffset) / max(1.0 - rimOffset, 1e-4),
+                0.0,
+                1.0);
+            float rim = pow(
+                rimDomain,
+                max(uEmissiveFactor.g, 1.0)) * rimResponse.r;
+            float backRim = clamp(-facing, 0.0, 1.0) * rimResponse.g;
+            return max(
+                shaded + vec3(specular) + albedo * (rim + backRim),
+                vec3(0.0));
+        }
+
         vec3 applyNativeGastlyFace(
             vec3 albedo,
             vec3 normal,
@@ -2853,19 +2929,30 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     uMaterialMode > 30.5 &&
                     uMaterialFlags > 3.5 &&
                     uMaterialFlags < 4.5;
-                outLinear = nativeGastlyFace
-                    ? applyNativeGastlyFace(
-                          outLinear,
-                          n,
-                          wrappedUv,
-                          uvDx,
-                          uvDy)
-                    : applyWorldLitModel(
-                          outLinear,
-                          n,
-                          wrappedUv,
-                          uvDx,
-                          uvDy);
+                bool nativeIkCharacter =
+                    uMaterialMode > 31.5 && uMaterialMode < 32.5;
+                if (nativeIkCharacter) {
+                    outLinear = applyNativeIkCharacter(
+                        outLinear,
+                        n,
+                        wrappedUv,
+                        uvDx,
+                        uvDy);
+                } else if (nativeGastlyFace) {
+                    outLinear = applyNativeGastlyFace(
+                        outLinear,
+                        n,
+                        wrappedUv,
+                        uvDx,
+                        uvDy);
+                } else {
+                    outLinear = applyWorldLitModel(
+                        outLinear,
+                        n,
+                        wrappedUv,
+                        uvDx,
+                        uvDy);
+                }
                 if ((uMaterialMode > 27.5 && uMaterialMode < 28.5) ||
                     (uMaterialMode > 29.5 && uMaterialMode < 30.5)) {
                     outLinear = applyNativeEyeClearCoat(outLinear, n);

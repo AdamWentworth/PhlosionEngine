@@ -1718,7 +1718,8 @@ void main() {
         : vertexUv;
     float textureDetailLodBias =
         ((materialMode >= 1.5 && materialMode < 2.5) ||
-         (materialMode > 28.5 && materialMode < 29.5))
+         (materialMode > 28.5 && materialMode < 29.5) ||
+         (materialMode > 31.5 && materialMode < 32.5))
             ? drawState.specializedFlipbook1.z
             : 0.0;
     vec4 sampled = sampleWorldMaterialTexture(
@@ -1742,30 +1743,50 @@ void main() {
     }
 
     if ((materialMode >= 1.5 && materialMode < 2.5) ||
-        (materialMode > 27.5 && materialMode < 31.5)) {
+        (materialMode > 27.5 && materialMode < 32.5)) {
         bool nativeGastlyFace =
             materialMode > 30.5 &&
             drawState.specializedTimingFlagsAtlas.y > 3.5 &&
             drawState.specializedTimingFlagsAtlas.y < 4.5;
-        linearColor = nativeGastlyFace
-            ? evaluateNativeGastlyFace(
-                  linearColor,
-                  materialUv,
-                  worldPosition,
-                  vertexNormal,
-                  vertexTangent,
-                  worldView.cameraPosition.xyz,
-                  worldView.cameraForward.xyz,
-                  worldView.cameraTarget.xyz,
-                  normalTextures[nonuniformEXT(materialIndex)],
-                  metallicRoughnessTextures[nonuniformEXT(materialIndex)],
-                  occlusionTextures[nonuniformEXT(materialIndex)],
-                  emissiveTextures[nonuniformEXT(materialIndex)],
-                  textureDetailLodBias,
-                  drawState.pbrFactors.x,
-                  drawState.pbrFactors.w,
-                  drawState.specializedRect0.w > 0.5)
-            : evaluateWorldMaterial(
+        bool nativeIkCharacter =
+            materialMode > 31.5 && materialMode < 32.5;
+        if (nativeIkCharacter) {
+            linearColor = evaluateNativeIkCharacter(
+                linearColor,
+                materialUv,
+                worldPosition,
+                vertexNormal,
+                vertexTangent,
+                worldView.cameraPosition.xyz,
+                worldView.cameraForward.xyz,
+                worldView.cameraTarget.xyz,
+                normalTextures[nonuniformEXT(materialIndex)],
+                metallicRoughnessTextures[nonuniformEXT(materialIndex)],
+                occlusionTextures[nonuniformEXT(materialIndex)],
+                emissiveTextures[nonuniformEXT(materialIndex)],
+                textureDetailLodBias,
+                drawState.pbrFactors,
+                drawState.emissiveAndCamera.rgb);
+        } else if (nativeGastlyFace) {
+            linearColor = evaluateNativeGastlyFace(
+                linearColor,
+                materialUv,
+                worldPosition,
+                vertexNormal,
+                vertexTangent,
+                worldView.cameraPosition.xyz,
+                worldView.cameraForward.xyz,
+                worldView.cameraTarget.xyz,
+                normalTextures[nonuniformEXT(materialIndex)],
+                metallicRoughnessTextures[nonuniformEXT(materialIndex)],
+                occlusionTextures[nonuniformEXT(materialIndex)],
+                emissiveTextures[nonuniformEXT(materialIndex)],
+                textureDetailLodBias,
+                drawState.pbrFactors.x,
+                drawState.pbrFactors.w,
+                drawState.specializedRect0.w > 0.5);
+        } else {
+            linearColor = evaluateWorldMaterial(
                   linearColor,
                   materialUv,
                   worldPosition,
@@ -1790,6 +1811,7 @@ void main() {
                   (((materialMode > 27.5 && materialMode < 28.5) ||
                     (materialMode > 29.5 && materialMode < 30.5)) &&
                    tailFireMaterial.rect1.w < -0.5) ? 0.0 : 1.0);
+        }
         if ((materialMode > 27.5 && materialMode < 28.5) ||
             (materialMode > 29.5 && materialMode < 30.5)) {
             linearColor = evaluateNativeEyeClearCoat(
