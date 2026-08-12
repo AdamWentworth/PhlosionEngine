@@ -2048,7 +2048,15 @@ float3 computeMappedNormal(PSIn i,
 
   float3 normalTexel = sampleTextureWithWrap(gNormalTex, sampleUv, uvDx, uvDy, uWrapS, uWrapT).xyz;
   float2 mapXY = normalTexel.xy * 2.0f - 1.0f;
-  mapXY *= max(normalScale, 0.0f) * 1.25f;
+  float nativeDetailScale =
+      uMaterialMode > 31.5f && uMaterialMode < 32.5f
+          ? lerp(
+                0.95f,
+                1.45f,
+                saturate(
+                    (0.90f - litTextureDetailLodBias()) / 1.30f))
+          : 1.0f;
+  mapXY *= max(normalScale, 0.0f) * nativeDetailScale * 1.25f;
   // Support standard RGB tangent-space normals and two-channel packed XY
   // normals. Decoded XY maps can use blue=0 or blue=255 as a sentinel, so
   // reconstruct Z for both encodings.
@@ -2368,10 +2376,10 @@ float3 applyNativeIkCharacter(PSIn i,
             uWrapS,
             uWrapT)
       : float4(1.0f, 0.0f, 1.0f / 3.0f, 0.0f);
-  float ao = lerp(
+  float ao = saturate(lerp(
       1.0f,
       surfaceControl.r,
-      saturate(occlusionStrength));
+      max(occlusionStrength, 0.0f)));
   float metallic = saturate(surfaceControl.g);
   float specularOffset = surfaceControl.b * 1.5f - 0.5f;
   float specularContrast = surfaceControl.a * 5.0f;
@@ -2399,15 +2407,15 @@ float3 applyNativeIkCharacter(PSIn i,
       shadowSpec.rgb,
       shadowAmount);
   float3 shaded = albedo * shadowTint * ao;
-  float2 rimResponse = useEmissiveTexture
+  float4 rimResponse = useEmissiveTexture
       ? sampleTextureWithWrap(
             gEmissiveTex,
             sampleUv,
             uvDx,
             uvDy,
             uWrapS,
-            uWrapT).rg
-      : float2(0.0f, 0.0f);
+            uWrapT)
+      : float4(0.0f, 0.0f, 0.0f, 0.0f);
   float facing = dot(normal, viewDirection);
   float edge = saturate(1.0f - max(facing, 0.0f));
   float rimOffset = clamp(rimParameters.r, 0.0f, 0.99f);
@@ -2415,7 +2423,28 @@ float3 applyNativeIkCharacter(PSIn i,
       (edge - rimOffset) / max(1.0f - rimOffset, 1e-4f));
   float rim = pow(rimDomain, max(rimParameters.g, 1.0f)) * rimResponse.r;
   float backRim = saturate(-facing) * rimResponse.g;
-  float3 nativeBase = shaded + albedo * (rim + backRim);
+  float specularStrength = saturate(shadowSpec.a);
+  float qualityDetail = saturate(
+      (0.90f - litTextureDetailLodBias()) / 1.30f);
+  float coarseFibre = useEmissiveTexture
+      ? sampleTextureWithWrap(
+            gEmissiveTex,
+            sampleUv,
+            uvDx * 4.0f,
+            uvDy * 4.0f,
+            uWrapS,
+            uWrapT).a
+      : 1.0f;
+  float fineFibre = rimResponse.a;
+  float fibreStroke = saturate(abs(coarseFibre - fineFibre) * 4.0f);
+  float fibreCoverage = saturate((1.0f - fineFibre) * 0.30f);
+  float fibreRelief = max(fibreStroke, fibreCoverage);
+  // Constant alpha is neutral. Only source-qualified compatible fibre
+  // atlases can produce this fine-versus-coarse coat lobe.
+  float fibreSheen = qualityDetail * halfLambert * (1.0f - metallic) *
+      fibreRelief * (0.34f + 0.24f * pow(edge, 2.5f));
+  float3 nativeBase = shaded + albedo *
+      (rim + backRim + fibreSheen);
 
   // The decompiled Z-A IkCharacter body program carries no generic
   // roughness/PBR coat. Preserve its layer-resolved specular shape, metal
@@ -2432,8 +2461,8 @@ float3 applyNativeIkCharacter(PSIn i,
       64.0f,
       saturate(specularContrast / 5.0f));
   float specularLobe = pow(specularDomain, specularExponent);
-  float specularStrength = saturate(shadowSpec.a);
-  float surfaceSpecular = max(specularStrength, metallic);
+  float dielectricSpecular = specularStrength * specularStrength;
+  float surfaceSpecular = max(dielectricSpecular, metallic);
   float3 specularColor = lerp(float3(1.0f, 1.0f, 1.0f), albedo, metallic);
   float3 directSpecular = specularColor * surfaceSpecular * specularLobe *
       normalDotLight * 0.72f;

@@ -280,6 +280,13 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
                                vec4 factors,
                                vec3 rimParameters,
                                vec4 surfaceParameters) {
+    float qualityDetail = clamp(
+        (0.90 - textureDetailLodBias) / 1.30,
+        0.0,
+        1.0);
+    // Z-A authors feather/scale/stone relief in the normal atlas. Let
+    // High/Ultra recover that source detail without inventing surface gloss.
+    float nativeNormalScale = factors.x * mix(0.95, 1.45, qualityDetail);
     vec3 normal = mappedWorldNormal(
         uv,
         position,
@@ -287,7 +294,7 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         sourceTangent,
         normalMap,
         textureDetailLodBias,
-        factors.x);
+        nativeNormalScale);
     vec3 cameraForward = safeNormalize(
         cameraForwardPacked,
         normalize(vec3(0.0, -0.6139406, -0.7893522)));
@@ -312,10 +319,10 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         occlusionMap,
         uv,
         textureDetailLodBias);
-    float occlusion = mix(
-        1.0,
-        surfaceControl.r,
-        clamp(factors.w, 0.0, 1.0));
+    float occlusion = clamp(
+        mix(1.0, surfaceControl.r, max(factors.w, 0.0)),
+        0.0,
+        1.0);
     float metallic = clamp(surfaceControl.g, 0.0, 1.0);
     float specularOffset = surfaceControl.b * 1.5 - 0.5;
     float specularContrast = surfaceControl.a * 5.0;
@@ -343,12 +350,13 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     vec3 sourceAlbedo = clamp(albedo, 0.0, 1.0);
     vec3 shadowTint = mix(vec3(1.0), shadowSpec.rgb, shadowAmount);
     vec3 shaded = sourceAlbedo * shadowTint * occlusion;
-    vec2 rimResponse = rimParameters.b > 0.5
+    float specularStrength = clamp(shadowSpec.a, 0.0, 1.0);
+    vec4 rimResponse = rimParameters.b > 0.5
         ? sampleWorldMaterialTexture(
               rimResponseMap,
               uv,
-              textureDetailLodBias).rg
-        : vec2(0.0);
+              textureDetailLodBias)
+        : vec4(0.0);
     float facing = dot(normal, viewDirection);
     float edge = clamp(1.0 - max(facing, 0.0), 0.0, 1.0);
     float rimOffset = clamp(rimParameters.r, 0.0, 0.99);
@@ -360,7 +368,21 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         rimDomain,
         max(rimParameters.g, 1.0)) * rimResponse.r;
     float backRim = clamp(-facing, 0.0, 1.0) * rimResponse.g;
-    vec3 nativeBase = shaded + sourceAlbedo * (rim + backRim);
+    float coarseFibre = sampleWorldMaterialTexture(
+        rimResponseMap,
+        uv,
+        textureDetailLodBias + 2.0).a;
+    float fineFibre = rimResponse.a;
+    float fibreStroke = clamp(abs(coarseFibre - fineFibre) * 4.0, 0.0, 1.0);
+    float fibreCoverage = clamp((1.0 - fineFibre) * 0.30, 0.0, 1.0);
+    float fibreRelief = max(fibreStroke, fibreCoverage);
+    // A constant alpha is neutral. Only source-qualified compatible fibre
+    // atlases create the fine-versus-coarse difference required for a coat
+    // lobe, so ordinary bodies such as Haunter cannot enter this path.
+    float fibreSheen = qualityDetail * halfLambert * (1.0 - metallic) *
+        fibreRelief * (0.34 + 0.24 * pow(edge, 2.5));
+    vec3 nativeBase = shaded + sourceAlbedo *
+        (rim + backRim + fibreSheen);
 
     // IkCharacter's decompiled Z-A body variant has no roughness input or
     // generic PBR outer coat. It shapes direct specular from the authored
@@ -383,8 +405,8 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         64.0,
         clamp(specularContrast / 5.0, 0.0, 1.0));
     float specularLobe = pow(specularDomain, specularExponent);
-    float specularStrength = clamp(shadowSpec.a, 0.0, 1.0);
-    float surfaceSpecular = max(specularStrength, metallic);
+    float dielectricSpecular = specularStrength * specularStrength;
+    float surfaceSpecular = max(dielectricSpecular, metallic);
     vec3 specularColor = mix(vec3(1.0), sourceAlbedo, metallic);
     vec3 directSpecular = specularColor * surfaceSpecular * specularLobe *
         normalDotLight * 0.72;

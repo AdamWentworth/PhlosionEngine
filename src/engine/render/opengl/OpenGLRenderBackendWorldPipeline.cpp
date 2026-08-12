@@ -2297,7 +2297,17 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 uvDx,
                 uvDy).xyz;
             vec2 mapXY = normalTexel.xy * 2.0 - 1.0;
-            mapXY *= max(uNormalScale, 0.0) * 1.25;
+            float nativeDetailScale =
+                uMaterialMode > 31.5 && uMaterialMode < 32.5
+                    ? mix(
+                          0.95,
+                          1.45,
+                          clamp(
+                              (0.90 - litTextureDetailLodBias()) / 1.30,
+                              0.0,
+                              1.0))
+                    : 1.0;
+            mapXY *= max(uNormalScale, 0.0) * nativeDetailScale * 1.25;
             // Support both standard tangent-space normals (RGB) and
             // two-channel packed XY normals. Decoded XY maps can use either
             // blue=0 or blue=255 as a sentinel; reconstruct Z in both cases.
@@ -2484,10 +2494,10 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                       uvDx,
                       uvDy)
                 : vec4(1.0, 0.0, 1.0 / 3.0, 0.0);
-            float ao = mix(
-                1.0,
-                surfaceControl.r,
-                clamp(uOcclusionStrength, 0.0, 1.0));
+            float ao = clamp(
+                mix(1.0, surfaceControl.r, max(uOcclusionStrength, 0.0)),
+                0.0,
+                1.0);
             float metallic = clamp(surfaceControl.g, 0.0, 1.0);
             float specularOffset = surfaceControl.b * 1.5 - 0.5;
             float specularContrast = surfaceControl.a * 5.0;
@@ -2514,13 +2524,13 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 albedo = clamp(linearColor, 0.0, 1.0);
             vec3 shadowTint = mix(vec3(1.0), shadowSpec.rgb, shadowAmount);
             vec3 shaded = albedo * shadowTint * ao;
-            vec2 rimResponse = uUseEmissiveTexture > 0.5
+            vec4 rimResponse = uUseEmissiveTexture > 0.5
                 ? sampleTextureWithWrap(
                       uEmissiveTexture,
                       sampleUv,
                       uvDx,
-                      uvDy).rg
-                : vec2(0.0);
+                      uvDy)
+                : vec4(0.0);
             float facing = dot(n, viewDirection);
             float edge = clamp(1.0 - max(facing, 0.0), 0.0, 1.0);
             float rimOffset = clamp(uEmissiveFactor.r, 0.0, 0.99);
@@ -2532,8 +2542,35 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 rimDomain,
                 max(uEmissiveFactor.g, 1.0)) * rimResponse.r;
             float backRim = clamp(-facing, 0.0, 1.0) * rimResponse.g;
-            vec3 nativeBase =
-                shaded + albedo * (rim + backRim);
+            float specularStrength = clamp(shadowSpec.a, 0.0, 1.0);
+            float qualityDetail = clamp(
+                (0.90 - litTextureDetailLodBias()) / 1.30,
+                0.0,
+                1.0);
+            float coarseFibre = uUseEmissiveTexture > 0.5
+                ? sampleTextureWithWrap(
+                      uEmissiveTexture,
+                      sampleUv,
+                      uvDx * 4.0,
+                      uvDy * 4.0).a
+                : 1.0;
+            float fineFibre = rimResponse.a;
+            float fibreStroke = clamp(
+                abs(coarseFibre - fineFibre) * 4.0,
+                0.0,
+                1.0);
+            float fibreCoverage = clamp(
+                (1.0 - fineFibre) * 0.30,
+                0.0,
+                1.0);
+            float fibreRelief = max(fibreStroke, fibreCoverage);
+            // Constant alpha is neutral. Only source-qualified compatible
+            // fibre atlases can produce this fine-versus-coarse coat lobe.
+            float fibreSheen = qualityDetail * halfLambert *
+                (1.0 - metallic) *
+                fibreRelief * (0.34 + 0.24 * pow(edge, 2.5));
+            vec3 nativeBase = shaded + albedo *
+                (rim + backRim + fibreSheen);
 
             // The decompiled Z-A IkCharacter body program carries no generic
             // roughness/PBR coat. Preserve its layer-resolved specular shape,
@@ -2553,8 +2590,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 64.0,
                 clamp(specularContrast / 5.0, 0.0, 1.0));
             float specularLobe = pow(specularDomain, specularExponent);
-            float specularStrength = clamp(shadowSpec.a, 0.0, 1.0);
-            float surfaceSpecular = max(specularStrength, metallic);
+            float dielectricSpecular = specularStrength * specularStrength;
+            float surfaceSpecular = max(dielectricSpecular, metallic);
             vec3 specularColor = mix(vec3(1.0), albedo, metallic);
             vec3 directSpecular = specularColor * surfaceSpecular * specularLobe *
                 normalDotLight * 0.72;
