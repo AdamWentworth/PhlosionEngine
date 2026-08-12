@@ -335,7 +335,8 @@ inline WorldPsConstants makeWorldPsConstants(
             // Generic PBR packing consumes rect0.xyz for roughness,
             // occlusion, and rim color. Native IkCharacter needs its three
             // independent source controls as well: reflection blur,
-            // diffusion, and the importer-qualified surface profile. Carry
+            // diffusion, the importer-qualified surface profile, and
+            // ShadowingGIGain. Carry
             // them in PS-only slots mode 32 otherwise leaves unused. D3D12's
             // HLSL quality function can recover the tier from the unmodified
             // CPU texture data only if it is packed alongside those values.
@@ -343,6 +344,8 @@ inline WorldPsConstants makeWorldPsConstants(
             // LOD decimal places are required because Medium uses 0.45:
             // profile * 1000 + (lod + 1) * 100 + diffusion.
             constants.materialTimeSec = textureData->materialRect0U;
+            constants.materialFlipbook1Frames =
+                std::clamp(textureData->materialRect0H, 0.0f, 1.0f);
             constants.materialFlipbook1Fps =
                 std::round(textureData->materialRect0W) * 1000.0f +
                 (std::clamp(

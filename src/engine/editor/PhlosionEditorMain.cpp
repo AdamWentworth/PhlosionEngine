@@ -66,6 +66,8 @@ struct Arguments {
     std::optional<int> assetPreviewQuality;
     std::optional<float> assetPreviewTime;
     std::optional<float> assetPreviewZoom;
+    std::optional<float> assetPreviewTargetOffsetY;
+    bool assetPreviewFront = false;
     std::optional<
         engine::editor::EditorRendererPreference>
         rendererPreference;
@@ -106,6 +108,8 @@ Arguments parseArguments(int argc, char** argv) {
             "--asset-preview-time=";
         constexpr std::string_view assetPreviewZoomPrefix =
             "--asset-preview-zoom=";
+        constexpr std::string_view assetPreviewTargetOffsetYPrefix =
+            "--asset-preview-target-offset-y=";
         constexpr std::string_view framesPrefix = "--frames=";
         constexpr std::string_view rendererPrefix =
             "--renderer=";
@@ -181,6 +185,17 @@ Arguments parseArguments(int argc, char** argv) {
                     assetPreviewZoomPrefix.size())),
                 0.0f,
                 20.0f);
+        } else if (
+            argument.rfind(
+                assetPreviewTargetOffsetYPrefix,
+                0u) == 0u) {
+            result.assetPreviewTargetOffsetY = std::clamp(
+                std::stof(argument.substr(
+                    assetPreviewTargetOffsetYPrefix.size())),
+                -2.0f,
+                2.0f);
+        } else if (argument == "--asset-preview-front") {
+            result.assetPreviewFront = true;
         } else if (argument.rfind(framesPrefix, 0u) == 0u) {
             result.frameLimit = std::max(
                 1,
@@ -3585,11 +3600,31 @@ int main(int argc, char** argv) {
                                     assetPreviewCamera,
                                     selectedAssetPreviewIndex,
                                     previewError)) {
+                                const float previewRadius = std::max(
+                                    0.05f,
+                                    project->assetPreviewView.boundsRadius);
+                                if (arguments.assetPreviewFront) {
+                                    const glm::vec3 target =
+                                        assetPreviewCamera.getTarget();
+                                    const float distance = glm::length(
+                                        assetPreviewCamera.getPosition() -
+                                        target);
+                                    assetPreviewCamera.lookAt(target);
+                                    assetPreviewCamera.setPosition(
+                                        target + glm::vec3(
+                                            0.0f,
+                                            0.0f,
+                                            distance));
+                                }
+                                if (arguments.assetPreviewTargetOffsetY) {
+                                    assetPreviewCamera.move(glm::vec3(
+                                        0.0f,
+                                        *arguments.assetPreviewTargetOffsetY *
+                                            previewRadius,
+                                        0.0f));
+                                }
                                 if (arguments.assetPreviewZoom &&
                                     *arguments.assetPreviewZoom > 0.0f) {
-                                    const float previewRadius = std::max(
-                                        0.05f,
-                                        project->assetPreviewView.boundsRadius);
                                     assetPreviewCamera.zoom(
                                         *arguments.assetPreviewZoom *
                                             std::max(

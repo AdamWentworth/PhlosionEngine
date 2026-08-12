@@ -2376,8 +2376,10 @@ float3 applyNativeIkCharacter(PSIn i,
             uWrapS,
             uWrapT)
       : float4(1.0f, 0.0f, 1.0f / 3.0f, 0.0f);
-  float ao = saturate(
-      1.0f - (1.0f - surfaceControl.r) * max(occlusionStrength, 0.0f));
+  // Z-A resolves AO into its ambient/base blend before authored shadow
+  // color; it does not multiply the final character surface by AO.
+  float aoBaseWeight = saturate(
+      surfaceControl.r * max(occlusionStrength, 0.0f));
   float metallic = saturate(surfaceControl.g);
   float specularOffset = surfaceControl.b * 1.5f - 0.5f;
   float specularContrast = surfaceControl.a * 5.0f;
@@ -2388,6 +2390,7 @@ float3 applyNativeIkCharacter(PSIn i,
   float surfaceProfile = floor(packedSurface / 1000.0f);
   float packedSurfaceRemainder = packedSurface - surfaceProfile * 1000.0f;
   float diffusionLevels = saturate(frac(packedSurfaceRemainder));
+  float shadowingGiGain = saturate(uMaterialFlipbook1Frames);
   float normalDotLightSigned = dot(normal, lightDirection);
   float lambert = max(normalDotLightSigned, 0.0f);
   float wrappedLambert = saturate(
@@ -2407,11 +2410,14 @@ float3 applyNativeIkCharacter(PSIn i,
   float qualityDetail = saturate(
       (0.90f - litTextureDetailLodBias()) / 1.30f);
   float3 albedo = saturate(linearColor);
+  float aoShadowAmount = (1.0f - aoBaseWeight) * shadowingGiGain;
+  float combinedShadowAmount = 1.0f -
+      (1.0f - shadowAmount) * (1.0f - aoShadowAmount);
   float3 shadowTint = lerp(
       float3(1.0f, 1.0f, 1.0f),
       shadowSpec.rgb,
-      shadowAmount);
-  float3 shaded = albedo * shadowTint * ao;
+      combinedShadowAmount);
+  float3 shaded = albedo * shadowTint;
   bool fibreSurface = abs(surfaceProfile - 1.0f) < 0.25f &&
       useEmissiveTexture;
   bool featherSurface = abs(surfaceProfile - 2.0f) < 0.25f &&
@@ -2531,7 +2537,7 @@ float3 applyNativeIkCharacter(PSIn i,
       specularColor * surfaceSpecular * grazingResponse *
       computeSpecularOcclusion(
           normalDotView,
-          ao,
+          aoBaseWeight,
           reflectionRoughness) *
       __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
   float3 diffuse = nativeBase * (1.0f - metallic * 0.85f);

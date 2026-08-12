@@ -319,8 +319,10 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         occlusionMap,
         uv,
         textureDetailLodBias);
-    float occlusion = clamp(
-        1.0 - (1.0 - surfaceControl.r) * max(factors.w, 0.0),
+    // Z-A resolves this AO sample as a weight between scene ambient and base
+    // color before authored shadow color. It is not a final albedo multiplier.
+    float aoBaseWeight = clamp(
+        surfaceControl.r * max(factors.w, 0.0),
         0.0,
         1.0);
     float metallic = clamp(surfaceControl.g, 0.0, 1.0);
@@ -328,6 +330,7 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     float specularContrast = surfaceControl.a * 5.0;
     float reflectionBlur = max(surfaceParameters.x, 0.0);
     float diffusionLevels = clamp(surfaceParameters.y, 0.0, 1.0);
+    float shadowingGiGain = clamp(surfaceParameters.w, 0.0, 1.0);
     float normalDotLightSigned = dot(normal, lightDirection);
     float lambert = max(normalDotLightSigned, 0.0);
     float wrappedLambert = clamp(
@@ -348,8 +351,14 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     float shadowAmount =
         (1.0 - halfLambert) * clamp(factors.z, 0.0, 1.0);
     vec3 sourceAlbedo = clamp(albedo, 0.0, 1.0);
-    vec3 shadowTint = mix(vec3(1.0), shadowSpec.rgb, shadowAmount);
-    vec3 shaded = sourceAlbedo * shadowTint * occlusion;
+    float aoShadowAmount = (1.0 - aoBaseWeight) * shadowingGiGain;
+    float combinedShadowAmount = 1.0 -
+        (1.0 - shadowAmount) * (1.0 - aoShadowAmount);
+    vec3 shadowTint = mix(
+        vec3(1.0),
+        shadowSpec.rgb,
+        combinedShadowAmount);
+    vec3 shaded = sourceAlbedo * shadowTint;
     bool fibreSurface = abs(surfaceParameters.z - 1.0) < 0.25 &&
         rimParameters.b > 0.5;
     bool featherSurface = abs(surfaceParameters.z - 2.0) < 0.25 &&
@@ -475,7 +484,7 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         specularColor * surfaceSpecular * grazingResponse *
         computeSpecularOcclusion(
             normalDotView,
-            occlusion,
+            aoBaseWeight,
             reflectionRoughness) * 0.44;
     vec3 diffuse = nativeBase * (1.0 - metallic * 0.85);
     return max(

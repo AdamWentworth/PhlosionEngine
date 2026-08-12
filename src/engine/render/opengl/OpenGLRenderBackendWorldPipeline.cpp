@@ -2489,9 +2489,10 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                       uvDx,
                       uvDy)
                 : vec4(1.0, 0.0, 1.0 / 3.0, 0.0);
-            float ao = clamp(
-                1.0 - (1.0 - surfaceControl.r) *
-                    max(uOcclusionStrength, 0.0),
+            // Z-A resolves AO into its ambient/base blend before authored
+            // shadow color; multiplying the final albedo created dark bands.
+            float aoBaseWeight = clamp(
+                surfaceControl.r * max(uOcclusionStrength, 0.0),
                 0.0,
                 1.0);
             float metallic = clamp(surfaceControl.g, 0.0, 1.0);
@@ -2500,6 +2501,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float reflectionBlur = max(uMaterialRect0.x, 0.0);
             float diffusionLevels = clamp(uMaterialRect0.y, 0.0, 1.0);
             float surfaceProfile = uMaterialRect0.z;
+            float shadowingGiGain = clamp(uMaterialRect0.w, 0.0, 1.0);
             float normalDotLightSigned = dot(n, lightDirection);
             float lambert = max(normalDotLightSigned, 0.0);
             float wrappedLambert = clamp(
@@ -2523,8 +2525,15 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 0.0,
                 1.0);
             vec3 albedo = clamp(linearColor, 0.0, 1.0);
-            vec3 shadowTint = mix(vec3(1.0), shadowSpec.rgb, shadowAmount);
-            vec3 shaded = albedo * shadowTint * ao;
+            float aoShadowAmount =
+                (1.0 - aoBaseWeight) * shadowingGiGain;
+            float combinedShadowAmount = 1.0 -
+                (1.0 - shadowAmount) * (1.0 - aoShadowAmount);
+            vec3 shadowTint = mix(
+                vec3(1.0),
+                shadowSpec.rgb,
+                combinedShadowAmount);
+            vec3 shaded = albedo * shadowTint;
             bool fibreSurface =
                 abs(surfaceProfile - 1.0) < 0.25 &&
                 uUseEmissiveTexture > 0.5;
@@ -2649,7 +2658,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 specularColor * surfaceSpecular * grazingResponse *
                 computeSpecularOcclusion(
                     normalDotView,
-                    ao,
+                    aoBaseWeight,
                     reflectionRoughness) *
                 __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
             vec3 diffuse = nativeBase * (1.0 - metallic * 0.85);
