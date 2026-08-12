@@ -855,7 +855,11 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     if (worldOcclusionStrengthLoc_ >= 0) {
         glUniform1f(
             worldOcclusionStrengthLoc_,
-            texture ? std::clamp(texture->occlusionStrength, 0.0f, 1.0f) : 1.0f);
+            texture
+                ? (texture->materialMode == 32u
+                       ? std::max(texture->occlusionStrength, 0.0f)
+                       : std::clamp(texture->occlusionStrength, 0.0f, 1.0f))
+                : 1.0f);
     }
     if (worldEmissiveFactorLoc_ >= 0) {
         glUniform3f(worldEmissiveFactorLoc_,

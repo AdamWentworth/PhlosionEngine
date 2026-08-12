@@ -2339,7 +2339,9 @@ float3 applyNativeIkCharacter(PSIn i,
       uvDx,
       uvDy,
       useNormalTexture,
-      normalScale);
+      // Z-A's IkCharacter NormalHeight is literal; the shared PBR decoder's
+      // 1.25 presentation boost must not amplify facial/body relief.
+      normalScale * 0.8f);
   float3 cameraForward = safeNormalize(
       cameraForwardPacked,
       normalize(float3(0.0f, -0.6139406f, -0.7893522f)));
@@ -2374,10 +2376,8 @@ float3 applyNativeIkCharacter(PSIn i,
             uWrapS,
             uWrapT)
       : float4(1.0f, 0.0f, 1.0f / 3.0f, 0.0f);
-  float ao = saturate(lerp(
-      1.0f,
-      surfaceControl.r,
-      saturate(occlusionStrength)));
+  float ao = saturate(
+      1.0f - (1.0f - surfaceControl.r) * max(occlusionStrength, 0.0f));
   float metallic = saturate(surfaceControl.g);
   float specularOffset = surfaceControl.b * 1.5f - 0.5f;
   float specularContrast = surfaceControl.a * 5.0f;
@@ -2938,7 +2938,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
     const float normalScale = max(uMaterialAtlasWidth, 0.0f);
     const float metallicFactor = saturate(uMaterialAtlasHeight);
     const float roughnessFactor = saturate(uMaterialRect0U);
-    const float occlusionStrength = saturate(uMaterialRect0V);
+    const float occlusionStrength = max(uMaterialRect0V, 0.0f);
     const float3 emissiveFactor =
         max(float3(uMaterialRect0W, uMaterialRect0H, uMaterialRect1U), float3(0.0f, 0.0f, 0.0f));
     const float3 cameraPos = float3(uMaterialRect1V, uMaterialRect1W, uMaterialRect1H);

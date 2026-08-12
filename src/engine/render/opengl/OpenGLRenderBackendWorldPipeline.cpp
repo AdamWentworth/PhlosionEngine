@@ -2278,7 +2278,11 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
         }
     )GLSL"
     R"GLSL(
-        vec3 computeMappedNormal(vec2 sampleUv, vec2 uvDx, vec2 uvDy) {
+        vec3 computeMappedNormal(
+            vec2 sampleUv,
+            vec2 uvDx,
+            vec2 uvDy,
+            float materialNormalMultiplier) {
             // Keep OpenGL tangent-space face handling tied to native front-face
             // classification for stable normal-map response.
             bool isFrontFace = gl_FrontFacing;
@@ -2297,7 +2301,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 uvDx,
                 uvDy).xyz;
             vec2 mapXY = normalTexel.xy * 2.0 - 1.0;
-            mapXY *= max(uNormalScale, 0.0) * 1.25;
+            mapXY *= max(uNormalScale, 0.0) * 1.25 *
+                max(materialNormalMultiplier, 0.0);
             // Support both standard tangent-space normals (RGB) and
             // two-channel packed XY normals. Decoded XY maps can use either
             // blue=0 or blue=255 as a sentinel; reconstruct Z in both cases.
@@ -2485,10 +2490,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                       uvDy)
                 : vec4(1.0, 0.0, 1.0 / 3.0, 0.0);
             float ao = clamp(
-                mix(
-                    1.0,
-                    surfaceControl.r,
-                    clamp(uOcclusionStrength, 0.0, 1.0)),
+                1.0 - (1.0 - surfaceControl.r) *
+                    max(uOcclusionStrength, 0.0),
                 0.0,
                 1.0);
             float metallic = clamp(surfaceControl.g, 0.0, 1.0);
@@ -3167,7 +3170,6 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 return;
             }
             if (uMaterialMode >= 1.5) {
-                vec3 n = computeMappedNormal(wrappedUv, uvDx, uvDy);
                 bool nativeGastlyFace =
                     uMaterialMode > 30.5 &&
                     uMaterialFlags > 3.5 &&
@@ -3176,6 +3178,14 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     uMaterialMode > 31.5 && uMaterialMode < 32.5;
                 bool nativeSssFur =
                     uMaterialMode > 32.5 && uMaterialMode < 33.5;
+                // The generic PBR path deliberately boosts normal XY by
+                // 1.25. Z-A IkCharacter's NormalHeight is already authored
+                // at final strength, so cancel only that path's boost.
+                vec3 n = computeMappedNormal(
+                    wrappedUv,
+                    uvDx,
+                    uvDy,
+                    nativeIkCharacter ? 0.8 : 1.0);
                 if (nativeSssFur) {
                     outLinear = applyNativeSssFur(
                         outLinear,

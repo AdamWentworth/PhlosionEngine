@@ -65,6 +65,7 @@ struct Arguments {
     std::optional<int> assetPreviewAnimation;
     std::optional<int> assetPreviewQuality;
     std::optional<float> assetPreviewTime;
+    std::optional<float> assetPreviewZoom;
     std::optional<
         engine::editor::EditorRendererPreference>
         rendererPreference;
@@ -103,6 +104,8 @@ Arguments parseArguments(int argc, char** argv) {
             "--asset-preview-quality=";
         constexpr std::string_view assetPreviewTimePrefix =
             "--asset-preview-time=";
+        constexpr std::string_view assetPreviewZoomPrefix =
+            "--asset-preview-zoom=";
         constexpr std::string_view framesPrefix = "--frames=";
         constexpr std::string_view rendererPrefix =
             "--renderer=";
@@ -169,6 +172,15 @@ Arguments parseArguments(int argc, char** argv) {
                 0.0f,
                 std::stof(argument.substr(
                     assetPreviewTimePrefix.size())));
+        } else if (
+            argument.rfind(
+                assetPreviewZoomPrefix,
+                0u) == 0u) {
+            result.assetPreviewZoom = std::clamp(
+                std::stof(argument.substr(
+                    assetPreviewZoomPrefix.size())),
+                0.0f,
+                20.0f);
         } else if (argument.rfind(framesPrefix, 0u) == 0u) {
             result.frameLimit = std::max(
                 1,
@@ -3573,6 +3585,23 @@ int main(int argc, char** argv) {
                                     assetPreviewCamera,
                                     selectedAssetPreviewIndex,
                                     previewError)) {
+                                if (arguments.assetPreviewZoom &&
+                                    *arguments.assetPreviewZoom > 0.0f) {
+                                    const float previewRadius = std::max(
+                                        0.05f,
+                                        project->assetPreviewView.boundsRadius);
+                                    assetPreviewCamera.zoom(
+                                        *arguments.assetPreviewZoom *
+                                            std::max(
+                                                0.08f,
+                                                previewRadius * 0.34f),
+                                        std::max(
+                                            0.025f,
+                                            previewRadius * 0.06f),
+                                        std::max(
+                                            12.0f,
+                                            previewRadius * 12.0f));
+                                }
                                 if (arguments
                                         .assetPreviewAnimation ||
                                     arguments

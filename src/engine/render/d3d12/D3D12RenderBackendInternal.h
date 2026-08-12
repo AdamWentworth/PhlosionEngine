@@ -297,7 +297,9 @@ inline WorldPsConstants makeWorldPsConstants(
         constants.materialAtlasWidth = (std::max)(0.0f, textureData->normalScale);
         constants.materialAtlasHeight = std::clamp(textureData->metallicFactor, 0.0f, 1.0f);
         constants.materialRect0U = std::clamp(textureData->roughnessFactor, 0.0f, 1.0f);
-        constants.materialRect0V = std::clamp(textureData->occlusionStrength, 0.0f, 1.0f);
+        constants.materialRect0V = textureData->materialMode == 32u
+            ? (std::max)(textureData->occlusionStrength, 0.0f)
+            : std::clamp(textureData->occlusionStrength, 0.0f, 1.0f);
         constants.materialRect0W = (std::max)(0.0f, textureData->emissiveFactorR);
         constants.materialRect0H = (std::max)(0.0f, textureData->emissiveFactorG);
         constants.materialRect1U = (std::max)(0.0f, textureData->emissiveFactorB);

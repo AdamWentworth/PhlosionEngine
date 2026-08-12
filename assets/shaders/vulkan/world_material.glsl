@@ -291,7 +291,10 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         sourceTangent,
         normalMap,
         textureDetailLodBias,
-        factors.x);
+        // The shared PBR normal helper applies a 1.25 presentation boost.
+        // Z-A IkCharacter's NormalHeight is already an authored shader
+        // amplitude, so cancel that boost and preserve the source value.
+        factors.x * 0.8);
     vec3 cameraForward = safeNormalize(
         cameraForwardPacked,
         normalize(vec3(0.0, -0.6139406, -0.7893522)));
@@ -317,7 +320,7 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         uv,
         textureDetailLodBias);
     float occlusion = clamp(
-        mix(1.0, surfaceControl.r, clamp(factors.w, 0.0, 1.0)),
+        1.0 - (1.0 - surfaceControl.r) * max(factors.w, 0.0),
         0.0,
         1.0);
     float metallic = clamp(surfaceControl.g, 0.0, 1.0);
