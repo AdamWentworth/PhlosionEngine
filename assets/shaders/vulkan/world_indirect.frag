@@ -1782,9 +1782,11 @@ void main() {
                 metallicRoughnessTextures[nonuniformEXT(materialIndex)],
                 occlusionTextures[nonuniformEXT(materialIndex)],
                 emissiveTextures[nonuniformEXT(materialIndex)],
+                environmentTextures[nonuniformEXT(materialIndex)],
                 textureDetailLodBias,
                 drawState.pbrFactors,
-                drawState.emissiveAndCamera.rgb);
+                drawState.emissiveAndCamera.rgb,
+                drawState.specializedRect0.x);
         } else if (nativeGastlyFace) {
             linearColor = evaluateNativeGastlyFace(
                 linearColor,

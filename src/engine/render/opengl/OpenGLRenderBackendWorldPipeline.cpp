@@ -2491,11 +2491,6 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 albedo = clamp(linearColor, 0.0, 1.0);
             vec3 shadowTint = mix(vec3(1.0), shadowSpec.rgb, shadowAmount);
             vec3 shaded = albedo * shadowTint * ao;
-            vec3 halfVector = safeNormalize(
-                viewDirection + lightDirection,
-                n);
-            float specular =
-                pow(max(dot(n, halfVector), 0.0), 32.0) * shadowSpec.a;
             vec2 rimResponse = uUseEmissiveTexture > 0.5
                 ? sampleTextureWithWrap(
                       uEmissiveTexture,
@@ -2514,8 +2509,67 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 rimDomain,
                 max(uEmissiveFactor.g, 1.0)) * rimResponse.r;
             float backRim = clamp(-facing, 0.0, 1.0) * rimResponse.g;
+            vec3 nativeBase =
+                shaded + albedo * (rim + backRim);
+
+            // IkCharacter does not output its colored half-Lambert/rim
+            // composition directly. The source graph feeds that composition
+            // through a normal-mapped dielectric surface. Preserve that
+            // outer pass so authored coat, feather and scale normals affect
+            // the final diffuse response instead of leaving front faces flat.
+            float surfaceRoughness = clamp(uMaterialRect0.x, 0.16, 1.0);
+            vec3 sourceF0 = vec3(clamp(shadowSpec.a, 0.0, 1.0));
+            vec3 direct = evalDirectPbr(
+                n,
+                viewDirection,
+                lightDirection,
+                vec3(1.0) * (__PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265),
+                nativeBase,
+                sourceF0,
+                surfaceRoughness,
+                0.0);
+            float normalDotView = max(dot(n, viewDirection), 0.0);
+            vec3 fresnel = fresnelSchlickRoughness(
+                normalDotView,
+                sourceF0,
+                surfaceRoughness);
+            vec3 reflection = reflect(-viewDirection, n);
+            vec3 environmentIrradiance =
+                3.14159265 * sampleNeutralEnvironment(n, 1.0);
+            vec3 environmentRadiance =
+                sampleNeutralEnvironment(reflection, surfaceRoughness);
+            vec3 singleScattering = vec3(0.0);
+            vec3 multiScattering = vec3(0.0);
+            computeMultiscattering(
+                n,
+                viewDirection,
+                sourceF0,
+                1.0,
+                surfaceRoughness,
+                singleScattering,
+                multiScattering);
+            vec3 cosineWeightedIrradiance =
+                environmentIrradiance * (1.0 / 3.14159265);
+            vec3 totalScattering = singleScattering + multiScattering;
+            float remainingEnergy = 1.0 - max(
+                max(totalScattering.r, totalScattering.g),
+                totalScattering.b);
+            vec3 diffuseIbl = nativeBase * max(remainingEnergy, 0.0) *
+                cosineWeightedIrradiance *
+                __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
+            vec3 specularIbl =
+                (environmentRadiance * singleScattering +
+                 multiScattering * cosineWeightedIrradiance) *
+                __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+            specularIbl *= computeSpecularOcclusion(
+                normalDotView,
+                ao,
+                surfaceRoughness);
+            vec3 ambient =
+                (vec3(1.0) - fresnel) * nativeBase *
+                __PHLOSION_PBR_AMBIENT_INTENSITY__;
             return max(
-                shaded + vec3(specular) + albedo * (rim + backRim),
+                direct + diffuseIbl + specularIbl + ambient,
                 vec3(0.0));
         }
 

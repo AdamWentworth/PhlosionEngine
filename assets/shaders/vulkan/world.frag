@@ -1568,9 +1568,11 @@ void main() {
                 metallicRoughnessTexture,
                 occlusionTexture,
                 emissiveTexture,
+                environmentTexture,
                 textureDetailLodBias,
                 pushData.pbrFactors,
-                pushData.emissiveAndCamera.rgb);
+                pushData.emissiveAndCamera.rgb,
+                worldSpecializedMaterial.rect0.x);
         } else if (nativeGastlyFace) {
             linearColor = evaluateNativeGastlyFace(
                 linearColor,

@@ -2375,11 +2375,6 @@ float3 applyNativeIkCharacter(PSIn i,
       shadowSpec.rgb,
       shadowAmount);
   float3 shaded = albedo * shadowTint * ao;
-  float3 halfVector = safeNormalize(
-      viewDirection + lightDirection,
-      normal);
-  float specular =
-      pow(max(dot(normal, halfVector), 0.0f), 32.0f) * shadowSpec.a;
   float2 rimResponse = useEmissiveTexture
       ? sampleTextureWithWrap(
             gEmissiveTex,
@@ -2396,9 +2391,67 @@ float3 applyNativeIkCharacter(PSIn i,
       (edge - rimOffset) / max(1.0f - rimOffset, 1e-4f));
   float rim = pow(rimDomain, max(rimParameters.g, 1.0f)) * rimResponse.r;
   float backRim = saturate(-facing) * rimResponse.g;
+  float3 nativeBase = shaded + albedo * (rim + backRim);
+
+  // The native colored half-Lambert/rim composition is the base color of a
+  // second, normal-mapped dielectric pass. Without this outer pass the
+  // authored Z-A coat and feather relief is nearly invisible on front faces.
+  float surfaceRoughness = clamp(uMaterialRect0U, 0.16f, 1.0f);
+  float3 sourceF0 = float3(
+      saturate(shadowSpec.a),
+      saturate(shadowSpec.a),
+      saturate(shadowSpec.a));
+  float3 direct = evalDirectPbr(
+      normal,
+      viewDirection,
+      lightDirection,
+      float3(1.0f, 1.0f, 1.0f) *
+          (__PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265f),
+      nativeBase,
+      sourceF0,
+      surfaceRoughness,
+      0.0f);
+  float normalDotView = max(dot(normal, viewDirection), 0.0f);
+  float3 fresnel = fresnelSchlickRoughness(
+      normalDotView,
+      sourceF0,
+      surfaceRoughness);
+  float3 reflection = reflect(-viewDirection, normal);
+  float3 environmentIrradiance =
+      3.14159265f * sampleNeutralEnvironment(normal, 1.0f);
+  float3 environmentRadiance =
+      sampleNeutralEnvironment(reflection, surfaceRoughness);
+  float3 singleScattering = float3(0.0f, 0.0f, 0.0f);
+  float3 multiScattering = float3(0.0f, 0.0f, 0.0f);
+  computeMultiscattering(
+      normal,
+      viewDirection,
+      sourceF0,
+      1.0f,
+      surfaceRoughness,
+      singleScattering,
+      multiScattering);
+  float3 cosineWeightedIrradiance =
+      environmentIrradiance * (1.0f / 3.14159265f);
+  float3 totalScattering = singleScattering + multiScattering;
+  float remainingEnergy = 1.0f - max(
+      max(totalScattering.r, totalScattering.g),
+      totalScattering.b);
+  float3 diffuseIbl = nativeBase * max(remainingEnergy, 0.0f) *
+      cosineWeightedIrradiance * __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
+  float3 specularIbl =
+      (environmentRadiance * singleScattering +
+       multiScattering * cosineWeightedIrradiance) *
+      __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+  specularIbl *= computeSpecularOcclusion(
+      normalDotView,
+      ao,
+      surfaceRoughness);
+  float3 ambient =
+      (float3(1.0f, 1.0f, 1.0f) - fresnel) * nativeBase *
+      __PHLOSION_PBR_AMBIENT_INTENSITY__;
   return max(
-      shaded + float3(specular, specular, specular) +
-          albedo * (rim + backRim),
+      direct + diffuseIbl + specularIbl + ambient,
       float3(0.0f, 0.0f, 0.0f));
 }
 

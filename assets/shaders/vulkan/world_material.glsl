@@ -268,9 +268,11 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
                                sampler2D shadowSpecMap,
                                sampler2D occlusionMap,
                                sampler2D rimResponseMap,
+                               sampler2D environmentMap,
                                float textureDetailLodBias,
                                vec4 factors,
-                               vec3 rimParameters) {
+                               vec3 rimParameters,
+                               float surfaceRoughness) {
     vec3 normal = mappedWorldNormal(
         uv,
         position,
@@ -316,11 +318,6 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     vec3 sourceAlbedo = clamp(albedo, 0.0, 1.0);
     vec3 shadowTint = mix(vec3(1.0), shadowSpec.rgb, shadowAmount);
     vec3 shaded = sourceAlbedo * shadowTint * occlusion;
-    vec3 halfVector = safeNormalize(
-        viewDirection + lightDirection,
-        normal);
-    float specular =
-        pow(max(dot(normal, halfVector), 0.0), 32.0) * shadowSpec.a;
     vec2 rimResponse = rimParameters.b > 0.5
         ? sampleWorldMaterialTexture(
               rimResponseMap,
@@ -338,8 +335,59 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         rimDomain,
         max(rimParameters.g, 1.0)) * rimResponse.r;
     float backRim = clamp(-facing, 0.0, 1.0) * rimResponse.g;
+    vec3 nativeBase = shaded + sourceAlbedo * (rim + backRim);
+
+    // The source shader feeds this colored composition into an ordinary
+    // normal-mapped dielectric surface. Retaining that outer stage restores
+    // the authored coat/feather/scale relief on otherwise flat front faces.
+    float roughness = clamp(surfaceRoughness, 0.16, 1.0);
+    vec3 sourceF0 = vec3(clamp(shadowSpec.a, 0.0, 1.0));
+    vec3 direct = evaluateDirectPbr(
+        normal,
+        viewDirection,
+        lightDirection,
+        nativeBase,
+        sourceF0,
+        roughness,
+        0.0);
+    float normalDotView = max(dot(normal, viewDirection), 0.0);
+    vec3 fresnel = fresnelSchlickRoughness(
+        normalDotView,
+        sourceF0,
+        roughness);
+    vec3 reflection = reflect(-viewDirection, normal);
+    vec3 environmentIrradiance = 3.14159265 *
+        sampleNeutralEnvironment(environmentMap, normal, 1.0);
+    vec3 environmentRadiance = sampleNeutralEnvironment(
+        environmentMap,
+        reflection,
+        roughness);
+    vec3 singleScattering;
+    vec3 multiScattering;
+    computeMultiscattering(
+        normal,
+        viewDirection,
+        sourceF0,
+        roughness,
+        singleScattering,
+        multiScattering);
+    vec3 cosineWeightedIrradiance = environmentIrradiance / 3.14159265;
+    vec3 totalScattering = singleScattering + multiScattering;
+    float remainingEnergy = 1.0 - max(
+        max(totalScattering.r, totalScattering.g),
+        totalScattering.b);
+    vec3 diffuseIbl = nativeBase * max(remainingEnergy, 0.0) *
+        cosineWeightedIrradiance * 1.26;
+    vec3 specularIbl =
+        (environmentRadiance * singleScattering +
+         multiScattering * cosineWeightedIrradiance) * 0.44;
+    specularIbl *= computeSpecularOcclusion(
+        normalDotView,
+        occlusion,
+        roughness);
+    vec3 ambient = (vec3(1.0) - fresnel) * nativeBase * 0.56;
     return max(
-        shaded + vec3(specular) + sourceAlbedo * (rim + backRim),
+        direct + diffuseIbl + specularIbl + ambient,
         vec3(0.0));
 }
 
