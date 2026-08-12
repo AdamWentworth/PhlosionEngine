@@ -107,7 +107,14 @@ vec3 mappedWorldNormal(vec2 uv,
     vec2 mappedXY = (texel.xy * 2.0 - 1.0) * max(normalScale, 0.0) * 1.25;
     float authoredZ = texel.z * 2.0 - 1.0;
     float reconstructedZ = sqrt(max(1.0 - clamp(dot(mappedXY, mappedXY), 0.0, 1.0), 0.0));
-    float mappedZ = mix(authoredZ, reconstructedZ, texel.z <= (1.5 / 255.0) ? 1.0 : 0.0);
+    // Two-channel normal maps are commonly decoded into RGBA with a constant
+    // blue channel of either 0 or 255; neither value is authored Z.
+    // Reconstruct Z in both sentinel cases.
+    float reconstructPackedZ =
+        texel.z <= (1.5 / 255.0) || texel.z >= (253.5 / 255.0)
+            ? 1.0
+            : 0.0;
+    float mappedZ = mix(authoredZ, reconstructedZ, reconstructPackedZ);
     vec3 tangentNormal = safeNormalize(vec3(mappedXY, mappedZ), vec3(0.0, 0.0, 1.0));
 
     vec3 tangent = sourceTangent.xyz;

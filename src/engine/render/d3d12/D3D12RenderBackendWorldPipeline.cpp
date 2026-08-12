@@ -2049,10 +2049,16 @@ float3 computeMappedNormal(PSIn i,
   float3 normalTexel = sampleTextureWithWrap(gNormalTex, sampleUv, uvDx, uvDy, uWrapS, uWrapT).xyz;
   float2 mapXY = normalTexel.xy * 2.0f - 1.0f;
   mapXY *= max(normalScale, 0.0f) * 1.25f;
-  // Support standard RGB tangent-space normals and packed-XY normals (blue=0).
+  // Support standard RGB tangent-space normals and two-channel packed XY
+  // normals. Decoded XY maps can use blue=0 or blue=255 as a sentinel, so
+  // reconstruct Z for both encodings.
   float authoredZ = normalTexel.z * 2.0f - 1.0f;
   float reconZ = sqrt(max(1.0f - saturate(dot(mapXY, mapXY)), 0.0f));
-  float useReconstructedZ = (normalTexel.z <= (1.5f / 255.0f)) ? 1.0f : 0.0f;
+  float useReconstructedZ =
+      (normalTexel.z <= (1.5f / 255.0f) ||
+       normalTexel.z >= (253.5f / 255.0f))
+          ? 1.0f
+          : 0.0f;
   float mapZ = lerp(authoredZ, reconZ, useReconstructedZ);
   float3 mapN = normalize(float3(mapXY, mapZ));
   float3 mapped = float3(0.0f, 0.0f, 0.0f);

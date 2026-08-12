@@ -2298,11 +2298,16 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 uvDy).xyz;
             vec2 mapXY = normalTexel.xy * 2.0 - 1.0;
             mapXY *= max(uNormalScale, 0.0) * 1.25;
-            // Support both standard tangent-space normals (RGB) and packed XY normals
-            // used by some assets where blue is authored as 0 and Z is reconstructed.
+            // Support both standard tangent-space normals (RGB) and
+            // two-channel packed XY normals. Decoded XY maps can use either
+            // blue=0 or blue=255 as a sentinel; reconstruct Z in both cases.
             float authoredZ = normalTexel.z * 2.0 - 1.0;
             float reconZ = sqrt(max(1.0 - clamp(dot(mapXY, mapXY), 0.0, 1.0), 0.0));
-            float useReconstructedZ = (normalTexel.z <= (1.5 / 255.0)) ? 1.0 : 0.0;
+            float useReconstructedZ =
+                (normalTexel.z <= (1.5 / 255.0) ||
+                 normalTexel.z >= (253.5 / 255.0))
+                    ? 1.0
+                    : 0.0;
             float mapZ = mix(authoredZ, reconZ, useReconstructedZ);
             vec3 mapN = normalize(vec3(mapXY, mapZ));
 
