@@ -354,9 +354,9 @@ inline WorldPsConstants makeWorldPsConstants(
                      2.0f) +
                  1.0f) * 100.0f +
                 std::clamp(textureData->materialRect0V, 0.0f, 1.0f);
-            // Mode 32 does not sample the LGPE projected-ground-shadow path,
+            // Mode 32 does not sample the projected-ground-shadow path,
             // so its three matrix rows are available as PS-only source
-            // material transport. Keep Z-A's signed color-process block at
+            // material transport. Keep the signed color-process block at
             // full precision without expanding the fixed 64-DWORD root
             // signature or colliding with camera/quality packing.
             constants.projectedShadowRowX = {
@@ -376,7 +376,7 @@ inline WorldPsConstants makeWorldPsConstants(
                 textureData->materialFlipbook1Fps};
         }
 
-        // Native Game Freak eye materials need two source-only clear-coat
+        // Native character eye materials need two source-only clear-coat
         // values in addition to the generic PBR factors and camera payload.
         // materialRect0U/Rect1H cannot carry them here: generic packing uses
         // those slots for surface roughness and camera Z. Keep the source coat
@@ -583,7 +583,7 @@ inline WorldPsConstants makeWorldPsConstants(
     }
 
     // Native mode 27 normally consumes the flipbook payload as authored
-    // layer colors. Gastly's source-qualified variant bakes all four layer
+    // layer colors. The source-qualified variant bakes all four layer
     // colors into the animated atlas, leaving flipbook0.xyz free for the
     // camera position required by its IkCharacter rim response.
     if (textureData->materialMode == 27u &&
