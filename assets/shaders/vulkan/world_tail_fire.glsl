@@ -42,7 +42,8 @@ vec4 evaluateNativeLayeredUnlitDisplaced(
     coverage += weights.b * (1.0 - coverage);
     color = mix(color, base.rgb, weights.a);
     coverage += weights.a * (1.0 - coverage);
-    float alpha = materialState.timingFlagsAtlas.y > 2.5
+    float alpha = materialState.timingFlagsAtlas.y > 2.5 &&
+                  materialState.timingFlagsAtlas.y < 3.5
         ? clamp(vertexColor.a, 0.0, 1.0)
         : 1.0;
     return vec4(

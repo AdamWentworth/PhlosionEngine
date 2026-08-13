@@ -1463,7 +1463,8 @@ void main() {
             baseColorTextures[nonuniformEXT(materialIndex)],
             metallicRoughnessTextures[nonuniformEXT(materialIndex)],
             tailFireMaterial);
-        if (drawState.specializedTimingFlagsAtlas.y > 2.5) {
+        if (drawState.specializedTimingFlagsAtlas.y > 2.5 &&
+            drawState.specializedTimingFlagsAtlas.y < 3.5) {
             surface.rgb = applyNativeGastlySmokeLighting(surface.rgb);
         }
         const float nativeToneMappingExposure = 1.15;
