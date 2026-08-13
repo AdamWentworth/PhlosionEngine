@@ -263,6 +263,38 @@ vec3 evaluateWorldMaterial(vec3 albedo,
     return max(shaded + emissive, vec3(0.0));
 }
 
+vec3 nativeIkCharacterRgbToHsv(vec3 color) {
+    vec4 k = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    vec4 p = mix(
+        vec4(color.bg, k.wz),
+        vec4(color.gb, k.xy),
+        step(color.b, color.g));
+    vec4 q = mix(
+        vec4(p.xyw, color.r),
+        vec4(color.r, p.yzx),
+        step(p.x, color.r));
+    float d = q.x - min(q.w, q.y);
+    float e = 1e-10;
+    return vec3(
+        abs(q.z + (q.w - q.y) / (6.0 * d + e)),
+        d / (q.x + e),
+        q.x);
+}
+
+vec3 nativeIkCharacterHsvToRgb(vec3 hsv) {
+    vec3 p = abs(
+        fract(hsv.xxx + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) *
+            6.0 -
+        3.0);
+    return hsv.z * mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), hsv.y);
+}
+
+vec3 nativeIkCharacterRotateHue(vec3 color, float hueOffset) {
+    vec3 hsv = nativeIkCharacterRgbToHsv(max(color, vec3(0.0)));
+    hsv.x = fract(hsv.x + hueOffset);
+    return nativeIkCharacterHsvToRgb(hsv);
+}
+
 vec3 evaluateNativeIkCharacter(vec3 albedo,
                                vec2 uv,
                                vec3 position,
@@ -279,7 +311,10 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
                                float textureDetailLodBias,
                                vec4 factors,
                                vec3 rimParameters,
-                               vec4 surfaceParameters) {
+                               vec4 surfaceParameters,
+                               vec4 shadowProcessParameters,
+                               vec4 midProcessParameters,
+                               vec4 darkProcessParameters) {
     float qualityDetail = clamp(
         (0.90 - textureDetailLodBias) / 1.30,
         0.0,
@@ -295,6 +330,10 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         // Z-A IkCharacter's NormalHeight is already an authored shader
         // amplitude, so cancel that boost and preserve the source value.
         factors.x * 0.8);
+    float faceDirection = gl_FrontFacing ? 1.0 : -1.0;
+    vec3 geometricNormal = safeNormalize(
+        sourceNormal,
+        vec3(0.0, 1.0, 0.0)) * faceDirection;
     vec3 cameraForward = safeNormalize(
         cameraForwardPacked,
         normalize(vec3(0.0, -0.6139406, -0.7893522)));
@@ -348,8 +387,55 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         halfLambert,
         sqrt(max(halfLambert, 0.0)),
         diffusionLevels);
+    float geometricLambert = max(dot(geometricNormal, lightDirection), 0.0);
+    float geometricWrappedLambert = clamp(
+        dot(geometricNormal, lightDirection) * 0.5 + 0.5,
+        0.0,
+        1.0);
+    float geometricHalfLambert = mix(
+        geometricLambert,
+        geometricWrappedLambert,
+        clamp(factors.y, 0.0, 1.0));
+    geometricHalfLambert = mix(
+        geometricHalfLambert,
+        sqrt(max(geometricHalfLambert, 0.0)),
+        diffusionLevels);
+    // IkCharacter carries a second lighting-domain transform after its
+    // half-Lambert response. The source default is Shift=-0.5 and
+    // Contrast=0, so center shift around -0.5 rather than interpreting the
+    // raw signed value as an additive darkness term. The bounded scale keeps
+    // authored outliers from becoming the body-wide black bands produced by
+    // the old AO approximation.
+    // Existing cooked assets predate the source color-process payload and
+    // therefore carry an all-zero block. HueShiftBias is authored well above
+    // zero in IkCharacter, so it also serves as a backwards-compatible
+    // presence marker until those assets are recooked.
+    bool hasAuthoredColorProcess = shadowProcessParameters.w > 0.05;
+    float authoredShadowBias = hasAuthoredColorProcess
+        ? shadowProcessParameters.x
+        : 1.0;
+    float authoredShadowShift = hasAuthoredColorProcess
+        ? shadowProcessParameters.y
+        : -0.5;
+    float authoredShadowContrast = hasAuthoredColorProcess
+        ? shadowProcessParameters.z
+        : 0.0;
+    float authoredShadowDomain = clamp(
+        (1.0 - halfLambert) +
+            (authoredShadowShift + 0.5) * 0.24,
+        0.0,
+        1.0);
+    authoredShadowDomain = clamp(
+        (authoredShadowDomain - 0.5) *
+                (1.0 + max(authoredShadowContrast, 0.0) * 1.5) +
+            0.5,
+        0.0,
+        1.0);
+    authoredShadowDomain = pow(
+        authoredShadowDomain,
+        clamp(authoredShadowBias, 0.25, 2.0));
     float shadowAmount =
-        (1.0 - halfLambert) * clamp(factors.z, 0.0, 1.0);
+        authoredShadowDomain * clamp(factors.z, 0.0, 1.0);
     vec3 sourceAlbedo = clamp(albedo, 0.0, 1.0);
     float aoShadowAmount = (1.0 - aoBaseWeight) * shadowingGiGain;
     float combinedShadowAmount = 1.0 -
@@ -359,6 +445,45 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         shadowSpec.rgb,
         combinedShadowAmount);
     vec3 shaded = sourceAlbedo * shadowTint;
+    // The decompiled material program performs separate middle- and
+    // dark-area hue processing. Preserve that separation from AO: these
+    // authored controls tint the existing shadow response and never create a
+    // new dark edge around an eye or layer boundary.
+    float midArea = 4.0 * combinedShadowAmount *
+        (1.0 - combinedShadowAmount);
+    midArea = clamp(
+        (midArea - 0.5) * (1.0 + max(midProcessParameters.y, 0.0)) +
+            0.5 + midProcessParameters.x,
+        0.0,
+        1.0);
+    float darkArea = clamp(
+        (combinedShadowAmount - 0.5) *
+                (1.0 + max(darkProcessParameters.x, 0.0)) +
+            0.5 + midProcessParameters.w,
+        0.0,
+        1.0);
+    float hueStrength = hasAuthoredColorProcess
+        ? clamp(shadowProcessParameters.w, 0.0, 1.0)
+        : 0.0;
+    vec3 midHueColor = nativeIkCharacterRotateHue(
+        shaded,
+        midProcessParameters.z);
+    vec3 darkHueColor = nativeIkCharacterRotateHue(
+        shaded,
+        darkProcessParameters.y);
+    shaded = mix(shaded, midHueColor, midArea * hueStrength * 0.20);
+    shaded = mix(shaded, darkHueColor, darkArea * hueStrength * 0.32);
+    // The source normal map also perturbs IkCharacter's diffuse term. Its
+    // contribution was previously visible only where the authored shadow
+    // tint differed strongly from albedo, leaving skin, fur, and pale stone
+    // flat even though their full-resolution normals were present. Apply only
+    // the bounded difference from the geometric-normal response: broad light
+    // and shadow stay unchanged, while High/Ultra recover local relief.
+    float normalDetailDelta = clamp(
+        halfLambert - geometricHalfLambert,
+        -0.22,
+        0.22);
+    shaded *= 1.0 + normalDetailDelta * qualityDetail * 0.62;
     bool fibreSurface = abs(surfaceParameters.z - 1.0) < 0.25 &&
         rimParameters.b > 0.5;
     bool featherSurface = abs(surfaceParameters.z - 2.0) < 0.25 &&
@@ -434,9 +559,9 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     // The additive-only response cannot draw dark seams around the eyes.
     float featherSheen = featherSurface
         ? qualityDetail * surfaceDetailLight * (1.0 - metallic) *
-            featherRelief * (0.65 + pow(edge, 2.0) * 0.06)
+            featherRelief * (0.32 + pow(edge, 2.0) * 0.05)
         : 0.0;
-    vec3 featherTint = mix(sourceAlbedo, vec3(1.0), 0.50);
+    vec3 featherTint = mix(sourceAlbedo, vec3(1.0), 0.22);
     vec3 nativeBase = shaded +
         sourceAlbedo * (rim + backRim + fibreSheen) +
         featherTint * featherSheen;

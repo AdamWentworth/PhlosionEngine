@@ -354,6 +354,26 @@ inline WorldPsConstants makeWorldPsConstants(
                      2.0f) +
                  1.0f) * 100.0f +
                 std::clamp(textureData->materialRect0V, 0.0f, 1.0f);
+            // Mode 32 does not sample the LGPE projected-ground-shadow path,
+            // so its three matrix rows are available as PS-only source
+            // material transport. Keep Z-A's signed color-process block at
+            // full precision without expanding the fixed 64-DWORD root
+            // signature or colliding with camera/quality packing.
+            constants.projectedShadowRowX = {
+                textureData->materialRect1U,
+                textureData->materialRect1V,
+                textureData->materialRect1W,
+                textureData->materialRect1H};
+            constants.projectedShadowRowY = {
+                textureData->materialFlipbook0Cols,
+                textureData->materialFlipbook0Rows,
+                textureData->materialFlipbook0Frames,
+                textureData->materialFlipbook0Fps};
+            constants.projectedShadowRowZ = {
+                textureData->materialFlipbook1Cols,
+                textureData->materialFlipbook1Rows,
+                textureData->materialFlipbook1Frames,
+                textureData->materialFlipbook1Fps};
         }
 
         // Native Game Freak eye materials need two source-only clear-coat

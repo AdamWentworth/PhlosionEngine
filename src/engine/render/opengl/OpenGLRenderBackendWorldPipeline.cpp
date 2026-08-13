@@ -2502,6 +2502,10 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float diffusionLevels = clamp(uMaterialRect0.y, 0.0, 1.0);
             float surfaceProfile = uMaterialRect0.z;
             float shadowingGiGain = clamp(uMaterialRect0.w, 0.0, 1.0);
+            float faceDirection = gl_FrontFacing ? 1.0 : -1.0;
+            vec3 geometricNormal = safeNormalize(
+                vWorldNormal,
+                vec3(0.0, 1.0, 0.0)) * faceDirection;
             float normalDotLightSigned = dot(n, lightDirection);
             float lambert = max(normalDotLightSigned, 0.0);
             float wrappedLambert = clamp(
@@ -2518,8 +2522,50 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 halfLambert,
                 sqrt(max(halfLambert, 0.0)),
                 diffusionLevels);
-            float shadowAmount =
-                (1.0 - halfLambert) * clamp(uRoughnessFactor, 0.0, 1.0);
+            float geometricLambert = max(
+                dot(geometricNormal, lightDirection),
+                0.0);
+            float geometricWrappedLambert = clamp(
+                dot(geometricNormal, lightDirection) * 0.5 + 0.5,
+                0.0,
+                1.0);
+            float geometricHalfLambert = mix(
+                geometricLambert,
+                geometricWrappedLambert,
+                clamp(uMetallicFactor, 0.0, 1.0));
+            geometricHalfLambert = mix(
+                geometricHalfLambert,
+                sqrt(max(geometricHalfLambert, 0.0)),
+                diffusionLevels);
+            // Older cooked assets have no source color-process block. The
+            // authored HueShiftBias is nonzero, making rect1.w a safe payload
+            // marker while preserving the legacy response for those assets.
+            bool hasAuthoredColorProcess = uMaterialRect1.w > 0.05;
+            float authoredShadowBias = hasAuthoredColorProcess
+                ? uMaterialRect1.x
+                : 1.0;
+            float authoredShadowShift = hasAuthoredColorProcess
+                ? uMaterialRect1.y
+                : -0.5;
+            float authoredShadowContrast = hasAuthoredColorProcess
+                ? uMaterialRect1.z
+                : 0.0;
+            float authoredShadowDomain = clamp(
+                (1.0 - halfLambert) +
+                    (authoredShadowShift + 0.5) * 0.24,
+                0.0,
+                1.0);
+            authoredShadowDomain = clamp(
+                (authoredShadowDomain - 0.5) *
+                        (1.0 + max(authoredShadowContrast, 0.0) * 1.5) +
+                    0.5,
+                0.0,
+                1.0);
+            authoredShadowDomain = pow(
+                authoredShadowDomain,
+                clamp(authoredShadowBias, 0.25, 2.0));
+            float shadowAmount = authoredShadowDomain *
+                clamp(uRoughnessFactor, 0.0, 1.0);
             float qualityDetail = clamp(
                 (0.90 - litTextureDetailLodBias()) / 1.30,
                 0.0,
@@ -2534,6 +2580,44 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 shadowSpec.rgb,
                 combinedShadowAmount);
             vec3 shaded = albedo * shadowTint;
+            float midArea = 4.0 * combinedShadowAmount *
+                (1.0 - combinedShadowAmount);
+            midArea = clamp(
+                (midArea - 0.5) *
+                        (1.0 + max(uMaterialFlipbook0.y, 0.0)) +
+                    0.5 + uMaterialFlipbook0.x,
+                0.0,
+                1.0);
+            float darkArea = clamp(
+                (combinedShadowAmount - 0.5) *
+                        (1.0 + max(uMaterialFlipbook1.x, 0.0)) +
+                    0.5 + uMaterialFlipbook0.w,
+                0.0,
+                1.0);
+            float hueStrength = hasAuthoredColorProcess
+                ? clamp(uMaterialRect1.w, 0.0, 1.0)
+                : 0.0;
+            vec3 midHsv = lgpeFoliageRgbToHsv(max(shaded, vec3(0.0)));
+            midHsv.x = fract(midHsv.x + uMaterialFlipbook0.z);
+            vec3 darkHsv = lgpeFoliageRgbToHsv(max(shaded, vec3(0.0)));
+            darkHsv.x = fract(darkHsv.x + uMaterialFlipbook1.y);
+            shaded = mix(
+                shaded,
+                lgpeFoliageHsvToRgb(midHsv),
+                midArea * hueStrength * 0.20);
+            shaded = mix(
+                shaded,
+                lgpeFoliageHsvToRgb(darkHsv),
+                darkArea * hueStrength * 0.32);
+            // Recover local diffuse relief authored in Z-A's normal map as a
+            // bounded delta from the geometric-normal response. Broad light
+            // stays stable and sharp atlas features cannot recreate dark
+            // facial or whole-body bands.
+            float normalDetailDelta = clamp(
+                halfLambert - geometricHalfLambert,
+                -0.22,
+                0.22);
+            shaded *= 1.0 + normalDetailDelta * qualityDetail * 0.62;
             bool fibreSurface =
                 abs(surfaceProfile - 1.0) < 0.25 &&
                 uUseEmissiveTexture > 0.5;
@@ -2612,9 +2696,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 ? qualityDetail * surfaceDetailLight *
                     (1.0 - metallic) *
                     featherRelief *
-                    (0.65 + pow(edge, 2.0) * 0.06)
+                    (0.32 + pow(edge, 2.0) * 0.05)
                 : 0.0;
-            vec3 featherTint = mix(albedo, vec3(1.0), 0.50);
+            vec3 featherTint = mix(albedo, vec3(1.0), 0.22);
             vec3 nativeBase = shaded +
                 albedo * (rim + backRim + fibreSheen) +
                 featherTint * featherSheen;

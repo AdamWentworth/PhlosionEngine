@@ -1786,7 +1786,10 @@ void main() {
                 textureDetailLodBias,
                 drawState.pbrFactors,
                 drawState.emissiveAndCamera.rgb,
-                drawState.specializedRect0);
+                drawState.specializedRect0,
+                drawState.specializedRect1,
+                drawState.specializedFlipbook0,
+                drawState.specializedFlipbook1);
         } else if (nativeGastlyFace) {
             linearColor = evaluateNativeGastlyFace(
                 linearColor,

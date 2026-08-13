@@ -1572,7 +1572,10 @@ void main() {
                 textureDetailLodBias,
                 pushData.pbrFactors,
                 pushData.emissiveAndCamera.rgb,
-                worldSpecializedMaterial.rect0);
+                worldSpecializedMaterial.rect0,
+                worldSpecializedMaterial.rect1,
+                worldSpecializedMaterial.flipbook0,
+                worldSpecializedMaterial.flipbook1);
         } else if (nativeGastlyFace) {
             linearColor = evaluateNativeGastlyFace(
                 linearColor,

@@ -2391,6 +2391,10 @@ float3 applyNativeIkCharacter(PSIn i,
   float packedSurfaceRemainder = packedSurface - surfaceProfile * 1000.0f;
   float diffusionLevels = saturate(frac(packedSurfaceRemainder));
   float shadowingGiGain = saturate(uMaterialFlipbook1Frames);
+  float faceDirection = isFrontFace ? 1.0f : -1.0f;
+  float3 geometricNormal = safeNormalize(
+      i.worldNormal,
+      float3(0.0f, 1.0f, 0.0f)) * faceDirection;
   float normalDotLightSigned = dot(normal, lightDirection);
   float lambert = max(normalDotLightSigned, 0.0f);
   float wrappedLambert = saturate(
@@ -2405,8 +2409,43 @@ float3 applyNativeIkCharacter(PSIn i,
       halfLambert,
       sqrt(max(halfLambert, 0.0f)),
       diffusionLevels);
-  float shadowAmount =
-      (1.0f - halfLambert) * saturate(shadowStrength);
+  float geometricLambert = max(
+      dot(geometricNormal, lightDirection),
+      0.0f);
+  float geometricWrappedLambert = saturate(
+      dot(geometricNormal, lightDirection) * 0.5f + 0.5f);
+  float geometricHalfLambert = lerp(
+      geometricLambert,
+      geometricWrappedLambert,
+      saturate(halfLambertBias));
+  geometricHalfLambert = lerp(
+      geometricHalfLambert,
+      sqrt(max(geometricHalfLambert, 0.0f)),
+      diffusionLevels);
+  // Older cooked assets have no source color-process block. Authored
+  // HueShiftBias is nonzero, so rowX.w distinguishes the new payload while
+  // retaining the prior neutral response for existing assets.
+  bool hasAuthoredColorProcess = uProjectedShadowRowX.w > 0.05f;
+  float authoredShadowBias = hasAuthoredColorProcess
+      ? uProjectedShadowRowX.x
+      : 1.0f;
+  float authoredShadowShift = hasAuthoredColorProcess
+      ? uProjectedShadowRowX.y
+      : -0.5f;
+  float authoredShadowContrast = hasAuthoredColorProcess
+      ? uProjectedShadowRowX.z
+      : 0.0f;
+  float authoredShadowDomain = saturate(
+      (1.0f - halfLambert) +
+      (authoredShadowShift + 0.5f) * 0.24f);
+  authoredShadowDomain = saturate(
+      (authoredShadowDomain - 0.5f) *
+          (1.0f + max(authoredShadowContrast, 0.0f) * 1.5f) +
+      0.5f);
+  authoredShadowDomain = pow(
+      authoredShadowDomain,
+      clamp(authoredShadowBias, 0.25f, 2.0f));
+  float shadowAmount = authoredShadowDomain * saturate(shadowStrength);
   float qualityDetail = saturate(
       (0.90f - litTextureDetailLodBias()) / 1.30f);
   float3 albedo = saturate(linearColor);
@@ -2418,6 +2457,39 @@ float3 applyNativeIkCharacter(PSIn i,
       shadowSpec.rgb,
       combinedShadowAmount);
   float3 shaded = albedo * shadowTint;
+  float midArea = 4.0f * combinedShadowAmount *
+      (1.0f - combinedShadowAmount);
+  midArea = saturate(
+      (midArea - 0.5f) *
+          (1.0f + max(uProjectedShadowRowY.y, 0.0f)) +
+      0.5f + uProjectedShadowRowY.x);
+  float darkArea = saturate(
+      (combinedShadowAmount - 0.5f) *
+          (1.0f + max(uProjectedShadowRowZ.x, 0.0f)) +
+      0.5f + uProjectedShadowRowY.w);
+  float hueStrength = hasAuthoredColorProcess
+      ? saturate(uProjectedShadowRowX.w)
+      : 0.0f;
+  float3 midHsv = lgpeFoliageRgbToHsv(max(shaded, 0.0f.xxx));
+  midHsv.x = frac(midHsv.x + uProjectedShadowRowY.z);
+  float3 darkHsv = lgpeFoliageRgbToHsv(max(shaded, 0.0f.xxx));
+  darkHsv.x = frac(darkHsv.x + uProjectedShadowRowZ.y);
+  shaded = lerp(
+      shaded,
+      lgpeFoliageHsvToRgb(midHsv),
+      midArea * hueStrength * 0.20f);
+  shaded = lerp(
+      shaded,
+      lgpeFoliageHsvToRgb(darkHsv),
+      darkArea * hueStrength * 0.32f);
+  // Restore local normal-map diffuse relief as a bounded delta from the
+  // geometric-normal response. This keeps broad Z-A lighting stable and
+  // avoids the former whole-body/facial shadow bands.
+  float normalDetailDelta = clamp(
+      halfLambert - geometricHalfLambert,
+      -0.22f,
+      0.22f);
+  shaded *= 1.0f + normalDetailDelta * qualityDetail * 0.62f;
   bool fibreSurface = abs(surfaceProfile - 1.0f) < 0.25f &&
       useEmissiveTexture;
   bool featherSurface = abs(surfaceProfile - 2.0f) < 0.25f &&
@@ -2494,9 +2566,9 @@ float3 applyNativeIkCharacter(PSIn i,
       length(fineFeatherNormal) * 0.50f));
   float featherSheen = featherSurface
       ? qualityDetail * surfaceDetailLight * (1.0f - metallic) *
-          featherRelief * (0.65f + pow(edge, 2.0f) * 0.06f)
+          featherRelief * (0.32f + pow(edge, 2.0f) * 0.05f)
       : 0.0f;
-  float3 featherTint = lerp(albedo, float3(1.0f, 1.0f, 1.0f), 0.50f);
+  float3 featherTint = lerp(albedo, float3(1.0f, 1.0f, 1.0f), 0.22f);
   float3 nativeBase = shaded +
       albedo * (rim + backRim + fibreSheen) +
       featherTint * featherSheen;
