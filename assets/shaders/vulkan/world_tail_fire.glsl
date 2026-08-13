@@ -42,8 +42,10 @@ vec4 evaluateNativeLayeredUnlitDisplaced(
     coverage += weights.b * (1.0 - coverage);
     color = mix(color, base.rgb, weights.a);
     coverage += weights.a * (1.0 - coverage);
-    float alpha = materialState.timingFlagsAtlas.y > 2.5 &&
-                  materialState.timingFlagsAtlas.y < 3.5
+    // Both qualified Gastly smoke profiles carry authored cloud coverage in
+    // vertex alpha. Flag 3 selects Z-A lighting and flag 4 selects Scarlet's
+    // NonDirectional color response, but neither changes that coverage.
+    float alpha = materialState.timingFlagsAtlas.y > 2.5
         ? clamp(vertexColor.a, 0.0, 1.0)
         : 1.0;
     return vec4(

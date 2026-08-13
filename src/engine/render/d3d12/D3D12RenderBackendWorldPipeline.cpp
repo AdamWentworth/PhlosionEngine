@@ -1771,7 +1771,7 @@ float4 evalNativeLayeredUnlitDisplaced(PSIn i) {
   // SSSEffect subtype 3 uses the complete dynamic alpha. World-scene draws
   // carry it in i.col; direct indexed draws carry it in uVertexColorMulA.
   // Authored Unlit fire remains opaque.
-  surface.a = uMaterialFlags > 2.5f && uMaterialFlags < 3.5f
+  surface.a = uMaterialFlags > 2.5f
       ? saturate(i.col.a * uVertexColorMulA)
       : 1.0f;
   return surface;
@@ -2799,7 +2799,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   }
   if (uMaterialMode > 26.5f && uMaterialMode < 27.5f) {
     float4 surface = evalNativeLayeredUnlitDisplaced(i);
-    if (uMaterialFlags > 2.5f && uMaterialFlags < 3.5f) {
+    if (uMaterialFlags > 2.5f && uMaterialFlags < 3.125f) {
       surface.rgb = applyNativeGastlySmokeLighting(i, surface.rgb);
     }
     const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;

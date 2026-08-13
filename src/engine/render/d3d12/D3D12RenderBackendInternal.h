@@ -596,7 +596,7 @@ inline WorldPsConstants makeWorldPsConstants(
     // camera position required by its IkCharacter rim response.
     if (textureData->materialMode == 27u &&
         textureData->materialFlags > 2.5f &&
-        textureData->materialFlags < 3.5f) {
+        textureData->materialFlags < 3.125f) {
         constants.materialFlipbook0Cols = textureData->cameraPosX;
         constants.materialFlipbook0Rows = textureData->cameraPosY;
         constants.materialFlipbook0Frames = textureData->cameraPosZ;

@@ -1326,7 +1326,7 @@ void main() {
             metallicRoughnessTexture,
             nativeUnlitMaterial);
         if (worldSpecializedMaterial.timingFlagsAtlas.y > 2.5 &&
-            worldSpecializedMaterial.timingFlagsAtlas.y < 3.5) {
+            worldSpecializedMaterial.timingFlagsAtlas.y < 3.125) {
             surface.rgb = applyNativeGastlySmokeLighting(surface.rgb);
         }
         const float nativeToneMappingExposure = 1.15;
