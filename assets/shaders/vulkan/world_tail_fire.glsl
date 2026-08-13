@@ -42,10 +42,13 @@ vec4 evaluateNativeLayeredUnlitDisplaced(
     coverage += weights.b * (1.0 - coverage);
     color = mix(color, base.rgb, weights.a);
     coverage += weights.a * (1.0 - coverage);
-    // Both qualified Gastly smoke profiles carry authored cloud coverage in
-    // vertex alpha. Flag 3 selects Z-A lighting and flag 4 selects Scarlet's
-    // NonDirectional color response, but neither changes that coverage.
-    float alpha = materialState.timingFlagsAtlas.y > 2.5
+    // Z-A's soft smoke path carries dynamic coverage in vertex alpha. SV's
+    // NonDirectional Gastly mesh stores zero in every vertex-alpha lane and
+    // its compiled fragment program outputs material alpha instead. Flag
+    // 3.25 identifies that SV response without leaving the shared continuous
+    // motion range.
+    float alpha = materialState.timingFlagsAtlas.y > 2.5 &&
+                  materialState.timingFlagsAtlas.y < 3.125
         ? clamp(vertexColor.a, 0.0, 1.0)
         : 1.0;
     return vec4(

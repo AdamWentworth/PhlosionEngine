@@ -1771,7 +1771,7 @@ float4 evalNativeLayeredUnlitDisplaced(PSIn i) {
   // SSSEffect subtype 3 uses the complete dynamic alpha. World-scene draws
   // carry it in i.col; direct indexed draws carry it in uVertexColorMulA.
   // Authored Unlit fire remains opaque.
-  surface.a = uMaterialFlags > 2.5f
+  surface.a = uMaterialFlags > 2.5f && uMaterialFlags < 3.125f
       ? saturate(i.col.a * uVertexColorMulA)
       : 1.0f;
   return surface;

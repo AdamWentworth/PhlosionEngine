@@ -1980,7 +1980,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             // world-scene draws carry it in vColor; direct indexed draws
             // carry it in uVertexColorMul. Ignoring either path leaves hidden
             // smoke puffs visible on one of the submission routes.
-            surface.a = uMaterialFlags > 2.5
+            surface.a = uMaterialFlags > 2.5 && uMaterialFlags < 3.125
                 ? clamp(vColor.a * uVertexColorMul.a, 0.0, 1.0)
                 : 1.0;
             return surface;
