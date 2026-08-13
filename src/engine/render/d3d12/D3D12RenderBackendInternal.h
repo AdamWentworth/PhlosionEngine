@@ -375,6 +375,14 @@ inline WorldPsConstants makeWorldPsConstants(
                 textureData->materialFlipbook1Frames,
                 textureData->materialFlipbook1Fps};
         }
+        if (textureData->materialMode ==
+            backend::kNativeSssMaterialMode) {
+            // Generic PBR packing replaces materialFlags with texture-
+            // presence bits. Native SSS uses materialTimeSec as an otherwise
+            // free PS-only lane for its explicit surface qualifier so smooth
+            // SSS materials never inherit the optional fibre reconstruction.
+            constants.materialTimeSec = textureData->materialFlags;
+        }
 
         // Native character eye materials need two source-only clear-coat
         // values in addition to the generic PBR factors and camera payload.

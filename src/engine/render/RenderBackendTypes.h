@@ -16,7 +16,9 @@ namespace engine::render::backend {
 // that source shader's scalar specular intensity.
 inline constexpr float kNativeSpecularStrengthMaterialFlag = 5.0f;
 inline constexpr std::uint8_t kNativeIkCharacterMaterialMode = 32u;
-inline constexpr std::uint8_t kNativeSssFurMaterialMode = 33u;
+inline constexpr std::uint8_t kNativeSssMaterialMode = 33u;
+inline constexpr float kNativeSssSurfaceDefault = 0.0f;
+inline constexpr float kNativeSssSurfaceFibre = 1.0f;
 
 struct BackendFrameTimings {
     float presentWaitMs = 0.0f;

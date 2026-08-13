@@ -2751,12 +2751,13 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 vec3(0.0));
         }
 
-        vec3 applyNativeSssFur(
+        vec3 applyNativeSssSurface(
             vec3 linearColor,
             vec3 n,
             vec2 sampleUv,
             vec2 uvDx,
-            vec2 uvDy) {
+            vec2 uvDy,
+            float surfaceProfile) {
             vec3 cameraForward = safeNormalize(
                 uCameraForward,
                 normalize(vec3(0.0, -0.6139406, -0.7893522)));
@@ -2788,7 +2789,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                       0.04,
                       1.0)
                 : 1.0;
-            float coarseRoughness = uUseMetallicRoughnessTexture > 0.5
+            bool fibreSurface = abs(surfaceProfile - 1.0) < 0.25;
+            float coarseRoughness =
+                fibreSurface && uUseMetallicRoughnessTexture > 0.5
                 ? clamp(
                       sampleTextureWithWrap(
                           uMetallicRoughnessTexture,
@@ -2831,10 +2834,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float sourceSpecular = pow(
                 max(dot(n, halfDirection), 0.0),
                 specularPower) * 0.04 * 0.45;
-            // SV's roughness atlas carries directional fibre strokes. Recover
-            // that authored high-frequency signal against a coarser sample,
-            // then feed only positive strands into the coat lobe. This makes
-            // fur catch light without dirtying or recoloring the base map.
+            // The optional fibre profile is a Phlosion reconstruction over
+            // source-proven scalar roughness. Smooth SSS surfaces skip it.
             float qualityDetail = clamp(
                 (0.90 - litTextureDetailLodBias()) / 1.30,
                 0.0,
@@ -2845,8 +2846,10 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 1.0);
             float nDotV = clamp(dot(n, viewDirection), 0.0, 1.0);
             float velvet = pow(1.0 - nDotV, 2.5);
-            float fibreSheen = qualityDetail * wrappedNdotL *
-                (fibreRelief * (0.22 + 0.20 * velvet) + velvet * 0.08);
+            float fibreSheen = fibreSurface
+                ? qualityDetail * wrappedNdotL *
+                      (fibreRelief * (0.22 + 0.20 * velvet) + velvet * 0.08)
+                : 0.0;
             return max(
                 diffuse * (0.34 + 0.78 * wrappedNdotL) * ao +
                     subsurfaceTint * subsurfaceFill +
@@ -3269,7 +3272,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     uMaterialFlags < 4.5;
                 bool nativeIkCharacter =
                     uMaterialMode > 31.5 && uMaterialMode < 32.5;
-                bool nativeSssFur =
+                bool nativeSss =
                     uMaterialMode > 32.5 && uMaterialMode < 33.5;
                 // The generic PBR path deliberately boosts normal XY by
                 // 1.25. Z-A IkCharacter's NormalHeight is already authored
@@ -3279,13 +3282,14 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     uvDx,
                     uvDy,
                     nativeIkCharacter ? 0.8 : 1.0);
-                if (nativeSssFur) {
-                    outLinear = applyNativeSssFur(
+                if (nativeSss) {
+                    outLinear = applyNativeSssSurface(
                         outLinear,
                         n,
                         wrappedUv,
                         uvDx,
-                        uvDy);
+                        uvDy,
+                        uMaterialFlags);
                 } else if (nativeIkCharacter) {
                     outLinear = applyNativeIkCharacter(
                         outLinear,

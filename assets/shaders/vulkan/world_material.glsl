@@ -617,20 +617,21 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         vec3(0.0));
 }
 
-vec3 evaluateNativeSssFur(vec3 albedo,
-                          vec2 uv,
-                          vec3 position,
-                          vec3 sourceNormal,
-                          vec4 sourceTangent,
-                          vec3 cameraPosition,
-                          vec3 cameraForwardPacked,
-                          sampler2D normalMap,
-                          sampler2D roughnessMap,
-                          sampler2D occlusionMap,
-                          sampler2D sssMaskMap,
-                          float textureDetailLodBias,
-                          vec4 factors,
-                          vec3 subsurfaceColor) {
+vec3 evaluateNativeSssSurface(vec3 albedo,
+                              vec2 uv,
+                              vec3 position,
+                              vec3 sourceNormal,
+                              vec4 sourceTangent,
+                              vec3 cameraPosition,
+                              vec3 cameraForwardPacked,
+                              sampler2D normalMap,
+                              sampler2D roughnessMap,
+                              sampler2D occlusionMap,
+                              sampler2D sssMaskMap,
+                              float textureDetailLodBias,
+                              float surfaceProfile,
+                              vec4 factors,
+                              vec3 subsurfaceColor) {
     vec3 normal = mappedWorldNormal(
         uv,
         position,
@@ -666,13 +667,17 @@ vec3 evaluateNativeSssFur(vec3 albedo,
             textureDetailLodBias).g * clamp(factors.z, 0.0, 1.0),
         0.04,
         1.0);
-    float coarseRoughness = clamp(
-        sampleWorldMaterialTexture(
-            roughnessMap,
-            uv,
-            textureDetailLodBias + 2.0).g * clamp(factors.z, 0.0, 1.0),
-        0.04,
-        1.0);
+    bool fibreSurface = abs(surfaceProfile - 1.0) < 0.25;
+    float coarseRoughness = fibreSurface
+        ? clamp(
+              sampleWorldMaterialTexture(
+                  roughnessMap,
+                  uv,
+                  textureDetailLodBias + 2.0).g *
+                  clamp(factors.z, 0.0, 1.0),
+              0.04,
+              1.0)
+        : roughness;
     float ao = mix(
         1.0,
         sampleWorldMaterialTexture(
@@ -710,8 +715,10 @@ vec3 evaluateNativeSssFur(vec3 albedo,
         1.0);
     float nDotV = clamp(dot(normal, viewDirection), 0.0, 1.0);
     float velvet = pow(1.0 - nDotV, 2.5);
-    float fibreSheen = qualityDetail * wrappedNdotL *
-        (fibreRelief * (0.22 + 0.20 * velvet) + velvet * 0.08);
+    float fibreSheen = fibreSurface
+        ? qualityDetail * wrappedNdotL *
+              (fibreRelief * (0.22 + 0.20 * velvet) + velvet * 0.08)
+        : 0.0;
     return max(
         diffuse * (0.34 + 0.78 * wrappedNdotL) * ao +
             subsurfaceTint * subsurfaceFill +

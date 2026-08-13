@@ -1536,10 +1536,10 @@ void main() {
             worldSpecializedMaterial.timingFlagsAtlas.y < 4.5;
         bool nativeIkCharacter =
             materialMode > 31.5 && materialMode < 32.5;
-        bool nativeSssFur =
+        bool nativeSss =
             materialMode > 32.5 && materialMode < 33.5;
-        if (nativeSssFur) {
-            linearColor = evaluateNativeSssFur(
+        if (nativeSss) {
+            linearColor = evaluateNativeSssSurface(
                 linearColor,
                 materialUv,
                 worldPosition,
@@ -1552,6 +1552,7 @@ void main() {
                 occlusionTexture,
                 emissiveTexture,
                 textureDetailLodBias,
+                worldSpecializedMaterial.timingFlagsAtlas.y,
                 pushData.pbrFactors,
                 pushData.emissiveAndCamera.rgb);
         } else if (nativeIkCharacter) {

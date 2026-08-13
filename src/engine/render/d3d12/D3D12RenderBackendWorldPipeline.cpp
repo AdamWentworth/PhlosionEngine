@@ -2618,22 +2618,23 @@ float3 applyNativeIkCharacter(PSIn i,
       float3(0.0f, 0.0f, 0.0f));
 }
 
-float3 applyNativeSssFur(PSIn i,
-                         bool isFrontFace,
-                         float3 linearColor,
-                         float2 sampleUv,
-                         float2 uvDx,
-                         float2 uvDy,
-                         bool useNormalTexture,
-                         bool useMetallicRoughnessTexture,
-                         bool useOcclusionTexture,
-                         bool useSssMaskTexture,
-                         float normalScale,
-                         float roughnessFactor,
-                         float occlusionStrength,
-                         float3 subsurfaceColor,
-                         float3 cameraPos,
-                         float3 cameraForwardPacked) {
+float3 applyNativeSssSurface(PSIn i,
+                             bool isFrontFace,
+                             float3 linearColor,
+                             float2 sampleUv,
+                             float2 uvDx,
+                             float2 uvDy,
+                             bool useNormalTexture,
+                             bool useMetallicRoughnessTexture,
+                             bool useOcclusionTexture,
+                             bool useSssMaskTexture,
+                             float normalScale,
+                             float roughnessFactor,
+                             float occlusionStrength,
+                             float3 subsurfaceColor,
+                             float3 cameraPos,
+                             float3 cameraForwardPacked,
+                             float surfaceProfile) {
   float3 normal = computeMappedNormal(
       i,
       isFrontFace,
@@ -2672,7 +2673,8 @@ float3 applyNativeSssFur(PSIn i,
             0.04f,
             1.0f)
       : 1.0f;
-  float coarseRoughness = useMetallicRoughnessTexture
+  bool fibreSurface = abs(surfaceProfile - 1.0f) < 0.25f;
+  float coarseRoughness = fibreSurface && useMetallicRoughnessTexture
       ? clamp(
             sampleTextureWithWrap(
                 gMetallicRoughnessTex,
@@ -2724,8 +2726,10 @@ float3 applyNativeSssFur(PSIn i,
       (coarseRoughness - roughness) * 3.25f);
   float nDotV = saturate(dot(normal, viewDirection));
   float velvet = pow(1.0f - nDotV, 2.5f);
-  float fibreSheen = qualityDetail * wrappedNdotL *
-      (fibreRelief * (0.22f + 0.20f * velvet) + velvet * 0.08f);
+  float fibreSheen = fibreSurface
+      ? qualityDetail * wrappedNdotL *
+            (fibreRelief * (0.22f + 0.20f * velvet) + velvet * 0.08f)
+      : 0.0f;
   return max(
       diffuse * (0.34f + 0.78f * wrappedNdotL) * ao +
           subsurfaceTint * subsurfaceFill +
@@ -3028,10 +3032,10 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         uMaterialFlipbook1Fps < 4.5f;
     const bool nativeIkCharacter =
         uMaterialMode > 31.5f && uMaterialMode < 32.5f;
-    const bool nativeSssFur =
+    const bool nativeSss =
         uMaterialMode > 32.5f && uMaterialMode < 33.5f;
-    if (nativeSssFur) {
-      outLinear = applyNativeSssFur(
+    if (nativeSss) {
+      outLinear = applyNativeSssSurface(
           i,
           isFrontFace,
           outLinear,
@@ -3047,7 +3051,8 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
           occlusionStrength,
           emissiveFactor,
           cameraPos,
-          cameraForward);
+          cameraForward,
+          uMaterialTimeSec);
     } else if (nativeIkCharacter) {
       outLinear = applyNativeIkCharacter(
           i,
