@@ -68,6 +68,7 @@ struct Arguments {
     std::optional<float> assetPreviewZoom;
     std::optional<float> assetPreviewTargetOffsetY;
     bool assetPreviewFront = false;
+    bool assetPreviewBack = false;
     std::optional<
         engine::editor::EditorRendererPreference>
         rendererPreference;
@@ -196,6 +197,8 @@ Arguments parseArguments(int argc, char** argv) {
                 2.0f);
         } else if (argument == "--asset-preview-front") {
             result.assetPreviewFront = true;
+        } else if (argument == "--asset-preview-back") {
+            result.assetPreviewBack = true;
         } else if (argument.rfind(framesPrefix, 0u) == 0u) {
             result.frameLimit = std::max(
                 1,
@@ -3603,7 +3606,8 @@ int main(int argc, char** argv) {
                                 const float previewRadius = std::max(
                                     0.05f,
                                     project->assetPreviewView.boundsRadius);
-                                if (arguments.assetPreviewFront) {
+                                if (arguments.assetPreviewFront ||
+                                    arguments.assetPreviewBack) {
                                     const glm::vec3 target =
                                         assetPreviewCamera.getTarget();
                                     const float distance = glm::length(
@@ -3614,7 +3618,9 @@ int main(int argc, char** argv) {
                                         target + glm::vec3(
                                             0.0f,
                                             0.0f,
-                                            distance));
+                                            arguments.assetPreviewBack
+                                                ? -distance
+                                                : distance));
                                 }
                                 if (arguments.assetPreviewTargetOffsetY) {
                                     assetPreviewCamera.move(glm::vec3(
