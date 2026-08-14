@@ -206,6 +206,7 @@ struct WorkspaceAssetPreview {
     std::uint32_t activeElementCount = 0u;
     int animationIndex = -1;
     int graphicsQuality = 3;
+    int materialDebugView = 0;
     float animationTimeSeconds = 0.0f;
     float animationDurationSeconds = 0.0f;
     float boundsRadius = 1.0f;
@@ -371,6 +372,7 @@ struct EditorShellActions {
     float assetPreviewSeekTimeSeconds = 0.0f;
     int assetPreviewAnimationIndex = -1;
     int assetPreviewGraphicsQuality = 3;
+    int assetPreviewMaterialDebugView = 0;
     float assetPreviewPlaybackSpeed = 1.0f;
     bool assetPreviewAnimationPlaying = true;
     bool assetPreviewShowMesh = true;

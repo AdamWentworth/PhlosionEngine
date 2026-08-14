@@ -67,6 +67,13 @@ void VulkanRenderBackend::setVSyncEnabled(bool enabled) {
     if (impl_) impl_->requestVSync(enabled);
 }
 
+void VulkanRenderBackend::setWorldMaterialDebugView(int view) noexcept {
+    IRenderBackend::setWorldMaterialDebugView(view);
+    if (impl_) {
+        impl_->worldMaterialDebugView = worldMaterialDebugView();
+    }
+}
+
 void VulkanRenderBackend::shutdown() {
     if (impl_) {
         impl_->shutdown();

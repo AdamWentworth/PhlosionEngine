@@ -3219,9 +3219,11 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             // Keep derivative source aligned with D3D12 path for exact sampler parity.
             vec2 uvDx = dFdx(wrappedUv);
             vec2 uvDy = dFdy(wrappedUv);
-            float pbrDebugView = animatedEyeMaterial
-                ? 0.0
-                : uMaterialFlipbook1.w;
+            bool explicitMaterialDebug =
+                uMaterialFlipbook1.w < -100.5;
+            float pbrDebugView = explicitMaterialDebug
+                ? -uMaterialFlipbook1.w - 100.0
+                : (animatedEyeMaterial ? 0.0 : uMaterialFlipbook1.w);
             if (uUseTexture > 0.5) {
                 tex = sampleTextureWithWrap(uTexture, wrappedUv, uvDx, uvDy);
                 outLinear = clamp(tex.rgb, 0.0, 1.0) * outLinear;
@@ -3245,22 +3247,43 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     dbg = clamp(tex.rgb, 0.0, 1.0);
                 } else if (pbrDebugView < 2.5) {
                     // 2: Normal map sample.
-                    dbg = sampleTextureWithWrap(uNormalTexture, wrappedUv, uvDx, uvDy).rgb;
+                    dbg = uUseNormalTexture > 0.5
+                        ? sampleTextureWithWrap(
+                              uNormalTexture, wrappedUv, uvDx, uvDy).rgb
+                        : vec3(0.5, 0.5, 1.0);
                 } else if (pbrDebugView < 3.5) {
                     // 3: Roughness channel.
-                    float rgh = sampleTextureWithWrap(
-                        uMetallicRoughnessTexture, wrappedUv, uvDx, uvDy).g;
+                    float rgh = uUseMetallicRoughnessTexture > 0.5
+                        ? sampleTextureWithWrap(
+                              uMetallicRoughnessTexture,
+                              wrappedUv,
+                              uvDx,
+                              uvDy).g
+                        : 1.0;
                     dbg = vec3(rgh);
                 } else if (pbrDebugView < 4.5) {
                     // 4: Metallic channel.
-                    float met = sampleTextureWithWrap(
-                        uMetallicRoughnessTexture, wrappedUv, uvDx, uvDy).b;
+                    float met = uUseMetallicRoughnessTexture > 0.5
+                        ? sampleTextureWithWrap(
+                              uMetallicRoughnessTexture,
+                              wrappedUv,
+                              uvDx,
+                              uvDy).b
+                        : 0.0;
                     dbg = vec3(met);
                 } else if (pbrDebugView < 5.5) {
                     // 5: AO channel.
-                    float ao = sampleTextureWithWrap(
-                        uOcclusionTexture, wrappedUv, uvDx, uvDy).r;
+                    float ao = uUseOcclusionTexture > 0.5
+                        ? sampleTextureWithWrap(
+                              uOcclusionTexture, wrappedUv, uvDx, uvDy).r
+                        : 1.0;
                     dbg = vec3(ao);
+                } else if (pbrDebugView < 6.5) {
+                    // 6: Emissive sample.
+                    dbg = uUseEmissiveTexture > 0.5
+                        ? sampleTextureWithWrap(
+                              uEmissiveTexture, wrappedUv, uvDx, uvDy).rgb
+                        : vec3(0.0);
                 }
                 FragColor = vec4(resolveWorldSceneColor(dbg), 1.0);
                 return;

@@ -48,6 +48,7 @@ public:
     std::string activeGpuName() const override;
     bool activeGpuIsDiscrete() const override;
     void setVSyncEnabled(bool enabled) override;
+    void setWorldMaterialDebugView(int view) noexcept override;
     void shutdown() override;
 
     bool supportsWorldTriangles3D() const override { return true; }

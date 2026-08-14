@@ -4,6 +4,8 @@
 #include "engine/render/IRenderBackendFrame.h"
 #include "engine/render/IRenderBackendWorld.h"
 
+#include <algorithm>
+
 class IRenderBackend : public IRenderBackendFrame,
                        public IRenderBackendWorld,
                        public IRenderBackendDebug {
@@ -58,5 +60,20 @@ public:
     using DebugTriangle = IRenderBackendDebug::DebugTriangle;
     using DebugSprite = IRenderBackendDebug::DebugSprite;
 
+    // Transient, renderer-wide material inspection used by editor previews.
+    // Zero renders the composed material; one through six select the raw
+    // albedo, normal, roughness, metallic, AO, and emission/auxiliary inputs.
+    // Backends must not persist this into project assets or ordinary game
+    // state.
+    virtual void setWorldMaterialDebugView(int view) noexcept {
+        worldMaterialDebugView_ = std::clamp(view, 0, 6);
+    }
+    int worldMaterialDebugView() const noexcept {
+        return worldMaterialDebugView_;
+    }
+
     virtual ~IRenderBackend() = default;
+
+private:
+    int worldMaterialDebugView_ = 0;
 };

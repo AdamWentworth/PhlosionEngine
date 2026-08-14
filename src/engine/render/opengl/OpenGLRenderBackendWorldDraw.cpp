@@ -898,13 +898,18 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
                 texture ? texture->materialFlipbook0Rows : 1.0f,
                 texture ? texture->materialFlipbook0Frames : 1.0f,
                 texture ? texture->materialFlipbook0Fps : 0.0f);
+    const int explicitMaterialDebugView = worldMaterialDebugView();
+    const float materialFlipbook1Fps =
+        explicitMaterialDebugView > 0 && texture && materialMode >= 2u
+            ? -100.0f - static_cast<float>(explicitMaterialDebugView)
+            : ((texture && materialMode >= 2u && materialMode != 27u)
+                   ? static_cast<float>(pbrDebugViewMode())
+                   : (texture ? texture->materialFlipbook1Fps : 0.0f));
     glUniform4f(worldMaterialFlipbook1Loc_,
                 texture ? texture->materialFlipbook1Cols : 1.0f,
                 texture ? texture->materialFlipbook1Rows : 1.0f,
                 texture ? texture->materialFlipbook1Frames : 1.0f,
-                (texture && materialMode >= 2u && materialMode != 27u)
-                    ? static_cast<float>(pbrDebugViewMode())
-                    : (texture ? texture->materialFlipbook1Fps : 0.0f));
+                materialFlipbook1Fps);
     constexpr int kMaxGpuSkinMatrices = 128;
     const bool gpuSkinningEnabled =
         texture &&

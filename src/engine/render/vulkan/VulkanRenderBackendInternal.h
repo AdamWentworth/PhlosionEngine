@@ -237,6 +237,7 @@ struct VulkanRenderBackendImpl {
     std::vector<VkDescriptorSet> worldSceneMaterialDescriptorSets;
     std::vector<WorldMaterial*> worldSceneMaterials;
     std::uint32_t worldSceneMaterialCacheGeneration = 0u;
+    int worldMaterialDebugView = 0;
 
     VkPipeline boundGraphicsPipeline = VK_NULL_HANDLE;
     VkDescriptorSet boundTexturedDescriptorSet = VK_NULL_HANDLE;

@@ -166,6 +166,14 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
             &texture,
             worldMaterial->indexedTableSlot,
             instanceBaseWordIndex));
+        if (worldMaterialDebugView > 0 && texture.materialMode >= 2u) {
+            drawStates.back().specializedMaterial.flipbook1[3] =
+                -100.0f - static_cast<float>(worldMaterialDebugView);
+            drawStates.back().specializedMaterial.timingFlagsAtlas[1] =
+                static_cast<float>(
+                    vulkan::worldMaterialTexturePresenceFlags(
+                        &texture));
+        }
         drawStates.back().shadingParams[3] =
             worldSceneColorPassActive ? 1.0f : 0.0f;
         const VkDrawIndexedIndirectCommand command{

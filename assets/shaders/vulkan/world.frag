@@ -1529,6 +1529,63 @@ void main() {
         alpha = clamp(vertexColor.a, 0.0, 1.0);
     }
 
+    bool explicitMaterialDebug =
+        worldSpecializedMaterial.flipbook1.w < -100.5;
+    float pbrDebugView = explicitMaterialDebug
+        ? -worldSpecializedMaterial.flipbook1.w - 100.0
+        : 0.0;
+    int materialDebugFlags = int(
+        worldSpecializedMaterial.timingFlagsAtlas.y + 0.5);
+    if (materialMode >= 1.5 && pbrDebugView > 0.5) {
+        vec3 debugColor = vec3(0.0);
+        if (pbrDebugView < 1.5) {
+            debugColor = clamp(sampled.rgb, 0.0, 1.0);
+        } else if (pbrDebugView < 2.5) {
+            debugColor = (materialDebugFlags & (1 << 0)) != 0
+                ? sampleWorldMaterialTexture(
+                      normalTexture,
+                      materialUv,
+                      textureDetailLodBias).rgb
+                : vec3(0.5, 0.5, 1.0);
+        } else if (pbrDebugView < 3.5) {
+            float roughness = (materialDebugFlags & (1 << 1)) != 0
+                ? sampleWorldMaterialTexture(
+                      metallicRoughnessTexture,
+                      materialUv,
+                      textureDetailLodBias).g
+                : 1.0;
+            debugColor = vec3(roughness);
+        } else if (pbrDebugView < 4.5) {
+            float metallic = (materialDebugFlags & (1 << 1)) != 0
+                ? sampleWorldMaterialTexture(
+                      metallicRoughnessTexture,
+                      materialUv,
+                      textureDetailLodBias).b
+                : 0.0;
+            debugColor = vec3(metallic);
+        } else if (pbrDebugView < 5.5) {
+            float occlusion = (materialDebugFlags & (1 << 2)) != 0
+                ? sampleWorldMaterialTexture(
+                      occlusionTexture,
+                      materialUv,
+                      textureDetailLodBias).r
+                : 1.0;
+            debugColor = vec3(occlusion);
+        } else if (pbrDebugView < 6.5) {
+            debugColor = (materialDebugFlags & (1 << 3)) != 0
+                ? sampleWorldMaterialTexture(
+                      emissiveTexture,
+                      materialUv,
+                      textureDetailLodBias).rgb
+                : vec3(0.0);
+        }
+        vec3 resolvedDebugColor = pushData.shadingParams.w > 0.5
+            ? debugColor
+            : linearToSrgb(debugColor);
+        writeWorldColor(vec4(resolvedDebugColor, 1.0));
+        return;
+    }
+
     if ((materialMode >= 1.5 && materialMode < 2.5) ||
         (materialMode > 27.5 && materialMode < 33.5)) {
         bool nativeGastlyFace =

@@ -100,6 +100,7 @@ struct EditorProjectGamePreviewContext {
 struct EditorProjectAssetPreviewOptions {
     int animationIndex = -1;
     int graphicsQuality = 3;
+    int materialDebugView = 0;
     float playbackSpeed = 1.0f;
     float seekTimeSeconds = 0.0f;
     bool seekRequested = false;
@@ -125,6 +126,7 @@ struct EditorProjectAssetPreviewInfo {
     std::size_t animationCount = 0u;
     int animationIndex = -1;
     int graphicsQuality = 3;
+    int materialDebugView = 0;
     float animationTimeSeconds = 0.0f;
     float animationDurationSeconds = 0.0f;
     float boundsRadius = 1.0f;

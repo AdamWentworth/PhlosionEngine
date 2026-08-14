@@ -577,6 +577,7 @@ struct EditorShell::Impl {
     int assetPreviewAnimationIndex = -1;
     int assetPreviewGraphicsQuality = 3;
     bool assetPreviewGraphicsQualityOverridden = false;
+    int assetPreviewMaterialDebugView = 0;
     float assetPreviewPlaybackSpeed = 1.0f;
     bool assetPreviewAnimationPlaying = true;
     bool assetPreviewShowMesh = true;
@@ -1108,6 +1109,8 @@ EditorShellActions EditorShell::drawWorkspace(
         impl_->assetPreviewAnimationIndex;
     actions.assetPreviewGraphicsQuality =
         impl_->assetPreviewGraphicsQuality;
+    actions.assetPreviewMaterialDebugView =
+        impl_->assetPreviewMaterialDebugView;
     actions.assetPreviewPlaybackSpeed =
         impl_->assetPreviewPlaybackSpeed;
     actions.assetPreviewAnimationPlaying =
@@ -3182,6 +3185,11 @@ EditorShellActions EditorShell::drawWorkspace(
                 impl_->assetPreviewShowTextures = true;
                 impl_->assetPreviewShowWireframe = false;
                 impl_->assetPreviewShowSkeleton = false;
+                impl_->assetPreviewMaterialDebugView =
+                    std::clamp(
+                        preview.materialDebugView,
+                        0,
+                        6);
                 if (!impl_->
                         assetPreviewGraphicsQualityOverridden) {
                     impl_->assetPreviewGraphicsQuality =
@@ -3389,6 +3397,36 @@ EditorShellActions EditorShell::drawWorkspace(
                         "Preview the same model texture and material "
                         "quality policy used by the game.");
                 }
+                constexpr const char* materialViewNames[] = {
+                    "Composite",
+                    "Albedo",
+                    "Normal map",
+                    "Roughness",
+                    "Metallic",
+                    "Ambient occlusion",
+                    "Emission / aux mask"};
+                ImGui::TextUnformatted("Material View");
+                ImGui::SetNextItemWidth(-1.0f);
+                ImGui::BeginDisabled(
+                    !impl_->assetPreviewShowMaterials ||
+                    !impl_->assetPreviewShowTextures);
+                if (ImGui::Combo(
+                        "##AssetPreviewMaterialView",
+                        &impl_->assetPreviewMaterialDebugView,
+                        materialViewNames,
+                        static_cast<int>(
+                            std::size(materialViewNames)))) {
+                    optionsChanged = true;
+                }
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(
+                        ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip(
+                        "Inspect one cooked material input across the whole "
+                        "model. Native shaders may reuse the emission lane "
+                        "for an auxiliary mask. Composite is the normal "
+                        "game render.");
+                }
                 if (ImGui::Checkbox(
                         "Mesh",
                         &impl_->assetPreviewShowMesh)) {
@@ -3474,6 +3512,8 @@ EditorShellActions EditorShell::drawWorkspace(
                     impl_->assetPreviewAnimationIndex;
                 actions.assetPreviewGraphicsQuality =
                     impl_->assetPreviewGraphicsQuality;
+                actions.assetPreviewMaterialDebugView =
+                    impl_->assetPreviewMaterialDebugView;
                 actions.assetPreviewPlaybackSpeed =
                     impl_->assetPreviewPlaybackSpeed;
                 actions.assetPreviewAnimationPlaying =

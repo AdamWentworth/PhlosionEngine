@@ -3,11 +3,36 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <type_traits>
 
 #include "engine/render/RenderBackendTypes.h"
 
 namespace engine::render::vulkan_backend {
+
+inline std::uint32_t worldMaterialTexturePresenceFlags(
+    const backend::WorldTextureData* texture) {
+    if (!texture) return 0u;
+    std::uint32_t flags = 0u;
+    if (texture->normalRgba && texture->normalWidth > 0 &&
+        texture->normalHeight > 0) {
+        flags |= 1u << 0u;
+    }
+    if (texture->metallicRoughnessRgba &&
+        texture->metallicRoughnessWidth > 0 &&
+        texture->metallicRoughnessHeight > 0) {
+        flags |= 1u << 1u;
+    }
+    if (texture->occlusionRgba && texture->occlusionWidth > 0 &&
+        texture->occlusionHeight > 0) {
+        flags |= 1u << 2u;
+    }
+    if (texture->emissiveRgba && texture->emissiveWidth > 0 &&
+        texture->emissiveHeight > 0) {
+        flags |= 1u << 3u;
+    }
+    return flags;
+}
 
 struct alignas(16) WorldSpecializedMaterialState {
     std::array<float, 4> timingFlagsAtlas{0.0f, 0.0f, 0.0f, 0.0f};

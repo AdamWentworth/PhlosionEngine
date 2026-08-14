@@ -812,7 +812,11 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
             static_cast<std::uint64_t>(worldInstanceFrameBaseOffset_));
     WorldPsConstants worldPs = makeWorldPsConstants(
         textureData, useTexture, worldSceneColorPassActive_);
-    if (textureData &&
+    if (textureData && textureData->materialMode >= 2u &&
+        worldMaterialDebugView() > 0) {
+        worldPs.materialFlipbook1Fps =
+            -100.0f - static_cast<float>(worldMaterialDebugView());
+    } else if (textureData &&
         textureData->materialMode >= 2u &&
         textureData->materialMode != 27u &&
         textureData->materialMode != 31u &&
@@ -1027,7 +1031,11 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     commandList_->SetGraphicsRootShaderResourceView(4, instanceDataGpuAddress);
     WorldPsConstants worldPs = makeWorldPsConstants(
         textureData, useTexture, worldSceneColorPassActive_);
-    if (textureData &&
+    if (textureData && textureData->materialMode >= 2u &&
+        worldMaterialDebugView() > 0) {
+        worldPs.materialFlipbook1Fps =
+            -100.0f - static_cast<float>(worldMaterialDebugView());
+    } else if (textureData &&
         textureData->materialMode >= 2u &&
         textureData->materialMode != 27u &&
         textureData->materialMode != 31u &&

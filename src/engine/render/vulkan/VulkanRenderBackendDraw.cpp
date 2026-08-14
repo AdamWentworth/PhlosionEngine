@@ -30,8 +30,17 @@ bool VulkanRenderBackendImpl::bindWorldDescriptorSets(
     std::uint32_t instanceBaseWordIndex) {
     const auto viewState =
         engine::render::vulkan_backend::makeWorldViewState(texture);
-    const auto specializedMaterialState =
+    auto specializedMaterialState =
         engine::render::vulkan_backend::makeWorldSpecializedMaterialState(texture);
+    if (worldMaterialDebugView > 0 && texture &&
+        texture->materialMode >= 2u) {
+        specializedMaterialState.flipbook1[3] =
+            -100.0f - static_cast<float>(worldMaterialDebugView);
+        specializedMaterialState.timingFlagsAtlas[1] =
+            static_cast<float>(
+                engine::render::vulkan_backend::
+                    worldMaterialTexturePresenceFlags(texture));
+    }
     const std::size_t skinFloatCount =
         engine::render::vulkan_backend::worldSkinMatrixFloatCount(texture);
     std::uint32_t skinMatrixBaseIndex = 0u;

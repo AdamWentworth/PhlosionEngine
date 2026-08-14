@@ -2980,10 +2980,14 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
     if (outA < saturate(uAlphaCutoff)) discard;
     outA = saturate(i.col.a * uVertexColorMulA);
   }
-  const float pbrDebugView =
-      (animatedEyeMaterial || uMaterialMode > 30.5f)
-      ? 0.0f
-      : uMaterialFlipbook1Fps;
+  const bool explicitMaterialDebug =
+      uMaterialFlipbook1Fps < -100.5f;
+  const int materialDebugFlags = (int)(uMaterialFlags + 0.5f);
+  const float pbrDebugView = explicitMaterialDebug
+      ? -uMaterialFlipbook1Fps - 100.0f
+      : ((animatedEyeMaterial || uMaterialMode > 30.5f)
+             ? 0.0f
+             : uMaterialFlipbook1Fps);
   if (uMaterialMode >= 1.5f && pbrDebugView > 0.5f) {
     float3 dbg = float3(0.0f, 0.0f, 0.0f);
     if (pbrDebugView < 1.5f) {
@@ -2991,22 +2995,47 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
       dbg = saturate(tex.rgb);
     } else if (pbrDebugView < 2.5f) {
       // 2: Normal map sample.
-      dbg = sampleTextureWithWrap(gNormalTex, wrappedUv, uvDx, uvDy, uWrapS, uWrapT).rgb;
+      dbg = (materialDebugFlags & (1 << 0)) != 0
+          ? sampleTextureWithWrap(
+                gNormalTex, wrappedUv, uvDx, uvDy, uWrapS, uWrapT).rgb
+          : float3(0.5f, 0.5f, 1.0f);
     } else if (pbrDebugView < 3.5f) {
       // 3: Roughness channel.
-      const float rgh =
-          sampleTextureWithWrap(gMetallicRoughnessTex, wrappedUv, uvDx, uvDy, uWrapS, uWrapT).g;
+      const float rgh = (materialDebugFlags & (1 << 1)) != 0
+          ? sampleTextureWithWrap(
+                gMetallicRoughnessTex,
+                wrappedUv,
+                uvDx,
+                uvDy,
+                uWrapS,
+                uWrapT).g
+          : 1.0f;
       dbg = float3(rgh, rgh, rgh);
     } else if (pbrDebugView < 4.5f) {
       // 4: Metallic channel.
-      const float met =
-          sampleTextureWithWrap(gMetallicRoughnessTex, wrappedUv, uvDx, uvDy, uWrapS, uWrapT).b;
+      const float met = (materialDebugFlags & (1 << 1)) != 0
+          ? sampleTextureWithWrap(
+                gMetallicRoughnessTex,
+                wrappedUv,
+                uvDx,
+                uvDy,
+                uWrapS,
+                uWrapT).b
+          : 0.0f;
       dbg = float3(met, met, met);
     } else if (pbrDebugView < 5.5f) {
       // 5: AO channel.
-      const float ao =
-          sampleTextureWithWrap(gOcclusionTex, wrappedUv, uvDx, uvDy, uWrapS, uWrapT).r;
+      const float ao = (materialDebugFlags & (1 << 2)) != 0
+          ? sampleTextureWithWrap(
+                gOcclusionTex, wrappedUv, uvDx, uvDy, uWrapS, uWrapT).r
+          : 1.0f;
       dbg = float3(ao, ao, ao);
+    } else if (pbrDebugView < 6.5f) {
+      // 6: Emissive sample.
+      dbg = (materialDebugFlags & (1 << 3)) != 0
+          ? sampleTextureWithWrap(
+                gEmissiveTex, wrappedUv, uvDx, uvDy, uWrapS, uWrapT).rgb
+          : float3(0.0f, 0.0f, 0.0f);
     }
     return float4(resolveWorldSceneColor(dbg), 1.0f);
   }
