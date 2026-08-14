@@ -42,7 +42,12 @@ vec4 evaluateNativeLayeredUnlitDisplaced(
     coverage += weights.b * (1.0 - coverage);
     color = mix(color, base.rgb, weights.a);
     coverage += weights.a * (1.0 - coverage);
-    float alpha = materialState.timingFlagsAtlas.y > 2.5
+    // Z-A smoke carries authored coverage in vertex alpha. Scarlet's
+    // NonDirectional Gastly smoke is authored opaque with zero vertex alpha;
+    // flag 3.25 keeps that source material alpha while sharing the motion and
+    // lighting response.
+    float alpha = materialState.timingFlagsAtlas.y > 2.5 &&
+                  materialState.timingFlagsAtlas.y < 3.125
         ? clamp(vertexColor.a, 0.0, 1.0)
         : 1.0;
     return vec4(
