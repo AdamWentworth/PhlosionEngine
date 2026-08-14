@@ -1980,7 +1980,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             // world-scene draws carry it in vColor; direct indexed draws
             // carry it in uVertexColorMul. Ignoring either path leaves hidden
             // smoke puffs visible on one of the submission routes.
-            surface.a = uMaterialFlags > 2.5 && uMaterialFlags < 3.125
+            surface.a = uMaterialFlags > 2.5
                 ? clamp(vColor.a * uVertexColorMul.a, 0.0, 1.0)
                 : 1.0;
             return surface;
@@ -3022,7 +3022,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             }
             if (uMaterialMode > 26.5 && uMaterialMode < 27.5) {
                 vec4 surface = evalNativeLayeredUnlitDisplaced();
-                if (uMaterialFlags > 2.5 && uMaterialFlags < 3.125) {
+                if (uMaterialFlags > 2.5) {
                     surface.rgb = applyNativeGastlySmokeLighting(surface.rgb);
                 }
                 const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
