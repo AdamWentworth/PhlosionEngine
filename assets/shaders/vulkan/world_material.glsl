@@ -3,6 +3,57 @@ vec3 safeNormalize(vec3 value, vec3 fallback) {
     return lengthSquared > 1e-8 ? value * inversesqrt(lengthSquared) : fallback;
 }
 
+int decodeReviewLightingProfile(vec3 cameraForwardPacked) {
+    // The camera direction is normalized everywhere it is consumed. Model
+    // previews use its redundant length as a transient cross-backend profile
+    // lane: 1=source bridge, 2=studio, 3=albedo-biased, 4=grazing.
+    return clamp(
+        int(floor(length(cameraForwardPacked) + 0.5)) - 1,
+        0,
+        3);
+}
+
+vec3 applyReviewLightingProfile(vec3 composite,
+                                vec3 resolvedAlbedo,
+                                vec3 sourceNormal,
+                                vec3 cameraForwardPacked) {
+    int profile = decodeReviewLightingProfile(cameraForwardPacked);
+    if (profile == 0) return max(composite, vec3(0.0));
+
+    vec3 albedo = max(resolvedAlbedo, vec3(0.0));
+    if (profile == 1) {
+        // Neutral studio: retain highlights while lifting only hard shadowed
+        // regions. This is the default import-review rig.
+        vec3 shadowFloor = albedo * 0.50;
+        return max(
+            mix(composite, max(composite, shadowFloor), 0.56),
+            vec3(0.0));
+    }
+    if (profile == 2) {
+        // Albedo-biased: primarily authored color, with a restrained amount
+        // of Composite response left for gloss, translucency, and emission.
+        vec3 highlight = max(composite - albedo, vec3(0.0));
+        return max(
+            mix(composite, albedo, 0.82) + highlight * 0.16,
+            vec3(0.0));
+    }
+
+    vec3 cameraForward = safeNormalize(
+        cameraForwardPacked,
+        vec3(0.0, -0.6139406, -0.7893522));
+    vec3 cameraRight = safeNormalize(
+        cross(cameraForward, vec3(0.0, 1.0, 0.0)),
+        vec3(1.0, 0.0, 0.0));
+    vec3 normal = safeNormalize(sourceNormal, vec3(0.0, 1.0, 0.0));
+    float grazing = pow(abs(dot(normal, cameraRight)), 0.70);
+    vec3 grazingSurface = albedo * (0.36 + 0.78 * grazing);
+    vec3 highlight = max(composite - albedo, vec3(0.0));
+    return max(
+        mix(max(composite, albedo * 0.34), grazingSurface, 0.62) +
+            highlight * 0.20,
+        vec3(0.0));
+}
+
 vec3 rrtAndOdtFit(vec3 value) {
     vec3 a = value * (value + 0.0245786) - 0.000090537;
     vec3 b = value * (0.983729 * value + 0.4329510) + 0.238081;

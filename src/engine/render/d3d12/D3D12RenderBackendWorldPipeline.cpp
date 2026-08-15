@@ -2017,6 +2017,50 @@ float3 safeNormalize(float3 value, float3 fallback) {
   return value * rsqrt(len2);
 }
 
+int decodeReviewLightingProfile(float3 cameraForwardPacked) {
+  return clamp(
+      (int)floor(length(cameraForwardPacked) + 0.5f) - 1,
+      0,
+      3);
+}
+
+float3 applyReviewLightingProfile(float3 composite,
+                                  float3 resolvedAlbedo,
+                                  float3 sourceNormal,
+                                  float3 cameraForwardPacked) {
+  const int profile = decodeReviewLightingProfile(cameraForwardPacked);
+  if (profile == 0) return max(composite, float3(0.0f, 0.0f, 0.0f));
+  const float3 albedo = max(resolvedAlbedo, float3(0.0f, 0.0f, 0.0f));
+  if (profile == 1) {
+    const float3 shadowFloor = albedo * 0.50f;
+    return max(
+        lerp(composite, max(composite, shadowFloor), 0.56f),
+        float3(0.0f, 0.0f, 0.0f));
+  }
+  if (profile == 2) {
+    const float3 highlight = max(composite - albedo, float3(0.0f, 0.0f, 0.0f));
+    return max(
+        lerp(composite, albedo, 0.82f) + highlight * 0.16f,
+        float3(0.0f, 0.0f, 0.0f));
+  }
+  const float3 cameraForward = safeNormalize(
+      cameraForwardPacked,
+      float3(0.0f, -0.6139406f, -0.7893522f));
+  const float3 cameraRight = safeNormalize(
+      cross(cameraForward, float3(0.0f, 1.0f, 0.0f)),
+      float3(1.0f, 0.0f, 0.0f));
+  const float3 normal = safeNormalize(
+      sourceNormal,
+      float3(0.0f, 1.0f, 0.0f));
+  const float grazing = pow(abs(dot(normal, cameraRight)), 0.70f);
+  const float3 grazingSurface = albedo * (0.36f + 0.78f * grazing);
+  const float3 highlight = max(composite - albedo, float3(0.0f, 0.0f, 0.0f));
+  return max(
+      lerp(max(composite, albedo * 0.34f), grazingSurface, 0.62f) +
+          highlight * 0.20f,
+      float3(0.0f, 0.0f, 0.0f));
+}
+
 __PHLOSION_SHARED_WORLD_PBR_SECTION__
 
 float3 perturbNormal2Arb(float3 eyePos, float3 surfNorm, float3 mapN, float2 uv, float faceDirection) {
@@ -3189,6 +3233,11 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
     tex = sampleWorldTextureWithWrap(wrappedUv, uvDx, uvDy);
     outLinear = saturate(tex.rgb) * outLinear;
   }
+  float3 reviewAlbedo = outLinear;
+  const float3 reviewCameraForward = float3(
+      uMaterialFlipbook0Cols,
+      uMaterialFlipbook0Rows,
+      uMaterialFlipbook0Frames);
   float outA = saturate(i.col.a * uVertexColorMulA * tex.a);
   float alphaWindowMin = saturate(uAlphaWindowMin);
   float alphaWindowMax = saturate(uAlphaWindowMax);
@@ -3294,6 +3343,9 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         uMaterialMode > 32.5f && uMaterialMode < 33.5f;
     const bool nativeFresnelEffect =
         uMaterialMode > 33.5f && uMaterialMode < 34.5f;
+    if (nativeFresnelEffect) {
+      reviewAlbedo = nativeFresnelEffectBase(outLinear);
+    }
     if (nativeSss) {
       outLinear = applyNativeSssSurface(
           i,
@@ -3441,6 +3493,13 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
           cameraForward,
           cameraTarget);
     }
+  }
+  if (uMaterialMode >= 1.5f) {
+    outLinear = applyReviewLightingProfile(
+        outLinear,
+        reviewAlbedo,
+        i.worldNormal,
+        reviewCameraForward);
   }
   const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
   const float toneMappingMode = 1.0f;

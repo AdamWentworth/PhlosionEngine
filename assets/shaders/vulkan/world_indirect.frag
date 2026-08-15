@@ -1728,6 +1728,7 @@ void main() {
         materialUv,
         textureDetailLodBias);
     vec3 linearColor = clamp(sampled.rgb, 0.0, 1.0) * clamp(vertexColor.rgb, 0.0, 1.0);
+    vec3 reviewAlbedo = linearColor;
     float alpha = clamp(vertexColor.a * sampled.a, 0.0, 1.0);
 
     float alphaWindowMin = clamp(drawState.shadingParams.x, 0.0, 1.0);
@@ -1831,6 +1832,12 @@ void main() {
             materialMode > 32.5 && materialMode < 33.5;
         bool nativeFresnelEffect =
             materialMode > 33.5 && materialMode < 34.5;
+        if (nativeFresnelEffect) {
+            reviewAlbedo = nativeFresnelEffectBase(
+                linearColor,
+                drawState.specializedRect0,
+                drawState.specializedFlipbook1);
+        }
         if (nativeSss) {
             linearColor = evaluateNativeSssSurface(
                 linearColor,
@@ -1977,6 +1984,13 @@ void main() {
                 tailFireMaterial.rect1,
                 tailFireMaterial.flipbook0.xyz);
         }
+    }
+    if (materialMode >= 1.5) {
+        linearColor = applyReviewLightingProfile(
+            linearColor,
+            reviewAlbedo,
+            vertexNormal,
+            worldView.cameraForward.xyz);
     }
     const float toneMappingExposure = 1.15;
     vec3 mapped = tonemapACESFilmic(max(linearColor, vec3(0.0)), toneMappingExposure);

@@ -65,6 +65,7 @@ struct Arguments {
     std::optional<int> assetPreviewAnimation;
     std::optional<int> assetPreviewQuality;
     std::optional<int> assetPreviewMaterialView;
+    std::optional<int> assetPreviewLightingProfile;
     std::optional<float> assetPreviewTime;
     std::optional<float> assetPreviewZoom;
     std::optional<float> assetPreviewTargetOffsetY;
@@ -108,6 +109,8 @@ Arguments parseArguments(int argc, char** argv) {
             "--asset-preview-quality=";
         constexpr std::string_view assetPreviewMaterialViewPrefix =
             "--asset-preview-material-view=";
+        constexpr std::string_view assetPreviewLightingPrefix =
+            "--asset-preview-lighting=";
         constexpr std::string_view assetPreviewTimePrefix =
             "--asset-preview-time=";
         constexpr std::string_view assetPreviewZoomPrefix =
@@ -212,6 +215,38 @@ Arguments parseArguments(int argc, char** argv) {
                     std::stoi(value),
                     0,
                     7);
+            }
+        } else if (
+            argument.rfind(
+                assetPreviewLightingPrefix,
+                0u) == 0u) {
+            std::string value = argument.substr(
+                assetPreviewLightingPrefix.size());
+            std::transform(
+                value.begin(),
+                value.end(),
+                value.begin(),
+                [](unsigned char character) {
+                    return static_cast<char>(
+                        std::tolower(character));
+                });
+            if (value == "source" ||
+                value == "source-bridge") {
+                result.assetPreviewLightingProfile = 0;
+            } else if (value == "studio" ||
+                       value == "neutral-studio") {
+                result.assetPreviewLightingProfile = 1;
+            } else if (value == "albedo" ||
+                       value == "albedo-biased") {
+                result.assetPreviewLightingProfile = 2;
+            } else if (value == "grazing" ||
+                       value == "grazing-check") {
+                result.assetPreviewLightingProfile = 3;
+            } else {
+                result.assetPreviewLightingProfile = std::clamp(
+                    std::stoi(value),
+                    0,
+                    3);
             }
         } else if (
             argument.rfind(
@@ -1559,6 +1594,10 @@ void writeAutomationMetrics(
         {"requested_material_view",
          arguments.assetPreviewMaterialView
              ? nlohmann::json(*arguments.assetPreviewMaterialView)
+             : nlohmann::json(nullptr)},
+        {"requested_lighting_profile",
+         arguments.assetPreviewLightingProfile
+             ? nlohmann::json(*arguments.assetPreviewLightingProfile)
              : nlohmann::json(nullptr)}};
     document["renderer"] = {
         {"backend",
@@ -1673,6 +1712,7 @@ void writeAutomationMetrics(
                 {"path", asset.path},
                 {"ready", preview.ready},
                 {"graphics_quality", preview.graphicsQuality},
+                {"lighting_profile", preview.lightingProfile},
                 {"animation_index", preview.animationIndex},
                 {"vertex_count", preview.vertexCount},
                 {"triangle_count", preview.triangleCount},
@@ -2307,6 +2347,7 @@ void refreshAssetPreviewView(
             .animationIndex = info.animationIndex,
             .graphicsQuality = info.graphicsQuality,
             .materialDebugView = info.materialDebugView,
+            .lightingProfile = info.lightingProfile,
             .animationTimeSeconds =
                 info.animationTimeSeconds,
             .animationDurationSeconds =
@@ -3698,6 +3739,8 @@ int main(int argc, char** argv) {
                                         .assetPreviewQuality ||
                                     arguments
                                         .assetPreviewMaterialView ||
+                                    arguments
+                                        .assetPreviewLightingProfile ||
                                     arguments.assetPreviewTime) {
                                     const auto currentOptions =
                                         project->runtime->
@@ -3722,6 +3765,12 @@ int main(int argc, char** argv) {
                                                         arguments
                                                             .assetPreviewMaterialView
                                                             .value_or(0),
+                                                    .lightingProfile =
+                                                        arguments
+                                                            .assetPreviewLightingProfile
+                                                            .value_or(
+                                                                currentOptions
+                                                                    .lightingProfile),
                                                     .seekTimeSeconds =
                                                         arguments.assetPreviewTime
                                                             .value_or(0.0f),
@@ -4588,6 +4637,9 @@ int main(int argc, char** argv) {
                             .materialDebugView =
                                 actions
                                     .assetPreviewMaterialDebugView,
+                            .lightingProfile =
+                                actions
+                                    .assetPreviewLightingProfile,
                             .playbackSpeed =
                                 actions
                                     .assetPreviewPlaybackSpeed,

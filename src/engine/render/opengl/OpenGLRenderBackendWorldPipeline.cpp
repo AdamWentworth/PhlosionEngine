@@ -2257,6 +2257,51 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             return value * inversesqrt(len2);
         }
 
+        int decodeReviewLightingProfile(vec3 cameraForwardPacked) {
+            return clamp(
+                int(floor(length(cameraForwardPacked) + 0.5)) - 1,
+                0,
+                3);
+        }
+
+        vec3 applyReviewLightingProfile(
+            vec3 composite,
+            vec3 resolvedAlbedo,
+            vec3 sourceNormal,
+            vec3 cameraForwardPacked) {
+            int profile = decodeReviewLightingProfile(cameraForwardPacked);
+            if (profile == 0) return max(composite, vec3(0.0));
+            vec3 albedo = max(resolvedAlbedo, vec3(0.0));
+            if (profile == 1) {
+                vec3 shadowFloor = albedo * 0.50;
+                return max(
+                    mix(composite, max(composite, shadowFloor), 0.56),
+                    vec3(0.0));
+            }
+            if (profile == 2) {
+                vec3 highlight = max(composite - albedo, vec3(0.0));
+                return max(
+                    mix(composite, albedo, 0.82) + highlight * 0.16,
+                    vec3(0.0));
+            }
+            vec3 cameraForward = safeNormalize(
+                cameraForwardPacked,
+                vec3(0.0, -0.6139406, -0.7893522));
+            vec3 cameraRight = safeNormalize(
+                cross(cameraForward, vec3(0.0, 1.0, 0.0)),
+                vec3(1.0, 0.0, 0.0));
+            vec3 normal = safeNormalize(
+                sourceNormal,
+                vec3(0.0, 1.0, 0.0));
+            float grazing = pow(abs(dot(normal, cameraRight)), 0.70);
+            vec3 grazingSurface = albedo * (0.36 + 0.78 * grazing);
+            vec3 highlight = max(composite - albedo, vec3(0.0));
+            return max(
+                mix(max(composite, albedo * 0.34), grazingSurface, 0.62) +
+                    highlight * 0.20,
+                vec3(0.0));
+        }
+
 __PHLOSION_SHARED_WORLD_PBR_SECTION__
 
         vec3 perturbNormal2Arb(vec3 eyePos, vec3 surfNorm, vec3 mapN, vec2 uv, float faceDirection) {
@@ -3460,6 +3505,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 tex = sampleTextureWithWrap(uTexture, wrappedUv, uvDx, uvDy);
                 outLinear = clamp(tex.rgb, 0.0, 1.0) * outLinear;
             }
+            vec3 reviewAlbedo = outLinear;
             float outA = clamp(vColor.a * uVertexColorMul.a * tex.a, 0.0, 1.0);
             float alphaWindowMin = clamp(uAlphaWindowMin, 0.0, 1.0);
             float alphaWindowMax = clamp(uAlphaWindowMax, 0.0, 1.0);
@@ -3539,6 +3585,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     uMaterialMode > 32.5 && uMaterialMode < 33.5;
                 bool nativeFresnelEffect =
                     uMaterialMode > 33.5 && uMaterialMode < 34.5;
+                if (nativeFresnelEffect) {
+                    reviewAlbedo = nativeFresnelEffectBase(outLinear);
+                }
                 // The generic PBR path deliberately boosts normal XY by
                 // 1.25. Z-A IkCharacter's NormalHeight is already authored
                 // at final strength, so cancel only that path's boost.
@@ -3607,6 +3656,13 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                         outLinear,
                         eyeSurfaceNormal);
                 }
+            }
+            if (uMaterialMode >= 1.5) {
+                outLinear = applyReviewLightingProfile(
+                    outLinear,
+                    reviewAlbedo,
+                    vWorldNormal,
+                    uCameraForward);
             }
             const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
             const float toneMappingMode = 1.0;

@@ -207,6 +207,7 @@ struct WorkspaceAssetPreview {
     int animationIndex = -1;
     int graphicsQuality = 3;
     int materialDebugView = 0;
+    int lightingProfile = 1;
     float animationTimeSeconds = 0.0f;
     float animationDurationSeconds = 0.0f;
     float boundsRadius = 1.0f;
@@ -373,6 +374,7 @@ struct EditorShellActions {
     int assetPreviewAnimationIndex = -1;
     int assetPreviewGraphicsQuality = 3;
     int assetPreviewMaterialDebugView = 0;
+    int assetPreviewLightingProfile = 1;
     float assetPreviewPlaybackSpeed = 1.0f;
     bool assetPreviewAnimationPlaying = true;
     bool assetPreviewShowMesh = true;

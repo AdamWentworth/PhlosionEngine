@@ -578,6 +578,8 @@ struct EditorShell::Impl {
     int assetPreviewGraphicsQuality = 3;
     bool assetPreviewGraphicsQualityOverridden = false;
     int assetPreviewMaterialDebugView = 0;
+    int assetPreviewLightingProfile = 1;
+    bool assetPreviewLightingProfileOverridden = false;
     float assetPreviewPlaybackSpeed = 1.0f;
     bool assetPreviewAnimationPlaying = true;
     bool assetPreviewShowMesh = true;
@@ -1111,6 +1113,8 @@ EditorShellActions EditorShell::drawWorkspace(
         impl_->assetPreviewGraphicsQuality;
     actions.assetPreviewMaterialDebugView =
         impl_->assetPreviewMaterialDebugView;
+    actions.assetPreviewLightingProfile =
+        impl_->assetPreviewLightingProfile;
     actions.assetPreviewPlaybackSpeed =
         impl_->assetPreviewPlaybackSpeed;
     actions.assetPreviewAnimationPlaying =
@@ -3191,6 +3195,14 @@ EditorShellActions EditorShell::drawWorkspace(
                         0,
                         7);
                 if (!impl_->
+                        assetPreviewLightingProfileOverridden) {
+                    impl_->assetPreviewLightingProfile =
+                        std::clamp(
+                            preview.lightingProfile,
+                            0,
+                            3);
+                }
+                if (!impl_->
                         assetPreviewGraphicsQualityOverridden) {
                     impl_->assetPreviewGraphicsQuality =
                         std::clamp(
@@ -3395,7 +3407,37 @@ EditorShellActions EditorShell::drawWorkspace(
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip(
                         "Preview the same model texture and material "
-                        "quality policy used by the game.");
+                        "quality policy used by the game. Lighting is "
+                        "controlled separately below.");
+                }
+                constexpr const char* lightingProfileNames[] = {
+                    "Source Bridge",
+                    "Neutral Studio",
+                    "Albedo-biased",
+                    "Grazing Check"};
+                ImGui::TextUnformatted("Review Lighting");
+                ImGui::SetNextItemWidth(-1.0f);
+                if (ImGui::Combo(
+                        "##AssetPreviewLightingProfile",
+                        &impl_->assetPreviewLightingProfile,
+                        lightingProfileNames,
+                        static_cast<int>(
+                            std::size(lightingProfileNames)))) {
+                    impl_->
+                        assetPreviewLightingProfileOverridden =
+                            true;
+                    optionsChanged = true;
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip(
+                        "Inspector-only lighting; it does not change the "
+                        "model, material inputs, graphics quality, or game "
+                        "lighting. Neutral Studio lifts hard shadows for "
+                        "general review; Source Bridge preserves the current "
+                        "recovered renderer path; Albedo-biased prioritizes "
+                        "authored color; Grazing Check emphasizes surface "
+                        "breakup. These are review rigs, not captured SV "
+                        "environment lighting.");
                 }
                 constexpr const char* materialViewNames[] = {
                     "Composite",
@@ -3517,6 +3559,8 @@ EditorShellActions EditorShell::drawWorkspace(
                     impl_->assetPreviewGraphicsQuality;
                 actions.assetPreviewMaterialDebugView =
                     impl_->assetPreviewMaterialDebugView;
+                actions.assetPreviewLightingProfile =
+                    impl_->assetPreviewLightingProfile;
                 actions.assetPreviewPlaybackSpeed =
                     impl_->assetPreviewPlaybackSpeed;
                 actions.assetPreviewAnimationPlaying =

@@ -494,4 +494,9 @@ if (PHLOSION_BUILD_TESTS)
         COMMAND ${CMAKE_COMMAND}
             -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckMaterialDebugViewContract.cmake)
+    add_test(
+        NAME PhlosionReviewLightingProfileContract
+        COMMAND ${CMAKE_COMMAND}
+            -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckReviewLightingProfileContract.cmake)
 endif()
