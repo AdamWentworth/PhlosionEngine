@@ -2831,7 +2831,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 0.0,
                 1.0);
             float subsurfaceFill = clamp(sssMask, 0.0, 1.0) *
-                (1.0 - max(dot(n, lightDirection), 0.0)) * 0.08;
+                (1.0 - max(dot(n, lightDirection), 0.0)) * 0.10;
             float specularPower = mix(16.0, 96.0, 1.0 - roughness);
             float sourceSpecular = pow(
                 max(dot(n, halfDirection), 0.0),
@@ -2848,14 +2848,19 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             // neutral environment while preserving those proven roles.
             vec3 environmentDiffuse = sampleNeutralEnvironment(n, 1.0) *
                 albedo * (vec3(1.0) - environmentFresnel) * ao *
-                __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
+                __PHLOSION_PBR_DIFFUSE_IBL_SCALE__ * 1.18;
             vec3 reflection = reflect(-viewDirection, n);
             vec3 environmentSpecular = sampleNeutralEnvironment(
                 reflection,
                 roughness) * environmentFresnel *
                 computeSpecularOcclusion(nDotV, ao, roughness) *
                 __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-            vec3 directDiffuse = albedo * 0.78 * wrappedNdotL * ao;
+            vec3 directDiffuse = albedo * 0.90 * wrappedNdotL * ao;
+            // The exact SV scene cubes remain unavailable offline. Preserve
+            // useful neutral-rig exposure while retaining authored AO.
+            vec3 neutralFill = albedo *
+                mix(0.08, 0.12, clamp(sssMask, 0.0, 1.0)) *
+                mix(1.0, ao, 0.5);
             // The optional fibre profile is a Phlosion reconstruction over
             // source-proven scalar roughness. Smooth SSS surfaces skip it.
             float qualityDetail = clamp(
@@ -2869,10 +2874,11 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float velvet = pow(1.0 - nDotV, 2.5);
             float fibreSheen = fibreSurface
                 ? qualityDetail * wrappedNdotL *
-                      (fibreRelief * (0.22 + 0.20 * velvet) + velvet * 0.08)
+                      (fibreRelief * (0.18 + 0.14 * velvet) + velvet * 0.08)
                 : 0.0;
             return max(
-                environmentDiffuse + directDiffuse + environmentSpecular +
+                environmentDiffuse + directDiffuse + neutralFill +
+                    environmentSpecular +
                     subsurfaceTint * subsurfaceFill +
                     vec3(sourceSpecular) + albedo * fibreSheen,
                 vec3(0.0));
@@ -3469,16 +3475,21 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             if (uMaterialMode >= 1.5 && pbrDebugView > 0.5) {
                 vec3 dbg = vec3(0.0);
                 if (pbrDebugView < 1.5) {
-                    // 1: Base/albedo sample.
+                    // 1: Raw base-color texture sample.
                     dbg = clamp(tex.rgb, 0.0, 1.0);
                 } else if (pbrDebugView < 2.5) {
-                    // 2: Normal map sample.
+                    // 2: Authored tint-resolved albedo without lighting.
+                    dbg = (uMaterialMode > 33.5 && uMaterialMode < 34.5)
+                        ? nativeFresnelEffectBase(outLinear)
+                        : clamp(outLinear, 0.0, 1.0);
+                } else if (pbrDebugView < 3.5) {
+                    // 3: Normal map sample.
                     dbg = uUseNormalTexture > 0.5
                         ? sampleTextureWithWrap(
                               uNormalTexture, wrappedUv, uvDx, uvDy).rgb
                         : vec3(0.5, 0.5, 1.0);
-                } else if (pbrDebugView < 3.5) {
-                    // 3: Roughness channel.
+                } else if (pbrDebugView < 4.5) {
+                    // 4: Roughness channel.
                     float rgh = uUseMetallicRoughnessTexture > 0.5
                         ? sampleTextureWithWrap(
                               uMetallicRoughnessTexture,
@@ -3487,8 +3498,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                               uvDy).g
                         : 1.0;
                     dbg = vec3(rgh);
-                } else if (pbrDebugView < 4.5) {
-                    // 4: Metallic channel.
+                } else if (pbrDebugView < 5.5) {
+                    // 5: Metallic channel.
                     float met = uUseMetallicRoughnessTexture > 0.5
                         ? sampleTextureWithWrap(
                               uMetallicRoughnessTexture,
@@ -3497,15 +3508,15 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                               uvDy).b
                         : 0.0;
                     dbg = vec3(met);
-                } else if (pbrDebugView < 5.5) {
-                    // 5: AO channel.
+                } else if (pbrDebugView < 6.5) {
+                    // 6: AO channel.
                     float ao = uUseOcclusionTexture > 0.5
                         ? sampleTextureWithWrap(
                               uOcclusionTexture, wrappedUv, uvDx, uvDy).r
                         : 1.0;
                     dbg = vec3(ao);
-                } else if (pbrDebugView < 6.5) {
-                    // 6: Emissive sample.
+                } else if (pbrDebugView < 7.5) {
+                    // 7: Emissive sample.
                     dbg = uUseEmissiveTexture > 0.5
                         ? sampleTextureWithWrap(
                               uEmissiveTexture, wrappedUv, uvDx, uvDy).rgb

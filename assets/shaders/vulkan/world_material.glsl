@@ -701,7 +701,7 @@ vec3 evaluateNativeSssSurface(vec3 albedo,
         0.0,
         1.0);
     float subsurfaceFill = clamp(sssMask, 0.0, 1.0) *
-        (1.0 - max(dot(normal, lightDirection), 0.0)) * 0.08;
+        (1.0 - max(dot(normal, lightDirection), 0.0)) * 0.10;
     float specularPower = mix(16.0, 96.0, 1.0 - roughness);
     float sourceSpecular = pow(
         max(dot(normal, halfDirection), 0.0),
@@ -718,14 +718,21 @@ vec3 evaluateNativeSssSurface(vec3 albedo,
     vec3 environmentDiffuse = sampleNeutralEnvironment(
         environmentMap,
         normal,
-        1.0) * sourceAlbedo * (vec3(1.0) - environmentFresnel) * ao * 1.26;
+        1.0) * sourceAlbedo * (vec3(1.0) - environmentFresnel) * ao *
+        (1.26 * 1.18);
     vec3 reflection = reflect(-viewDirection, normal);
     vec3 environmentSpecular = sampleNeutralEnvironment(
         environmentMap,
         reflection,
         roughness) * environmentFresnel *
         computeSpecularOcclusion(nDotV, ao, roughness) * 0.44;
-    vec3 directDiffuse = sourceAlbedo * 0.78 * wrappedNdotL * ao;
+    vec3 directDiffuse = sourceAlbedo * 0.90 * wrappedNdotL * ao;
+    // SV supplies two scene-owned environment cubes whose exact captured
+    // contents are unavailable offline. Keep the neutral replacement usable
+    // as a model-review and gameplay light rig without flattening AO.
+    vec3 neutralFill = sourceAlbedo *
+        mix(0.08, 0.12, clamp(sssMask, 0.0, 1.0)) *
+        mix(1.0, ao, 0.5);
     float qualityDetail = clamp(
         (0.90 - textureDetailLodBias) / 1.30,
         0.0,
@@ -737,10 +744,11 @@ vec3 evaluateNativeSssSurface(vec3 albedo,
     float velvet = pow(1.0 - nDotV, 2.5);
     float fibreSheen = fibreSurface
         ? qualityDetail * wrappedNdotL *
-              (fibreRelief * (0.22 + 0.20 * velvet) + velvet * 0.08)
+              (fibreRelief * (0.18 + 0.14 * velvet) + velvet * 0.08)
         : 0.0;
     return max(
-        environmentDiffuse + directDiffuse + environmentSpecular +
+        environmentDiffuse + directDiffuse + neutralFill +
+            environmentSpecular +
             subsurfaceTint * subsurfaceFill +
             vec3(sourceSpecular) + sourceAlbedo * fibreSheen,
         vec3(0.0));

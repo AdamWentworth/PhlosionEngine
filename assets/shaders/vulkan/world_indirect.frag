@@ -1743,6 +1743,79 @@ void main() {
         alpha = clamp(vertexColor.a, 0.0, 1.0);
     }
 
+    bool explicitMaterialDebug =
+        drawState.specializedFlipbook1.w < -100.5;
+    float pbrDebugView = explicitMaterialDebug
+        ? -drawState.specializedFlipbook1.w - 100.0
+        : 0.0;
+    int materialDebugFlags = int(
+        drawState.specializedTimingFlagsAtlas.y + 0.5);
+    if (materialMode >= 1.5 && pbrDebugView > 0.5) {
+        vec3 debugColor = vec3(0.0);
+        if (pbrDebugView < 1.5) {
+            // 1: Raw base-color texture sample.
+            debugColor = clamp(sampled.rgb, 0.0, 1.0);
+        } else if (pbrDebugView < 2.5) {
+            // 2: Authored tint-resolved albedo without lighting.
+            debugColor = (materialMode > 33.5 && materialMode < 34.5)
+                ? nativeFresnelEffectBase(
+                      linearColor,
+                      drawState.specializedRect0,
+                      drawState.specializedFlipbook1)
+                : clamp(linearColor, 0.0, 1.0);
+        } else if (pbrDebugView < 3.5) {
+            // 3: Normal map sample.
+            debugColor = (materialDebugFlags & (1 << 0)) != 0
+                ? sampleWorldMaterialTexture(
+                      normalTextures[nonuniformEXT(materialIndex)],
+                      materialUv,
+                      textureDetailLodBias).rgb
+                : vec3(0.5, 0.5, 1.0);
+        } else if (pbrDebugView < 4.5) {
+            // 4: Roughness channel.
+            float roughness = (materialDebugFlags & (1 << 1)) != 0
+                ? sampleWorldMaterialTexture(
+                      metallicRoughnessTextures[
+                          nonuniformEXT(materialIndex)],
+                      materialUv,
+                      textureDetailLodBias).g
+                : 1.0;
+            debugColor = vec3(roughness);
+        } else if (pbrDebugView < 5.5) {
+            // 5: Metallic channel.
+            float metallic = (materialDebugFlags & (1 << 1)) != 0
+                ? sampleWorldMaterialTexture(
+                      metallicRoughnessTextures[
+                          nonuniformEXT(materialIndex)],
+                      materialUv,
+                      textureDetailLodBias).b
+                : 0.0;
+            debugColor = vec3(metallic);
+        } else if (pbrDebugView < 6.5) {
+            // 6: AO channel.
+            float occlusion = (materialDebugFlags & (1 << 2)) != 0
+                ? sampleWorldMaterialTexture(
+                      occlusionTextures[nonuniformEXT(materialIndex)],
+                      materialUv,
+                      textureDetailLodBias).r
+                : 1.0;
+            debugColor = vec3(occlusion);
+        } else if (pbrDebugView < 7.5) {
+            // 7: Emissive sample.
+            debugColor = (materialDebugFlags & (1 << 3)) != 0
+                ? sampleWorldMaterialTexture(
+                      emissiveTextures[nonuniformEXT(materialIndex)],
+                      materialUv,
+                      textureDetailLodBias).rgb
+                : vec3(0.0);
+        }
+        vec3 resolvedDebugColor = drawState.shadingParams.w > 0.5
+            ? debugColor
+            : linearToSrgb(debugColor);
+        writeWorldColor(vec4(resolvedDebugColor, 1.0));
+        return;
+    }
+
     if ((materialMode >= 1.5 && materialMode < 2.5) ||
         (materialMode > 27.5 && materialMode < 34.5)) {
         bool nativeEyeClearCoat =

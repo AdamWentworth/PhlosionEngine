@@ -66,7 +66,7 @@ public:
     // Backends must not persist this into project assets or ordinary game
     // state.
     virtual void setWorldMaterialDebugView(int view) noexcept {
-        worldMaterialDebugView_ = std::clamp(view, 0, 6);
+        worldMaterialDebugView_ = std::clamp(view, 0, 7);
     }
     int worldMaterialDebugView() const noexcept {
         return worldMaterialDebugView_;

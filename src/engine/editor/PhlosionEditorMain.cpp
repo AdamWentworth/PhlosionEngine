@@ -188,25 +188,30 @@ Arguments parseArguments(int argc, char** argv) {
                 });
             if (value == "composite") {
                 result.assetPreviewMaterialView = 0;
-            } else if (value == "albedo") {
+            } else if (value == "raw" ||
+                       value == "raw-base-color" ||
+                       value == "base-color-map") {
                 result.assetPreviewMaterialView = 1;
+            } else if (value == "albedo" ||
+                       value == "resolved-albedo") {
+                result.assetPreviewMaterialView = 2;
             } else if (value == "normal" ||
                        value == "normal-map") {
-                result.assetPreviewMaterialView = 2;
-            } else if (value == "roughness") {
                 result.assetPreviewMaterialView = 3;
-            } else if (value == "metallic") {
+            } else if (value == "roughness") {
                 result.assetPreviewMaterialView = 4;
+            } else if (value == "metallic") {
+                result.assetPreviewMaterialView = 5;
             } else if (value == "ao" ||
                        value == "ambient-occlusion") {
-                result.assetPreviewMaterialView = 5;
-            } else if (value == "emissive") {
                 result.assetPreviewMaterialView = 6;
+            } else if (value == "emissive") {
+                result.assetPreviewMaterialView = 7;
             } else {
                 result.assetPreviewMaterialView = std::clamp(
                     std::stoi(value),
                     0,
-                    6);
+                    7);
             }
         } else if (
             argument.rfind(

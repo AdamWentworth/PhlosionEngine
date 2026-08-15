@@ -3189,7 +3189,7 @@ EditorShellActions EditorShell::drawWorkspace(
                     std::clamp(
                         preview.materialDebugView,
                         0,
-                        6);
+                        7);
                 if (!impl_->
                         assetPreviewGraphicsQualityOverridden) {
                     impl_->assetPreviewGraphicsQuality =
@@ -3399,7 +3399,8 @@ EditorShellActions EditorShell::drawWorkspace(
                 }
                 constexpr const char* materialViewNames[] = {
                     "Composite",
-                    "Albedo",
+                    "Raw base-color map",
+                    "Resolved albedo",
                     "Normal map",
                     "Roughness",
                     "Metallic",
@@ -3422,10 +3423,12 @@ EditorShellActions EditorShell::drawWorkspace(
                 if (ImGui::IsItemHovered(
                         ImGuiHoveredFlags_AllowWhenDisabled)) {
                     ImGui::SetTooltip(
-                        "Inspect one cooked material input across the whole "
-                        "model. Native shaders may reuse the emission lane "
-                        "for an auxiliary mask. Composite is the normal "
-                        "game render.");
+                        "Composite is the normal game render. Raw base-color "
+                        "map shows the stored texture without material tint; "
+                        "Resolved albedo applies authored color factors but "
+                        "no lighting. The remaining views isolate cooked "
+                        "material inputs. Native shaders may reuse the "
+                        "emission lane for an auxiliary mask.");
                 }
                 if (ImGui::Checkbox(
                         "Mesh",

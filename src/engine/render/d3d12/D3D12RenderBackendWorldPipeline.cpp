@@ -2714,7 +2714,7 @@ float3 applyNativeSssSurface(PSIn i,
       0.35f);
   float wrappedNdotL = saturate((dot(normal, lightDirection) + 0.5f) / 1.5f);
   float subsurfaceFill = saturate(sssMask) *
-      (1.0f - max(dot(normal, lightDirection), 0.0f)) * 0.08f;
+      (1.0f - max(dot(normal, lightDirection), 0.0f)) * 0.10f;
   float specularPower = lerp(16.0f, 96.0f, 1.0f - roughness);
   float sourceSpecular = pow(
       max(dot(normal, halfDirection), 0.0f),
@@ -2730,14 +2730,19 @@ float3 applyNativeSssSurface(PSIn i,
   // state, so bridge their proven roles through the shared neutral room.
   float3 environmentDiffuse = sampleNeutralEnvironment(normal, 1.0f) *
       albedo * (float3(1.0f, 1.0f, 1.0f) - environmentFresnel) * ao *
-      __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
+      __PHLOSION_PBR_DIFFUSE_IBL_SCALE__ * 1.18f;
   float3 reflection = reflect(-viewDirection, normal);
   float3 environmentSpecular = sampleNeutralEnvironment(
       reflection,
       roughness) * environmentFresnel *
       computeSpecularOcclusion(nDotV, ao, roughness) *
       __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-  float3 directDiffuse = albedo * 0.78f * wrappedNdotL * ao;
+  float3 directDiffuse = albedo * 0.90f * wrappedNdotL * ao;
+  // The exact SV scene cubes remain unavailable offline. Preserve useful
+  // neutral-rig exposure while retaining authored AO.
+  float3 neutralFill = albedo *
+      lerp(0.08f, 0.12f, saturate(sssMask)) *
+      lerp(1.0f, ao, 0.5f);
   float qualityDetail = saturate(
       (0.90f - litTextureDetailLodBias()) / 1.30f);
   float fibreRelief = saturate(
@@ -2745,10 +2750,11 @@ float3 applyNativeSssSurface(PSIn i,
   float velvet = pow(1.0f - nDotV, 2.5f);
   float fibreSheen = fibreSurface
       ? qualityDetail * wrappedNdotL *
-            (fibreRelief * (0.22f + 0.20f * velvet) + velvet * 0.08f)
+            (fibreRelief * (0.18f + 0.14f * velvet) + velvet * 0.08f)
       : 0.0f;
   return max(
-      environmentDiffuse + directDiffuse + environmentSpecular +
+      environmentDiffuse + directDiffuse + neutralFill +
+          environmentSpecular +
           subsurfaceTint * subsurfaceFill +
           float3(sourceSpecular, sourceSpecular, sourceSpecular) +
           albedo * fibreSheen,
@@ -3206,16 +3212,21 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   if (uMaterialMode >= 1.5f && pbrDebugView > 0.5f) {
     float3 dbg = float3(0.0f, 0.0f, 0.0f);
     if (pbrDebugView < 1.5f) {
-      // 1: Base/albedo sample.
+      // 1: Raw base-color texture sample.
       dbg = saturate(tex.rgb);
     } else if (pbrDebugView < 2.5f) {
-      // 2: Normal map sample.
+      // 2: Authored tint-resolved albedo without lighting.
+      dbg = (uMaterialMode > 33.5f && uMaterialMode < 34.5f)
+          ? nativeFresnelEffectBase(outLinear)
+          : saturate(outLinear);
+    } else if (pbrDebugView < 3.5f) {
+      // 3: Normal map sample.
       dbg = (materialDebugFlags & (1 << 0)) != 0
           ? sampleTextureWithWrap(
                 gNormalTex, wrappedUv, uvDx, uvDy, uWrapS, uWrapT).rgb
           : float3(0.5f, 0.5f, 1.0f);
-    } else if (pbrDebugView < 3.5f) {
-      // 3: Roughness channel.
+    } else if (pbrDebugView < 4.5f) {
+      // 4: Roughness channel.
       const float rgh = (materialDebugFlags & (1 << 1)) != 0
           ? sampleTextureWithWrap(
                 gMetallicRoughnessTex,
@@ -3226,8 +3237,8 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
                 uWrapT).g
           : 1.0f;
       dbg = float3(rgh, rgh, rgh);
-    } else if (pbrDebugView < 4.5f) {
-      // 4: Metallic channel.
+    } else if (pbrDebugView < 5.5f) {
+      // 5: Metallic channel.
       const float met = (materialDebugFlags & (1 << 1)) != 0
           ? sampleTextureWithWrap(
                 gMetallicRoughnessTex,
@@ -3238,15 +3249,15 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
                 uWrapT).b
           : 0.0f;
       dbg = float3(met, met, met);
-    } else if (pbrDebugView < 5.5f) {
-      // 5: AO channel.
+    } else if (pbrDebugView < 6.5f) {
+      // 6: AO channel.
       const float ao = (materialDebugFlags & (1 << 2)) != 0
           ? sampleTextureWithWrap(
                 gOcclusionTex, wrappedUv, uvDx, uvDy, uWrapS, uWrapT).r
           : 1.0f;
       dbg = float3(ao, ao, ao);
-    } else if (pbrDebugView < 6.5f) {
-      // 6: Emissive sample.
+    } else if (pbrDebugView < 7.5f) {
+      // 7: Emissive sample.
       dbg = (materialDebugFlags & (1 << 3)) != 0
           ? sampleTextureWithWrap(
                 gEmissiveTex, wrappedUv, uvDx, uvDy, uWrapS, uWrapT).rgb

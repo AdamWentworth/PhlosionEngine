@@ -1539,15 +1539,26 @@ void main() {
     if (materialMode >= 1.5 && pbrDebugView > 0.5) {
         vec3 debugColor = vec3(0.0);
         if (pbrDebugView < 1.5) {
+            // 1: Raw base-color texture sample.
             debugColor = clamp(sampled.rgb, 0.0, 1.0);
         } else if (pbrDebugView < 2.5) {
+            // 2: Authored tint-resolved albedo without lighting.
+            debugColor = (materialMode > 33.5 && materialMode < 34.5)
+                ? nativeFresnelEffectBase(
+                      linearColor,
+                      worldSpecializedMaterial.rect0,
+                      worldSpecializedMaterial.flipbook1)
+                : clamp(linearColor, 0.0, 1.0);
+        } else if (pbrDebugView < 3.5) {
+            // 3: Normal map sample.
             debugColor = (materialDebugFlags & (1 << 0)) != 0
                 ? sampleWorldMaterialTexture(
                       normalTexture,
                       materialUv,
                       textureDetailLodBias).rgb
                 : vec3(0.5, 0.5, 1.0);
-        } else if (pbrDebugView < 3.5) {
+        } else if (pbrDebugView < 4.5) {
+            // 4: Roughness channel.
             float roughness = (materialDebugFlags & (1 << 1)) != 0
                 ? sampleWorldMaterialTexture(
                       metallicRoughnessTexture,
@@ -1555,7 +1566,8 @@ void main() {
                       textureDetailLodBias).g
                 : 1.0;
             debugColor = vec3(roughness);
-        } else if (pbrDebugView < 4.5) {
+        } else if (pbrDebugView < 5.5) {
+            // 5: Metallic channel.
             float metallic = (materialDebugFlags & (1 << 1)) != 0
                 ? sampleWorldMaterialTexture(
                       metallicRoughnessTexture,
@@ -1563,7 +1575,8 @@ void main() {
                       textureDetailLodBias).b
                 : 0.0;
             debugColor = vec3(metallic);
-        } else if (pbrDebugView < 5.5) {
+        } else if (pbrDebugView < 6.5) {
+            // 6: AO channel.
             float occlusion = (materialDebugFlags & (1 << 2)) != 0
                 ? sampleWorldMaterialTexture(
                       occlusionTexture,
@@ -1571,7 +1584,8 @@ void main() {
                       textureDetailLodBias).r
                 : 1.0;
             debugColor = vec3(occlusion);
-        } else if (pbrDebugView < 6.5) {
+        } else if (pbrDebugView < 7.5) {
+            // 7: Emissive sample.
             debugColor = (materialDebugFlags & (1 << 3)) != 0
                 ? sampleWorldMaterialTexture(
                       emissiveTexture,
