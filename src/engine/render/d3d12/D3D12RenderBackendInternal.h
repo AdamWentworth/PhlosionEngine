@@ -383,6 +383,33 @@ inline WorldPsConstants makeWorldPsConstants(
             // SSS materials never inherit the optional fibre reconstruction.
             constants.materialTimeSec = textureData->materialFlags;
         }
+        if (textureData->materialMode ==
+            backend::kNativeFresnelEffectMaterialMode) {
+            // FresnelEffect uses four source parameter vectors in addition to
+            // ordinary PBR factors and camera data. It never evaluates the
+            // projected-shadow or light-projection paths, so those PS-only
+            // rows provide lossless transport inside the fixed root signature.
+            constants.projectedShadowRowX = {
+                textureData->materialRect0U,
+                textureData->materialRect0V,
+                textureData->materialRect0W,
+                textureData->materialRect0H};
+            constants.projectedShadowRowY = {
+                textureData->materialRect1U,
+                textureData->materialRect1V,
+                textureData->materialRect1W,
+                textureData->materialRect1H};
+            constants.projectedShadowRowZ = {
+                textureData->materialFlipbook0Cols,
+                textureData->materialFlipbook0Rows,
+                textureData->materialFlipbook0Frames,
+                textureData->materialFlipbook0Fps};
+            constants.lightProjectionUvRowU = {
+                textureData->materialFlipbook1Cols,
+                textureData->materialFlipbook1Rows,
+                textureData->materialFlipbook1Frames,
+                textureData->materialFlipbook1Fps};
+        }
 
         // Native character eye materials retain two full material vectors and
         // a premultiplied layer-5 highlight color in addition to generic PBR

@@ -536,7 +536,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             bool qualityControlled =
                 (uMaterialMode > 1.5 && uMaterialMode < 2.5) ||
                 (uMaterialMode > 27.5 && uMaterialMode < 30.5) ||
-                (uMaterialMode > 31.5 && uMaterialMode < 33.5);
+                (uMaterialMode > 31.5 && uMaterialMode < 34.5);
             if (!qualityControlled) return 0.0;
             return clamp(uMaterialFlipbook1.z, -0.75, 1.25);
         }
@@ -2860,6 +2860,76 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 vec3(0.0));
         }
 
+        vec3 nativeFresnelEffectBase(vec3 baseMap) {
+            vec3 tinted = max(baseMap, vec3(0.0)) *
+                max(uMaterialRect0.rgb, vec3(0.0));
+            float luminance = dot(tinted, vec3(0.299, 0.587, 0.114));
+            return max(mix(
+                vec3(luminance),
+                tinted,
+                max(uMaterialFlipbook1.x, 0.0)), vec3(0.0));
+        }
+
+        vec3 applyNativeFresnelEffectLayer(
+            vec3 litBase,
+            vec3 primaryColor,
+            vec3 normal,
+            vec2 sampleUv,
+            vec2 uvDx,
+            vec2 uvDy) {
+            float nDotV = clamp(dot(
+                normal,
+                safeNormalize(
+                    uCameraPos - vWorldPos,
+                    -safeNormalize(uCameraForward, vec3(0.0, 0.0, -1.0)))),
+                0.0,
+                1.0);
+            float angleTerm = 1.0 - max(
+                nDotV - clamp(uMaterialFlipbook0.w, 0.0, 1.0),
+                0.0);
+            float fresnelAlpha = mix(
+                clamp(uMaterialFlipbook0.y, 0.0, 1.0),
+                clamp(uMaterialFlipbook0.z, 0.0, 1.0),
+                pow(clamp(angleTerm, 0.0, 1.0), 5.0));
+            vec3 layerMap = uUseEmissiveTexture > 0.5
+                ? sampleTextureWithWrap(
+                      uEmissiveTexture,
+                      sampleUv,
+                      uvDx,
+                      uvDy).rgb
+                : vec3(0.0);
+            float ao = uUseOcclusionTexture > 0.5
+                ? mix(
+                      1.0,
+                      sampleTextureWithWrap(
+                          uOcclusionTexture,
+                          sampleUv,
+                          uvDx,
+                          uvDy).r,
+                      clamp(uOcclusionStrength, 0.0, 1.0))
+                : 1.0;
+            vec3 layerColor = layerMap *
+                max(uMaterialRect1.rgb, vec3(0.0)) *
+                ao * max(uMaterialFlipbook1.y, 0.0) *
+                (1.0 - fresnelAlpha);
+
+            vec3 reflection = reflect(
+                -safeNormalize(uCameraPos - vWorldPos, -uCameraForward),
+                normal);
+            vec3 environmentRadiance = sampleNeutralEnvironment(
+                reflection,
+                clamp(uRoughnessFactor, 0.04, 1.0));
+            vec3 f0 = mix(
+                vec3(0.04),
+                clamp(primaryColor, 0.0, 1.0),
+                clamp(uMetallicFactor, 0.0, 1.0));
+            vec3 localProbe = environmentRadiance *
+                fresnelSchlick(nDotV, f0) *
+                max(uMaterialFlipbook0.x, 0.0) * ao *
+                __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+            return max(litBase + layerColor + localProbe, vec3(0.0));
+        }
+
         vec3 applyNativeGastlyFace(
             vec3 albedo,
             vec3 normal,
@@ -3356,6 +3426,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     uMaterialMode > 31.5 && uMaterialMode < 32.5;
                 bool nativeSss =
                     uMaterialMode > 32.5 && uMaterialMode < 33.5;
+                bool nativeFresnelEffect =
+                    uMaterialMode > 33.5 && uMaterialMode < 34.5;
                 // The generic PBR path deliberately boosts normal XY by
                 // 1.25. Z-A IkCharacter's NormalHeight is already authored
                 // at final strength, so cancel only that path's boost.
@@ -3392,6 +3464,21 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 } else if (nativeGastlyFace) {
                     outLinear = applyNativeGastlyFace(
                         outLinear,
+                        n,
+                        wrappedUv,
+                        uvDx,
+                        uvDy);
+                } else if (nativeFresnelEffect) {
+                    vec3 primaryColor = nativeFresnelEffectBase(outLinear);
+                    outLinear = applyWorldLitModel(
+                        primaryColor,
+                        n,
+                        wrappedUv,
+                        uvDx,
+                        uvDy);
+                    outLinear = applyNativeFresnelEffectLayer(
+                        outLinear,
+                        primaryColor,
                         n,
                         wrappedUv,
                         uvDx,

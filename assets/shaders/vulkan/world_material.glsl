@@ -727,6 +727,84 @@ vec3 evaluateNativeSssSurface(vec3 albedo,
         vec3(0.0));
 }
 
+vec3 nativeFresnelEffectBase(vec3 baseMap,
+                             vec4 baseColor,
+                             vec4 surfaceControls) {
+    vec3 tinted = max(baseMap, vec3(0.0)) * max(baseColor.rgb, vec3(0.0));
+    float luminance = dot(tinted, vec3(0.299, 0.587, 0.114));
+    return max(
+        mix(vec3(luminance), tinted, max(surfaceControls.x, 0.0)),
+        vec3(0.0));
+}
+
+vec3 evaluateNativeFresnelEffectLayer(
+    vec3 litBase,
+    vec3 primaryColor,
+    vec2 uv,
+    vec3 position,
+    vec3 sourceNormal,
+    vec4 sourceTangent,
+    vec3 cameraPosition,
+    vec3 cameraForwardPacked,
+    sampler2D normalMap,
+    sampler2D occlusionMap,
+    sampler2D layerMap,
+    sampler2D environmentMap,
+    float textureDetailLodBias,
+    vec4 factors,
+    vec4 layerColor,
+    vec4 fresnelControls,
+    vec4 surfaceControls) {
+    vec3 normal = mappedWorldNormal(
+        uv,
+        position,
+        sourceNormal,
+        sourceTangent,
+        normalMap,
+        textureDetailLodBias,
+        factors.x);
+    vec3 cameraForward = safeNormalize(
+        cameraForwardPacked,
+        vec3(0.0, 0.0, -1.0));
+    vec3 viewDirection = safeNormalize(
+        cameraPosition - position,
+        -cameraForward);
+    float nDotV = clamp(dot(normal, viewDirection), 0.0, 1.0);
+    float angleTerm = 1.0 - max(
+        nDotV - clamp(fresnelControls.w, 0.0, 1.0),
+        0.0);
+    float fresnelAlpha = mix(
+        clamp(fresnelControls.y, 0.0, 1.0),
+        clamp(fresnelControls.z, 0.0, 1.0),
+        pow(clamp(angleTerm, 0.0, 1.0), 5.0));
+    float ao = mix(
+        1.0,
+        sampleWorldMaterialTexture(
+            occlusionMap,
+            uv,
+            textureDetailLodBias).r,
+        clamp(factors.w, 0.0, 1.0));
+    vec3 additiveLayer = sampleWorldMaterialTexture(
+            layerMap,
+            uv,
+            textureDetailLodBias).rgb *
+        max(layerColor.rgb, vec3(0.0)) *
+        ao * max(surfaceControls.y, 0.0) *
+        (1.0 - fresnelAlpha);
+    vec3 environmentRadiance = sampleNeutralEnvironment(
+        environmentMap,
+        reflect(-viewDirection, normal),
+        clamp(factors.z, 0.04, 1.0));
+    vec3 f0 = mix(
+        vec3(0.04),
+        clamp(primaryColor, 0.0, 1.0),
+        clamp(factors.y, 0.0, 1.0));
+    vec3 localProbe = environmentRadiance *
+        fresnelSchlick(nDotV, f0) *
+        max(fresnelControls.x, 0.0) * ao * 0.44;
+    return max(litBase + additiveLayer + localProbe, vec3(0.0));
+}
+
 vec3 evaluateNativeGastlyFace(vec3 albedo,
                               vec2 uv,
                               vec3 position,

@@ -1720,7 +1720,7 @@ void main() {
     float textureDetailLodBias =
         ((materialMode >= 1.5 && materialMode < 2.5) ||
          (materialMode > 27.5 && materialMode < 30.5) ||
-         (materialMode > 31.5 && materialMode < 33.5))
+         (materialMode > 31.5 && materialMode < 34.5))
             ? drawState.specializedFlipbook1.z
             : 0.0;
     vec4 sampled = sampleWorldMaterialTexture(
@@ -1744,7 +1744,7 @@ void main() {
     }
 
     if ((materialMode >= 1.5 && materialMode < 2.5) ||
-        (materialMode > 27.5 && materialMode < 33.5)) {
+        (materialMode > 27.5 && materialMode < 34.5)) {
         bool nativeEyeClearCoat =
             (materialMode > 27.5 && materialMode < 28.5) ||
             (materialMode > 29.5 && materialMode < 30.5);
@@ -1756,6 +1756,8 @@ void main() {
             materialMode > 31.5 && materialMode < 32.5;
         bool nativeSss =
             materialMode > 32.5 && materialMode < 33.5;
+        bool nativeFresnelEffect =
+            materialMode > 33.5 && materialMode < 34.5;
         if (nativeSss) {
             linearColor = evaluateNativeSssSurface(
                 linearColor,
@@ -1813,6 +1815,48 @@ void main() {
                 drawState.pbrFactors.x,
                 drawState.pbrFactors.w,
                 drawState.specializedRect0.w > 0.5);
+        } else if (nativeFresnelEffect) {
+            vec3 primaryColor = nativeFresnelEffectBase(
+                linearColor,
+                drawState.specializedRect0,
+                drawState.specializedFlipbook1);
+            linearColor = evaluateWorldMaterial(
+                primaryColor,
+                materialUv,
+                worldPosition,
+                vertexNormal,
+                vertexTangent,
+                worldView.cameraPosition.xyz,
+                worldView.cameraForward.xyz,
+                worldView.cameraTarget.xyz,
+                normalTextures[nonuniformEXT(materialIndex)],
+                metallicRoughnessTextures[nonuniformEXT(materialIndex)],
+                occlusionTextures[nonuniformEXT(materialIndex)],
+                emissiveTextures[nonuniformEXT(materialIndex)],
+                environmentTextures[nonuniformEXT(materialIndex)],
+                textureDetailLodBias,
+                drawState.pbrFactors,
+                vec3(0.0),
+                -1.0,
+                1.0);
+            linearColor = evaluateNativeFresnelEffectLayer(
+                linearColor,
+                primaryColor,
+                materialUv,
+                worldPosition,
+                vertexNormal,
+                vertexTangent,
+                worldView.cameraPosition.xyz,
+                worldView.cameraForward.xyz,
+                normalTextures[nonuniformEXT(materialIndex)],
+                occlusionTextures[nonuniformEXT(materialIndex)],
+                emissiveTextures[nonuniformEXT(materialIndex)],
+                environmentTextures[nonuniformEXT(materialIndex)],
+                textureDetailLodBias,
+                drawState.pbrFactors,
+                drawState.specializedRect1,
+                drawState.specializedFlipbook0,
+                drawState.specializedFlipbook1);
         } else {
             linearColor = evaluateWorldMaterial(
                   linearColor,

@@ -252,7 +252,7 @@ float litTextureDetailLodBias() {
   const bool qualityControlled =
       (uMaterialMode > 1.5f && uMaterialMode < 2.5f) ||
       (uMaterialMode > 27.5f && uMaterialMode < 30.5f) ||
-      (uMaterialMode > 31.5f && uMaterialMode < 33.5f);
+      (uMaterialMode > 31.5f && uMaterialMode < 34.5f);
   if (!qualityControlled) return 0.0f;
   if (uMaterialMode > 31.5f && uMaterialMode < 32.5f) {
     float profileField = floor(max(uMaterialFlipbook1Fps, 0.0f) / 1000.0f);
@@ -2738,6 +2738,84 @@ float3 applyNativeSssSurface(PSIn i,
       float3(0.0f, 0.0f, 0.0f));
 }
 
+float3 nativeFresnelEffectBase(float3 baseMap) {
+  float3 tinted = max(baseMap, float3(0.0f, 0.0f, 0.0f)) *
+      max(uProjectedShadowRowX.rgb, float3(0.0f, 0.0f, 0.0f));
+  float luminance = dot(tinted, float3(0.299f, 0.587f, 0.114f));
+  return max(
+      lerp(luminance.xxx, tinted, max(uLightProjectionUvRowU.x, 0.0f)),
+      float3(0.0f, 0.0f, 0.0f));
+}
+
+float3 applyNativeFresnelEffectLayer(PSIn i,
+                                      float3 litBase,
+                                      float3 primaryColor,
+                                      float3 normal,
+                                      float2 sampleUv,
+                                      float2 uvDx,
+                                      float2 uvDy,
+                                      bool useOcclusionTexture,
+                                      bool useLayerTexture,
+                                      float metallicFactor,
+                                      float roughnessFactor,
+                                      float occlusionStrength,
+                                      float3 cameraPos,
+                                      float3 cameraForwardPacked) {
+  float3 cameraForward = safeNormalize(
+      cameraForwardPacked,
+      float3(0.0f, 0.0f, -1.0f));
+  float3 viewDirection = safeNormalize(
+      cameraPos - i.worldPos,
+      -cameraForward);
+  float nDotV = saturate(dot(normal, viewDirection));
+  float angleTerm = 1.0f - max(
+      nDotV - saturate(uProjectedShadowRowZ.w),
+      0.0f);
+  float fresnelAlpha = lerp(
+      saturate(uProjectedShadowRowZ.y),
+      saturate(uProjectedShadowRowZ.z),
+      pow(saturate(angleTerm), 5.0f));
+  float3 layerMap = useLayerTexture
+      ? sampleTextureWithWrap(
+            gEmissiveTex,
+            sampleUv,
+            uvDx,
+            uvDy,
+            uWrapS,
+            uWrapT).rgb
+      : float3(0.0f, 0.0f, 0.0f);
+  float ao = useOcclusionTexture
+      ? lerp(
+            1.0f,
+            sampleTextureWithWrap(
+                gOcclusionTex,
+                sampleUv,
+                uvDx,
+                uvDy,
+                uWrapS,
+                uWrapT).r,
+            saturate(occlusionStrength))
+      : 1.0f;
+  float3 layerColor = layerMap *
+      max(uProjectedShadowRowY.rgb, float3(0.0f, 0.0f, 0.0f)) *
+      ao * max(uLightProjectionUvRowU.y, 0.0f) *
+      (1.0f - fresnelAlpha);
+  float3 environmentRadiance = sampleNeutralEnvironment(
+      reflect(-viewDirection, normal),
+      clamp(roughnessFactor, 0.04f, 1.0f));
+  float3 f0 = lerp(
+      float3(0.04f, 0.04f, 0.04f),
+      saturate(primaryColor),
+      saturate(metallicFactor));
+  float3 localProbe = environmentRadiance *
+      fresnelSchlick(nDotV, f0) *
+      max(uProjectedShadowRowZ.x, 0.0f) * ao *
+      __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+  return max(
+      litBase + layerColor + localProbe,
+      float3(0.0f, 0.0f, 0.0f));
+}
+
 float3 applyNativeEyeClearCoat(PSIn i,
                                float3 linearColor,
                                float3 n,
@@ -3116,6 +3194,8 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         uMaterialMode > 31.5f && uMaterialMode < 32.5f;
     const bool nativeSss =
         uMaterialMode > 32.5f && uMaterialMode < 33.5f;
+    const bool nativeFresnelEffect =
+        uMaterialMode > 33.5f && uMaterialMode < 34.5f;
     if (nativeSss) {
       outLinear = applyNativeSssSurface(
           i,
@@ -3173,6 +3253,51 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
           cameraForward,
           cameraTarget,
           uMaterialTimeSec > 0.5f);
+    } else if (nativeFresnelEffect) {
+      float3 primaryColor = nativeFresnelEffectBase(outLinear);
+      outLinear = applyWorldLitModel(i,
+                                     isFrontFace,
+                                     primaryColor,
+                                     wrappedUv,
+                                     uvDx,
+                                     uvDy,
+                                     useNormalTexture,
+                                     useMetallicRoughnessTexture,
+                                     false,
+                                     useOcclusionTexture,
+                                     false,
+                                     normalScale,
+                                     metallicFactor,
+                                     roughnessFactor,
+                                     uMaterialFlipbook1Frames,
+                                     occlusionStrength,
+                                     float3(0.0f, 0.0f, 0.0f),
+                                     cameraPos,
+                                     cameraForward,
+                                     cameraTarget);
+      float3 fresnelNormal = computeMappedNormal(
+          i,
+          isFrontFace,
+          wrappedUv,
+          uvDx,
+          uvDy,
+          useNormalTexture,
+          normalScale);
+      outLinear = applyNativeFresnelEffectLayer(
+          i,
+          outLinear,
+          primaryColor,
+          fresnelNormal,
+          wrappedUv,
+          uvDx,
+          uvDy,
+          useOcclusionTexture,
+          useEmissiveTexture,
+          metallicFactor,
+          roughnessFactor,
+          occlusionStrength,
+          cameraPos,
+          cameraForward);
     } else {
       outLinear = applyWorldLitModel(i,
                                      isFrontFace,
