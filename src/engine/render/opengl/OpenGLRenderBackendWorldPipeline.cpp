@@ -535,7 +535,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         float litTextureDetailLodBias() {
             bool qualityControlled =
                 (uMaterialMode > 1.5 && uMaterialMode < 2.5) ||
-                (uMaterialMode > 28.5 && uMaterialMode < 29.5) ||
+                (uMaterialMode > 27.5 && uMaterialMode < 30.5) ||
                 (uMaterialMode > 31.5 && uMaterialMode < 33.5);
             if (!qualityControlled) return 0.0;
             return clamp(uMaterialFlipbook1.z, -0.75, 1.25);
@@ -2359,12 +2359,18 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float ao = mix(1.0, occTex, clamp(uOcclusionStrength, 0.0, 1.0));
 
             vec3 albedo = clamp(linearColor, 0.0, 1.0);
+            bool nativeEyeClearCoat =
+                (uMaterialMode > 27.5 && uMaterialMode < 28.5) ||
+                (uMaterialMode > 29.5 && uMaterialMode < 30.5);
             bool useSpecularStrengthTexture =
                 uMaterialMode > 1.5 && uMaterialMode < 2.5 &&
                 uMaterialFlags > 4.5 && uMaterialFlags < 5.5;
-            float dielectricSpecular = useSpecularStrengthTexture
-                ? clamp(uMaterialRect0.x, 0.0, 1.0) * clamp(orm.a, 0.0, 1.0)
-                : 0.04;
+            float dielectricSpecular = nativeEyeClearCoat
+                ? 0.0
+                : useSpecularStrengthTexture
+                    ? clamp(uMaterialRect0.x, 0.0, 1.0) *
+                        clamp(orm.a, 0.0, 1.0)
+                    : 0.04;
             vec3 F0 = mix(vec3(dielectricSpecular), albedo, metallic);
             vec3 diffuseColor = albedo * (1.0 - metallic);
             const float specularF90 = 1.0;
@@ -2406,13 +2412,10 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 specularIBL = envRadiance * singleScattering + multiScattering * cosineWeightedIrradiance;
             diffuseIBL *= __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
             specularIBL *= __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-            // Plain Game Freak Eye materials carry a negative coat-coverage
-            // marker. Their authored glint is an explicit mask plus direct
-            // response, so the neutral-room reflection would double that
-            // response and make the eye look glassy. EyeClearCoat keeps its
-            // non-negative source coverage and the ordinary PBR IBL path.
-            if (uMaterialMode > 27.5 && uMaterialMode < 28.5 &&
-                uMaterialRect1.w < -0.5) {
+            // Native eye modes reserve their outer specular response for the
+            // dedicated coat pass. Suppress the generic neutral-room lobe so
+            // the two paths do not double-light the eye shell.
+            if (nativeEyeClearCoat) {
                 specularIBL = vec3(0.0);
             }
             diffuseIBL *= ao;
@@ -2962,27 +2965,80 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float ndl = max(dot(n, l), 0.0);
             float ndh = max(dot(n, h), 0.0);
             float vdh = max(dot(v, h), 0.0);
-            // Native EyeClearCoat params0.x stores RoughnessClearCoat.
-            // Reading the unused params3.z forced 0 -> 0.04 and produced an
-            // excessively silver grazing-angle reflection.
+            float clearCoatMetallic = uMaterialRect1.w;
+            if (clearCoatMetallic < -0.5) return linearColor;
             float roughness = clamp(uMaterialRect0.x, 0.04, 1.0);
-            float clearCoatCoverage = clamp(uMaterialRect1.w, 0.0, 1.0);
+            vec3 clearCoatBaseColor = max(uMaterialRect1.xyz, vec3(0.0));
+            vec3 clearCoatF0 = mix(
+                vec3(0.04),
+                clearCoatBaseColor,
+                clamp(clearCoatMetallic, 0.0, 1.0));
             float distribution = distributionGGX(ndh, roughness);
             float geometry = geometrySchlickGGX(ndv, roughness) *
                 geometrySchlickGGX(ndl, roughness);
-            vec3 fresnel = fresnelSchlick(vdh, vec3(0.04));
+            vec3 fresnel = fresnelSchlick(vdh, clearCoatF0);
             vec3 direct = distribution * geometry * fresnel /
                 max(4.0 * ndv * ndl, 1e-4) *
                 (__PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265) * ndl;
             vec3 reflection = reflect(-v, n);
             vec3 environment = sampleNeutralEnvironment(reflection, roughness) *
-                fresnelSchlickRoughness(ndv, vec3(0.04), roughness) *
+                fresnelSchlickRoughness(ndv, clearCoatF0, roughness) *
                 __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-            return max(
-                linearColor *
-                    (vec3(1.0) - fresnel * (0.18 * clearCoatCoverage)) +
-                    (direct + environment) * clearCoatCoverage,
-                vec3(0.0));
+            vec3 coatLighting = direct + environment;
+            float coatPeak = max(
+                coatLighting.x,
+                max(coatLighting.y, coatLighting.z));
+            vec3 boundedCoat = coatLighting / (1.0 + coatPeak);
+            const float sceneCoatBridge = 0.20;
+            vec3 result = linearColor *
+                (vec3(1.0) - fresnel * 0.18) +
+                boundedCoat * sceneCoatBridge;
+
+            // Source material fields are exact; the anonymous fp_c8[96]
+            // scene/light vector is not. Keep that uncertainty isolated in a
+            // bounded viewer-light bridge instead of treating layer-5
+            // emission as a material-wide glow.
+            vec3 highlightEmission = max(uMaterialFlipbook0.xyz, vec3(0.0));
+            float highlightEnergy = max(
+                highlightEmission.x,
+                max(highlightEmission.y, highlightEmission.z));
+            float highlightEnabled = clamp(uMaterialRect0.w, 0.0, 1.0);
+            if (highlightEnabled > 0.0 && highlightEnergy > 1e-5) {
+                float highlightRoughness = clamp(
+                    uMaterialRect0.y,
+                    0.04,
+                    1.0);
+                float highlightMetallic = clamp(
+                    uMaterialRect0.z,
+                    0.0,
+                    1.0);
+                vec3 highlightTint = highlightEmission / highlightEnergy;
+                vec3 highlightF0 = mix(
+                    vec3(0.04),
+                    highlightTint,
+                    highlightMetallic);
+                float highlightDistribution = distributionGGX(
+                    ndh,
+                    highlightRoughness);
+                float highlightGeometry =
+                    geometrySchlickGGX(ndv, highlightRoughness) *
+                    geometrySchlickGGX(ndl, highlightRoughness);
+                vec3 highlightFresnel = fresnelSchlick(vdh, highlightF0);
+                vec3 highlightDirect =
+                    highlightDistribution * highlightGeometry *
+                    highlightFresnel / max(4.0 * ndv * ndl, 1e-4) *
+                    (__PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265) * ndl;
+                float highlightPeak = max(
+                    highlightDirect.x,
+                    max(highlightDirect.y, highlightDirect.z));
+                vec3 boundedHighlight = highlightDirect /
+                    (1.0 + highlightPeak);
+                const float sceneHighlightBridge = 0.12;
+                result += boundedHighlight *
+                    (sceneHighlightBridge * highlightEnabled *
+                     (1.0 - exp(-highlightEnergy)));
+            }
+            return max(result, vec3(0.0));
         }
 
         vec3 applyCharacterInking(vec3 linearColor, vec3 n) {
@@ -3289,6 +3345,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 return;
             }
             if (uMaterialMode >= 1.5) {
+                bool nativeEyeClearCoat =
+                    (uMaterialMode > 27.5 && uMaterialMode < 28.5) ||
+                    (uMaterialMode > 29.5 && uMaterialMode < 30.5);
                 bool nativeGastlyFace =
                     uMaterialMode > 30.5 &&
                     uMaterialFlags > 3.5 &&
@@ -3305,6 +3364,16 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     uvDx,
                     uvDy,
                     nativeIkCharacter ? 0.8 : 1.0);
+                // NormalMap1 is the source EyeClearCoat highlight-normal
+                // input, not a replacement for the eye shell's base surface
+                // normal. Applying it to generic PBR turns its small authored
+                // highlight sphere into full-eye white striping. The cook
+                // already resolves that footprint into EyeFinal; retain a
+                // stable shell normal until the anonymous projected scene
+                // term can reproduce the source combination.
+                vec3 eyeSurfaceNormal = safeNormalize(
+                    vWorldNormal,
+                    vec3(0.0, 1.0, 0.0));
                 if (nativeSss) {
                     outLinear = applyNativeSssSurface(
                         outLinear,
@@ -3330,14 +3399,15 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 } else {
                     outLinear = applyWorldLitModel(
                         outLinear,
-                        n,
+                        nativeEyeClearCoat ? eyeSurfaceNormal : n,
                         wrappedUv,
                         uvDx,
                         uvDy);
                 }
-                if ((uMaterialMode > 27.5 && uMaterialMode < 28.5) ||
-                    (uMaterialMode > 29.5 && uMaterialMode < 30.5)) {
-                    outLinear = applyNativeEyeClearCoat(outLinear, n);
+                if (nativeEyeClearCoat) {
+                    outLinear = applyNativeEyeClearCoat(
+                        outLinear,
+                        eyeSurfaceNormal);
                 }
             }
             const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;

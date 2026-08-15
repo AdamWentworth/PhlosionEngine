@@ -251,7 +251,7 @@ bool isMirrorWrap(float mode) { return abs(mode - 33648.0f) < 0.5f; }
 float litTextureDetailLodBias() {
   const bool qualityControlled =
       (uMaterialMode > 1.5f && uMaterialMode < 2.5f) ||
-      (uMaterialMode > 28.5f && uMaterialMode < 29.5f) ||
+      (uMaterialMode > 27.5f && uMaterialMode < 30.5f) ||
       (uMaterialMode > 31.5f && uMaterialMode < 33.5f);
   if (!qualityControlled) return 0.0f;
   if (uMaterialMode > 31.5f && uMaterialMode < 32.5f) {
@@ -2283,11 +2283,11 @@ float3 applyWorldLitModel(PSIn i,
   float3 specularIBL = envRadiance * singleScattering + multiScattering * cosineWeightedIrradiance;
   diffuseIBL *= __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
   specularIBL *= __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-  // Plain Game Freak Eye materials carry a negative coat-coverage marker.
-  // Keep their authored direct/mask highlight without adding the generic
-  // neutral-room reflection. EyeClearCoat keeps its literal source coverage.
+  // Native eye modes reserve their outer specular response for the dedicated
+  // coat pass below. PLA's negative metallic marker additionally identifies
+  // the plain Eye family, which bypasses that pass altogether.
   if (uMaterialMode > 27.5f && uMaterialMode < 28.5f &&
-      uMaterialTimeSec < -0.5f) {
+      uProjectedShadowRowY.w < -0.5f) {
     specularIBL = float3(0.0f, 0.0f, 0.0f);
   }
   diffuseIBL *= ao;
@@ -2307,7 +2307,7 @@ float3 applyWorldLitModel(PSIn i,
   // diffuse response. Gate the fill per pixel so the catchlight stays exact
   // without making Geodude's non-emissive sclera/iris collapse to charcoal.
   if (uMaterialMode > 27.5f && uMaterialMode < 28.5f &&
-      uMaterialTimeSec < -0.5f) {
+      uProjectedShadowRowY.w < -0.5f) {
     float emissiveCoverage = saturate(max(emissive.r, max(emissive.g, emissive.b)));
     shaded = lerp(shaded, albedo, 0.25f * (1.0f - emissiveCoverage));
   }
@@ -2760,27 +2760,77 @@ float3 applyNativeEyeClearCoat(PSIn i,
   float ndl = max(dot(n, l), 0.0f);
   float ndh = max(dot(n, h), 0.0f);
   float vdh = max(dot(v, h), 0.0f);
-  // D3D12's compact generic-PBR packing reserves Rect0U for surface
-  // roughness and Rect1H for camera Z. Native eye coat roughness/coverage are
-  // therefore carried in the otherwise-unused mode-28 flipbook/time slots.
-  float roughness = clamp(uMaterialFlipbook1Frames, 0.04f, 1.0f);
-  float clearCoatCoverage = saturate(uMaterialTimeSec);
+  // Mode 28/30 uses the projected-shadow rows as a lossless PS-only material
+  // transport. A negative metallic marker identifies PLA's plain Eye family,
+  // which has authored mask/emission but no EyeClearCoat lobe.
+  float clearCoatMetallic = uProjectedShadowRowY.w;
+  if (clearCoatMetallic < -0.5f) return linearColor;
+  float roughness = clamp(uProjectedShadowRowX.x, 0.04f, 1.0f);
+  float3 clearCoatBaseColor = max(
+      uProjectedShadowRowY.xyz,
+      float3(0.0f, 0.0f, 0.0f));
+  float3 clearCoatF0 = lerp(
+      float3(0.04f, 0.04f, 0.04f),
+      clearCoatBaseColor,
+      saturate(clearCoatMetallic));
   float distribution = distributionGGX(ndh, roughness);
   float geometry = geometrySchlickGGX(ndv, roughness) *
       geometrySchlickGGX(ndl, roughness);
-  float3 fresnel = fresnelSchlick(vdh, float3(0.04f, 0.04f, 0.04f));
+  float3 fresnel = fresnelSchlick(vdh, clearCoatF0);
   float3 direct = distribution * geometry * fresnel /
       max(4.0f * ndv * ndl, 1e-4f) *
       (__PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265f) * ndl;
   float3 reflection = reflect(-v, n);
   float3 environment = sampleNeutralEnvironment(reflection, roughness) *
-      fresnelSchlickRoughness(ndv, float3(0.04f, 0.04f, 0.04f), roughness) *
+      fresnelSchlickRoughness(ndv, clearCoatF0, roughness) *
       __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-  return max(linearColor *
-                 (float3(1.0f, 1.0f, 1.0f) -
-                  fresnel * (0.18f * clearCoatCoverage)) +
-                 (direct + environment) * clearCoatCoverage,
-             float3(0.0f, 0.0f, 0.0f));
+  float3 coatLighting = direct + environment;
+  float coatPeak = max(
+      coatLighting.x,
+      max(coatLighting.y, coatLighting.z));
+  float3 boundedCoat = coatLighting / (1.0f + coatPeak);
+  const float sceneCoatBridge = 0.20f;
+  float3 result = linearColor *
+      (float3(1.0f, 1.0f, 1.0f) - fresnel * 0.18f) +
+      boundedCoat * sceneCoatBridge;
+
+  // The compiled highlight branch proves these material inputs, while its
+  // fp_c8[96] scene/light vector remains anonymous. Evaluate the authored
+  // GGX/tint/energy portion against Phlosion's isolated viewer-light bridge;
+  // the bounded bridge prevents an unknown source exposure from becoming an
+  // invented full-eye emissive wash.
+  float3 highlightEmission = max(
+      uProjectedShadowRowZ.xyz,
+      float3(0.0f, 0.0f, 0.0f));
+  float highlightEnergy = max(
+      highlightEmission.x,
+      max(highlightEmission.y, highlightEmission.z));
+  float highlightEnabled = saturate(uProjectedShadowRowX.w);
+  if (highlightEnabled > 0.0f && highlightEnergy > 1e-5f) {
+    float highlightRoughness = clamp(uProjectedShadowRowX.y, 0.04f, 1.0f);
+    float highlightMetallic = saturate(uProjectedShadowRowX.z);
+    float3 highlightTint = highlightEmission / highlightEnergy;
+    float3 highlightF0 = lerp(
+        float3(0.04f, 0.04f, 0.04f),
+        highlightTint,
+        highlightMetallic);
+    float highlightDistribution = distributionGGX(ndh, highlightRoughness);
+    float highlightGeometry = geometrySchlickGGX(ndv, highlightRoughness) *
+        geometrySchlickGGX(ndl, highlightRoughness);
+    float3 highlightFresnel = fresnelSchlick(vdh, highlightF0);
+    float3 highlightDirect = highlightDistribution * highlightGeometry *
+        highlightFresnel / max(4.0f * ndv * ndl, 1e-4f) *
+        (__PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265f) * ndl;
+    float highlightPeak = max(
+        highlightDirect.x,
+        max(highlightDirect.y, highlightDirect.z));
+    float3 boundedHighlight = highlightDirect / (1.0f + highlightPeak);
+    const float sceneHighlightBridge = 0.12f;
+    result += boundedHighlight *
+        (sceneHighlightBridge * highlightEnabled *
+         (1.0f - exp(-highlightEnergy)));
+  }
+  return max(result, float3(0.0f, 0.0f, 0.0f));
 }
 
 float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraPos, float3 cameraForwardPacked) {
@@ -3040,6 +3090,9 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
     return float4(resolveWorldSceneColor(dbg), 1.0f);
   }
   if (uMaterialMode >= 1.5f) {
+    const bool nativeEyeClearCoat =
+        (uMaterialMode > 27.5f && uMaterialMode < 28.5f) ||
+        (uMaterialMode > 29.5f && uMaterialMode < 30.5f);
     const int pbrFlags = (int)(uMaterialFlags + 0.5f);
     const bool useNormalTexture = (pbrFlags & (1 << 0)) != 0;
     const bool useMetallicRoughnessTexture = (pbrFlags & (1 << 1)) != 0;
@@ -3127,31 +3180,36 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
                                      wrappedUv,
                                      uvDx,
                                      uvDy,
-                                     useNormalTexture,
+                                     nativeEyeClearCoat
+                                         ? false
+                                         : useNormalTexture,
                                      useMetallicRoughnessTexture,
-                                     useSpecularStrengthTexture,
+                                     nativeEyeClearCoat
+                                         ? true
+                                         : useSpecularStrengthTexture,
                                      useOcclusionTexture,
                                      useEmissiveTexture,
                                      normalScale,
                                      metallicFactor,
                                      roughnessFactor,
-                                     uMaterialFlipbook1Frames,
+                                     nativeEyeClearCoat
+                                         ? 0.0f
+                                         : uMaterialFlipbook1Frames,
                                      occlusionStrength,
                                      emissiveFactor,
                                      cameraPos,
                                      cameraForward,
                                      cameraTarget);
     }
-    if ((uMaterialMode > 27.5f && uMaterialMode < 28.5f) ||
-        (uMaterialMode > 29.5f && uMaterialMode < 30.5f)) {
+    if (nativeEyeClearCoat) {
       float3 eyeNormal = computeMappedNormal(
           i,
           isFrontFace,
           wrappedUv,
           uvDx,
           uvDy,
-          useNormalTexture,
-          normalScale);
+          false,
+          0.0f);
       outLinear = applyNativeEyeClearCoat(
           i,
           outLinear,

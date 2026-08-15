@@ -102,6 +102,7 @@ vec3 mappedWorldNormal(vec2 uv,
                        float normalScale) {
     float faceDirection = gl_FrontFacing ? 1.0 : -1.0;
     vec3 normal = safeNormalize(sourceNormal, vec3(0.0, 1.0, 0.0)) * faceDirection;
+    if (normalScale <= 0.0) return normal;
     vec3 texel = sampleWorldMaterialTexture(
         map, uv, textureDetailLodBias).xyz;
     vec2 mappedXY = (texel.xy * 2.0 - 1.0) * max(normalScale, 0.0) * 1.25;
@@ -828,8 +829,9 @@ vec3 evaluateNativeEyeClearCoat(vec3 linearColor,
                                 sampler2D normalMap,
                                 sampler2D environmentMap,
                                 float normalScale,
-                                float clearCoatRoughness,
-                                float clearCoatCoverage) {
+                                vec4 clearCoatParameters,
+                                vec4 clearCoatBaseAndMetallic,
+                                vec3 highlightEmission) {
     vec3 normal = mappedWorldNormal(
         uv,
         position,
@@ -856,22 +858,78 @@ vec3 evaluateNativeEyeClearCoat(vec3 linearColor,
     float normalDotLight = max(dot(normal, light), 0.0);
     float normalDotHalf = max(dot(normal, halfVector), 0.0);
     float viewDotHalf = max(dot(view, halfVector), 0.0);
-    float roughness = clamp(clearCoatRoughness, 0.04, 1.0);
+    float clearCoatMetallic = clearCoatBaseAndMetallic.w;
+    if (clearCoatMetallic < -0.5) return linearColor;
+    float roughness = clamp(clearCoatParameters.x, 0.04, 1.0);
+    vec3 clearCoatBaseColor = max(
+        clearCoatBaseAndMetallic.xyz,
+        vec3(0.0));
+    vec3 clearCoatF0 = mix(
+        vec3(0.04),
+        clearCoatBaseColor,
+        clamp(clearCoatMetallic, 0.0, 1.0));
     float distribution = distributionGGX(normalDotHalf, roughness);
     float geometry = geometrySchlickGGX(normalDotView, roughness) *
                      geometrySchlickGGX(normalDotLight, roughness);
-    vec3 fresnel = fresnelSchlick(viewDotHalf, vec3(0.04));
+    vec3 fresnel = fresnelSchlick(viewDotHalf, clearCoatF0);
     vec3 direct = distribution * geometry * fresnel /
                   max(4.0 * normalDotView * normalDotLight, 1e-4) *
                   (0.72 * 3.14159265) * normalDotLight;
     vec3 reflection = reflect(-view, normal);
     vec3 environment = sampleNeutralEnvironment(
         environmentMap, reflection, roughness) *
-        fresnelSchlickRoughness(normalDotView, vec3(0.04), roughness) * 0.44;
-    clearCoatCoverage = clamp(clearCoatCoverage, 0.0, 1.0);
-    return max(
-        linearColor *
-            (vec3(1.0) - fresnel * (0.18 * clearCoatCoverage)) +
-            (direct + environment) * clearCoatCoverage,
-        vec3(0.0));
+        fresnelSchlickRoughness(normalDotView, clearCoatF0, roughness) * 0.44;
+    vec3 coatLighting = direct + environment;
+    float coatPeak = max(
+        coatLighting.x,
+        max(coatLighting.y, coatLighting.z));
+    vec3 boundedCoat = coatLighting / (1.0 + coatPeak);
+    const float sceneCoatBridge = 0.20;
+    vec3 result = linearColor *
+        (vec3(1.0) - fresnel * 0.18) +
+        boundedCoat * sceneCoatBridge;
+
+    // fp_c8[96] remains an anonymous source scene/light vector. Preserve all
+    // proven material inputs while isolating that unknown state in the same
+    // bounded viewer-light bridge used by the other backends.
+    highlightEmission = max(highlightEmission, vec3(0.0));
+    float highlightEnergy = max(
+        highlightEmission.x,
+        max(highlightEmission.y, highlightEmission.z));
+    float highlightEnabled = clamp(clearCoatParameters.w, 0.0, 1.0);
+    if (highlightEnabled > 0.0 && highlightEnergy > 1e-5) {
+        float highlightRoughness = clamp(
+            clearCoatParameters.y,
+            0.04,
+            1.0);
+        float highlightMetallic = clamp(
+            clearCoatParameters.z,
+            0.0,
+            1.0);
+        vec3 highlightTint = highlightEmission / highlightEnergy;
+        vec3 highlightF0 = mix(
+            vec3(0.04),
+            highlightTint,
+            highlightMetallic);
+        float highlightDistribution = distributionGGX(
+            normalDotHalf,
+            highlightRoughness);
+        float highlightGeometry =
+            geometrySchlickGGX(normalDotView, highlightRoughness) *
+            geometrySchlickGGX(normalDotLight, highlightRoughness);
+        vec3 highlightFresnel = fresnelSchlick(viewDotHalf, highlightF0);
+        vec3 highlightDirect =
+            highlightDistribution * highlightGeometry * highlightFresnel /
+            max(4.0 * normalDotView * normalDotLight, 1e-4) *
+            (0.72 * 3.14159265) * normalDotLight;
+        float highlightPeak = max(
+            highlightDirect.x,
+            max(highlightDirect.y, highlightDirect.z));
+        vec3 boundedHighlight = highlightDirect / (1.0 + highlightPeak);
+        const float sceneHighlightBridge = 0.12;
+        result += boundedHighlight *
+            (sceneHighlightBridge * highlightEnabled *
+             (1.0 - exp(-highlightEnergy)));
+    }
+    return max(result, vec3(0.0));
 }

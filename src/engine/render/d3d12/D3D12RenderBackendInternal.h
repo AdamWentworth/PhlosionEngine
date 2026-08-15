@@ -384,17 +384,28 @@ inline WorldPsConstants makeWorldPsConstants(
             constants.materialTimeSec = textureData->materialFlags;
         }
 
-        // Native character eye materials need two source-only clear-coat
-        // values in addition to the generic PBR factors and camera payload.
-        // materialRect0U/Rect1H cannot carry them here: generic packing uses
-        // those slots for surface roughness and camera Z. Keep the source coat
-        // roughness and coverage marker in PS-only slots that mode 28 does not
-        // otherwise consume. In particular, this prevents the eye coat from
-        // changing when the camera crosses the world-Z origin.
+        // Native character eye materials retain two full material vectors and
+        // a premultiplied layer-5 highlight color in addition to generic PBR
+        // factors and camera payload. Mode 28/30 never evaluates projected
+        // ground shadows, so those PS-only rows provide lossless transport
+        // without expanding the fixed 64-DWORD root signature.
         if (textureData->materialMode == 28u ||
             textureData->materialMode == 30u) {
-            constants.materialFlipbook1Frames = textureData->materialRect0U;
-            constants.materialTimeSec = textureData->materialRect1H;
+            constants.projectedShadowRowX = {
+                textureData->materialRect0U,
+                textureData->materialRect0V,
+                textureData->materialRect0W,
+                textureData->materialRect0H};
+            constants.projectedShadowRowY = {
+                textureData->materialRect1U,
+                textureData->materialRect1V,
+                textureData->materialRect1W,
+                textureData->materialRect1H};
+            constants.projectedShadowRowZ = {
+                textureData->materialFlipbook0Cols,
+                textureData->materialFlipbook0Rows,
+                textureData->materialFlipbook0Frames,
+                0.0f};
         }
 
         // Specialized foliage modes use typed source-material payloads, not the

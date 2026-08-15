@@ -1719,7 +1719,7 @@ void main() {
         : vertexUv;
     float textureDetailLodBias =
         ((materialMode >= 1.5 && materialMode < 2.5) ||
-         (materialMode > 28.5 && materialMode < 29.5) ||
+         (materialMode > 27.5 && materialMode < 30.5) ||
          (materialMode > 31.5 && materialMode < 33.5))
             ? drawState.specializedFlipbook1.z
             : 0.0;
@@ -1745,6 +1745,9 @@ void main() {
 
     if ((materialMode >= 1.5 && materialMode < 2.5) ||
         (materialMode > 27.5 && materialMode < 33.5)) {
+        bool nativeEyeClearCoat =
+            (materialMode > 27.5 && materialMode < 28.5) ||
+            (materialMode > 29.5 && materialMode < 30.5);
         bool nativeGastlyFace =
             materialMode > 30.5 &&
             drawState.specializedTimingFlagsAtlas.y > 3.5 &&
@@ -1826,19 +1829,20 @@ void main() {
                   emissiveTextures[nonuniformEXT(materialIndex)],
                   environmentTextures[nonuniformEXT(materialIndex)],
                   textureDetailLodBias,
-                  drawState.pbrFactors,
+                  nativeEyeClearCoat
+                      ? vec4(0.0, drawState.pbrFactors.yzw)
+                      : drawState.pbrFactors,
                   drawState.emissiveAndCamera.rgb,
-                  (materialMode > 1.5 && materialMode < 2.5 &&
-                   drawState.specializedTimingFlagsAtlas.y > 4.5 &&
-                   drawState.specializedTimingFlagsAtlas.y < 5.5)
-                      ? clamp(drawState.specializedRect0.x, 0.0, 1.0)
-                      : -1.0,
-                  (((materialMode > 27.5 && materialMode < 28.5) ||
-                    (materialMode > 29.5 && materialMode < 30.5)) &&
-                   tailFireMaterial.rect1.w < -0.5) ? 0.0 : 1.0);
+                  nativeEyeClearCoat
+                      ? 0.0
+                      : (materialMode > 1.5 && materialMode < 2.5 &&
+                         drawState.specializedTimingFlagsAtlas.y > 4.5 &&
+                         drawState.specializedTimingFlagsAtlas.y < 5.5)
+                            ? clamp(drawState.specializedRect0.x, 0.0, 1.0)
+                            : -1.0,
+                  nativeEyeClearCoat ? 0.0 : 1.0);
         }
-        if ((materialMode > 27.5 && materialMode < 28.5) ||
-            (materialMode > 29.5 && materialMode < 30.5)) {
+        if (nativeEyeClearCoat) {
             linearColor = evaluateNativeEyeClearCoat(
                 linearColor,
                 materialUv,
@@ -1850,9 +1854,10 @@ void main() {
                 worldView.cameraTarget.xyz,
                 normalTextures[nonuniformEXT(materialIndex)],
                 environmentTextures[nonuniformEXT(materialIndex)],
-                drawState.pbrFactors.x,
-                tailFireMaterial.rect0.x,
-                tailFireMaterial.rect1.w);
+                0.0,
+                tailFireMaterial.rect0,
+                tailFireMaterial.rect1,
+                tailFireMaterial.flipbook0.xyz);
         }
     }
     const float toneMappingExposure = 1.15;
