@@ -490,6 +490,11 @@ if (PHLOSION_BUILD_TESTS)
             -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckZaLocalReflectionProbeContract.cmake)
     add_test(
+        NAME PhlosionNativeFresnelEffectContract
+        COMMAND ${CMAKE_COMMAND}
+            -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckNativeFresnelEffectContract.cmake)
+    add_test(
         NAME PhlosionSvNativeSssEnvironmentContract
         COMMAND ${CMAKE_COMMAND}
             -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}

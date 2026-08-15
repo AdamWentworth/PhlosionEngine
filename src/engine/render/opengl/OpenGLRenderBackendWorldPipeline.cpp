@@ -2323,11 +2323,12 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
         }
     )GLSL"
     R"GLSL(
-        vec3 computeMappedNormal(
+        vec3 computeMappedNormalFromTexture(
+            sampler2D normalTexture,
             vec2 sampleUv,
             vec2 uvDx,
             vec2 uvDy,
-            float materialNormalMultiplier) {
+            float sourceNormalScale) {
             // Keep OpenGL tangent-space face handling tied to native front-face
             // classification for stable normal-map response.
             bool isFrontFace = gl_FrontFacing;
@@ -2341,13 +2342,12 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             n *= faceDirection;
 
             vec3 normalTexel = sampleTextureWithWrap(
-                uNormalTexture,
+                normalTexture,
                 sampleUv,
                 uvDx,
                 uvDy).xyz;
             vec2 mapXY = normalTexel.xy * 2.0 - 1.0;
-            mapXY *= max(uNormalScale, 0.0) * 1.25 *
-                max(materialNormalMultiplier, 0.0);
+            mapXY *= max(sourceNormalScale, 0.0);
             // Support both standard tangent-space normals (RGB) and
             // two-channel packed XY normals. Decoded XY maps can use either
             // blue=0 or blue=255 as a sentinel; reconstruct Z in both cases.
@@ -2388,12 +2388,30 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             return mapped;
         }
 
-        vec3 applyWorldLitModel(vec3 linearColor, vec3 n, vec2 sampleUv, vec2 uvDx, vec2 uvDy) {
-            vec4 orm = sampleTextureWithWrap(
-                uMetallicRoughnessTexture,
+        vec3 computeMappedNormal(
+            vec2 sampleUv,
+            vec2 uvDx,
+            vec2 uvDy,
+            float materialNormalMultiplier) {
+            return computeMappedNormalFromTexture(
+                uNormalTexture,
                 sampleUv,
                 uvDx,
-                uvDy);
+                uvDy,
+                max(uNormalScale, 0.0) * 1.25 *
+                    max(materialNormalMultiplier, 0.0));
+        }
+
+        vec3 applyWorldLitModel(vec3 linearColor, vec3 n, vec2 sampleUv, vec2 uvDx, vec2 uvDy) {
+            bool nativeFresnelEffect =
+                uMaterialMode > 33.5 && uMaterialMode < 34.5;
+            vec4 orm = nativeFresnelEffect
+                ? vec4(1.0)
+                : sampleTextureWithWrap(
+                      uMetallicRoughnessTexture,
+                      sampleUv,
+                      uvDx,
+                      uvDy);
             float roughness = clamp(orm.g * clamp(uRoughnessFactor, 0.0, 1.0), 0.16, 1.0);
             float metallic = clamp(orm.b * clamp(uMetallicFactor, 0.0, 1.0), 0.0, 1.0);
             float occTex = sampleTextureWithWrap(
@@ -3114,11 +3132,20 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec2 sampleUv,
             vec2 uvDx,
             vec2 uvDy) {
+            vec3 layerNormal = uUseMetallicRoughnessTexture > 0.5
+                ? computeMappedNormalFromTexture(
+                      uMetallicRoughnessTexture,
+                      sampleUv,
+                      uvDx,
+                      uvDy,
+                      uMaterialFlipbook1.w)
+                : normal;
+            vec3 viewDirection = safeNormalize(
+                uCameraPos - vWorldPos,
+                -safeNormalize(uCameraForward, vec3(0.0, 0.0, -1.0)));
             float nDotV = clamp(dot(
-                normal,
-                safeNormalize(
-                    uCameraPos - vWorldPos,
-                    -safeNormalize(uCameraForward, vec3(0.0, 0.0, -1.0)))),
+                layerNormal,
+                viewDirection),
                 0.0,
                 1.0);
             float angleTerm = 1.0 - max(
@@ -3151,8 +3178,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 (1.0 - fresnelAlpha);
 
             vec3 reflection = reflect(
-                -safeNormalize(uCameraPos - vWorldPos, -uCameraForward),
-                normal);
+                -viewDirection,
+                layerNormal);
             vec3 environmentRadiance = sampleSvLocalSpecularProbe(
                 reflection,
                 clamp(uRoughnessFactor, 0.04, 1.0));

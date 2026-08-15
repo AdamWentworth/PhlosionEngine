@@ -1703,7 +1703,8 @@ void main() {
                 pushData.pbrFactors,
                 vec3(0.0),
                 -1.0,
-                1.0);
+                1.0,
+                false);
             linearColor = evaluateNativeFresnelEffectLayer(
                 linearColor,
                 primaryColor,
@@ -1713,7 +1714,7 @@ void main() {
                 vertexTangent,
                 worldView.cameraPosition.xyz,
                 worldView.cameraForward.xyz,
-                normalTexture,
+                metallicRoughnessTexture,
                 occlusionTexture,
                 emissiveTexture,
                 environmentTexture,
@@ -1749,7 +1750,8 @@ void main() {
                          worldSpecializedMaterial.timingFlagsAtlas.y < 5.5)
                             ? clamp(worldSpecializedMaterial.rect0.x, 0.0, 1.0)
                             : -1.0,
-                  nativeEyeClearCoat ? 0.0 : 1.0);
+                  nativeEyeClearCoat ? 0.0 : 1.0,
+                  true);
         }
         if (nativeEyeClearCoat) {
             linearColor = evaluateNativeEyeClearCoat(

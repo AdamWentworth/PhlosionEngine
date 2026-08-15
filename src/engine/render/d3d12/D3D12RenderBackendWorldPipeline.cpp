@@ -2079,13 +2079,11 @@ float3 perturbNormal2Arb(float3 eyePos, float3 surfNorm, float3 mapN, float2 uv,
   float scale = (det <= 1e-10f) ? 0.0f : faceDirection * rsqrt(det);
   return normalize(T * (mapN.x * scale) + B * (mapN.y * scale) + N * mapN.z);
 }
-float3 computeMappedNormal(PSIn i,
-                           bool isFrontFace,
-                           float2 sampleUv,
-                           float2 uvDx,
-                           float2 uvDy,
-                           bool useNormalTexture,
-                           float normalScale) {
+float3 computeMappedNormalFromTexel(PSIn i,
+                                    bool isFrontFace,
+                                    float2 sampleUv,
+                                    float3 normalTexel,
+                                    float sourceNormalScale) {
   float faceDirection = isFrontFace ? 1.0f : -1.0f;
   float3 n = normalize(i.worldNormal);
   if (dot(n, n) < 1e-6f) {
@@ -2094,11 +2092,8 @@ float3 computeMappedNormal(PSIn i,
     n = normalize(cross(dx, dy));
   }
   n *= faceDirection;
-  if (!useNormalTexture) return n;
-
-  float3 normalTexel = sampleTextureWithWrap(gNormalTex, sampleUv, uvDx, uvDy, uWrapS, uWrapT).xyz;
   float2 mapXY = normalTexel.xy * 2.0f - 1.0f;
-  mapXY *= max(normalScale, 0.0f) * 1.25f;
+  mapXY *= max(sourceNormalScale, 0.0f);
   // Support standard RGB tangent-space normals and two-channel packed XY
   // normals. Decoded XY maps can use blue=0 or blue=255 as a sentinel, so
   // reconstruct Z for both encodings.
@@ -2136,6 +2131,44 @@ float3 computeMappedNormal(PSIn i,
     mapped = perturbNormal2Arb(i.worldPos, n, mapN, sampleUv, faceDirection);
   }
   return mapped;
+}
+
+float3 computeMappedNormal(PSIn i,
+                           bool isFrontFace,
+                           float2 sampleUv,
+                           float2 uvDx,
+                           float2 uvDy,
+                           bool useNormalTexture,
+                           float normalScale) {
+  float3 normalTexel = useNormalTexture
+      ? sampleTextureWithWrap(
+            gNormalTex, sampleUv, uvDx, uvDy, uWrapS, uWrapT).xyz
+      : float3(0.5f, 0.5f, 1.0f);
+  return computeMappedNormalFromTexel(
+      i,
+      isFrontFace,
+      sampleUv,
+      normalTexel,
+      useNormalTexture ? max(normalScale, 0.0f) * 1.25f : 0.0f);
+}
+
+float3 computeMappedFresnelLayerNormal(PSIn i,
+                                       bool isFrontFace,
+                                       float2 sampleUv,
+                                       float2 uvDx,
+                                       float2 uvDy,
+                                       bool useLayerNormalTexture,
+                                       float normalScale) {
+  float3 normalTexel = useLayerNormalTexture
+      ? sampleTextureWithWrap(
+            gMetalRoughTex, sampleUv, uvDx, uvDy, uWrapS, uWrapT).xyz
+      : float3(0.5f, 0.5f, 1.0f);
+  return computeMappedNormalFromTexel(
+      i,
+      isFrontFace,
+      sampleUv,
+      normalTexel,
+      useLayerNormalTexture ? max(normalScale, 0.0f) : 0.0f);
 }
 
 float3 applyNativeGastlyFace(PSIn i,
@@ -3498,7 +3531,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
                                      uvDx,
                                      uvDy,
                                      useNormalTexture,
-                                     useMetallicRoughnessTexture,
+                                     false,
                                      false,
                                      useOcclusionTexture,
                                      false,
@@ -3511,14 +3544,14 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
                                      cameraPos,
                                      cameraForward,
                                      cameraTarget);
-      float3 fresnelNormal = computeMappedNormal(
+      float3 fresnelNormal = computeMappedFresnelLayerNormal(
           i,
           isFrontFace,
           wrappedUv,
           uvDx,
           uvDy,
-          useNormalTexture,
-          normalScale);
+          useMetallicRoughnessTexture,
+          uLightProjectionUvRowU.w);
       outLinear = applyNativeFresnelEffectLayer(
           i,
           outLinear,

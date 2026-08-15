@@ -219,7 +219,8 @@ vec3 evaluateWorldMaterial(vec3 albedo,
                            vec4 factors,
                            vec3 emissiveFactor,
                            float dielectricSpecularIntensity,
-                           float specularIblScale) {
+                           float specularIblScale,
+                           bool useMetallicRoughnessMap) {
     vec3 normal = mappedWorldNormal(
         uv,
         position,
@@ -241,8 +242,10 @@ vec3 evaluateWorldMaterial(vec3 albedo,
         cameraPosition + cameraRight * 0.5 - cameraForward * 0.8660254;
     vec3 light = safeNormalize(
         lightPosition - cameraTarget, vec3(0.45, 0.86, 0.24));
-    vec4 orm = sampleWorldMaterialTexture(
-        metallicRoughnessMap, uv, textureDetailLodBias);
+    vec4 orm = useMetallicRoughnessMap
+        ? sampleWorldMaterialTexture(
+              metallicRoughnessMap, uv, textureDetailLodBias)
+        : vec4(1.0);
     float metallic = clamp(orm.b * factors.y, 0.0, 1.0);
     float roughness = clamp(orm.g * factors.z, 0.16, 1.0);
     float occlusion = mix(
@@ -994,7 +997,7 @@ vec3 evaluateNativeFresnelEffectLayer(
     vec4 sourceTangent,
     vec3 cameraPosition,
     vec3 cameraForwardPacked,
-    sampler2D normalMap,
+    sampler2D layerNormalMap,
     sampler2D occlusionMap,
     sampler2D layerMap,
     sampler2D environmentMap,
@@ -1008,9 +1011,9 @@ vec3 evaluateNativeFresnelEffectLayer(
         position,
         sourceNormal,
         sourceTangent,
-        normalMap,
+        layerNormalMap,
         textureDetailLodBias,
-        factors.x);
+        max(surfaceControls.w, 0.0));
     vec3 cameraForward = safeNormalize(
         cameraForwardPacked,
         vec3(0.0, 0.0, -1.0));
