@@ -1614,6 +1614,7 @@ void main() {
                 metallicRoughnessTexture,
                 occlusionTexture,
                 emissiveTexture,
+                environmentTexture,
                 textureDetailLodBias,
                 worldSpecializedMaterial.timingFlagsAtlas.y,
                 pushData.pbrFactors,

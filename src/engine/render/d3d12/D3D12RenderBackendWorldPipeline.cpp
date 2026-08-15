@@ -2712,7 +2712,6 @@ float3 applyNativeSssSurface(PSIn i,
       albedo,
       max(subsurfaceColor, float3(0.0f, 0.0f, 0.0f)),
       0.35f);
-  float3 diffuse = albedo;
   float wrappedNdotL = saturate((dot(normal, lightDirection) + 0.5f) / 1.5f);
   float subsurfaceFill = saturate(sssMask) *
       (1.0f - max(dot(normal, lightDirection), 0.0f)) * 0.08f;
@@ -2720,18 +2719,36 @@ float3 applyNativeSssSurface(PSIn i,
   float sourceSpecular = pow(
       max(dot(normal, halfDirection), 0.0f),
       specularPower) * 0.04f * 0.45f;
+  float nDotV = saturate(dot(normal, viewDirection));
+  float3 environmentFresnel = fresnelSchlickRoughness(
+      nDotV,
+      float3(0.04f, 0.04f, 0.04f),
+      roughness);
+  // Exact SV SSS variation 56 samples diffuse irradiance at the mapped
+  // normal (tcb_34, LOD 0) and specular radiance at the reflected view
+  // vector (tcb_36, roughness-selected LOD). Source scene cubes are runtime
+  // state, so bridge their proven roles through the shared neutral room.
+  float3 environmentDiffuse = sampleNeutralEnvironment(normal, 1.0f) *
+      albedo * (float3(1.0f, 1.0f, 1.0f) - environmentFresnel) * ao *
+      __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
+  float3 reflection = reflect(-viewDirection, normal);
+  float3 environmentSpecular = sampleNeutralEnvironment(
+      reflection,
+      roughness) * environmentFresnel *
+      computeSpecularOcclusion(nDotV, ao, roughness) *
+      __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+  float3 directDiffuse = albedo * 0.78f * wrappedNdotL * ao;
   float qualityDetail = saturate(
       (0.90f - litTextureDetailLodBias()) / 1.30f);
   float fibreRelief = saturate(
       (coarseRoughness - roughness) * 3.25f);
-  float nDotV = saturate(dot(normal, viewDirection));
   float velvet = pow(1.0f - nDotV, 2.5f);
   float fibreSheen = fibreSurface
       ? qualityDetail * wrappedNdotL *
             (fibreRelief * (0.22f + 0.20f * velvet) + velvet * 0.08f)
       : 0.0f;
   return max(
-      diffuse * (0.34f + 0.78f * wrappedNdotL) * ao +
+      environmentDiffuse + directDiffuse + environmentSpecular +
           subsurfaceTint * subsurfaceFill +
           float3(sourceSpecular, sourceSpecular, sourceSpecular) +
           albedo * fibreSheen,
@@ -2941,10 +2958,11 @@ float3 applyNativeEyeClearCoat(PSIn i,
       (float3(1.0f, 1.0f, 1.0f) - fresnel * 0.18f) +
       boundedCoat * sceneCoatBridge;
 
-  // The compiled highlight branch proves these material inputs, while its
-  // fp_c8[96] scene/light vector remains anonymous. Evaluate the authored
+  // The compiled highlight branch proves these material inputs and classifies
+  // fp_c8[96] as an optional point-light position/enable field. Its bound
+  // source value and light energy are unavailable. Evaluate the authored
   // GGX/tint/energy portion against Phlosion's isolated viewer-light bridge;
-  // the bounded bridge prevents an unknown source exposure from becoming an
+  // the bounded bridge prevents unknown source exposure from becoming an
   // invented full-eye emissive wash.
   float3 highlightEmission = max(
       uProjectedShadowRowZ.xyz,

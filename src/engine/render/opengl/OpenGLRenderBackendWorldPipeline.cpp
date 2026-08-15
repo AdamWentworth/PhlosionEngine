@@ -2826,7 +2826,6 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 albedo,
                 max(uEmissiveFactor, vec3(0.0)),
                 0.35);
-            vec3 diffuse = albedo;
             float wrappedNdotL = clamp(
                 (dot(n, lightDirection) + 0.5) / 1.5,
                 0.0,
@@ -2837,6 +2836,26 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float sourceSpecular = pow(
                 max(dot(n, halfDirection), 0.0),
                 specularPower) * 0.04 * 0.45;
+            float nDotV = clamp(dot(n, viewDirection), 0.0, 1.0);
+            vec3 environmentFresnel = fresnelSchlickRoughness(
+                nDotV,
+                vec3(0.04),
+                roughness);
+            // Exact SV SSS variation 56 samples diffuse irradiance at the
+            // mapped normal (tcb_34, LOD 0) and specular radiance at the
+            // reflected view vector (tcb_36, roughness-selected LOD). The
+            // source scene cubes are runtime state, so use Phlosion's shared
+            // neutral environment while preserving those proven roles.
+            vec3 environmentDiffuse = sampleNeutralEnvironment(n, 1.0) *
+                albedo * (vec3(1.0) - environmentFresnel) * ao *
+                __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
+            vec3 reflection = reflect(-viewDirection, n);
+            vec3 environmentSpecular = sampleNeutralEnvironment(
+                reflection,
+                roughness) * environmentFresnel *
+                computeSpecularOcclusion(nDotV, ao, roughness) *
+                __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+            vec3 directDiffuse = albedo * 0.78 * wrappedNdotL * ao;
             // The optional fibre profile is a Phlosion reconstruction over
             // source-proven scalar roughness. Smooth SSS surfaces skip it.
             float qualityDetail = clamp(
@@ -2847,14 +2866,13 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 (coarseRoughness - roughness) * 3.25,
                 0.0,
                 1.0);
-            float nDotV = clamp(dot(n, viewDirection), 0.0, 1.0);
             float velvet = pow(1.0 - nDotV, 2.5);
             float fibreSheen = fibreSurface
                 ? qualityDetail * wrappedNdotL *
                       (fibreRelief * (0.22 + 0.20 * velvet) + velvet * 0.08)
                 : 0.0;
             return max(
-                diffuse * (0.34 + 0.78 * wrappedNdotL) * ao +
+                environmentDiffuse + directDiffuse + environmentSpecular +
                     subsurfaceTint * subsurfaceFill +
                     vec3(sourceSpecular) + albedo * fibreSheen,
                 vec3(0.0));
@@ -3145,10 +3163,11 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 (vec3(1.0) - fresnel * 0.18) +
                 boundedCoat * sceneCoatBridge;
 
-            // Source material fields are exact; the anonymous fp_c8[96]
-            // scene/light vector is not. Keep that uncertainty isolated in a
-            // bounded viewer-light bridge instead of treating layer-5
-            // emission as a material-wide glow.
+            // Source material fields are exact, and fp_c8[96] is proven as an
+            // optional point-light position/enable field. Its bound source
+            // value and light energy are unavailable, so keep that uncertainty
+            // isolated in a bounded viewer-light bridge instead of treating
+            // layer-5 emission as a material-wide glow.
             vec3 highlightEmission = max(uMaterialFlipbook0.xyz, vec3(0.0));
             float highlightEnergy = max(
                 highlightEmission.x,
@@ -3522,8 +3541,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 // normal. Applying it to generic PBR turns its small authored
                 // highlight sphere into full-eye white striping. The cook
                 // already resolves that footprint into EyeFinal; retain a
-                // stable shell normal until the anonymous projected scene
-                // term can reproduce the source combination.
+                // stable shell normal until the projected/shadow/environment
+                // scene resources can reproduce the source combination.
                 vec3 eyeSurfaceNormal = safeNormalize(
                     vWorldNormal,
                     vec3(0.0, 1.0, 0.0));

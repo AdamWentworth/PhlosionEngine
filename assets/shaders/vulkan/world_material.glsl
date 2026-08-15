@@ -629,6 +629,7 @@ vec3 evaluateNativeSssSurface(vec3 albedo,
                               sampler2D roughnessMap,
                               sampler2D occlusionMap,
                               sampler2D sssMaskMap,
+                              sampler2D environmentMap,
                               float textureDetailLodBias,
                               float surfaceProfile,
                               vec4 factors,
@@ -695,7 +696,6 @@ vec3 evaluateNativeSssSurface(vec3 albedo,
         sourceAlbedo,
         max(subsurfaceColor, vec3(0.0)),
         0.35);
-    vec3 diffuse = sourceAlbedo;
     float wrappedNdotL = clamp(
         (dot(normal, lightDirection) + 0.5) / 1.5,
         0.0,
@@ -706,6 +706,26 @@ vec3 evaluateNativeSssSurface(vec3 albedo,
     float sourceSpecular = pow(
         max(dot(normal, halfDirection), 0.0),
         specularPower) * 0.04 * 0.45;
+    float nDotV = clamp(dot(normal, viewDirection), 0.0, 1.0);
+    vec3 environmentFresnel = fresnelSchlickRoughness(
+        nDotV,
+        vec3(0.04),
+        roughness);
+    // Exact SV SSS variation 56 samples diffuse irradiance at the mapped
+    // normal (tcb_34, LOD 0) and specular radiance at the reflected view
+    // vector (tcb_36, roughness-selected LOD). Source scene cubes are runtime
+    // state, so bridge their proven roles through the shared neutral room.
+    vec3 environmentDiffuse = sampleNeutralEnvironment(
+        environmentMap,
+        normal,
+        1.0) * sourceAlbedo * (vec3(1.0) - environmentFresnel) * ao * 1.26;
+    vec3 reflection = reflect(-viewDirection, normal);
+    vec3 environmentSpecular = sampleNeutralEnvironment(
+        environmentMap,
+        reflection,
+        roughness) * environmentFresnel *
+        computeSpecularOcclusion(nDotV, ao, roughness) * 0.44;
+    vec3 directDiffuse = sourceAlbedo * 0.78 * wrappedNdotL * ao;
     float qualityDetail = clamp(
         (0.90 - textureDetailLodBias) / 1.30,
         0.0,
@@ -714,14 +734,13 @@ vec3 evaluateNativeSssSurface(vec3 albedo,
         (coarseRoughness - roughness) * 3.25,
         0.0,
         1.0);
-    float nDotV = clamp(dot(normal, viewDirection), 0.0, 1.0);
     float velvet = pow(1.0 - nDotV, 2.5);
     float fibreSheen = fibreSurface
         ? qualityDetail * wrappedNdotL *
               (fibreRelief * (0.22 + 0.20 * velvet) + velvet * 0.08)
         : 0.0;
     return max(
-        diffuse * (0.34 + 0.78 * wrappedNdotL) * ao +
+        environmentDiffuse + directDiffuse + environmentSpecular +
             subsurfaceTint * subsurfaceFill +
             vec3(sourceSpecular) + sourceAlbedo * fibreSheen,
         vec3(0.0));
@@ -1050,7 +1069,8 @@ vec3 evaluateNativeEyeClearCoat(vec3 linearColor,
         (vec3(1.0) - fresnel * 0.18) +
         boundedCoat * sceneCoatBridge;
 
-    // fp_c8[96] remains an anonymous source scene/light vector. Preserve all
+    // fp_c8[96] is an optional source point-light position/enable field. Its
+    // bound source value and light energy remain unavailable; preserve all
     // proven material inputs while isolating that unknown state in the same
     // bounded viewer-light bridge used by the other backends.
     highlightEmission = max(highlightEmission, vec3(0.0));

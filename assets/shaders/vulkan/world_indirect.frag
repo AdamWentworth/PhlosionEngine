@@ -1771,6 +1771,7 @@ void main() {
                 metallicRoughnessTextures[nonuniformEXT(materialIndex)],
                 occlusionTextures[nonuniformEXT(materialIndex)],
                 emissiveTextures[nonuniformEXT(materialIndex)],
+                environmentTextures[nonuniformEXT(materialIndex)],
                 textureDetailLodBias,
                 drawState.specializedTimingFlagsAtlas.y,
                 drawState.pbrFactors,
