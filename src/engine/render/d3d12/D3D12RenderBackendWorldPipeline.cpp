@@ -2738,6 +2738,75 @@ float3 applyNativeSssSurface(PSIn i,
       float3(0.0f, 0.0f, 0.0f));
 }
 
+float3 decodeSvLocalProbeTexel(int2 texel) {
+  float4 packedRg = gEnvTex.Load(int3(texel, 0));
+  float4 packedBa = gEnvTex.Load(int3(texel + int2(1, 0), 0));
+  uint4 rg = (uint4)round(saturate(packedRg) * 255.0f);
+  uint4 ba = (uint4)round(saturate(packedBa) * 255.0f);
+  return float3(
+      f16tof32(rg.r | (rg.g << 8u)),
+      f16tof32(rg.b | (rg.a << 8u)),
+      f16tof32(ba.r | (ba.g << 8u)));
+}
+
+float3 sampleSvLocalSpecularProbe(float3 direction, float roughness) {
+  uint atlasWidth = 0u;
+  uint atlasHeight = 0u;
+  gEnvTex.GetDimensions(atlasWidth, atlasHeight);
+  if (atlasWidth != atlasHeight * 3u ||
+      atlasHeight < 2u || (atlasHeight & 1u) != 0u) {
+    return sampleNeutralEnvironment(direction, roughness);
+  }
+  int faceSize = (int)(atlasHeight / 2u);
+  float3 d = safeNormalize(direction, float3(0.0f, 0.0f, 1.0f));
+  float3 a = abs(d);
+  int face;
+  float2 faceUv;
+  if (a.x >= a.y && a.x >= a.z) {
+    if (d.x >= 0.0f) {
+      face = 0;
+      faceUv = float2(-d.z, -d.y) / a.x;
+    } else {
+      face = 1;
+      faceUv = float2(d.z, -d.y) / a.x;
+    }
+  } else if (a.y >= a.z) {
+    if (d.y >= 0.0f) {
+      face = 2;
+      faceUv = float2(d.x, d.z) / a.y;
+    } else {
+      face = 3;
+      faceUv = float2(d.x, -d.z) / a.y;
+    }
+  } else if (d.z >= 0.0f) {
+    face = 4;
+    faceUv = float2(d.x, -d.y) / a.z;
+  } else {
+    face = 5;
+    faceUv = float2(-d.x, -d.y) / a.z;
+  }
+  float2 p = saturate(faceUv * 0.5f + 0.5f) * (float)faceSize - 0.5f;
+  int2 lo = clamp(
+      (int2)floor(p), int2(0, 0), int2(faceSize - 1, faceSize - 1));
+  int2 hi = min(lo + int2(1, 1), int2(faceSize - 1, faceSize - 1));
+  float2 blend = frac(p);
+  int2 origin = int2(
+      (face % 3) * faceSize * 2,
+      (face / 3) * faceSize);
+  float3 c00 = decodeSvLocalProbeTexel(
+      origin + int2(lo.x * 2, lo.y));
+  float3 c10 = decodeSvLocalProbeTexel(
+      origin + int2(hi.x * 2, lo.y));
+  float3 c01 = decodeSvLocalProbeTexel(
+      origin + int2(lo.x * 2, hi.y));
+  float3 c11 = decodeSvLocalProbeTexel(
+      origin + int2(hi.x * 2, hi.y));
+  return lerp(
+      lerp(c00, c10, blend.x),
+      lerp(c01, c11, blend.x),
+      blend.y);
+}
+
 float3 nativeFresnelEffectBase(float3 baseMap) {
   float3 tinted = max(baseMap, float3(0.0f, 0.0f, 0.0f)) *
       max(uProjectedShadowRowX.rgb, float3(0.0f, 0.0f, 0.0f));
@@ -2800,7 +2869,7 @@ float3 applyNativeFresnelEffectLayer(PSIn i,
       max(uProjectedShadowRowY.rgb, float3(0.0f, 0.0f, 0.0f)) *
       ao * max(uLightProjectionUvRowU.y, 0.0f) *
       (1.0f - fresnelAlpha);
-  float3 environmentRadiance = sampleNeutralEnvironment(
+  float3 environmentRadiance = sampleSvLocalSpecularProbe(
       reflect(-viewDirection, normal),
       clamp(roughnessFactor, 0.04f, 1.0f));
   float3 f0 = lerp(

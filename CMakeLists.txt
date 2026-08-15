@@ -479,4 +479,9 @@ if (PHLOSION_BUILD_TESTS)
         COMMAND ${CMAKE_COMMAND}
             -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckPackedNormalContract.cmake)
+    add_test(
+        NAME PhlosionSvLocalSpecularProbeContract
+        COMMAND ${CMAKE_COMMAND}
+            -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckSvLocalSpecularProbeContract.cmake)
 endif()

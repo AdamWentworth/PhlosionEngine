@@ -727,6 +727,89 @@ vec3 evaluateNativeSssSurface(vec3 albedo,
         vec3(0.0));
 }
 
+float decodeSvLocalProbeHalf(uint bits) {
+    uint exponentBits = (bits >> 10u) & 31u;
+    uint mantissaBits = bits & 1023u;
+    float signValue = (bits & 32768u) != 0u ? -1.0 : 1.0;
+    if (exponentBits == 0u) {
+        return signValue * float(mantissaBits) * exp2(-24.0);
+    }
+    if (exponentBits == 31u) return 0.0;
+    return signValue *
+        (1.0 + float(mantissaBits) * (1.0 / 1024.0)) *
+        exp2(float(exponentBits) - 15.0);
+}
+
+vec3 decodeSvLocalProbeTexel(sampler2D environmentMap, ivec2 texel) {
+    vec4 packedRg = texelFetch(environmentMap, texel, 0);
+    vec4 packedBa = texelFetch(environmentMap, texel + ivec2(1, 0), 0);
+    uvec4 rg = uvec4(round(clamp(packedRg, 0.0, 1.0) * 255.0));
+    uvec4 ba = uvec4(round(clamp(packedBa, 0.0, 1.0) * 255.0));
+    return vec3(
+        decodeSvLocalProbeHalf(rg.r | (rg.g << 8u)),
+        decodeSvLocalProbeHalf(rg.b | (rg.a << 8u)),
+        decodeSvLocalProbeHalf(ba.r | (ba.g << 8u)));
+}
+
+vec3 sampleSvLocalSpecularProbe(sampler2D environmentMap,
+                                vec3 direction,
+                                float roughness) {
+    ivec2 atlasSize = textureSize(environmentMap, 0);
+    if (atlasSize.x != atlasSize.y * 3 ||
+        atlasSize.y < 2 || (atlasSize.y & 1) != 0) {
+        return sampleNeutralEnvironment(environmentMap, direction, roughness);
+    }
+    int faceSize = atlasSize.y / 2;
+    vec3 d = safeNormalize(direction, vec3(0.0, 0.0, 1.0));
+    vec3 a = abs(d);
+    int face;
+    vec2 faceUv;
+    if (a.x >= a.y && a.x >= a.z) {
+        if (d.x >= 0.0) {
+            face = 0;
+            faceUv = vec2(-d.z, -d.y) / a.x;
+        } else {
+            face = 1;
+            faceUv = vec2(d.z, -d.y) / a.x;
+        }
+    } else if (a.y >= a.z) {
+        if (d.y >= 0.0) {
+            face = 2;
+            faceUv = vec2(d.x, d.z) / a.y;
+        } else {
+            face = 3;
+            faceUv = vec2(d.x, -d.z) / a.y;
+        }
+    } else if (d.z >= 0.0) {
+        face = 4;
+        faceUv = vec2(d.x, -d.y) / a.z;
+    } else {
+        face = 5;
+        faceUv = vec2(-d.x, -d.y) / a.z;
+    }
+    vec2 p = clamp(faceUv * 0.5 + 0.5, 0.0, 1.0) *
+        float(faceSize) - 0.5;
+    ivec2 lo = clamp(
+        ivec2(floor(p)), ivec2(0), ivec2(faceSize - 1));
+    ivec2 hi = min(lo + ivec2(1), ivec2(faceSize - 1));
+    vec2 blend = fract(p);
+    ivec2 origin = ivec2(
+        (face % 3) * faceSize * 2,
+        (face / 3) * faceSize);
+    vec3 c00 = decodeSvLocalProbeTexel(
+        environmentMap, origin + ivec2(lo.x * 2, lo.y));
+    vec3 c10 = decodeSvLocalProbeTexel(
+        environmentMap, origin + ivec2(hi.x * 2, lo.y));
+    vec3 c01 = decodeSvLocalProbeTexel(
+        environmentMap, origin + ivec2(lo.x * 2, hi.y));
+    vec3 c11 = decodeSvLocalProbeTexel(
+        environmentMap, origin + ivec2(hi.x * 2, hi.y));
+    return mix(
+        mix(c00, c10, blend.x),
+        mix(c01, c11, blend.x),
+        blend.y);
+}
+
 vec3 nativeFresnelEffectBase(vec3 baseMap,
                              vec4 baseColor,
                              vec4 surfaceControls) {
@@ -791,7 +874,7 @@ vec3 evaluateNativeFresnelEffectLayer(
         max(layerColor.rgb, vec3(0.0)) *
         ao * max(surfaceControls.y, 0.0) *
         (1.0 - fresnelAlpha);
-    vec3 environmentRadiance = sampleNeutralEnvironment(
+    vec3 environmentRadiance = sampleSvLocalSpecularProbe(
         environmentMap,
         reflect(-viewDirection, normal),
         clamp(factors.z, 0.04, 1.0));
