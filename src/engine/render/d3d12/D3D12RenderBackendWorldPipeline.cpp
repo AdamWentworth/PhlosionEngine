@@ -2358,6 +2358,10 @@ float3 applyWorldLitModel(PSIn i,
   return max(shaded + emissive, float3(0.0f, 0.0f, 0.0f));
 }
 
+float3 sampleZaLocalReflectionProbe(float3 direction,
+                                    float sourceLod,
+                                    float fallbackRoughness);
+
 float3 applyNativeIkCharacter(PSIn i,
                               bool isFrontFace,
                               float3 linearColor,
@@ -2642,8 +2646,9 @@ float3 applyNativeIkCharacter(PSIn i,
       reflectionBlur * 0.16f,
       0.04f,
       0.92f);
-  float3 environmentRadiance = sampleNeutralEnvironment(
+  float3 environmentRadiance = sampleZaLocalReflectionProbe(
       reflection,
+      reflectionBlur + max(litTextureDetailLodBias(), 0.0f),
       reflectionRoughness);
   float grazingResponse = lerp(
       1.0f,
@@ -2872,6 +2877,87 @@ float3 sampleSvLocalSpecularProbe(float3 direction, float roughness) {
       lerp(c00, c10, blend.x),
       lerp(c01, c11, blend.x),
       blend.y);
+}
+
+float3 sampleZaLocalReflectionProbeMip(float3 direction,
+                                       int baseFaceSize,
+                                       int mipLevel) {
+  int mipSize = max(baseFaceSize >> mipLevel, 1);
+  float3 d = safeNormalize(direction, float3(0.0f, 0.0f, 1.0f));
+  float3 a = abs(d);
+  int face;
+  float2 faceUv;
+  if (a.x >= a.y && a.x >= a.z) {
+    if (d.x >= 0.0f) {
+      face = 0;
+      faceUv = float2(-d.z, -d.y) / a.x;
+    } else {
+      face = 1;
+      faceUv = float2(d.z, -d.y) / a.x;
+    }
+  } else if (a.y >= a.z) {
+    if (d.y >= 0.0f) {
+      face = 2;
+      faceUv = float2(d.x, d.z) / a.y;
+    } else {
+      face = 3;
+      faceUv = float2(d.x, -d.z) / a.y;
+    }
+  } else if (d.z >= 0.0f) {
+    face = 4;
+    faceUv = float2(d.x, -d.y) / a.z;
+  } else {
+    face = 5;
+    faceUv = float2(-d.x, -d.y) / a.z;
+  }
+  float2 p = saturate(faceUv * 0.5f + 0.5f) *
+      (float)mipSize - 0.5f;
+  int2 lo = clamp(
+      (int2)floor(p), int2(0, 0), int2(mipSize - 1, mipSize - 1));
+  int2 hi = min(lo + int2(1, 1), int2(mipSize - 1, mipSize - 1));
+  float2 blend = frac(p);
+  int mipStripY = baseFaceSize * 4 - mipSize * 4;
+  int2 origin = int2(
+      (face % 3) * mipSize * 2,
+      mipStripY + (face / 3) * mipSize);
+  float3 c00 = decodeSvLocalProbeTexel(
+      origin + int2(lo.x * 2, lo.y));
+  float3 c10 = decodeSvLocalProbeTexel(
+      origin + int2(hi.x * 2, lo.y));
+  float3 c01 = decodeSvLocalProbeTexel(
+      origin + int2(lo.x * 2, hi.y));
+  float3 c11 = decodeSvLocalProbeTexel(
+      origin + int2(hi.x * 2, hi.y));
+  return lerp(
+      lerp(c00, c10, blend.x),
+      lerp(c01, c11, blend.x),
+      blend.y);
+}
+
+float3 sampleZaLocalReflectionProbe(float3 direction,
+                                    float sourceLod,
+                                    float fallbackRoughness) {
+  uint atlasWidth = 0u;
+  uint atlasHeight = 0u;
+  gEnvTex.GetDimensions(atlasWidth, atlasHeight);
+  if (atlasWidth < 6u || atlasWidth % 6u != 0u) {
+    return sampleNeutralEnvironment(direction, fallbackRoughness);
+  }
+  uint faceSize = atlasWidth / 6u;
+  if (atlasHeight != faceSize * 4u - 2u ||
+      (faceSize & (faceSize - 1u)) != 0u) {
+    return sampleNeutralEnvironment(direction, fallbackRoughness);
+  }
+  int maxMip = (int)round(log2((float)faceSize));
+  float lod = clamp(sourceLod, 0.0f, (float)maxMip);
+  int lo = (int)floor(lod);
+  int hi = min(lo + 1, maxMip);
+  return lerp(
+      sampleZaLocalReflectionProbeMip(
+          direction, (int)faceSize, lo),
+      sampleZaLocalReflectionProbeMip(
+          direction, (int)faceSize, hi),
+      frac(lod));
 }
 
 float3 nativeFresnelEffectBase(float3 baseMap) {

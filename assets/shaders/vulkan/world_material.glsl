@@ -347,6 +347,11 @@ vec3 nativeIkCharacterRotateHue(vec3 color, float hueOffset) {
     return nativeIkCharacterHsvToRgb(hsv);
 }
 
+vec3 sampleZaLocalReflectionProbe(sampler2D environmentMap,
+                                  vec3 direction,
+                                  float sourceLod,
+                                  float fallbackRoughness);
+
 vec3 evaluateNativeIkCharacter(vec3 albedo,
                                vec2 uv,
                                vec3 position,
@@ -620,10 +625,8 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
 
     // IkCharacter's decompiled Z-A body variant has no roughness input or
     // generic PBR outer coat. It shapes direct specular from the authored
-    // mask plus per-layer offset/contrast, and samples a local reflection
-    // cube with ReflectionsBlur. Reproduce that contract with Phlosion's
-    // neutral environment instead of flattening every material to 0.5
-    // roughness.
+    // mask plus per-layer offset/contrast, and samples the material's local
+    // reflection cube at the literal ReflectionsBlur LOD.
     vec3 halfDirection = safeNormalize(
         lightDirection + viewDirection,
         normal);
@@ -649,9 +652,10 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         reflectionBlur * 0.16,
         0.04,
         0.92);
-    vec3 environmentRadiance = sampleNeutralEnvironment(
+    vec3 environmentRadiance = sampleZaLocalReflectionProbe(
         environmentMap,
         reflection,
+        reflectionBlur + max(textureDetailLodBias, 0.0),
         reflectionRoughness);
     float grazingResponse = mix(
         1.0,
@@ -886,6 +890,89 @@ vec3 sampleSvLocalSpecularProbe(sampler2D environmentMap,
         mix(c00, c10, blend.x),
         mix(c01, c11, blend.x),
         blend.y);
+}
+
+vec3 sampleZaLocalReflectionProbeMip(sampler2D environmentMap,
+                                     vec3 direction,
+                                     int baseFaceSize,
+                                     int mipLevel) {
+    int mipSize = max(baseFaceSize >> mipLevel, 1);
+    vec3 d = safeNormalize(direction, vec3(0.0, 0.0, 1.0));
+    vec3 a = abs(d);
+    int face;
+    vec2 faceUv;
+    if (a.x >= a.y && a.x >= a.z) {
+        if (d.x >= 0.0) {
+            face = 0;
+            faceUv = vec2(-d.z, -d.y) / a.x;
+        } else {
+            face = 1;
+            faceUv = vec2(d.z, -d.y) / a.x;
+        }
+    } else if (a.y >= a.z) {
+        if (d.y >= 0.0) {
+            face = 2;
+            faceUv = vec2(d.x, d.z) / a.y;
+        } else {
+            face = 3;
+            faceUv = vec2(d.x, -d.z) / a.y;
+        }
+    } else if (d.z >= 0.0) {
+        face = 4;
+        faceUv = vec2(d.x, -d.y) / a.z;
+    } else {
+        face = 5;
+        faceUv = vec2(-d.x, -d.y) / a.z;
+    }
+    vec2 p = clamp(faceUv * 0.5 + 0.5, 0.0, 1.0) *
+        float(mipSize) - 0.5;
+    ivec2 lo = clamp(
+        ivec2(floor(p)), ivec2(0), ivec2(mipSize - 1));
+    ivec2 hi = min(lo + ivec2(1), ivec2(mipSize - 1));
+    vec2 blend = fract(p);
+    int mipStripY = baseFaceSize * 4 - mipSize * 4;
+    ivec2 origin = ivec2(
+        (face % 3) * mipSize * 2,
+        mipStripY + (face / 3) * mipSize);
+    vec3 c00 = decodeSvLocalProbeTexel(
+        environmentMap, origin + ivec2(lo.x * 2, lo.y));
+    vec3 c10 = decodeSvLocalProbeTexel(
+        environmentMap, origin + ivec2(hi.x * 2, lo.y));
+    vec3 c01 = decodeSvLocalProbeTexel(
+        environmentMap, origin + ivec2(lo.x * 2, hi.y));
+    vec3 c11 = decodeSvLocalProbeTexel(
+        environmentMap, origin + ivec2(hi.x * 2, hi.y));
+    return mix(
+        mix(c00, c10, blend.x),
+        mix(c01, c11, blend.x),
+        blend.y);
+}
+
+vec3 sampleZaLocalReflectionProbe(sampler2D environmentMap,
+                                  vec3 direction,
+                                  float sourceLod,
+                                  float fallbackRoughness) {
+    ivec2 atlasSize = textureSize(environmentMap, 0);
+    if (atlasSize.x < 6 || atlasSize.x % 6 != 0) {
+        return sampleNeutralEnvironment(
+            environmentMap, direction, fallbackRoughness);
+    }
+    int faceSize = atlasSize.x / 6;
+    if (atlasSize.y != faceSize * 4 - 2 ||
+        (faceSize & (faceSize - 1)) != 0) {
+        return sampleNeutralEnvironment(
+            environmentMap, direction, fallbackRoughness);
+    }
+    int maxMip = int(round(log2(float(faceSize))));
+    float lod = clamp(sourceLod, 0.0, float(maxMip));
+    int lo = int(floor(lod));
+    int hi = min(lo + 1, maxMip);
+    return mix(
+        sampleZaLocalReflectionProbeMip(
+            environmentMap, direction, faceSize, lo),
+        sampleZaLocalReflectionProbeMip(
+            environmentMap, direction, faceSize, hi),
+        fract(lod));
 }
 
 vec3 nativeFresnelEffectBase(vec3 baseMap,
