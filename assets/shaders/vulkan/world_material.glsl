@@ -540,66 +540,81 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         normalDotLightSigned * 0.5 + 0.5,
         0.0,
         1.0);
-    // HalfLambertBias is a response selector, not an additive light bias.
-    // Adding a source value of 1 saturated every normal and erased stone,
-    // feather, and skin relief. Blend ordinary and wrapped Lambert instead.
-    float halfLambert = mix(
-        lambert,
-        wrappedLambert,
-        clamp(factors.y, 0.0, 1.0));
-    halfLambert = mix(
-        halfLambert,
-        sqrt(max(halfLambert, 0.0)),
-        diffusionLevels);
-    float geometricLambert = max(dot(geometricNormal, lightDirection), 0.0);
-    float geometricWrappedLambert = clamp(
-        dot(geometricNormal, lightDirection) * 0.5 + 0.5,
-        0.0,
-        1.0);
-    float geometricHalfLambert = mix(
-        geometricLambert,
-        geometricWrappedLambert,
-        clamp(factors.y, 0.0, 1.0));
-    geometricHalfLambert = mix(
-        geometricHalfLambert,
-        sqrt(max(geometricHalfLambert, 0.0)),
-        diffusionLevels);
-    // IkCharacter carries a second lighting-domain transform after its
-    // half-Lambert response. The source default is Shift=-0.5 and
-    // Contrast=0, so center shift around -0.5 rather than interpreting the
-    // raw signed value as an additive darkness term. The bounded scale keeps
-    // authored outliers from becoming the body-wide black bands produced by
-    // the old AO approximation.
-    // Existing cooked assets predate the source color-process payload and
-    // therefore carry an all-zero block. HueShiftBias is authored well above
-    // zero in IkCharacter, so it also serves as a backwards-compatible
-    // presence marker until those assets are recooked.
     bool hasAuthoredColorProcess = shadowProcessParameters.w > 0.05;
     float authoredShadowBias = hasAuthoredColorProcess
         ? shadowProcessParameters.x
         : 1.0;
+    // Selected Z-A IkCharacter 514/594 applies ShadowingBias directly to the
+    // wrapped N.L domain as x + bias * (x^2 - x). It is not a power curve.
+    float biasedLambert = clamp(
+        wrappedLambert + authoredShadowBias *
+            (wrappedLambert * wrappedLambert - wrappedLambert),
+        0.0,
+        1.0);
+    // Retain the prior eye response until the separate 682/1214 composite is
+    // reconstructed; the exact body equations below are proven for 514/594.
+    float halfLambert = nativeEye
+        ? mix(lambert, wrappedLambert, clamp(factors.y, 0.0, 1.0))
+        : biasedLambert;
+    float geometricNormalDotLight = dot(geometricNormal, lightDirection);
+    float geometricLambert = max(geometricNormalDotLight, 0.0);
+    float geometricWrappedLambert = clamp(
+        geometricNormalDotLight * 0.5 + 0.5,
+        0.0,
+        1.0);
+    float geometricBiasedLambert = clamp(
+        geometricWrappedLambert + authoredShadowBias *
+            (geometricWrappedLambert * geometricWrappedLambert -
+             geometricWrappedLambert),
+        0.0,
+        1.0);
+    float geometricHalfLambert = nativeEye
+        ? mix(
+              geometricLambert,
+              geometricWrappedLambert,
+              clamp(factors.y, 0.0, 1.0))
+        : geometricBiasedLambert;
     float authoredShadowShift = hasAuthoredColorProcess
         ? shadowProcessParameters.y
         : -0.5;
     float authoredShadowContrast = hasAuthoredColorProcess
         ? shadowProcessParameters.z
         : 0.0;
-    float authoredShadowDomain = clamp(
-        (1.0 - halfLambert) +
-            (authoredShadowShift + 0.5) * 0.24,
-        0.0,
-        1.0);
-    authoredShadowDomain = clamp(
-        (authoredShadowDomain - 0.5) *
-                (1.0 + max(authoredShadowContrast, 0.0) * 1.5) +
-            0.5,
-        0.0,
-        1.0);
-    authoredShadowDomain = pow(
-        authoredShadowDomain,
-        clamp(authoredShadowBias, 0.25, 2.0));
-    float shadowAmount =
-        authoredShadowDomain * clamp(factors.z, 0.0, 1.0);
+    float shadowAmount;
+    if (nativeEye) {
+        float eyeShadowDomain = clamp(
+            (1.0 - halfLambert) +
+                (authoredShadowShift + 0.5) * 0.24,
+            0.0,
+            1.0);
+        eyeShadowDomain = clamp(
+            (eyeShadowDomain - 0.5) *
+                    (1.0 + max(authoredShadowContrast, 0.0) * 1.5) +
+                0.5,
+            0.0,
+            1.0);
+        shadowAmount = pow(
+            eyeShadowDomain,
+            clamp(authoredShadowBias, 0.25, 2.0)) *
+            clamp(factors.z, 0.0, 1.0);
+    } else {
+        // HalfLambertBias squares into symmetric band endpoints, then both
+        // endpoints are scaled by ShadowStrength. The selected body program
+        // linearly clamps the inverse position inside that band.
+        float halfLambertBiasSquared = factors.y * factors.y;
+        float shadowStrength = factors.z;
+        float shadowBandLow =
+            (0.5 - 0.5 * halfLambertBiasSquared) * shadowStrength;
+        float shadowBandHigh =
+            (0.5 + 0.5 * halfLambertBiasSquared) * shadowStrength;
+        float shadowBandWidth = max(
+            shadowBandHigh - shadowBandLow,
+            1e-5);
+        shadowAmount = clamp(
+            1.0 - (biasedLambert - shadowBandLow) / shadowBandWidth,
+            0.0,
+            1.0);
+    }
     vec3 sourceAlbedo = clamp(albedo, 0.0, 1.0);
     float combinedShadowAmount = shadowAmount;
     vec3 shadowTint = mix(
@@ -607,34 +622,72 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         shadowSpec.rgb,
         combinedShadowAmount);
     vec3 shaded = sourceAlbedo * shadowTint;
-    // The decompiled material program performs separate middle- and
-    // dark-area hue processing. Preserve that separation from AO: these
-    // authored controls tint the existing shadow response and never create a
-    // new dark edge around an eye or layer boundary.
-    float midArea = 4.0 * combinedShadowAmount *
-        (1.0 - combinedShadowAmount);
-    midArea = clamp(
-        (midArea - 0.5) * (1.0 + max(midProcessParameters.y, 0.0)) +
-            0.5 + midProcessParameters.x,
-        0.0,
-        1.0);
-    float darkArea = clamp(
-        (combinedShadowAmount - 0.5) *
-                (1.0 + max(darkProcessParameters.x, 0.0)) +
-            0.5 + midProcessParameters.w,
-        0.0,
-        1.0);
-    float hueStrength = hasAuthoredColorProcess
-        ? clamp(shadowProcessParameters.w, 0.0, 1.0)
-        : 0.0;
-    vec3 midHueColor = nativeIkCharacterRotateHue(
-        shaded,
-        midProcessParameters.z);
-    vec3 darkHueColor = nativeIkCharacterRotateHue(
-        shaded,
-        darkProcessParameters.y);
-    shaded = mix(shaded, midHueColor, midArea * hueStrength * 0.20);
-    shaded = mix(shaded, darkHueColor, darkArea * hueStrength * 0.32);
+    if (!nativeEye && hasAuthoredColorProcess) {
+        // The loose assets do not retain the source scene-light scalar that
+        // feeds this block. biasedLambert is the review light's corresponding
+        // normalized input; every operation after that boundary is literal.
+        float colorProcessLight = biasedLambert;
+        float midDomain = clamp(
+            1.0 - colorProcessLight + midProcessParameters.x,
+            0.0,
+            1.0);
+        float midSmooth = midDomain * midDomain *
+            (3.0 - 2.0 * midDomain);
+        float midArea = clamp(
+            midSmooth * (1.0 + 2.0 * midProcessParameters.y) -
+                midProcessParameters.y,
+            0.0,
+            1.0);
+        float darkDomain = clamp(
+            1.0 - colorProcessLight + midProcessParameters.w,
+            0.0,
+            1.0);
+        float darkSmooth = darkDomain * darkDomain *
+            (3.0 - 2.0 * darkDomain);
+        float darkArea = clamp(
+            darkSmooth * (1.0 + 2.0 * darkProcessParameters.x) -
+                darkProcessParameters.x,
+            0.0,
+            1.0);
+        // ReceiveShadow is scene/draw state and compiles out of the selected
+        // one-option material edges. Neutral scene state is one here.
+        float shadowProcessDomain = clamp(
+            wrappedLambert - authoredShadowShift,
+            0.0,
+            1.0);
+        float shadowProcessSmooth = shadowProcessDomain *
+            shadowProcessDomain * (3.0 - 2.0 * shadowProcessDomain);
+        float shadowProcessArea = clamp(
+            shadowProcessSmooth *
+                    (1.0 + 2.0 * authoredShadowContrast) -
+                authoredShadowContrast,
+            0.0,
+            1.0);
+        // The compiled block enters the middle hue at the middle-area
+        // threshold, then cross-blends against the dark hue at the dark-area
+        // threshold. HueShiftBias is a reflection floor elsewhere; it is not
+        // an arbitrary hue-strength multiplier.
+        vec3 darkHueColor = nativeIkCharacterRotateHue(
+            shaded,
+            darkProcessParameters.y);
+        vec3 midHueColor = nativeIkCharacterRotateHue(
+            shaded,
+            midProcessParameters.z);
+        vec3 baseToMidHue = mix(shaded, midHueColor, midArea);
+        vec3 darkToBaseMid = mix(darkHueColor, baseToMidHue, darkArea);
+        vec3 baseMidToDark = mix(baseToMidHue, darkHueColor, darkArea);
+        float hueAreaScale = 1.0 - 0.5 * midArea *
+            darkProcessParameters.w;
+        shaded = mix(
+            darkToBaseMid,
+            baseMidToDark,
+            shadowProcessArea) * hueAreaScale;
+        // DiffusionLevels scales the source diffuse branch by 1 + 2D before
+        // it is mixed back by scene-light intensity. Use the normalized
+        // review-light input at that missing scene boundary.
+        shaded *= 1.0 + 2.0 * diffusionLevels *
+            (1.0 - colorProcessLight);
+    }
     // The source normal map also perturbs IkCharacter's diffuse term. Its
     // contribution was previously visible only where the authored shadow
     // tint differed strongly from albedo, leaving skin, fur, and pale stone
@@ -678,8 +731,16 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         : rimShape * rimResponse.r * zaIkRimPresentationScale;
     float backRim = nativeEye
         ? 0.0
-        : clamp(-facing, 0.0, 1.0) * rimResponse.g *
-            zaIkRimPresentationScale;
+        : rimShape *
+            smoothstep(
+                0.0,
+                1.0,
+                clamp(
+                    (0.4 - normalDotLightSigned -
+                        clamp(facing, 0.0, 1.0)) * 2.5,
+                    0.0,
+                    1.0)) *
+            rimResponse.g * zaIkRimPresentationScale;
     // Every selected Kanto Z-A material disables EnableHairSpecular. Fur and
     // feather relief stays in the real normal/specular/rim paths; adding a
     // species-classified sheen here would execute a source-disabled branch.
@@ -712,8 +773,14 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     // The compiled source multiplies the layer-resolved intensity path once;
     // the previous square was a viewer gloss workaround, not source behavior.
     float dielectricSpecular = specularStrength;
-    float surfaceSpecular = max(dielectricSpecular, metallic);
-    vec3 specularColor = mix(vec3(1.0), sourceAlbedo, metallic);
+    // Keep mode 35 on its independently reconstructed 682/1214 response.
+    // The proven direct-specular/metallic separation applies to body 514/594.
+    float surfaceSpecular = nativeEye
+        ? max(dielectricSpecular, metallic)
+        : dielectricSpecular;
+    vec3 specularColor = nativeEye
+        ? mix(vec3(1.0), sourceAlbedo, metallic)
+        : vec3(1.0);
     vec3 directSpecular = specularColor * surfaceSpecular * specularLobe *
         normalDotLight * 0.72;
     vec3 reflection = reflect(-viewDirection, normal);
@@ -730,12 +797,15 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         1.0,
         1.35,
         pow(1.0 - normalDotView, 5.0));
-    vec3 environmentSpecular = environmentRadiance *
-        specularColor * surfaceSpecular * grazingResponse *
-        computeSpecularOcclusion(
-            normalDotView,
-            1.0,
-            reflectionRoughness) * 0.44;
+    float environmentOcclusion = computeSpecularOcclusion(
+        normalDotView,
+        1.0,
+        reflectionRoughness);
+    vec3 environmentSpecular = nativeEye
+        ? environmentRadiance * specularColor * surfaceSpecular *
+            grazingResponse * environmentOcclusion * 0.44
+        : environmentRadiance * sourceAlbedo * metallic *
+            grazingResponse * environmentOcclusion * 0.44;
     vec3 diffuse = nativeBase * (1.0 - metallic * 0.85);
     vec3 eyeHighlight = nativeEye
         ? sampleWorldMaterialTexture(

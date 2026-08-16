@@ -2686,60 +2686,85 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 normalDotLightSigned * 0.5 + 0.5,
                 0.0,
                 1.0);
-            // HalfLambertBias selects between ordinary and wrapped Lambert;
-            // it is not an additive term that can saturate the normal map.
-            float halfLambert = mix(
-                lambert,
-                wrappedLambert,
-                clamp(uMetallicFactor, 0.0, 1.0));
-            halfLambert = mix(
-                halfLambert,
-                sqrt(max(halfLambert, 0.0)),
-                diffusionLevels);
-            float geometricLambert = max(
-                dot(geometricNormal, lightDirection),
-                0.0);
-            float geometricWrappedLambert = clamp(
-                dot(geometricNormal, lightDirection) * 0.5 + 0.5,
-                0.0,
-                1.0);
-            float geometricHalfLambert = mix(
-                geometricLambert,
-                geometricWrappedLambert,
-                clamp(uMetallicFactor, 0.0, 1.0));
-            geometricHalfLambert = mix(
-                geometricHalfLambert,
-                sqrt(max(geometricHalfLambert, 0.0)),
-                diffusionLevels);
-            // Older cooked assets have no source color-process block. The
-            // authored HueShiftBias is nonzero, making rect1.w a safe payload
-            // marker while preserving the legacy response for those assets.
             bool hasAuthoredColorProcess = uMaterialRect1.w > 0.05;
             float authoredShadowBias = hasAuthoredColorProcess
                 ? uMaterialRect1.x
                 : 1.0;
+            // Selected Z-A IkCharacter 514/594 uses x + bias * (x^2 - x)
+            // on wrapped N.L. ShadowingBias is not a power curve.
+            float biasedLambert = clamp(
+                wrappedLambert + authoredShadowBias *
+                    (wrappedLambert * wrappedLambert - wrappedLambert),
+                0.0,
+                1.0);
+            // Keep the separate 682/1214 eye composite on its prior response.
+            float halfLambert = nativeEye
+                ? mix(
+                      lambert,
+                      wrappedLambert,
+                      clamp(uMetallicFactor, 0.0, 1.0))
+                : biasedLambert;
+            float geometricNormalDotLight = dot(
+                geometricNormal,
+                lightDirection);
+            float geometricLambert = max(geometricNormalDotLight, 0.0);
+            float geometricWrappedLambert = clamp(
+                geometricNormalDotLight * 0.5 + 0.5,
+                0.0,
+                1.0);
+            float geometricBiasedLambert = clamp(
+                geometricWrappedLambert + authoredShadowBias *
+                    (geometricWrappedLambert * geometricWrappedLambert -
+                     geometricWrappedLambert),
+                0.0,
+                1.0);
+            float geometricHalfLambert = nativeEye
+                ? mix(
+                      geometricLambert,
+                      geometricWrappedLambert,
+                      clamp(uMetallicFactor, 0.0, 1.0))
+                : geometricBiasedLambert;
             float authoredShadowShift = hasAuthoredColorProcess
                 ? uMaterialRect1.y
                 : -0.5;
             float authoredShadowContrast = hasAuthoredColorProcess
                 ? uMaterialRect1.z
                 : 0.0;
-            float authoredShadowDomain = clamp(
-                (1.0 - halfLambert) +
-                    (authoredShadowShift + 0.5) * 0.24,
-                0.0,
-                1.0);
-            authoredShadowDomain = clamp(
-                (authoredShadowDomain - 0.5) *
-                        (1.0 + max(authoredShadowContrast, 0.0) * 1.5) +
-                    0.5,
-                0.0,
-                1.0);
-            authoredShadowDomain = pow(
-                authoredShadowDomain,
-                clamp(authoredShadowBias, 0.25, 2.0));
-            float shadowAmount = authoredShadowDomain *
-                clamp(uRoughnessFactor, 0.0, 1.0);
+            float shadowAmount;
+            if (nativeEye) {
+                float eyeShadowDomain = clamp(
+                    (1.0 - halfLambert) +
+                        (authoredShadowShift + 0.5) * 0.24,
+                    0.0,
+                    1.0);
+                eyeShadowDomain = clamp(
+                    (eyeShadowDomain - 0.5) *
+                            (1.0 + max(authoredShadowContrast, 0.0) * 1.5) +
+                        0.5,
+                    0.0,
+                    1.0);
+                shadowAmount = pow(
+                    eyeShadowDomain,
+                    clamp(authoredShadowBias, 0.25, 2.0)) *
+                    clamp(uRoughnessFactor, 0.0, 1.0);
+            } else {
+                float halfLambertBiasSquared =
+                    uMetallicFactor * uMetallicFactor;
+                float shadowBandLow =
+                    (0.5 - 0.5 * halfLambertBiasSquared) *
+                    uRoughnessFactor;
+                float shadowBandHigh =
+                    (0.5 + 0.5 * halfLambertBiasSquared) *
+                    uRoughnessFactor;
+                float shadowBandWidth = max(
+                    shadowBandHigh - shadowBandLow,
+                    1e-5);
+                shadowAmount = clamp(
+                    1.0 - (biasedLambert - shadowBandLow) /
+                        shadowBandWidth,
+                    0.0,
+                    1.0);
+            }
             float qualityDetail = clamp(
                 (0.90 - litTextureDetailLodBias()) / 1.30,
                 0.0,
@@ -2751,35 +2776,74 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 shadowSpec.rgb,
                 combinedShadowAmount);
             vec3 shaded = albedo * shadowTint;
-            float midArea = 4.0 * combinedShadowAmount *
-                (1.0 - combinedShadowAmount);
-            midArea = clamp(
-                (midArea - 0.5) *
-                        (1.0 + max(uMaterialFlipbook0.y, 0.0)) +
-                    0.5 + uMaterialFlipbook0.x,
-                0.0,
-                1.0);
-            float darkArea = clamp(
-                (combinedShadowAmount - 0.5) *
-                        (1.0 + max(uMaterialFlipbook1.x, 0.0)) +
-                    0.5 + uMaterialFlipbook0.w,
-                0.0,
-                1.0);
-            float hueStrength = hasAuthoredColorProcess
-                ? clamp(uMaterialRect1.w, 0.0, 1.0)
-                : 0.0;
-            vec3 midHsv = lgpeFoliageRgbToHsv(max(shaded, vec3(0.0)));
-            midHsv.x = fract(midHsv.x + uMaterialFlipbook0.z);
-            vec3 darkHsv = lgpeFoliageRgbToHsv(max(shaded, vec3(0.0)));
-            darkHsv.x = fract(darkHsv.x + uMaterialFlipbook1.y);
-            shaded = mix(
-                shaded,
-                lgpeFoliageHsvToRgb(midHsv),
-                midArea * hueStrength * 0.20);
-            shaded = mix(
-                shaded,
-                lgpeFoliageHsvToRgb(darkHsv),
-                darkArea * hueStrength * 0.32);
+            if (!nativeEye && hasAuthoredColorProcess) {
+                // The source scene-light scalar is absent from the loose
+                // assets. Use the normalized review-light counterpart; the
+                // remaining selected-program operations are literal.
+                float colorProcessLight = biasedLambert;
+                float midDomain = clamp(
+                    1.0 - colorProcessLight + uMaterialFlipbook0.x,
+                    0.0,
+                    1.0);
+                float midSmooth = midDomain * midDomain *
+                    (3.0 - 2.0 * midDomain);
+                float midArea = clamp(
+                    midSmooth *
+                            (1.0 + 2.0 * uMaterialFlipbook0.y) -
+                        uMaterialFlipbook0.y,
+                    0.0,
+                    1.0);
+                float darkDomain = clamp(
+                    1.0 - colorProcessLight + uMaterialFlipbook0.w,
+                    0.0,
+                    1.0);
+                float darkSmooth = darkDomain * darkDomain *
+                    (3.0 - 2.0 * darkDomain);
+                float darkArea = clamp(
+                    darkSmooth *
+                            (1.0 + 2.0 * uMaterialFlipbook1.x) -
+                        uMaterialFlipbook1.x,
+                    0.0,
+                    1.0);
+                float shadowProcessDomain = clamp(
+                    wrappedLambert - authoredShadowShift,
+                    0.0,
+                    1.0);
+                float shadowProcessSmooth = shadowProcessDomain *
+                    shadowProcessDomain *
+                    (3.0 - 2.0 * shadowProcessDomain);
+                float shadowProcessArea = clamp(
+                    shadowProcessSmooth *
+                            (1.0 + 2.0 * authoredShadowContrast) -
+                        authoredShadowContrast,
+                    0.0,
+                    1.0);
+                vec3 darkHsv = lgpeFoliageRgbToHsv(
+                    max(shaded, vec3(0.0)));
+                darkHsv.x = fract(darkHsv.x + uMaterialFlipbook1.y);
+                vec3 midHsv = lgpeFoliageRgbToHsv(
+                    max(shaded, vec3(0.0)));
+                midHsv.x = fract(midHsv.x + uMaterialFlipbook0.z);
+                vec3 darkHueColor = lgpeFoliageHsvToRgb(darkHsv);
+                vec3 midHueColor = lgpeFoliageHsvToRgb(midHsv);
+                vec3 baseToMidHue = mix(shaded, midHueColor, midArea);
+                vec3 darkToBaseMid = mix(
+                    darkHueColor,
+                    baseToMidHue,
+                    darkArea);
+                vec3 baseMidToDark = mix(
+                    baseToMidHue,
+                    darkHueColor,
+                    darkArea);
+                float hueAreaScale = 1.0 - 0.5 * midArea *
+                    uMaterialFlipbook1.w;
+                shaded = mix(
+                    darkToBaseMid,
+                    baseMidToDark,
+                    shadowProcessArea) * hueAreaScale;
+                shaded *= 1.0 + 2.0 * diffusionLevels *
+                    (1.0 - colorProcessLight);
+            }
             // Recover local diffuse relief authored in Z-A's normal map as a
             // bounded delta from the geometric-normal response. Broad light
             // stays stable and sharp atlas features cannot recreate dark
@@ -2822,8 +2886,15 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 : rimShape * rimResponse.r * zaIkRimPresentationScale;
             float backRim = nativeEye
                 ? 0.0
-                : clamp(-facing, 0.0, 1.0) * rimResponse.g *
-                    zaIkRimPresentationScale;
+                : rimShape * smoothstep(
+                      0.0,
+                      1.0,
+                      clamp(
+                          (0.4 - normalDotLightSigned -
+                              clamp(facing, 0.0, 1.0)) * 2.5,
+                          0.0,
+                          1.0)) *
+                    rimResponse.g * zaIkRimPresentationScale;
             float specularStrength = clamp(shadowSpec.a, 0.0, 1.0);
             // All selected Kanto Z-A materials disable EnableHairSpecular.
             // Their visible fur/feather relief therefore remains in the real
@@ -2857,10 +2928,16 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             // Compiled IkCharacter applies layer-resolved intensity once;
             // the old square was a viewer gloss workaround, not source math.
             float dielectricSpecular = specularStrength;
-            float surfaceSpecular = max(dielectricSpecular, metallic);
-            vec3 specularColor = mix(vec3(1.0), albedo, metallic);
-            vec3 directSpecular = specularColor * surfaceSpecular * specularLobe *
-                normalDotLight * 0.72;
+            // Keep mode 35 on its independently reconstructed 682/1214
+            // response. The proven separation applies to body 514/594.
+            float surfaceSpecular = nativeEye
+                ? max(dielectricSpecular, metallic)
+                : dielectricSpecular;
+            vec3 specularColor = nativeEye
+                ? mix(vec3(1.0), albedo, metallic)
+                : vec3(1.0);
+            vec3 directSpecular = specularColor * surfaceSpecular *
+                specularLobe * normalDotLight * 0.72;
             vec3 reflection = reflect(-viewDirection, n);
             float reflectionRoughness = clamp(
                 reflectionBlur * 0.16,
@@ -2874,13 +2951,17 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 1.0,
                 1.35,
                 pow(1.0 - normalDotView, 5.0));
-            vec3 environmentSpecular = environmentRadiance *
-                specularColor * surfaceSpecular * grazingResponse *
-                computeSpecularOcclusion(
-                    normalDotView,
-                    1.0,
-                    reflectionRoughness) *
-                __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+            float environmentOcclusion = computeSpecularOcclusion(
+                normalDotView,
+                1.0,
+                reflectionRoughness);
+            vec3 environmentSpecular = nativeEye
+                ? environmentRadiance * specularColor * surfaceSpecular *
+                    grazingResponse * environmentOcclusion *
+                    __PHLOSION_PBR_SPECULAR_IBL_SCALE__
+                : environmentRadiance * albedo * metallic *
+                    grazingResponse * environmentOcclusion *
+                    __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
             vec3 diffuse = nativeBase * (1.0 - metallic * 0.85);
             vec3 eyeHighlight = nativeEye && uUseEmissiveTexture > 0.5
                 ? sampleTextureWithWrap(

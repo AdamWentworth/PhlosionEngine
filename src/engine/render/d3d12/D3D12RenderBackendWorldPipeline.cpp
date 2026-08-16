@@ -2567,53 +2567,63 @@ float3 applyNativeIkCharacter(PSIn i,
   float lambert = max(normalDotLightSigned, 0.0f);
   float wrappedLambert = saturate(
       normalDotLightSigned * 0.5f + 0.5f);
-  // HalfLambertBias selects between ordinary and wrapped Lambert; treating
-  // it as an additive term saturates the normal response at source value 1.
-  float halfLambert = lerp(
-      lambert,
-      wrappedLambert,
-      saturate(halfLambertBias));
-  halfLambert = lerp(
-      halfLambert,
-      sqrt(max(halfLambert, 0.0f)),
-      diffusionLevels);
-  float geometricLambert = max(
-      dot(geometricNormal, lightDirection),
-      0.0f);
-  float geometricWrappedLambert = saturate(
-      dot(geometricNormal, lightDirection) * 0.5f + 0.5f);
-  float geometricHalfLambert = lerp(
-      geometricLambert,
-      geometricWrappedLambert,
-      saturate(halfLambertBias));
-  geometricHalfLambert = lerp(
-      geometricHalfLambert,
-      sqrt(max(geometricHalfLambert, 0.0f)),
-      diffusionLevels);
-  // Older cooked assets have no source color-process block. Authored
-  // HueShiftBias is nonzero, so rowX.w distinguishes the new payload while
-  // retaining the prior neutral response for existing assets.
   bool hasAuthoredColorProcess = uProjectedShadowRowX.w > 0.05f;
   float authoredShadowBias = hasAuthoredColorProcess
       ? uProjectedShadowRowX.x
       : 1.0f;
+  // Selected Z-A IkCharacter 514/594 applies x + bias * (x^2 - x) to
+  // wrapped N.L. ShadowingBias is not a power curve.
+  float biasedLambert = saturate(
+      wrappedLambert + authoredShadowBias *
+          (wrappedLambert * wrappedLambert - wrappedLambert));
+  // Keep 682/1214 on the previous response until the separate eye composite
+  // is reconstructed. The literal body path here is proven for 514/594.
+  float halfLambert = nativeEye
+      ? lerp(lambert, wrappedLambert, saturate(halfLambertBias))
+      : biasedLambert;
+  float geometricNormalDotLight = dot(geometricNormal, lightDirection);
+  float geometricLambert = max(geometricNormalDotLight, 0.0f);
+  float geometricWrappedLambert = saturate(
+      geometricNormalDotLight * 0.5f + 0.5f);
+  float geometricBiasedLambert = saturate(
+      geometricWrappedLambert + authoredShadowBias *
+          (geometricWrappedLambert * geometricWrappedLambert -
+           geometricWrappedLambert));
+  float geometricHalfLambert = nativeEye
+      ? lerp(
+            geometricLambert,
+            geometricWrappedLambert,
+            saturate(halfLambertBias))
+      : geometricBiasedLambert;
   float authoredShadowShift = hasAuthoredColorProcess
       ? uProjectedShadowRowX.y
       : -0.5f;
   float authoredShadowContrast = hasAuthoredColorProcess
       ? uProjectedShadowRowX.z
       : 0.0f;
-  float authoredShadowDomain = saturate(
-      (1.0f - halfLambert) +
-      (authoredShadowShift + 0.5f) * 0.24f);
-  authoredShadowDomain = saturate(
-      (authoredShadowDomain - 0.5f) *
-          (1.0f + max(authoredShadowContrast, 0.0f) * 1.5f) +
-      0.5f);
-  authoredShadowDomain = pow(
-      authoredShadowDomain,
-      clamp(authoredShadowBias, 0.25f, 2.0f));
-  float shadowAmount = authoredShadowDomain * saturate(shadowStrength);
+  float shadowAmount;
+  if (nativeEye) {
+    float eyeShadowDomain = saturate(
+        (1.0f - halfLambert) +
+        (authoredShadowShift + 0.5f) * 0.24f);
+    eyeShadowDomain = saturate(
+        (eyeShadowDomain - 0.5f) *
+            (1.0f + max(authoredShadowContrast, 0.0f) * 1.5f) +
+        0.5f);
+    shadowAmount = pow(
+        eyeShadowDomain,
+        clamp(authoredShadowBias, 0.25f, 2.0f)) *
+        saturate(shadowStrength);
+  } else {
+    float halfLambertBiasSquared = halfLambertBias * halfLambertBias;
+    float shadowBandLow =
+        (0.5f - 0.5f * halfLambertBiasSquared) * shadowStrength;
+    float shadowBandHigh =
+        (0.5f + 0.5f * halfLambertBiasSquared) * shadowStrength;
+    float shadowBandWidth = max(shadowBandHigh - shadowBandLow, 1e-5f);
+    shadowAmount = saturate(
+        1.0f - (biasedLambert - shadowBandLow) / shadowBandWidth);
+  }
   float qualityDetail = saturate(
       (0.90f - litTextureDetailLodBias()) / 1.30f);
   float3 albedo = saturate(linearColor);
@@ -2623,31 +2633,51 @@ float3 applyNativeIkCharacter(PSIn i,
       shadowSpec.rgb,
       combinedShadowAmount);
   float3 shaded = albedo * shadowTint;
-  float midArea = 4.0f * combinedShadowAmount *
-      (1.0f - combinedShadowAmount);
-  midArea = saturate(
-      (midArea - 0.5f) *
-          (1.0f + max(uProjectedShadowRowY.y, 0.0f)) +
-      0.5f + uProjectedShadowRowY.x);
-  float darkArea = saturate(
-      (combinedShadowAmount - 0.5f) *
-          (1.0f + max(uProjectedShadowRowZ.x, 0.0f)) +
-      0.5f + uProjectedShadowRowY.w);
-  float hueStrength = hasAuthoredColorProcess
-      ? saturate(uProjectedShadowRowX.w)
-      : 0.0f;
-  float3 midHsv = lgpeFoliageRgbToHsv(max(shaded, 0.0f.xxx));
-  midHsv.x = frac(midHsv.x + uProjectedShadowRowY.z);
-  float3 darkHsv = lgpeFoliageRgbToHsv(max(shaded, 0.0f.xxx));
-  darkHsv.x = frac(darkHsv.x + uProjectedShadowRowZ.y);
-  shaded = lerp(
-      shaded,
-      lgpeFoliageHsvToRgb(midHsv),
-      midArea * hueStrength * 0.20f);
-  shaded = lerp(
-      shaded,
-      lgpeFoliageHsvToRgb(darkHsv),
-      darkArea * hueStrength * 0.32f);
+  if (!nativeEye && hasAuthoredColorProcess) {
+    // The source scene-light scalar is absent from the loose assets. Use the
+    // normalized review-light counterpart; all following operations are the
+    // literal selected-program order.
+    float colorProcessLight = biasedLambert;
+    float midDomain = saturate(
+        1.0f - colorProcessLight + uProjectedShadowRowY.x);
+    float midSmooth = midDomain * midDomain *
+        (3.0f - 2.0f * midDomain);
+    float midArea = saturate(
+        midSmooth * (1.0f + 2.0f * uProjectedShadowRowY.y) -
+        uProjectedShadowRowY.y);
+    float darkDomain = saturate(
+        1.0f - colorProcessLight + uProjectedShadowRowY.w);
+    float darkSmooth = darkDomain * darkDomain *
+        (3.0f - 2.0f * darkDomain);
+    float darkArea = saturate(
+        darkSmooth * (1.0f + 2.0f * uProjectedShadowRowZ.x) -
+        uProjectedShadowRowZ.x);
+    float shadowProcessDomain = saturate(
+        wrappedLambert - authoredShadowShift);
+    float shadowProcessSmooth = shadowProcessDomain *
+        shadowProcessDomain * (3.0f - 2.0f * shadowProcessDomain);
+    float shadowProcessArea = saturate(
+        shadowProcessSmooth *
+            (1.0f + 2.0f * authoredShadowContrast) -
+        authoredShadowContrast);
+    float3 darkHsv = lgpeFoliageRgbToHsv(max(shaded, 0.0f.xxx));
+    darkHsv.x = frac(darkHsv.x + uProjectedShadowRowZ.y);
+    float3 midHsv = lgpeFoliageRgbToHsv(max(shaded, 0.0f.xxx));
+    midHsv.x = frac(midHsv.x + uProjectedShadowRowY.z);
+    float3 darkHueColor = lgpeFoliageHsvToRgb(darkHsv);
+    float3 midHueColor = lgpeFoliageHsvToRgb(midHsv);
+    float3 baseToMidHue = lerp(shaded, midHueColor, midArea);
+    float3 darkToBaseMid = lerp(darkHueColor, baseToMidHue, darkArea);
+    float3 baseMidToDark = lerp(baseToMidHue, darkHueColor, darkArea);
+    float hueAreaScale = 1.0f - 0.5f * midArea *
+        uProjectedShadowRowZ.w;
+    shaded = lerp(
+        darkToBaseMid,
+        baseMidToDark,
+        shadowProcessArea) * hueAreaScale;
+    shaded *= 1.0f + 2.0f * diffusionLevels *
+        (1.0f - colorProcessLight);
+  }
   // Restore local normal-map diffuse relief as a bounded delta from the
   // geometric-normal response. This keeps broad Z-A lighting stable and
   // avoids the former whole-body/facial shadow bands.
@@ -2685,7 +2715,12 @@ float3 applyNativeIkCharacter(PSIn i,
       : rimShape * rimResponse.r * zaIkRimPresentationScale;
   float backRim = nativeEye
       ? 0.0f
-      : saturate(-facing) * rimResponse.g * zaIkRimPresentationScale;
+      : rimShape * smoothstep(
+            0.0f,
+            1.0f,
+            saturate(
+                (0.4f - normalDotLightSigned - saturate(facing)) * 2.5f)) *
+          rimResponse.g * zaIkRimPresentationScale;
   float specularStrength = saturate(shadowSpec.a);
   // Every selected Kanto Z-A material disables EnableHairSpecular. Fur and
   // feather relief stays in the real normal/specular/rim paths; adding a
@@ -2711,8 +2746,14 @@ float3 applyNativeIkCharacter(PSIn i,
   // Compiled IkCharacter applies the layer-resolved intensity once. Squaring
   // it was a viewer gloss workaround and suppressed authored weak highlights.
   float dielectricSpecular = specularStrength;
-  float surfaceSpecular = max(dielectricSpecular, metallic);
-  float3 specularColor = lerp(float3(1.0f, 1.0f, 1.0f), albedo, metallic);
+  // Keep mode 35 on its independently reconstructed 682/1214 response.
+  // The proven direct-specular/metallic separation applies to body 514/594.
+  float surfaceSpecular = nativeEye
+      ? max(dielectricSpecular, metallic)
+      : dielectricSpecular;
+  float3 specularColor = nativeEye
+      ? lerp(1.0f.xxx, albedo, metallic)
+      : 1.0f.xxx;
   float3 directSpecular = specularColor * surfaceSpecular * specularLobe *
       normalDotLight * 0.72f;
   float3 reflection = reflect(-viewDirection, normal);
@@ -2728,13 +2769,16 @@ float3 applyNativeIkCharacter(PSIn i,
       1.0f,
       1.35f,
       pow(1.0f - normalDotView, 5.0f));
-  float3 environmentSpecular = environmentRadiance *
-      specularColor * surfaceSpecular * grazingResponse *
-      computeSpecularOcclusion(
-          normalDotView,
-          1.0f,
-          reflectionRoughness) *
-      __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+  float environmentOcclusion = computeSpecularOcclusion(
+      normalDotView,
+      1.0f,
+      reflectionRoughness);
+  float3 environmentSpecular = nativeEye
+      ? environmentRadiance * specularColor * surfaceSpecular *
+          grazingResponse * environmentOcclusion *
+          __PHLOSION_PBR_SPECULAR_IBL_SCALE__
+      : environmentRadiance * albedo * metallic * grazingResponse *
+          environmentOcclusion * __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
   float3 diffuse = nativeBase * (1.0f - metallic * 0.85f);
   float3 eyeHighlight = nativeEye && useEmissiveTexture
       ? sampleTextureWithWrap(
