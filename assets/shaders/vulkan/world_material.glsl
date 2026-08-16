@@ -523,12 +523,10 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         occlusionMap,
         uv,
         textureDetailLodBias);
-    // Z-A resolves this AO sample as a weight between scene ambient and base
-    // color before authored shadow color. It is not a final albedo multiplier.
-    float aoBaseWeight = clamp(
-        surfaceControl.r * max(factors.w, 0.0),
-        0.0,
-        1.0);
+    // The cooker has already evaluated the selected fragment's literal AO
+    // use: OcclusionMap * OcclusionStrength blends ShadowingColorMap from the
+    // base ShadowingColor before the ordered material layers. Keep the raw AO
+    // lane for diagnostics/ABI stability; do not apply it a second time.
     float metallic = clamp(surfaceControl.g, 0.0, 1.0);
     float specularOffset = surfaceControl.b * 1.5 - 0.5;
     float specularContrast = surfaceControl.a * 5.0;
@@ -536,7 +534,6 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     float diffusionLevels = nativeEye
         ? 0.0
         : clamp(surfaceParameters.y, 0.0, 1.0);
-    float shadowingGiGain = clamp(surfaceParameters.w, 0.0, 1.0);
     float normalDotLightSigned = dot(normal, lightDirection);
     float lambert = max(normalDotLightSigned, 0.0);
     float wrappedLambert = clamp(
@@ -604,9 +601,7 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     float shadowAmount =
         authoredShadowDomain * clamp(factors.z, 0.0, 1.0);
     vec3 sourceAlbedo = clamp(albedo, 0.0, 1.0);
-    float aoShadowAmount = (1.0 - aoBaseWeight) * shadowingGiGain;
-    float combinedShadowAmount = 1.0 -
-        (1.0 - shadowAmount) * (1.0 - aoShadowAmount);
+    float combinedShadowAmount = shadowAmount;
     vec3 shadowTint = mix(
         vec3(1.0),
         shadowSpec.rgb,
@@ -694,16 +689,23 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     float normalDotHalf = max(dot(normal, halfDirection), 0.0);
     float normalDotView = max(dot(normal, viewDirection), 0.0);
     float normalDotLight = lambert;
+    // The selected 514/594 body fragment subtracts the layer-resolved offset,
+    // smoothsteps that domain, then applies contrast as
+    // clamp(x * (1 + 2c) - c). The former additive offset/exponent mapping
+    // inverted the authored offset and invented a roughness-like response.
     float specularDomain = clamp(
-        normalDotHalf + specularOffset,
+        normalDotHalf - specularOffset,
         0.0,
         1.0);
-    float specularExponent = mix(
-        8.0,
-        64.0,
-        clamp(specularContrast / 5.0, 0.0, 1.0));
-    float specularLobe = pow(specularDomain, specularExponent);
-    float dielectricSpecular = specularStrength * specularStrength;
+    float specularSmooth = specularDomain * specularDomain *
+        (3.0 - 2.0 * specularDomain);
+    float specularLobe = clamp(
+        specularSmooth * (1.0 + 2.0 * specularContrast) - specularContrast,
+        0.0,
+        1.0);
+    // The compiled source multiplies the layer-resolved intensity path once;
+    // the previous square was a viewer gloss workaround, not source behavior.
+    float dielectricSpecular = specularStrength;
     float surfaceSpecular = max(dielectricSpecular, metallic);
     vec3 specularColor = mix(vec3(1.0), sourceAlbedo, metallic);
     vec3 directSpecular = specularColor * surfaceSpecular * specularLobe *
@@ -726,7 +728,7 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         specularColor * surfaceSpecular * grazingResponse *
         computeSpecularOcclusion(
             normalDotView,
-            aoBaseWeight,
+            1.0,
             reflectionRoughness) * 0.44;
     vec3 diffuse = nativeBase * (1.0 - metallic * 0.85);
     vec3 eyeHighlight = nativeEye

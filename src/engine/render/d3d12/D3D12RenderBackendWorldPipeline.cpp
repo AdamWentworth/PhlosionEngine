@@ -2542,10 +2542,9 @@ float3 applyNativeIkCharacter(PSIn i,
             uWrapS,
             uWrapT)
       : float4(1.0f, 0.0f, 1.0f / 3.0f, 0.0f);
-  // Z-A resolves AO into its ambient/base blend before authored shadow
-  // color; it does not multiply the final character surface by AO.
-  float aoBaseWeight = saturate(
-      surfaceControl.r * max(occlusionStrength, 0.0f));
+  // Forge has already evaluated the selected fragment's literal AO use:
+  // OcclusionMap * OcclusionStrength blends ShadowingColorMap from the base
+  // ShadowingColor before ordered layers. Do not apply that lane twice.
   float metallic = saturate(surfaceControl.g);
   float specularOffset = surfaceControl.b * 1.5f - 0.5f;
   float specularContrast = surfaceControl.a * 5.0f;
@@ -2560,7 +2559,6 @@ float3 applyNativeIkCharacter(PSIn i,
   float diffusionLevels = nativeEye
       ? 0.0f
       : saturate(frac(packedSurfaceRemainder));
-  float shadowingGiGain = saturate(uMaterialFlipbook1Frames);
   float faceDirection = isFrontFace ? 1.0f : -1.0f;
   float3 geometricNormal = safeNormalize(
       i.worldNormal,
@@ -2619,9 +2617,7 @@ float3 applyNativeIkCharacter(PSIn i,
   float qualityDetail = saturate(
       (0.90f - litTextureDetailLodBias()) / 1.30f);
   float3 albedo = saturate(linearColor);
-  float aoShadowAmount = (1.0f - aoBaseWeight) * shadowingGiGain;
-  float combinedShadowAmount = 1.0f -
-      (1.0f - shadowAmount) * (1.0f - aoShadowAmount);
+  float combinedShadowAmount = shadowAmount;
   float3 shadowTint = lerp(
       float3(1.0f, 1.0f, 1.0f),
       shadowSpec.rgb,
@@ -2700,13 +2696,16 @@ float3 applyNativeIkCharacter(PSIn i,
   float normalDotHalf = max(dot(normal, halfDirection), 0.0f);
   float normalDotView = max(dot(normal, viewDirection), 0.0f);
   float normalDotLight = lambert;
-  float specularDomain = saturate(normalDotHalf + specularOffset);
-  float specularExponent = lerp(
-      8.0f,
-      64.0f,
-      saturate(specularContrast / 5.0f));
-  float specularLobe = pow(specularDomain, specularExponent);
-  float dielectricSpecular = specularStrength * specularStrength;
+  // Selected 514/594 subtracts the authored offset, smoothsteps the domain,
+  // and performs the literal clamp(x * (1 + 2c) - c) contrast remap.
+  float specularDomain = saturate(normalDotHalf - specularOffset);
+  float specularSmooth = specularDomain * specularDomain *
+      (3.0f - 2.0f * specularDomain);
+  float specularLobe = saturate(
+      specularSmooth * (1.0f + 2.0f * specularContrast) - specularContrast);
+  // Compiled IkCharacter applies the layer-resolved intensity once. Squaring
+  // it was a viewer gloss workaround and suppressed authored weak highlights.
+  float dielectricSpecular = specularStrength;
   float surfaceSpecular = max(dielectricSpecular, metallic);
   float3 specularColor = lerp(float3(1.0f, 1.0f, 1.0f), albedo, metallic);
   float3 directSpecular = specularColor * surfaceSpecular * specularLobe *
@@ -2728,7 +2727,7 @@ float3 applyNativeIkCharacter(PSIn i,
       specularColor * surfaceSpecular * grazingResponse *
       computeSpecularOcclusion(
           normalDotView,
-          aoBaseWeight,
+          1.0f,
           reflectionRoughness) *
       __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
   float3 diffuse = nativeBase * (1.0f - metallic * 0.85f);
