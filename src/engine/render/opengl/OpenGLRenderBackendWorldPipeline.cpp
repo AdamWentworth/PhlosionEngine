@@ -2934,8 +2934,17 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                       uvDx,
                       uvDy).rgb
                 : vec3(0.0);
+            // Mode 32's packed rim texture reserves blue for the source
+            // IkCharacter final-combine emission. The selected Kanto Z-A
+            // corpus uses an achromatic value (Staryu layer 3), so a scalar
+            // lane preserves that authored term exactly without changing the
+            // six-texture material ABI. Mode 35 owns RGB for eye highlights.
+            vec3 bodyEmission = !nativeEye && uUseEmissiveTexture > 0.5
+                ? vec3(rimResponse.b)
+                : vec3(0.0);
             return max(
-                diffuse + directSpecular + environmentSpecular + eyeHighlight,
+                diffuse + directSpecular + environmentSpecular +
+                    eyeHighlight + bodyEmission,
                 vec3(0.0));
         }
 

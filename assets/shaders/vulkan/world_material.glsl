@@ -790,8 +790,14 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
               uv,
               textureDetailLodBias).rgb
         : vec3(0.0);
+    // Mode 32 packs the selected Kanto corpus' achromatic body-emission final
+    // combine into blue. Mode 35 retains the full RGB payload for eye glints.
+    vec3 bodyEmission = !nativeEye
+        ? vec3(rimResponse.b)
+        : vec3(0.0);
     return max(
-        diffuse + directSpecular + environmentSpecular + eyeHighlight,
+        diffuse + directSpecular + environmentSpecular +
+            eyeHighlight + bodyEmission,
         vec3(0.0));
 }
 

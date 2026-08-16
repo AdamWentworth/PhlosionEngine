@@ -2797,8 +2797,14 @@ float3 applyNativeIkCharacter(PSIn i,
             uWrapS,
             uWrapT).rgb
       : float3(0.0f, 0.0f, 0.0f);
+  // Mode 32 packs the selected Kanto corpus' achromatic body-emission final
+  // combine into blue. Mode 35 retains the full RGB payload for eye glints.
+  float3 bodyEmission = !nativeEye && useEmissiveTexture
+      ? rimResponse.b.xxx
+      : float3(0.0f, 0.0f, 0.0f);
   return max(
-      diffuse + directSpecular + environmentSpecular + eyeHighlight,
+      diffuse + directSpecular + environmentSpecular +
+          eyeHighlight + bodyEmission,
       float3(0.0f, 0.0f, 0.0f));
 }
 
