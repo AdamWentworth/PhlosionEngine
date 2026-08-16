@@ -2660,12 +2660,6 @@ float3 applyNativeIkCharacter(PSIn i,
       -0.22f,
       0.22f);
   shaded *= 1.0f + normalDetailDelta * qualityDetail * 0.62f;
-  bool fibreSurface = !nativeEye &&
-      abs(surfaceProfile - 1.0f) < 0.25f &&
-      useEmissiveTexture;
-  bool featherSurface = !nativeEye &&
-      abs(surfaceProfile - 2.0f) < 0.25f &&
-      useNormalTexture;
   float4 rimResponse = !nativeEye && useEmissiveTexture
       ? sampleTextureWithWrap(
             gEmissiveTex,
@@ -2680,72 +2674,22 @@ float3 applyNativeIkCharacter(PSIn i,
   float rimOffset = clamp(rimParameters.r, 0.0f, 0.99f);
   float rimDomain = saturate(
       (edge - rimOffset) / max(1.0f - rimOffset, 1e-4f));
+  // The packed map carries raw pre-composite Z-A rim scalars. Keep the
+  // unresolved source-exposure calibration explicit in presentation code
+  // instead of baking it irreversibly into imported assets.
+  const float zaIkRimPresentationScale = 0.25f;
   float rim = nativeEye
       ? 0.0f
-      : pow(rimDomain, max(rimParameters.g, 1.0f)) * rimResponse.r;
-  float backRim = nativeEye ? 0.0f : saturate(-facing) * rimResponse.g;
+      : pow(rimDomain, max(rimParameters.g, 1.0f)) * rimResponse.r *
+          zaIkRimPresentationScale;
+  float backRim = nativeEye
+      ? 0.0f
+      : saturate(-facing) * rimResponse.g * zaIkRimPresentationScale;
   float specularStrength = saturate(shadowSpec.a);
-  // Surface carriers deliberately use a sharper sample than base color so
-  // their 1024px directional strokes survive the small Inspector preview.
-  float fineFibre = fibreSurface
-      ? sampleTextureWithWrap(
-            gEmissiveTex,
-            sampleUv,
-            uvDx * exp2(-1.25f),
-            uvDy * exp2(-1.25f),
-            uWrapS,
-            uWrapT).a
-      : 1.0f;
-  float coarseFibre = fibreSurface
-      ? sampleTextureWithWrap(
-            gEmissiveTex,
-            sampleUv,
-            uvDx * exp2(1.25f),
-            uvDy * exp2(1.25f),
-            uWrapS,
-            uWrapT).a
-      : 1.0f;
-  float fibreRelief = saturate(
-      abs(coarseFibre - fineFibre) * 10.0f);
-  float fibreSignal = saturate(1.0f - fineFibre);
-  float velvet = pow(edge, 2.5f);
-  float surfaceDetailLight = 0.35f + 0.65f * halfLambert;
-  // Source-authored strand lift is additive-only: no whole-body dirt tint and
-  // no dark eye seam. Missing payloads remain neutral at lower quality tiers.
-  float fibreSheen = qualityDetail * surfaceDetailLight *
-      (1.0f - metallic) *
-      (fibreSignal * (0.90f + 0.20f * velvet) +
-       fibreRelief * (0.30f + 0.15f * velvet));
-
-  float2 fineFeatherNormal = featherSurface
-      ? sampleTextureWithWrap(
-            gNormalTex,
-            sampleUv,
-            uvDx * exp2(-1.0f),
-            uvDy * exp2(-1.0f),
-            uWrapS,
-            uWrapT).xy * 2.0f - 1.0f
-      : float2(0.0f, 0.0f);
-  float2 coarseFeatherNormal = featherSurface
-      ? sampleTextureWithWrap(
-            gNormalTex,
-            sampleUv,
-            uvDx * exp2(1.25f),
-            uvDy * exp2(1.25f),
-            uWrapS,
-            uWrapT).xy * 2.0f - 1.0f
-      : fineFeatherNormal;
-  float featherRelief = saturate(max(
-      length(fineFeatherNormal - coarseFeatherNormal) * 10.0f,
-      length(fineFeatherNormal) * 0.50f));
-  float featherSheen = featherSurface
-      ? qualityDetail * surfaceDetailLight * (1.0f - metallic) *
-          featherRelief * (0.32f + pow(edge, 2.0f) * 0.05f)
-      : 0.0f;
-  float3 featherTint = lerp(albedo, float3(1.0f, 1.0f, 1.0f), 0.22f);
-  float3 nativeBase = shaded +
-      albedo * (rim + backRim + fibreSheen) +
-      featherTint * featherSheen;
+  // Every selected Kanto Z-A material disables EnableHairSpecular. Fur and
+  // feather relief stays in the real normal/specular/rim paths; adding a
+  // species-classified sheen here would execute a source-disabled branch.
+  float3 nativeBase = shaded + albedo * (rim + backRim);
 
   // The decompiled Z-A IkCharacter body program carries no generic
   // roughness/PBR coat. Preserve its layer-resolved specular shape, metal

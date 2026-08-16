@@ -2678,7 +2678,6 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float diffusionLevels = nativeEye
                 ? 0.0
                 : clamp(uMaterialRect0.y, 0.0, 1.0);
-            float surfaceProfile = nativeEye ? 0.0 : uMaterialRect0.z;
             float shadowingGiGain = clamp(uMaterialRect0.w, 0.0, 1.0);
             float faceDirection = gl_FrontFacing ? 1.0 : -1.0;
             vec3 geometricNormal = safeNormalize(
@@ -2796,12 +2795,6 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 -0.22,
                 0.22);
             shaded *= 1.0 + normalDetailDelta * qualityDetail * 0.62;
-            bool fibreSurface = !nativeEye &&
-                abs(surfaceProfile - 1.0) < 0.25 &&
-                uUseEmissiveTexture > 0.5;
-            bool featherSurface = !nativeEye &&
-                abs(surfaceProfile - 2.0) < 0.25 &&
-                uUseNormalTexture > 0.5;
             vec4 rimResponse = !nativeEye && uUseEmissiveTexture > 0.5
                 ? sampleTextureWithWrap(
                       uEmissiveTexture,
@@ -2816,72 +2809,26 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 (edge - rimOffset) / max(1.0 - rimOffset, 1e-4),
                 0.0,
                 1.0);
+            // The packed map carries the raw pre-composite Z-A rim scalars.
+            // Source scene exposure remains unavailable, so keep Phlosion's
+            // bounded review calibration explicit in presentation code rather
+            // than baking it irreversibly into imported asset data.
+            const float zaIkRimPresentationScale = 0.25;
             float rim = nativeEye ? 0.0 : pow(
                 rimDomain,
-                max(uEmissiveFactor.g, 1.0)) * rimResponse.r;
+                max(uEmissiveFactor.g, 1.0)) * rimResponse.r *
+                zaIkRimPresentationScale;
             float backRim = nativeEye
                 ? 0.0
-                : clamp(-facing, 0.0, 1.0) * rimResponse.g;
+                : clamp(-facing, 0.0, 1.0) * rimResponse.g *
+                    zaIkRimPresentationScale;
             float specularStrength = clamp(shadowSpec.a, 0.0, 1.0);
-            // Use a sharper surface-carrier sample than base color so the
-            // 1024px directional strokes survive the Inspector thumbnail.
-            float fineFibre = fibreSurface
-                ? sampleTextureWithWrap(
-                      uEmissiveTexture,
-                      sampleUv,
-                      uvDx * exp2(-1.25),
-                      uvDy * exp2(-1.25)).a
-                : 1.0;
-            float coarseFibre = fibreSurface
-                ? sampleTextureWithWrap(
-                      uEmissiveTexture,
-                      sampleUv,
-                      uvDx * exp2(1.25),
-                      uvDy * exp2(1.25)).a
-                : 1.0;
-            float fibreRelief = clamp(
-                abs(coarseFibre - fineFibre) * 10.0,
-                0.0,
-                1.0);
-            float fibreSignal = clamp(1.0 - fineFibre, 0.0, 1.0);
-            float velvet = pow(edge, 2.5);
-            float surfaceDetailLight = 0.35 + 0.65 * halfLambert;
-            // Source-authored strand lift is additive-only: no whole-body
-            // dirt tint and no dark eye seam. Missing payloads stay neutral.
-            float fibreSheen = qualityDetail * surfaceDetailLight *
-                (1.0 - metallic) *
-                (fibreSignal * (0.90 + 0.20 * velvet) +
-                 fibreRelief * (0.30 + 0.15 * velvet));
-
-            vec2 fineFeatherNormal = featherSurface
-                ? sampleTextureWithWrap(
-                      uNormalTexture,
-                      sampleUv,
-                      uvDx * exp2(-1.0),
-                      uvDy * exp2(-1.0)).xy * 2.0 - 1.0
-                : vec2(0.0);
-            vec2 coarseFeatherNormal = featherSurface
-                ? sampleTextureWithWrap(
-                      uNormalTexture,
-                      sampleUv,
-                      uvDx * exp2(1.25),
-                      uvDy * exp2(1.25)).xy * 2.0 - 1.0
-                : fineFeatherNormal;
-            float featherRelief = clamp(max(
-                length(fineFeatherNormal - coarseFeatherNormal) * 10.0,
-                length(fineFeatherNormal) * 0.50),
-                0.0,
-                1.0);
-            float featherSheen = featherSurface
-                ? qualityDetail * surfaceDetailLight *
-                    (1.0 - metallic) *
-                    featherRelief *
-                    (0.32 + pow(edge, 2.0) * 0.05)
-                : 0.0;
-            vec3 featherTint = mix(albedo, vec3(1.0), 0.22);
-            vec3 nativeBase = shaded +
-                albedo * (rim + backRim + fibreSheen) +
-                featherTint * featherSheen;
+            // All selected Kanto Z-A materials disable EnableHairSpecular.
+            // Their visible fur/feather relief therefore remains in the real
+            // base, normal, shadow, specular, and rim paths above; do not add
+            // a species-classified sheen: that would execute a source-disabled
+            // branch.
+            vec3 nativeBase = shaded + albedo * (rim + backRim);
 
             // The decompiled Z-A IkCharacter body program carries no generic
             // roughness/PBR coat. Preserve its layer-resolved specular shape,

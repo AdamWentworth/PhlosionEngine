@@ -651,12 +651,6 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         -0.22,
         0.22);
     shaded *= 1.0 + normalDetailDelta * qualityDetail * 0.62;
-    bool fibreSurface = !nativeEye &&
-        abs(surfaceParameters.z - 1.0) < 0.25 &&
-        rimParameters.b > 0.5;
-    bool featherSurface = !nativeEye &&
-        abs(surfaceParameters.z - 2.0) < 0.25 &&
-        factors.x > 0.001;
     float specularStrength = clamp(shadowSpec.a, 0.0, 1.0);
     vec4 rimResponse = !nativeEye && rimParameters.b > 0.5
         ? sampleWorldMaterialTexture(
@@ -671,73 +665,24 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         (edge - rimOffset) / max(1.0 - rimOffset, 1e-4),
         0.0,
         1.0);
+    // The packed map carries raw pre-composite Z-A rim scalars. Source scene
+    // exposure is still unavailable, so the bounded Phlosion review scale is
+    // explicit here instead of being baked irreversibly into imported assets.
+    const float zaIkRimPresentationScale = 0.25;
     float rim = nativeEye
         ? 0.0
         : pow(
               rimDomain,
-              max(rimParameters.g, 1.0)) * rimResponse.r;
+              max(rimParameters.g, 1.0)) * rimResponse.r *
+              zaIkRimPresentationScale;
     float backRim = nativeEye
         ? 0.0
-        : clamp(-facing, 0.0, 1.0) * rimResponse.g;
-    // Surface carriers need a slightly sharper sample than color at this
-    // thumbnail scale; otherwise their 1024px strokes prefilter to flat gray.
-    float fineFibre = fibreSurface
-        ? sampleWorldMaterialTexture(
-              rimResponseMap,
-              uv,
-              textureDetailLodBias - 1.25).a
-        : 1.0;
-    float coarseFibre = fibreSurface
-        ? sampleWorldMaterialTexture(
-              rimResponseMap,
-              uv,
-              textureDetailLodBias + 1.25).a
-        : 1.0;
-    float fibreRelief = clamp(
-        abs(coarseFibre - fineFibre) * 10.0,
-        0.0,
-        1.0);
-    float fibreSignal = clamp(1.0 - fineFibre, 0.0, 1.0);
-    float velvet = pow(edge, 2.5);
-    float surfaceDetailLight = 0.35 + 0.65 * halfLambert;
-    // The compatible SV roughness atlas is a directional strand field. Use
-    // its filtered fine/coarse separation as positive-only coat lift: this
-    // survives the Inspector's small preview without turning the base color
-    // into grime or drawing dark seams around the eyes. Missing optional data
-    // remains neutral at lower quality tiers.
-    float fibreSheen = qualityDetail * surfaceDetailLight *
-        (1.0 - metallic) *
-        (fibreSignal * (0.90 + 0.20 * velvet) +
-         fibreRelief * (0.30 + 0.15 * velvet));
-
-    vec2 fineFeatherNormal = featherSurface
-        ? sampleWorldMaterialTexture(
-              normalMap,
-              uv,
-              textureDetailLodBias - 1.0).xy * 2.0 - 1.0
-        : vec2(0.0);
-    vec2 coarseFeatherNormal = featherSurface
-        ? sampleWorldMaterialTexture(
-              normalMap,
-              uv,
-              textureDetailLodBias + 1.25).xy * 2.0 - 1.0
-        : fineFeatherNormal;
-    float featherRelief = clamp(max(
-        length(fineFeatherNormal - coarseFeatherNormal) * 10.0,
-        length(fineFeatherNormal) * 0.50),
-        0.0,
-        1.0);
-    // Relief is already near zero on the atlas' hard, flat beak/claw regions.
-    // A second specular threshold incorrectly rejected the feathers as well.
-    // The additive-only response cannot draw dark seams around the eyes.
-    float featherSheen = featherSurface
-        ? qualityDetail * surfaceDetailLight * (1.0 - metallic) *
-            featherRelief * (0.32 + pow(edge, 2.0) * 0.05)
-        : 0.0;
-    vec3 featherTint = mix(sourceAlbedo, vec3(1.0), 0.22);
-    vec3 nativeBase = shaded +
-        sourceAlbedo * (rim + backRim + fibreSheen) +
-        featherTint * featherSheen;
+        : clamp(-facing, 0.0, 1.0) * rimResponse.g *
+            zaIkRimPresentationScale;
+    // Every selected Kanto Z-A material disables EnableHairSpecular. Fur and
+    // feather relief stays in the real normal/specular/rim paths; adding a
+    // species-classified sheen here would execute a source-disabled branch.
+    vec3 nativeBase = shaded + sourceAlbedo * (rim + backRim);
 
     // IkCharacter's decompiled Z-A body variant has no roughness input or
     // generic PBR outer coat. It shapes direct specular from the authored
