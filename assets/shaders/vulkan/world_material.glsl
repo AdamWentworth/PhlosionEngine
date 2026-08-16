@@ -355,7 +355,81 @@ vec3 sampleZaLocalReflectionProbe(sampler2D environmentMap,
                                   float sourceLod,
                                   float fallbackRoughness);
 
+vec2 resolveZaIkEyeParallaxUv(vec2 uv,
+                              vec3 position,
+                              vec3 sourceNormal,
+                              vec4 sourceTangent,
+                              vec3 cameraPosition,
+                              sampler2D packedEyeMap,
+                              float textureDetailLodBias,
+                              float parallaxHeight,
+                              float parallaxIor) {
+    if (parallaxHeight <= 1e-5) return uv;
+    vec3 geometricNormal = safeNormalize(
+        sourceNormal,
+        vec3(0.0, 1.0, 0.0));
+    vec3 tangent = sourceTangent.xyz - geometricNormal *
+        dot(sourceTangent.xyz, geometricNormal);
+    tangent = safeNormalize(tangent, vec3(1.0, 0.0, 0.0));
+    vec3 bitangent = safeNormalize(
+        cross(geometricNormal, tangent),
+        vec3(0.0, 0.0, 1.0)) *
+        (sourceTangent.w < 0.0 ? -1.0 : 1.0);
+    vec3 viewWorld = safeNormalize(
+        cameraPosition - position,
+        geometricNormal);
+    vec3 viewTangent = vec3(
+        dot(viewWorld, tangent),
+        dot(viewWorld, bitangent),
+        max(dot(viewWorld, geometricNormal), 0.08));
+    vec3 refracted = refract(
+        -normalize(viewTangent),
+        vec3(0.0, 0.0, 1.0),
+        1.0 / max(parallaxIor, 1.0));
+    vec2 parallaxDirection = -refracted.xy /
+        max(abs(refracted.z), 0.12);
+    if (dot(refracted, refracted) < 1e-6) {
+        parallaxDirection = viewTangent.xy / max(viewTangent.z, 0.12);
+    }
+    parallaxDirection = clamp(
+        parallaxDirection,
+        vec2(-2.0),
+        vec2(2.0));
+    float grazing = clamp(1.0 - abs(viewTangent.z), 0.0, 1.0);
+    float layerCount = mix(8.0, 16.0, grazing);
+    float layerStep = 1.0 / layerCount;
+    vec2 uvStep = parallaxDirection * parallaxHeight / layerCount;
+    vec2 currentUv = uv;
+    float currentDepth = 0.0;
+    float sampledHeight = sampleWorldMaterialTexture(
+        packedEyeMap,
+        currentUv,
+        textureDetailLodBias).a;
+    for (int layer = 0; layer < 16; ++layer) {
+        if (currentDepth >= sampledHeight ||
+            float(layer) >= layerCount) break;
+        currentUv -= uvStep;
+        currentDepth += layerStep;
+        sampledHeight = sampleWorldMaterialTexture(
+            packedEyeMap,
+            currentUv,
+            textureDetailLodBias).a;
+    }
+    vec2 previousUv = currentUv + uvStep;
+    float afterDepth = sampledHeight - currentDepth;
+    float beforeDepth = sampleWorldMaterialTexture(
+        packedEyeMap,
+        previousUv,
+        textureDetailLodBias).a - (currentDepth - layerStep);
+    float denominator = afterDepth - beforeDepth;
+    float weight = abs(denominator) > 1e-5
+        ? clamp(afterDepth / denominator, 0.0, 1.0)
+        : 0.0;
+    return mix(currentUv, previousUv, weight);
+}
+
 vec3 evaluateNativeIkCharacter(vec3 albedo,
+                               vec3 vertexColorRgb,
                                vec2 uv,
                                vec3 position,
                                vec3 sourceNormal,
@@ -363,6 +437,7 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
                                vec3 cameraPosition,
                                vec3 cameraForwardPacked,
                                vec3 cameraTarget,
+                               sampler2D baseColorMap,
                                sampler2D normalMap,
                                sampler2D shadowSpecMap,
                                sampler2D occlusionMap,
@@ -374,7 +449,37 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
                                vec4 surfaceParameters,
                                vec4 shadowProcessParameters,
                                vec4 midProcessParameters,
-                               vec4 darkProcessParameters) {
+                               vec4 darkProcessParameters,
+                               bool nativeEye) {
+    uv = nativeEye
+        ? resolveZaIkEyeParallaxUv(
+              uv,
+              position,
+              sourceNormal,
+              sourceTangent,
+              cameraPosition,
+              rimResponseMap,
+              textureDetailLodBias,
+              max(surfaceParameters.y, 0.0),
+              max(surfaceParameters.z, 1.0))
+        : uv;
+    if (nativeEye) {
+        albedo = clamp(
+            sampleWorldMaterialTexture(
+                baseColorMap,
+                uv,
+                textureDetailLodBias).rgb * vertexColorRgb,
+            0.0,
+            1.0);
+        float eyelidShadow = sampleWorldMaterialTexture(
+            normalMap,
+            uv,
+            textureDetailLodBias).a;
+        albedo *= mix(
+            vec3(1.0),
+            max(rimParameters, vec3(0.0)),
+            clamp(eyelidShadow, 0.0, 1.0));
+    }
     float qualityDetail = clamp(
         (0.90 - textureDetailLodBias) / 1.30,
         0.0,
@@ -428,7 +533,9 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     float specularOffset = surfaceControl.b * 1.5 - 0.5;
     float specularContrast = surfaceControl.a * 5.0;
     float reflectionBlur = max(surfaceParameters.x, 0.0);
-    float diffusionLevels = clamp(surfaceParameters.y, 0.0, 1.0);
+    float diffusionLevels = nativeEye
+        ? 0.0
+        : clamp(surfaceParameters.y, 0.0, 1.0);
     float shadowingGiGain = clamp(surfaceParameters.w, 0.0, 1.0);
     float normalDotLightSigned = dot(normal, lightDirection);
     float lambert = max(normalDotLightSigned, 0.0);
@@ -544,12 +651,14 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         -0.22,
         0.22);
     shaded *= 1.0 + normalDetailDelta * qualityDetail * 0.62;
-    bool fibreSurface = abs(surfaceParameters.z - 1.0) < 0.25 &&
+    bool fibreSurface = !nativeEye &&
+        abs(surfaceParameters.z - 1.0) < 0.25 &&
         rimParameters.b > 0.5;
-    bool featherSurface = abs(surfaceParameters.z - 2.0) < 0.25 &&
+    bool featherSurface = !nativeEye &&
+        abs(surfaceParameters.z - 2.0) < 0.25 &&
         factors.x > 0.001;
     float specularStrength = clamp(shadowSpec.a, 0.0, 1.0);
-    vec4 rimResponse = rimParameters.b > 0.5
+    vec4 rimResponse = !nativeEye && rimParameters.b > 0.5
         ? sampleWorldMaterialTexture(
               rimResponseMap,
               uv,
@@ -562,10 +671,14 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         (edge - rimOffset) / max(1.0 - rimOffset, 1e-4),
         0.0,
         1.0);
-    float rim = pow(
-        rimDomain,
-        max(rimParameters.g, 1.0)) * rimResponse.r;
-    float backRim = clamp(-facing, 0.0, 1.0) * rimResponse.g;
+    float rim = nativeEye
+        ? 0.0
+        : pow(
+              rimDomain,
+              max(rimParameters.g, 1.0)) * rimResponse.r;
+    float backRim = nativeEye
+        ? 0.0
+        : clamp(-facing, 0.0, 1.0) * rimResponse.g;
     // Surface carriers need a slightly sharper sample than color at this
     // thumbnail scale; otherwise their 1024px strokes prefilter to flat gray.
     float fineFibre = fibreSurface
@@ -671,8 +784,14 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
             aoBaseWeight,
             reflectionRoughness) * 0.44;
     vec3 diffuse = nativeBase * (1.0 - metallic * 0.85);
+    vec3 eyeHighlight = nativeEye
+        ? sampleWorldMaterialTexture(
+              rimResponseMap,
+              uv,
+              textureDetailLodBias).rgb
+        : vec3(0.0);
     return max(
-        diffuse + directSpecular + environmentSpecular,
+        diffuse + directSpecular + environmentSpecular + eyeHighlight,
         vec3(0.0));
 }
 

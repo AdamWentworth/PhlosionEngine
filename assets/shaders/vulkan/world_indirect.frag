@@ -1720,7 +1720,7 @@ void main() {
     float textureDetailLodBias =
         ((materialMode >= 1.5 && materialMode < 2.5) ||
          (materialMode > 27.5 && materialMode < 30.5) ||
-         (materialMode > 31.5 && materialMode < 34.5))
+         (materialMode > 31.5 && materialMode < 35.5))
             ? drawState.specializedFlipbook1.z
             : 0.0;
     vec4 sampled = sampleWorldMaterialTexture(
@@ -1818,7 +1818,7 @@ void main() {
     }
 
     if ((materialMode >= 1.5 && materialMode < 2.5) ||
-        (materialMode > 27.5 && materialMode < 34.5)) {
+        (materialMode > 27.5 && materialMode < 35.5)) {
         bool nativeEyeClearCoat =
             (materialMode > 27.5 && materialMode < 28.5) ||
             (materialMode > 29.5 && materialMode < 30.5);
@@ -1832,6 +1832,8 @@ void main() {
             materialMode > 32.5 && materialMode < 33.5;
         bool nativeFresnelEffect =
             materialMode > 33.5 && materialMode < 34.5;
+        bool nativeIkCharacterEye =
+            materialMode > 34.5 && materialMode < 35.5;
         if (nativeFresnelEffect) {
             reviewAlbedo = nativeFresnelEffectBase(
                 linearColor,
@@ -1856,9 +1858,10 @@ void main() {
                 drawState.specializedTimingFlagsAtlas.y,
                 drawState.pbrFactors,
                 drawState.emissiveAndCamera.rgb);
-        } else if (nativeIkCharacter) {
+        } else if (nativeIkCharacter || nativeIkCharacterEye) {
             linearColor = evaluateNativeIkCharacter(
                 linearColor,
+                vertexColor.rgb,
                 materialUv,
                 worldPosition,
                 vertexNormal,
@@ -1866,6 +1869,7 @@ void main() {
                 worldView.cameraPosition.xyz,
                 worldView.cameraForward.xyz,
                 worldView.cameraTarget.xyz,
+                baseColorTextures[nonuniformEXT(materialIndex)],
                 normalTextures[nonuniformEXT(materialIndex)],
                 metallicRoughnessTextures[nonuniformEXT(materialIndex)],
                 occlusionTextures[nonuniformEXT(materialIndex)],
@@ -1877,7 +1881,8 @@ void main() {
                 drawState.specializedRect0,
                 drawState.specializedRect1,
                 drawState.specializedFlipbook0,
-                drawState.specializedFlipbook1);
+                drawState.specializedFlipbook1,
+                nativeIkCharacterEye);
         } else if (nativeGastlyFace) {
             linearColor = evaluateNativeGastlyFace(
                 linearColor,

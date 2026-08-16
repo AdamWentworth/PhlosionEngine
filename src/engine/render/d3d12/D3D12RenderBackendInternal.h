@@ -297,7 +297,11 @@ inline WorldPsConstants makeWorldPsConstants(
         constants.materialAtlasWidth = (std::max)(0.0f, textureData->normalScale);
         constants.materialAtlasHeight = std::clamp(textureData->metallicFactor, 0.0f, 1.0f);
         constants.materialRect0U = std::clamp(textureData->roughnessFactor, 0.0f, 1.0f);
-        constants.materialRect0V = textureData->materialMode == 32u
+        constants.materialRect0V =
+            textureData->materialMode ==
+                    backend::kNativeIkCharacterMaterialMode ||
+                    textureData->materialMode ==
+                        backend::kNativeIkCharacterEyeMaterialMode
             ? (std::max)(textureData->occlusionStrength, 0.0f)
             : std::clamp(textureData->occlusionStrength, 0.0f, 1.0f);
         constants.materialRect0W = (std::max)(0.0f, textureData->emissiveFactorR);
@@ -331,7 +335,9 @@ inline WorldPsConstants makeWorldPsConstants(
             constants.materialTimeSec = textureData->materialRect0H;
         }
         if (textureData->materialMode ==
-            backend::kNativeIkCharacterMaterialMode) {
+                backend::kNativeIkCharacterMaterialMode ||
+            textureData->materialMode ==
+                backend::kNativeIkCharacterEyeMaterialMode) {
             // Generic PBR packing consumes rect0.xyz for roughness,
             // occlusion, and rim color. Native IkCharacter needs its three
             // independent source controls as well: reflection blur,
@@ -346,14 +352,26 @@ inline WorldPsConstants makeWorldPsConstants(
             constants.materialTimeSec = textureData->materialRect0U;
             constants.materialFlipbook1Frames =
                 std::clamp(textureData->materialRect0H, 0.0f, 1.0f);
-            constants.materialFlipbook1Fps =
-                std::round(textureData->materialRect0W) * 1000.0f +
-                (std::clamp(
-                     textureData->materialFlipbook1Frames,
-                     -1.0f,
-                     2.0f) +
-                 1.0f) * 100.0f +
-                std::clamp(textureData->materialRect0V, 0.0f, 1.0f);
+            if (textureData->materialMode ==
+                backend::kNativeIkCharacterEyeMaterialMode) {
+                // Mode 35 uses rect0.yz for ParallaxHeight and IOR. A
+                // thousandth-quantized IOR in the integer portion and height
+                // in the fractional portion retain both in one otherwise-free
+                // scalar. The quality LOD remains lossless in rowZ.z below.
+                constants.materialFlipbook1Fps =
+                    std::round(std::max(textureData->materialRect0W, 1.0f) *
+                               1000.0f) +
+                    std::clamp(textureData->materialRect0V, 0.0f, 0.999f);
+            } else {
+                constants.materialFlipbook1Fps =
+                    std::round(textureData->materialRect0W) * 1000.0f +
+                    (std::clamp(
+                         textureData->materialFlipbook1Frames,
+                         -1.0f,
+                         2.0f) +
+                     1.0f) * 100.0f +
+                    std::clamp(textureData->materialRect0V, 0.0f, 1.0f);
+            }
             // Mode 32 does not sample the projected-ground-shadow path,
             // so its three matrix rows are available as PS-only source
             // material transport. Keep the signed color-process block at

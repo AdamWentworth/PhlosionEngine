@@ -58,7 +58,10 @@ inline WorldPushConstants makeWorldPushConstants(
     out.normalScale = std::max(texture->normalScale, 0.0f);
     out.metallicFactor = std::clamp(texture->metallicFactor, 0.0f, 1.0f);
     out.roughnessFactor = std::clamp(texture->roughnessFactor, 0.0f, 1.0f);
-    out.occlusionStrength = texture->materialMode == 32u
+    out.occlusionStrength =
+        texture->materialMode == backend::kNativeIkCharacterMaterialMode ||
+                texture->materialMode ==
+                    backend::kNativeIkCharacterEyeMaterialMode
         ? std::max(texture->occlusionStrength, 0.0f)
         : std::clamp(texture->occlusionStrength, 0.0f, 1.0f);
     out.emissiveFactorR = std::max(texture->emissiveFactorR, 0.0f);

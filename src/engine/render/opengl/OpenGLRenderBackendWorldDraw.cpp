@@ -856,7 +856,12 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
         glUniform1f(
             worldOcclusionStrengthLoc_,
             texture
-                ? (texture->materialMode == 32u
+                ? (texture->materialMode ==
+                           engine::render::backend::
+                               kNativeIkCharacterMaterialMode ||
+                           texture->materialMode ==
+                               engine::render::backend::
+                                   kNativeIkCharacterEyeMaterialMode
                        ? std::max(texture->occlusionStrength, 0.0f)
                        : std::clamp(texture->occlusionStrength, 0.0f, 1.0f))
                 : 1.0f);

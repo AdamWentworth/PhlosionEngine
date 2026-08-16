@@ -536,7 +536,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             bool qualityControlled =
                 (uMaterialMode > 1.5 && uMaterialMode < 2.5) ||
                 (uMaterialMode > 27.5 && uMaterialMode < 30.5) ||
-                (uMaterialMode > 31.5 && uMaterialMode < 34.5);
+                (uMaterialMode > 31.5 && uMaterialMode < 35.5);
             if (!qualityControlled) return 0.0;
             return clamp(uMaterialFlipbook1.z, -0.75, 1.25);
         }
@@ -2524,12 +2524,117 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float sourceLod,
             float fallbackRoughness);
 
-        vec3 applyNativeIkCharacter(
-            vec3 linearColor,
-            vec3 n,
-            vec2 sampleUv,
+        vec2 resolveZaIkEyeParallaxUv(
+            vec2 uv,
             vec2 uvDx,
             vec2 uvDy) {
+            float parallaxHeight = max(uMaterialRect0.y, 0.0);
+            if (parallaxHeight <= 1e-5 ||
+                uUseEmissiveTexture < 0.5) {
+                return uv;
+            }
+            vec3 geometricNormal = safeNormalize(
+                vWorldNormal,
+                vec3(0.0, 1.0, 0.0));
+            vec3 tangent = vWorldTangent.xyz - geometricNormal *
+                dot(vWorldTangent.xyz, geometricNormal);
+            tangent = safeNormalize(tangent, vec3(1.0, 0.0, 0.0));
+            vec3 bitangent = safeNormalize(
+                cross(geometricNormal, tangent),
+                vec3(0.0, 0.0, 1.0)) *
+                (vWorldTangent.w < 0.0 ? -1.0 : 1.0);
+            vec3 viewWorld = safeNormalize(
+                uCameraPos - vWorldPos,
+                geometricNormal);
+            vec3 viewTangent = vec3(
+                dot(viewWorld, tangent),
+                dot(viewWorld, bitangent),
+                max(dot(viewWorld, geometricNormal), 0.08));
+            float eta = 1.0 / max(uMaterialRect0.z, 1.0);
+            vec3 refracted = refract(
+                -normalize(viewTangent),
+                vec3(0.0, 0.0, 1.0),
+                eta);
+            vec2 parallaxDirection = -refracted.xy /
+                max(abs(refracted.z), 0.12);
+            if (dot(refracted, refracted) < 1e-6) {
+                parallaxDirection = viewTangent.xy /
+                    max(viewTangent.z, 0.12);
+            }
+            parallaxDirection = clamp(
+                parallaxDirection,
+                vec2(-2.0),
+                vec2(2.0));
+            float grazing = clamp(1.0 - abs(viewTangent.z), 0.0, 1.0);
+            float layerCount = mix(8.0, 16.0, grazing);
+            float layerStep = 1.0 / layerCount;
+            vec2 uvStep = parallaxDirection * parallaxHeight / layerCount;
+            vec2 currentUv = uv;
+            float currentDepth = 0.0;
+            float sampledHeight = sampleTextureWithWrap(
+                uEmissiveTexture,
+                currentUv,
+                uvDx,
+                uvDy).a;
+            for (int layer = 0; layer < 16; ++layer) {
+                if (currentDepth >= sampledHeight ||
+                    float(layer) >= layerCount) break;
+                currentUv -= uvStep;
+                currentDepth += layerStep;
+                sampledHeight = sampleTextureWithWrap(
+                    uEmissiveTexture,
+                    currentUv,
+                    uvDx,
+                    uvDy).a;
+            }
+            vec2 previousUv = currentUv + uvStep;
+            float afterDepth = sampledHeight - currentDepth;
+            float beforeDepth = sampleTextureWithWrap(
+                uEmissiveTexture,
+                previousUv,
+                uvDx,
+                uvDy).a - (currentDepth - layerStep);
+            float denominator = afterDepth - beforeDepth;
+            float weight = abs(denominator) > 1e-5
+                ? clamp(afterDepth / denominator, 0.0, 1.0)
+                : 0.0;
+            return mix(currentUv, previousUv, weight);
+        }
+
+        vec3 applyNativeIkCharacter(
+            vec3 linearColor,
+            vec3 inputNormal,
+            vec2 inputSampleUv,
+            vec2 uvDx,
+            vec2 uvDy,
+            bool nativeEye) {
+            vec2 sampleUv = nativeEye
+                ? resolveZaIkEyeParallaxUv(inputSampleUv, uvDx, uvDy)
+                : inputSampleUv;
+            vec3 n = inputNormal;
+            vec3 resolvedLinearColor = linearColor;
+            if (nativeEye) {
+                resolvedLinearColor = clamp(
+                    sampleTextureWithWrap(
+                        uTexture,
+                        sampleUv,
+                        uvDx,
+                        uvDy).rgb * vColor.rgb,
+                    0.0,
+                    1.0);
+                n = computeMappedNormal(sampleUv, uvDx, uvDy, 0.8);
+                float eyelidShadow = uUseNormalTexture > 0.5
+                    ? sampleTextureWithWrap(
+                          uNormalTexture,
+                          sampleUv,
+                          uvDx,
+                          uvDy).a
+                    : 0.0;
+                resolvedLinearColor *= mix(
+                    vec3(1.0),
+                    max(uEmissiveFactor, vec3(0.0)),
+                    clamp(eyelidShadow, 0.0, 1.0));
+            }
             vec3 cameraForward = safeNormalize(
                 uCameraForward,
                 normalize(vec3(0.0, -0.6139406, -0.7893522)));
@@ -2570,8 +2675,10 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float specularOffset = surfaceControl.b * 1.5 - 0.5;
             float specularContrast = surfaceControl.a * 5.0;
             float reflectionBlur = max(uMaterialRect0.x, 0.0);
-            float diffusionLevels = clamp(uMaterialRect0.y, 0.0, 1.0);
-            float surfaceProfile = uMaterialRect0.z;
+            float diffusionLevels = nativeEye
+                ? 0.0
+                : clamp(uMaterialRect0.y, 0.0, 1.0);
+            float surfaceProfile = nativeEye ? 0.0 : uMaterialRect0.z;
             float shadowingGiGain = clamp(uMaterialRect0.w, 0.0, 1.0);
             float faceDirection = gl_FrontFacing ? 1.0 : -1.0;
             vec3 geometricNormal = safeNormalize(
@@ -2641,7 +2748,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 (0.90 - litTextureDetailLodBias()) / 1.30,
                 0.0,
                 1.0);
-            vec3 albedo = clamp(linearColor, 0.0, 1.0);
+            vec3 albedo = clamp(resolvedLinearColor, 0.0, 1.0);
             float aoShadowAmount =
                 (1.0 - aoBaseWeight) * shadowingGiGain;
             float combinedShadowAmount = 1.0 -
@@ -2689,13 +2796,13 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 -0.22,
                 0.22);
             shaded *= 1.0 + normalDetailDelta * qualityDetail * 0.62;
-            bool fibreSurface =
+            bool fibreSurface = !nativeEye &&
                 abs(surfaceProfile - 1.0) < 0.25 &&
                 uUseEmissiveTexture > 0.5;
-            bool featherSurface =
+            bool featherSurface = !nativeEye &&
                 abs(surfaceProfile - 2.0) < 0.25 &&
                 uUseNormalTexture > 0.5;
-            vec4 rimResponse = uUseEmissiveTexture > 0.5
+            vec4 rimResponse = !nativeEye && uUseEmissiveTexture > 0.5
                 ? sampleTextureWithWrap(
                       uEmissiveTexture,
                       sampleUv,
@@ -2709,10 +2816,12 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 (edge - rimOffset) / max(1.0 - rimOffset, 1e-4),
                 0.0,
                 1.0);
-            float rim = pow(
+            float rim = nativeEye ? 0.0 : pow(
                 rimDomain,
                 max(uEmissiveFactor.g, 1.0)) * rimResponse.r;
-            float backRim = clamp(-facing, 0.0, 1.0) * rimResponse.g;
+            float backRim = nativeEye
+                ? 0.0
+                : clamp(-facing, 0.0, 1.0) * rimResponse.g;
             float specularStrength = clamp(shadowSpec.a, 0.0, 1.0);
             // Use a sharper surface-carrier sample than base color so the
             // 1024px directional strokes survive the Inspector thumbnail.
@@ -2818,8 +2927,15 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     reflectionRoughness) *
                 __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
             vec3 diffuse = nativeBase * (1.0 - metallic * 0.85);
+            vec3 eyeHighlight = nativeEye && uUseEmissiveTexture > 0.5
+                ? sampleTextureWithWrap(
+                      uEmissiveTexture,
+                      sampleUv,
+                      uvDx,
+                      uvDy).rgb
+                : vec3(0.0);
             return max(
-                diffuse + directSpecular + environmentSpecular,
+                diffuse + directSpecular + environmentSpecular + eyeHighlight,
                 vec3(0.0));
         }
 
@@ -3699,6 +3815,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     uMaterialMode > 32.5 && uMaterialMode < 33.5;
                 bool nativeFresnelEffect =
                     uMaterialMode > 33.5 && uMaterialMode < 34.5;
+                bool nativeIkCharacterEye =
+                    uMaterialMode > 34.5 && uMaterialMode < 35.5;
                 if (nativeFresnelEffect) {
                     reviewAlbedo = nativeFresnelEffectBase(outLinear);
                 }
@@ -3709,7 +3827,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     wrappedUv,
                     uvDx,
                     uvDy,
-                    nativeIkCharacter ? 0.8 : 1.0);
+                    (nativeIkCharacter || nativeIkCharacterEye) ? 0.8 : 1.0);
                 // NormalMap1 is the source EyeClearCoat highlight-normal
                 // input, not a replacement for the eye shell's base surface
                 // normal. Applying it to generic PBR turns its small authored
@@ -3728,13 +3846,14 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                         uvDx,
                         uvDy,
                         uMaterialFlags);
-                } else if (nativeIkCharacter) {
+                } else if (nativeIkCharacter || nativeIkCharacterEye) {
                     outLinear = applyNativeIkCharacter(
                         outLinear,
                         n,
                         wrappedUv,
                         uvDx,
-                        uvDy);
+                        uvDy,
+                        nativeIkCharacterEye);
                 } else if (nativeGastlyFace) {
                     outLinear = applyNativeGastlyFace(
                         outLinear,

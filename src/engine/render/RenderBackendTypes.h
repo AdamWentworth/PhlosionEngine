@@ -24,6 +24,10 @@ inline constexpr float kNativeSssSurfaceFibre = 1.0f;
 // Keep it out of generic PBR so the authored fifth-power Fresnel response and
 // the second map's linear sampling contract survive every backend.
 inline constexpr std::uint8_t kNativeFresnelEffectMaterialMode = 34u;
+// Z-A's IkCharacter eye variant keeps live iris parallax/refraction,
+// eyelid-shadow, highlight, and local-reflection inputs alongside the body
+// program's color process.
+inline constexpr std::uint8_t kNativeIkCharacterEyeMaterialMode = 35u;
 
 struct BackendFrameTimings {
     float presentWaitMs = 0.0f;

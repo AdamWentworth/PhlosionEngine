@@ -252,13 +252,16 @@ float litTextureDetailLodBias() {
   const bool qualityControlled =
       (uMaterialMode > 1.5f && uMaterialMode < 2.5f) ||
       (uMaterialMode > 27.5f && uMaterialMode < 30.5f) ||
-      (uMaterialMode > 31.5f && uMaterialMode < 34.5f);
+      (uMaterialMode > 31.5f && uMaterialMode < 35.5f);
   if (!qualityControlled) return 0.0f;
   if (uMaterialMode > 31.5f && uMaterialMode < 32.5f) {
     float profileField = floor(max(uMaterialFlipbook1Fps, 0.0f) / 1000.0f);
     float packedRemainder = max(uMaterialFlipbook1Fps, 0.0f) -
         profileField * 1000.0f;
     return clamp(floor(packedRemainder) * 0.01f - 1.0f, -0.75f, 1.25f);
+  }
+  if (uMaterialMode > 34.5f && uMaterialMode < 35.5f) {
+    return clamp(uProjectedShadowRowZ.z, -0.75f, 1.25f);
   }
   return clamp(uMaterialFlipbook1Frames, -0.75f, 1.25f);
 }
@@ -2395,6 +2398,70 @@ float3 sampleZaLocalReflectionProbe(float3 direction,
                                     float sourceLod,
                                     float fallbackRoughness);
 
+float2 resolveZaIkEyeParallaxUv(PSIn i,
+                                float2 uv,
+                                float2 uvDx,
+                                float2 uvDy,
+                                float3 cameraPos) {
+  float packedHeightIor = max(uMaterialFlipbook1Fps, 0.0f);
+  float parallaxHeight = frac(packedHeightIor);
+  if (parallaxHeight <= 1e-5f) return uv;
+  float parallaxIor = max(floor(packedHeightIor) / 1000.0f, 1.0f);
+  float3 geometricNormal = safeNormalize(
+      i.worldNormal,
+      float3(0.0f, 1.0f, 0.0f));
+  float3 tangent = i.worldTangent.xyz - geometricNormal *
+      dot(i.worldTangent.xyz, geometricNormal);
+  tangent = safeNormalize(tangent, float3(1.0f, 0.0f, 0.0f));
+  float3 bitangent = safeNormalize(
+      cross(geometricNormal, tangent),
+      float3(0.0f, 0.0f, 1.0f)) *
+      (i.worldTangent.w < 0.0f ? -1.0f : 1.0f);
+  float3 viewWorld = safeNormalize(
+      cameraPos - i.worldPos,
+      geometricNormal);
+  float3 viewTangent = float3(
+      dot(viewWorld, tangent),
+      dot(viewWorld, bitangent),
+      max(dot(viewWorld, geometricNormal), 0.08f));
+  float3 refracted = refract(
+      -normalize(viewTangent),
+      float3(0.0f, 0.0f, 1.0f),
+      1.0f / parallaxIor);
+  float2 parallaxDirection = -refracted.xy /
+      max(abs(refracted.z), 0.12f);
+  if (dot(refracted, refracted) < 1e-6f) {
+    parallaxDirection = viewTangent.xy / max(viewTangent.z, 0.12f);
+  }
+  parallaxDirection = clamp(parallaxDirection, -2.0f.xx, 2.0f.xx);
+  float grazing = saturate(1.0f - abs(viewTangent.z));
+  float layerCount = lerp(8.0f, 16.0f, grazing);
+  float layerStep = 1.0f / layerCount;
+  float2 uvStep = parallaxDirection * parallaxHeight / layerCount;
+  float2 currentUv = uv;
+  float currentDepth = 0.0f;
+  float sampledHeight = sampleTextureWithWrap(
+      gEmissiveTex, currentUv, uvDx, uvDy, uWrapS, uWrapT).a;
+  [loop]
+  for (int layer = 0; layer < 16; ++layer) {
+    if (currentDepth >= sampledHeight || (float)layer >= layerCount) break;
+    currentUv -= uvStep;
+    currentDepth += layerStep;
+    sampledHeight = sampleTextureWithWrap(
+        gEmissiveTex, currentUv, uvDx, uvDy, uWrapS, uWrapT).a;
+  }
+  float2 previousUv = currentUv + uvStep;
+  float afterDepth = sampledHeight - currentDepth;
+  float beforeDepth = sampleTextureWithWrap(
+      gEmissiveTex, previousUv, uvDx, uvDy, uWrapS, uWrapT).a -
+      (currentDepth - layerStep);
+  float denominator = afterDepth - beforeDepth;
+  float weight = abs(denominator) > 1e-5f
+      ? saturate(afterDepth / denominator)
+      : 0.0f;
+  return lerp(currentUv, previousUv, weight);
+}
+
 float3 applyNativeIkCharacter(PSIn i,
                               bool isFrontFace,
                               float3 linearColor,
@@ -2412,7 +2479,15 @@ float3 applyNativeIkCharacter(PSIn i,
                               float3 rimParameters,
                               float3 cameraPos,
                               float3 cameraForwardPacked,
-                              float3 cameraTarget) {
+                              float3 cameraTarget,
+                              bool nativeEye) {
+  sampleUv = nativeEye
+      ? resolveZaIkEyeParallaxUv(i, sampleUv, uvDx, uvDy, cameraPos)
+      : sampleUv;
+  if (nativeEye) {
+    linearColor = saturate(sampleTextureWithWrap(
+        gTex, sampleUv, uvDx, uvDy, uWrapS, uWrapT).rgb * i.col.rgb);
+  }
   float3 normal = computeMappedNormal(
       i,
       isFrontFace,
@@ -2423,6 +2498,16 @@ float3 applyNativeIkCharacter(PSIn i,
       // Z-A's IkCharacter NormalHeight is literal; the shared PBR decoder's
       // 1.25 presentation boost must not amplify facial/body relief.
       normalScale * 0.8f);
+  if (nativeEye) {
+    float eyelidShadow = useNormalTexture
+        ? sampleTextureWithWrap(
+              gNormalTex, sampleUv, uvDx, uvDy, uWrapS, uWrapT).a
+        : 0.0f;
+    linearColor *= lerp(
+        1.0f.xxx,
+        max(rimParameters, 0.0f.xxx),
+        saturate(eyelidShadow));
+  }
   float3 cameraForward = safeNormalize(
       cameraForwardPacked,
       normalize(float3(0.0f, -0.6139406f, -0.7893522f)));
@@ -2467,10 +2552,14 @@ float3 applyNativeIkCharacter(PSIn i,
   // D3D12's fixed 64-DWORD root signature repacks mode-32 rect0.xyz into
   // otherwise-unused PS-only fields; see makeWorldPsConstants().
   float reflectionBlur = max(uMaterialTimeSec, 0.0f);
-  float packedSurface = max(uMaterialFlipbook1Fps, 0.0f);
+  float packedSurface = nativeEye
+      ? 0.0f
+      : max(uMaterialFlipbook1Fps, 0.0f);
   float surfaceProfile = floor(packedSurface / 1000.0f);
   float packedSurfaceRemainder = packedSurface - surfaceProfile * 1000.0f;
-  float diffusionLevels = saturate(frac(packedSurfaceRemainder));
+  float diffusionLevels = nativeEye
+      ? 0.0f
+      : saturate(frac(packedSurfaceRemainder));
   float shadowingGiGain = saturate(uMaterialFlipbook1Frames);
   float faceDirection = isFrontFace ? 1.0f : -1.0f;
   float3 geometricNormal = safeNormalize(
@@ -2571,11 +2660,13 @@ float3 applyNativeIkCharacter(PSIn i,
       -0.22f,
       0.22f);
   shaded *= 1.0f + normalDetailDelta * qualityDetail * 0.62f;
-  bool fibreSurface = abs(surfaceProfile - 1.0f) < 0.25f &&
+  bool fibreSurface = !nativeEye &&
+      abs(surfaceProfile - 1.0f) < 0.25f &&
       useEmissiveTexture;
-  bool featherSurface = abs(surfaceProfile - 2.0f) < 0.25f &&
+  bool featherSurface = !nativeEye &&
+      abs(surfaceProfile - 2.0f) < 0.25f &&
       useNormalTexture;
-  float4 rimResponse = useEmissiveTexture
+  float4 rimResponse = !nativeEye && useEmissiveTexture
       ? sampleTextureWithWrap(
             gEmissiveTex,
             sampleUv,
@@ -2589,8 +2680,10 @@ float3 applyNativeIkCharacter(PSIn i,
   float rimOffset = clamp(rimParameters.r, 0.0f, 0.99f);
   float rimDomain = saturate(
       (edge - rimOffset) / max(1.0f - rimOffset, 1e-4f));
-  float rim = pow(rimDomain, max(rimParameters.g, 1.0f)) * rimResponse.r;
-  float backRim = saturate(-facing) * rimResponse.g;
+  float rim = nativeEye
+      ? 0.0f
+      : pow(rimDomain, max(rimParameters.g, 1.0f)) * rimResponse.r;
+  float backRim = nativeEye ? 0.0f : saturate(-facing) * rimResponse.g;
   float specularStrength = saturate(shadowSpec.a);
   // Surface carriers deliberately use a sharper sample than base color so
   // their 1024px directional strokes survive the small Inspector preview.
@@ -2695,8 +2788,17 @@ float3 applyNativeIkCharacter(PSIn i,
           reflectionRoughness) *
       __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
   float3 diffuse = nativeBase * (1.0f - metallic * 0.85f);
+  float3 eyeHighlight = nativeEye && useEmissiveTexture
+      ? sampleTextureWithWrap(
+            gEmissiveTex,
+            sampleUv,
+            uvDx,
+            uvDy,
+            uWrapS,
+            uWrapT).rgb
+      : float3(0.0f, 0.0f, 0.0f);
   return max(
-      diffuse + directSpecular + environmentSpecular,
+      diffuse + directSpecular + environmentSpecular + eyeHighlight,
       float3(0.0f, 0.0f, 0.0f));
 }
 
@@ -3462,6 +3564,8 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
         uMaterialMode > 32.5f && uMaterialMode < 33.5f;
     const bool nativeFresnelEffect =
         uMaterialMode > 33.5f && uMaterialMode < 34.5f;
+    const bool nativeIkCharacterEye =
+        uMaterialMode > 34.5f && uMaterialMode < 35.5f;
     if (nativeFresnelEffect) {
       reviewAlbedo = nativeFresnelEffectBase(outLinear);
     }
@@ -3484,7 +3588,7 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
           cameraPos,
           cameraForward,
           uMaterialTimeSec);
-    } else if (nativeIkCharacter) {
+    } else if (nativeIkCharacter || nativeIkCharacterEye) {
       outLinear = applyNativeIkCharacter(
           i,
           isFrontFace,
@@ -3503,7 +3607,8 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
           emissiveFactor,
           cameraPos,
           cameraForward,
-          cameraTarget);
+          cameraTarget,
+          nativeIkCharacterEye);
     } else if (nativeGastlyFace) {
       outLinear = applyNativeGastlyFace(
           i,

@@ -821,7 +821,9 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
         textureData->materialMode != 27u &&
         textureData->materialMode != 31u &&
         textureData->materialMode !=
-            engine::render::backend::kNativeIkCharacterMaterialMode) {
+            engine::render::backend::kNativeIkCharacterMaterialMode &&
+        textureData->materialMode !=
+            engine::render::backend::kNativeIkCharacterEyeMaterialMode) {
         // Reuse an unused packed slot in ordinary lit modes for shader debug
         // view selection. Native IkCharacter owns this slot for its surface
         // profile, quality LOD, and diffusion payload.
@@ -1040,7 +1042,9 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
         textureData->materialMode != 27u &&
         textureData->materialMode != 31u &&
         textureData->materialMode !=
-            engine::render::backend::kNativeIkCharacterMaterialMode) {
+            engine::render::backend::kNativeIkCharacterMaterialMode &&
+        textureData->materialMode !=
+            engine::render::backend::kNativeIkCharacterEyeMaterialMode) {
         // Keep mode 32's native surface/profile payload intact; see the
         // uncached path above.
         worldPs.materialFlipbook1Fps = static_cast<float>(pbrDebugViewMode());
