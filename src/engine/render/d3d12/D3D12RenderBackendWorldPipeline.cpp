@@ -2670,14 +2670,19 @@ float3 applyNativeIkCharacter(PSIn i,
   float rimOffset = clamp(rimParameters.r, 0.0f, 0.99f);
   float rimDomain = saturate(
       (edge - rimOffset) / max(1.0f - rimOffset, 1e-4f));
+  // Selected Z-A IkCharacter 514/594 applies cubic smoothstep followed by
+  // clamp(x * (1 + 2c) - c); RimLightContrast is not a power exponent.
+  float rimSmooth = rimDomain * rimDomain * (3.0f - 2.0f * rimDomain);
+  float rimContrast = rimParameters.g;
+  float rimShape = saturate(
+      rimSmooth * (1.0f + 2.0f * rimContrast) - rimContrast);
   // The packed map carries raw pre-composite Z-A rim scalars. Keep the
   // unresolved source-exposure calibration explicit in presentation code
   // instead of baking it irreversibly into imported assets.
   const float zaIkRimPresentationScale = 0.25f;
   float rim = nativeEye
       ? 0.0f
-      : pow(rimDomain, max(rimParameters.g, 1.0f)) * rimResponse.r *
-          zaIkRimPresentationScale;
+      : rimShape * rimResponse.r * zaIkRimPresentationScale;
   float backRim = nativeEye
       ? 0.0f
       : saturate(-facing) * rimResponse.g * zaIkRimPresentationScale;

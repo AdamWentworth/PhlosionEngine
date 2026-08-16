@@ -660,16 +660,22 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         (edge - rimOffset) / max(1.0 - rimOffset, 1e-4),
         0.0,
         1.0);
+    // Selected Z-A IkCharacter 514/594 applies cubic smoothstep, then the
+    // literal symmetric contrast remap clamp(x * (1 + 2c) - c). RimLight-
+    // Contrast is not a power exponent.
+    float rimSmooth = rimDomain * rimDomain * (3.0 - 2.0 * rimDomain);
+    float rimContrast = rimParameters.g;
+    float rimShape = clamp(
+        rimSmooth * (1.0 + 2.0 * rimContrast) - rimContrast,
+        0.0,
+        1.0);
     // The packed map carries raw pre-composite Z-A rim scalars. Source scene
     // exposure is still unavailable, so the bounded Phlosion review scale is
     // explicit here instead of being baked irreversibly into imported assets.
     const float zaIkRimPresentationScale = 0.25;
     float rim = nativeEye
         ? 0.0
-        : pow(
-              rimDomain,
-              max(rimParameters.g, 1.0)) * rimResponse.r *
-              zaIkRimPresentationScale;
+        : rimShape * rimResponse.r * zaIkRimPresentationScale;
     float backRim = nativeEye
         ? 0.0
         : clamp(-facing, 0.0, 1.0) * rimResponse.g *
