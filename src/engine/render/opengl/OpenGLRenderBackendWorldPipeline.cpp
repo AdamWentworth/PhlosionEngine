@@ -2623,17 +2623,6 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     0.0,
                     1.0);
                 n = computeMappedNormal(sampleUv, uvDx, uvDy, 0.8);
-                float eyelidShadow = uUseNormalTexture > 0.5
-                    ? sampleTextureWithWrap(
-                          uNormalTexture,
-                          sampleUv,
-                          uvDx,
-                          uvDy).a
-                    : 0.0;
-                resolvedLinearColor *= mix(
-                    vec3(1.0),
-                    max(uEmissiveFactor, vec3(0.0)),
-                    clamp(eyelidShadow, 0.0, 1.0));
             }
             vec3 cameraForward = safeNormalize(
                 uCameraForward,
@@ -2690,24 +2679,17 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float authoredShadowBias = hasAuthoredColorProcess
                 ? uMaterialRect1.x
                 : 1.0;
-            // Selected Z-A IkCharacter 514/594 uses x + bias * (x^2 - x)
+            // All selected Z-A IkCharacter variants use x + bias * (x^2 - x)
             // on wrapped N.L. ShadowingBias is not a power curve.
             float biasedLambert = clamp(
                 wrappedLambert + authoredShadowBias *
                     (wrappedLambert * wrappedLambert - wrappedLambert),
                 0.0,
                 1.0);
-            // Keep the separate 682/1214 eye composite on its prior response.
-            float halfLambert = nativeEye
-                ? mix(
-                      lambert,
-                      wrappedLambert,
-                      clamp(uMetallicFactor, 0.0, 1.0))
-                : biasedLambert;
+            float halfLambert = biasedLambert;
             float geometricNormalDotLight = dot(
                 geometricNormal,
                 lightDirection);
-            float geometricLambert = max(geometricNormalDotLight, 0.0);
             float geometricWrappedLambert = clamp(
                 geometricNormalDotLight * 0.5 + 0.5,
                 0.0,
@@ -2718,53 +2700,29 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                      geometricWrappedLambert),
                 0.0,
                 1.0);
-            float geometricHalfLambert = nativeEye
-                ? mix(
-                      geometricLambert,
-                      geometricWrappedLambert,
-                      clamp(uMetallicFactor, 0.0, 1.0))
-                : geometricBiasedLambert;
+            float geometricHalfLambert = geometricBiasedLambert;
             float authoredShadowShift = hasAuthoredColorProcess
                 ? uMaterialRect1.y
                 : -0.5;
             float authoredShadowContrast = hasAuthoredColorProcess
                 ? uMaterialRect1.z
                 : 0.0;
-            float shadowAmount;
-            if (nativeEye) {
-                float eyeShadowDomain = clamp(
-                    (1.0 - halfLambert) +
-                        (authoredShadowShift + 0.5) * 0.24,
-                    0.0,
-                    1.0);
-                eyeShadowDomain = clamp(
-                    (eyeShadowDomain - 0.5) *
-                            (1.0 + max(authoredShadowContrast, 0.0) * 1.5) +
-                        0.5,
-                    0.0,
-                    1.0);
-                shadowAmount = pow(
-                    eyeShadowDomain,
-                    clamp(authoredShadowBias, 0.25, 2.0)) *
-                    clamp(uRoughnessFactor, 0.0, 1.0);
-            } else {
-                float halfLambertBiasSquared =
-                    uMetallicFactor * uMetallicFactor;
-                float shadowBandLow =
-                    (0.5 - 0.5 * halfLambertBiasSquared) *
-                    uRoughnessFactor;
-                float shadowBandHigh =
-                    (0.5 + 0.5 * halfLambertBiasSquared) *
-                    uRoughnessFactor;
-                float shadowBandWidth = max(
-                    shadowBandHigh - shadowBandLow,
-                    1e-5);
-                shadowAmount = clamp(
-                    1.0 - (biasedLambert - shadowBandLow) /
-                        shadowBandWidth,
-                    0.0,
-                    1.0);
-            }
+            float halfLambertBiasSquared =
+                uMetallicFactor * uMetallicFactor;
+            float shadowBandLow =
+                (0.5 - 0.5 * halfLambertBiasSquared) *
+                uRoughnessFactor;
+            float shadowBandHigh =
+                (0.5 + 0.5 * halfLambertBiasSquared) *
+                uRoughnessFactor;
+            float shadowBandWidth = max(
+                shadowBandHigh - shadowBandLow,
+                1e-5);
+            float shadowAmount = clamp(
+                1.0 - (biasedLambert - shadowBandLow) /
+                    shadowBandWidth,
+                0.0,
+                1.0);
             float qualityDetail = clamp(
                 (0.90 - litTextureDetailLodBias()) / 1.30,
                 0.0,
@@ -2776,7 +2734,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 shadowSpec.rgb,
                 combinedShadowAmount);
             vec3 shaded = albedo * shadowTint;
-            if (!nativeEye && hasAuthoredColorProcess) {
+            if (hasAuthoredColorProcess) {
                 // The source scene-light scalar is absent from the loose
                 // assets. Use the normalized review-light counterpart; the
                 // remaining selected-program operations are literal.
@@ -2928,14 +2886,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             // Compiled IkCharacter applies layer-resolved intensity once;
             // the old square was a viewer gloss workaround, not source math.
             float dielectricSpecular = specularStrength;
-            // Keep mode 35 on its independently reconstructed 682/1214
-            // response. The proven separation applies to body 514/594.
-            float surfaceSpecular = nativeEye
-                ? max(dielectricSpecular, metallic)
-                : dielectricSpecular;
-            vec3 specularColor = nativeEye
-                ? mix(vec3(1.0), albedo, metallic)
-                : vec3(1.0);
+            // Eye 682/1214 retains the direct-specular/reflection split.
+            float surfaceSpecular = dielectricSpecular;
+            vec3 specularColor = vec3(1.0);
             vec3 directSpecular = specularColor * surfaceSpecular *
                 specularLobe * normalDotLight * 0.72;
             vec3 reflection = reflect(-viewDirection, n);
@@ -2955,32 +2908,22 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 normalDotView,
                 1.0,
                 reflectionRoughness);
-            vec3 environmentSpecular = nativeEye
-                ? environmentRadiance * specularColor * surfaceSpecular *
-                    grazingResponse * environmentOcclusion *
-                    __PHLOSION_PBR_SPECULAR_IBL_SCALE__
-                : environmentRadiance * albedo * metallic *
-                    grazingResponse * environmentOcclusion *
-                    __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+            vec3 environmentSpecular =
+                environmentRadiance * albedo * metallic *
+                grazingResponse * environmentOcclusion *
+                __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
             vec3 diffuse = nativeBase * (1.0 - metallic * 0.85);
-            vec3 eyeHighlight = nativeEye && uUseEmissiveTexture > 0.5
-                ? sampleTextureWithWrap(
-                      uEmissiveTexture,
-                      sampleUv,
-                      uvDx,
-                      uvDy).rgb
-                : vec3(0.0);
             // Mode 32's packed rim texture reserves blue for the source
             // IkCharacter final-combine emission. The selected Kanto Z-A
             // corpus uses an achromatic value (Staryu layer 3), so a scalar
             // lane preserves that authored term exactly without changing the
-            // six-texture material ABI. Mode 35 owns RGB for eye highlights.
+            // six-texture material ABI. Mode 35's highlight is already in its
+            // source-proven pre-lighting base and shadow colors.
             vec3 bodyEmission = !nativeEye && uUseEmissiveTexture > 0.5
                 ? vec3(rimResponse.b)
                 : vec3(0.0);
             return max(
-                diffuse + directSpecular + environmentSpecular +
-                    eyeHighlight + bodyEmission,
+                diffuse + directSpecular + environmentSpecular + bodyEmission,
                 vec3(0.0));
         }
 

@@ -2498,16 +2498,6 @@ float3 applyNativeIkCharacter(PSIn i,
       // Z-A's IkCharacter NormalHeight is literal; the shared PBR decoder's
       // 1.25 presentation boost must not amplify facial/body relief.
       normalScale * 0.8f);
-  if (nativeEye) {
-    float eyelidShadow = useNormalTexture
-        ? sampleTextureWithWrap(
-              gNormalTex, sampleUv, uvDx, uvDy, uWrapS, uWrapT).a
-        : 0.0f;
-    linearColor *= lerp(
-        1.0f.xxx,
-        max(rimParameters, 0.0f.xxx),
-        saturate(eyelidShadow));
-  }
   float3 cameraForward = safeNormalize(
       cameraForwardPacked,
       normalize(float3(0.0f, -0.6139406f, -0.7893522f)));
@@ -2571,59 +2561,34 @@ float3 applyNativeIkCharacter(PSIn i,
   float authoredShadowBias = hasAuthoredColorProcess
       ? uProjectedShadowRowX.x
       : 1.0f;
-  // Selected Z-A IkCharacter 514/594 applies x + bias * (x^2 - x) to
+  // All selected Z-A IkCharacter variants apply x + bias * (x^2 - x) to
   // wrapped N.L. ShadowingBias is not a power curve.
   float biasedLambert = saturate(
       wrappedLambert + authoredShadowBias *
           (wrappedLambert * wrappedLambert - wrappedLambert));
-  // Keep 682/1214 on the previous response until the separate eye composite
-  // is reconstructed. The literal body path here is proven for 514/594.
-  float halfLambert = nativeEye
-      ? lerp(lambert, wrappedLambert, saturate(halfLambertBias))
-      : biasedLambert;
+  float halfLambert = biasedLambert;
   float geometricNormalDotLight = dot(geometricNormal, lightDirection);
-  float geometricLambert = max(geometricNormalDotLight, 0.0f);
   float geometricWrappedLambert = saturate(
       geometricNormalDotLight * 0.5f + 0.5f);
   float geometricBiasedLambert = saturate(
       geometricWrappedLambert + authoredShadowBias *
           (geometricWrappedLambert * geometricWrappedLambert -
            geometricWrappedLambert));
-  float geometricHalfLambert = nativeEye
-      ? lerp(
-            geometricLambert,
-            geometricWrappedLambert,
-            saturate(halfLambertBias))
-      : geometricBiasedLambert;
+  float geometricHalfLambert = geometricBiasedLambert;
   float authoredShadowShift = hasAuthoredColorProcess
       ? uProjectedShadowRowX.y
       : -0.5f;
   float authoredShadowContrast = hasAuthoredColorProcess
       ? uProjectedShadowRowX.z
       : 0.0f;
-  float shadowAmount;
-  if (nativeEye) {
-    float eyeShadowDomain = saturate(
-        (1.0f - halfLambert) +
-        (authoredShadowShift + 0.5f) * 0.24f);
-    eyeShadowDomain = saturate(
-        (eyeShadowDomain - 0.5f) *
-            (1.0f + max(authoredShadowContrast, 0.0f) * 1.5f) +
-        0.5f);
-    shadowAmount = pow(
-        eyeShadowDomain,
-        clamp(authoredShadowBias, 0.25f, 2.0f)) *
-        saturate(shadowStrength);
-  } else {
-    float halfLambertBiasSquared = halfLambertBias * halfLambertBias;
-    float shadowBandLow =
-        (0.5f - 0.5f * halfLambertBiasSquared) * shadowStrength;
-    float shadowBandHigh =
-        (0.5f + 0.5f * halfLambertBiasSquared) * shadowStrength;
-    float shadowBandWidth = max(shadowBandHigh - shadowBandLow, 1e-5f);
-    shadowAmount = saturate(
-        1.0f - (biasedLambert - shadowBandLow) / shadowBandWidth);
-  }
+  float halfLambertBiasSquared = halfLambertBias * halfLambertBias;
+  float shadowBandLow =
+      (0.5f - 0.5f * halfLambertBiasSquared) * shadowStrength;
+  float shadowBandHigh =
+      (0.5f + 0.5f * halfLambertBiasSquared) * shadowStrength;
+  float shadowBandWidth = max(shadowBandHigh - shadowBandLow, 1e-5f);
+  float shadowAmount = saturate(
+      1.0f - (biasedLambert - shadowBandLow) / shadowBandWidth);
   float qualityDetail = saturate(
       (0.90f - litTextureDetailLodBias()) / 1.30f);
   float3 albedo = saturate(linearColor);
@@ -2633,7 +2598,7 @@ float3 applyNativeIkCharacter(PSIn i,
       shadowSpec.rgb,
       combinedShadowAmount);
   float3 shaded = albedo * shadowTint;
-  if (!nativeEye && hasAuthoredColorProcess) {
+  if (hasAuthoredColorProcess) {
     // The source scene-light scalar is absent from the loose assets. Use the
     // normalized review-light counterpart; all following operations are the
     // literal selected-program order.
@@ -2746,14 +2711,9 @@ float3 applyNativeIkCharacter(PSIn i,
   // Compiled IkCharacter applies the layer-resolved intensity once. Squaring
   // it was a viewer gloss workaround and suppressed authored weak highlights.
   float dielectricSpecular = specularStrength;
-  // Keep mode 35 on its independently reconstructed 682/1214 response.
-  // The proven direct-specular/metallic separation applies to body 514/594.
-  float surfaceSpecular = nativeEye
-      ? max(dielectricSpecular, metallic)
-      : dielectricSpecular;
-  float3 specularColor = nativeEye
-      ? lerp(1.0f.xxx, albedo, metallic)
-      : 1.0f.xxx;
+  // Eye 682/1214 retains the same direct-specular/local-reflection split.
+  float surfaceSpecular = dielectricSpecular;
+  float3 specularColor = 1.0f.xxx;
   float3 directSpecular = specularColor * surfaceSpecular * specularLobe *
       normalDotLight * 0.72f;
   float3 reflection = reflect(-viewDirection, normal);
@@ -2773,30 +2733,17 @@ float3 applyNativeIkCharacter(PSIn i,
       normalDotView,
       1.0f,
       reflectionRoughness);
-  float3 environmentSpecular = nativeEye
-      ? environmentRadiance * specularColor * surfaceSpecular *
-          grazingResponse * environmentOcclusion *
-          __PHLOSION_PBR_SPECULAR_IBL_SCALE__
-      : environmentRadiance * albedo * metallic * grazingResponse *
-          environmentOcclusion * __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+  float3 environmentSpecular =
+      environmentRadiance * albedo * metallic * grazingResponse *
+      environmentOcclusion * __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
   float3 diffuse = nativeBase * (1.0f - metallic * 0.85f);
-  float3 eyeHighlight = nativeEye && useEmissiveTexture
-      ? sampleTextureWithWrap(
-            gEmissiveTex,
-            sampleUv,
-            uvDx,
-            uvDy,
-            uWrapS,
-            uWrapT).rgb
-      : float3(0.0f, 0.0f, 0.0f);
   // Mode 32 packs the selected Kanto corpus' achromatic body-emission final
-  // combine into blue. Mode 35 retains the full RGB payload for eye glints.
+  // combine into blue. Mode 35's highlight is pre-lighting source color.
   float3 bodyEmission = !nativeEye && useEmissiveTexture
       ? rimResponse.b.xxx
       : float3(0.0f, 0.0f, 0.0f);
   return max(
-      diffuse + directSpecular + environmentSpecular +
-          eyeHighlight + bodyEmission,
+      diffuse + directSpecular + environmentSpecular + bodyEmission,
       float3(0.0f, 0.0f, 0.0f));
 }
 
