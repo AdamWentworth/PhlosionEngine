@@ -1724,8 +1724,7 @@ float authoredFireNoise(float4 p) {
   return value / max(amplitudeSum, 1e-5f);
 }
 
-float4 evalNativeLayeredUnlitDisplaced(PSIn i) {
-  float emissionIntensity = max(uMaterialRect0V, 0.0f);
+float2 nativeLayeredMaterialUv(PSIn i) {
   bool exactSourceTrack = uMaterialFlags > 1.5f;
   float baseScrollHz = max(uMaterialRect0W, 0.0f);
   float2 baseOffset = exactSourceTrack
@@ -1742,11 +1741,20 @@ float4 evalNativeLayeredUnlitDisplaced(PSIn i) {
       (i.uv.x - baseOffset.x) * baseScale.x,
       1.0f - ((1.0f - i.uv.y) - baseOffset.y) * baseScale.y);
   baseUv.x = frac(baseUv.x);
+  return baseUv;
+}
+
+float4 evalNativeLayeredUnlitDisplaced(PSIn i) {
+  float emissionIntensity = max(uMaterialRect0V, 0.0f);
+  float2 baseUv = nativeLayeredMaterialUv(i);
   float4 base = gTex.Sample(gSampCC, baseUv);
   float4 weights = saturate(gMetallicRoughnessTex.Sample(gSampCC, baseUv));
   float coverage = saturate(
       1.0f - dot(weights, float4(1.0f, 1.0f, 1.0f, 1.0f)));
-  float3 color = base.rgb * coverage;
+  bool zaIkCharacterComposite = uMaterialFlags > 3.3f;
+  float3 color = zaIkCharacterComposite
+      ? base.rgb
+      : base.rgb * coverage;
   float3 layer1 = float3(
       uMaterialFlipbook0Cols,
       uMaterialFlipbook0Rows,
@@ -1760,49 +1768,110 @@ float4 evalNativeLayeredUnlitDisplaced(PSIn i) {
   // successive alpha-over operation.  Keeping that multiplication matters
   // for the general native contract even though Charmander's fire base map is
   // white.
-  color = lerp(color, base.rgb * layer1, weights.r);
-  coverage += weights.r * (1.0f - coverage);
-  color = lerp(color, base.rgb * layer2, weights.g);
-  coverage += weights.g * (1.0f - coverage);
-  color = lerp(color, base.rgb, weights.b);
-  coverage += weights.b * (1.0f - coverage);
-  color = lerp(color, base.rgb, weights.a);
-  coverage += weights.a * (1.0f - coverage);
+  if (!zaIkCharacterComposite) {
+    color = lerp(color, base.rgb * layer1, weights.r);
+    coverage += weights.r * (1.0f - coverage);
+    color = lerp(color, base.rgb * layer2, weights.g);
+    coverage += weights.g * (1.0f - coverage);
+    color = lerp(color, base.rgb, weights.b);
+    coverage += weights.b * (1.0f - coverage);
+    color = lerp(color, base.rgb, weights.a);
+    coverage += weights.a * (1.0f - coverage);
+  } else {
+    coverage = 1.0f;
+  }
   float4 surface = float4(
       color / max(coverage, 1e-6f) * emissionIntensity,
       1.0f);
-  // SSSEffect subtype 3 uses the complete dynamic alpha. World-scene draws
-  // carry it in i.col; direct indexed draws carry it in uVertexColorMulA.
-  // Authored Unlit fire remains opaque.
+  // SSSEffect subtype 3 uses complete dynamic alpha. Gastly's 3.25 and
+  // 3.375 subtypes remain opaque because both source meshes author zero alpha.
+  // World-scene draws carry dynamic alpha in i.col; direct indexed draws
+  // carry it in uVertexColorMulA. Authored Unlit fire remains opaque.
   surface.a = uMaterialFlags > 2.5f && uMaterialFlags < 3.125f
       ? saturate(i.col.a * uVertexColorMulA)
       : 1.0f;
   return surface;
 }
 
-float3 applyNativeGastlySmokeLighting(PSIn i, float3 color) {
+float3 applyNativeGastlySmokeLighting(
+    PSIn i,
+    float3 color,
+    float4 authoredResponse,
+    bool useAuthoredShadowColor) {
   float3 normal = normalize(i.worldNormal);
-  float3 cameraPos = float3(
-      uMaterialFlipbook0Cols,
-      uMaterialFlipbook0Rows,
-      uMaterialFlipbook0Frames);
+  float3 cameraPos = uProjectedShadowRowX.xyz;
+  float3 cameraForwardPacked = uProjectedShadowRowY.xyz;
+  float cameraForwardLengthSquared = dot(
+      cameraForwardPacked,
+      cameraForwardPacked);
+  float3 cameraForward = cameraForwardLengthSquared > 1e-10f
+      ? cameraForwardPacked * rsqrt(cameraForwardLengthSquared)
+      : float3(0.0f, -0.6139406f, -0.7893522f);
+  float3 cameraRightPacked = cross(
+      cameraForward,
+      float3(0.0f, 1.0f, 0.0f));
+  float cameraRightLengthSquared = dot(
+      cameraRightPacked,
+      cameraRightPacked);
+  float3 cameraRight = cameraRightLengthSquared > 1e-10f
+      ? cameraRightPacked * rsqrt(cameraRightLengthSquared)
+      : float3(1.0f, 0.0f, 0.0f);
   float3 toCamera = cameraPos - i.worldPos;
   float toCameraLengthSquared = dot(toCamera, toCamera);
   float3 viewDirection = toCameraLengthSquared > 1e-10f
       ? toCamera * rsqrt(toCameraLengthSquared)
-      : float3(0.0f, 0.0f, 1.0f);
-  float facing = clamp(dot(normal, viewDirection), -1.0f, 1.0f);
+      : -cameraForward;
+  float3 lightPosition = cameraPos +
+      cameraRight * 0.5f - cameraForward * 0.8660254f;
+  float3 lightVector = lightPosition - uProjectedShadowRowZ.xyz;
+  float lightVectorLengthSquared = dot(lightVector, lightVector);
+  float3 lightDirection = lightVectorLengthSquared > 1e-10f
+      ? lightVector * rsqrt(lightVectorLengthSquared)
+      : float3(0.45f, 0.86f, 0.24f);
+  float lightFacing = clamp(
+      dot(normal, lightDirection),
+      -1.0f,
+      1.0f);
+  float viewFacing = clamp(
+      dot(normal, viewDirection),
+      -1.0f,
+      1.0f);
   // Z-A IkCharacter: HalfLambertBias=.1, ShadowStrength=.7,
   // RimLightOffset=.2, RimLightContrast=2, RimLightIntensity=.8,
   // BackRimLightIntensity=.01.
-  float halfLambert = saturate(facing * 0.5f + 0.6f);
-  float diffuse = lerp(1.0f, halfLambert, 0.7f);
-  float edge = saturate(1.0f - max(facing, 0.0f));
+  float edge = saturate(1.0f - max(viewFacing, 0.0f));
   float rimDomain = saturate((edge - 0.2f) / 0.8f);
-  float rim = rimDomain * rimDomain * 0.8f;
-  float backRim = saturate(-facing) * 0.01f;
+  float rim;
+  float backRim;
+  float3 diffuseColor;
+  if (useAuthoredShadowColor) {
+    float wrappedLambert = saturate(lightFacing * 0.5f + 0.5f);
+    float biasedLambert = wrappedLambert * wrappedLambert;
+    const float shadowBandLow = 0.3465f;
+    const float shadowBandHigh = 0.3535f;
+    float shadowAmount = saturate(
+        1.0f - (biasedLambert - shadowBandLow) /
+            (shadowBandHigh - shadowBandLow));
+    diffuseColor = color * lerp(
+        float3(1.0f, 1.0f, 1.0f),
+        authoredResponse.rgb,
+        shadowAmount);
+    float rimSmooth = rimDomain * rimDomain * (3.0f - 2.0f * rimDomain);
+    float rimShape = saturate(rimSmooth * 5.0f - 2.0f);
+    const float zaIkRimPresentationScale = 0.25f;
+    rim = rimShape * authoredResponse.a * zaIkRimPresentationScale;
+    float rimMask = saturate(authoredResponse.a / 0.8f);
+    backRim = saturate(-viewFacing) * 0.01f * rimMask *
+        zaIkRimPresentationScale;
+  } else {
+    float halfLambert = saturate(lightFacing * 0.5f + 0.6f);
+    float diffuse = lerp(1.0f, halfLambert, 0.7f);
+    diffuseColor = color * diffuse;
+    rim = rimDomain * rimDomain * 0.8f;
+    backRim = saturate(-viewFacing) * 0.01f;
+  }
   return max(
-      color * (diffuse + rim + backRim),
+      diffuseColor + color * (rim + backRim),
       float3(0.0f, 0.0f, 0.0f));
 }
 
@@ -2733,7 +2802,25 @@ float3 applyNativeIkCharacter(PSIn i,
   // Every selected Kanto Z-A material disables EnableHairSpecular. Fur and
   // feather relief stays in the real normal/specular/rim paths; adding a
   // species-classified sheen here would execute a source-disabled branch.
-  float3 nativeBase = shaded + albedo * (rim + backRim);
+  // Z-A's selected IkCharacter programs add scene diffuse irradiance at LOD
+  // 0 with the mapped normal's Z component flipped. The source cube and
+  // exposure are not present in the loose assets; use the strongly filtered
+  // end of the authored local environment carrier as the explicit offline
+  // bridge. Its mip-5 mean is 0.00627 linear luminance, so the explicit 32x
+  // exposure bridge restores a neutral 0.20 diffuse fill. Its sampler falls
+  // back to Phlosion's neutral room for an ordinary environment texture.
+  float3 diffuseProbeDirection = safeNormalize(
+      float3(normal.x, normal.y, -normal.z),
+      normal);
+  float3 neutralDiffuseIrradiance = sampleZaLocalReflectionProbe(
+      diffuseProbeDirection,
+      5.0f,
+      1.0f);
+  const float zaIkDiffuseEnvironmentExposureBridge = 32.0f;
+  float3 environmentDiffuse = neutralDiffuseIrradiance * albedo *
+      (1.0f - metallic) * zaIkDiffuseEnvironmentExposureBridge;
+  float3 nativeBase = shaded + environmentDiffuse +
+      albedo * (rim + backRim);
 
   // The decompiled Z-A IkCharacter body program carries no generic
   // roughness/PBR coat. Preserve its layer-resolved specular shape, metal
@@ -3276,7 +3363,15 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   if (uMaterialMode > 26.5f && uMaterialMode < 27.5f) {
     float4 surface = evalNativeLayeredUnlitDisplaced(i);
     if (uMaterialFlags > 2.5f && uMaterialFlags < 3.5f) {
-      surface.rgb = applyNativeGastlySmokeLighting(i, surface.rgb);
+      bool useAuthoredShadowColor = uMaterialFlags > 3.3f;
+      float4 authoredResponse = useAuthoredShadowColor
+          ? gEmissiveTex.Sample(gSampCC, nativeLayeredMaterialUv(i))
+          : float4(surface.rgb, 0.0f);
+      surface.rgb = applyNativeGastlySmokeLighting(
+          i,
+          surface.rgb,
+          authoredResponse,
+          useAuthoredShadowColor);
     }
     const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
     // Do not feed Scarlet's authored HDR Unlit layer colors through the

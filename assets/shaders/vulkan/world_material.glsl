@@ -746,7 +746,31 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     // Every selected Kanto Z-A material disables EnableHairSpecular. Fur and
     // feather relief stays in the real normal/specular/rim paths; adding a
     // species-classified sheen here would execute a source-disabled branch.
-    vec3 nativeBase = shaded + sourceAlbedo * (rim + backRim);
+    // Z-A's selected IkCharacter programs add a scene-owned diffuse-
+    // irradiance cube sampled at LOD 0 with the mapped shading normal's Z
+    // component flipped. The loose model archive cannot provide that bound
+    // cube, but omitting the entire proven branch leaves normal detail and
+    // non-metal material separation visibly flat. Bridge the missing scene
+    // payload through the strongly filtered end of the material's authored
+    // environment carrier. The sampler automatically falls back to Phlosion's
+    // neutral environment when no Z-A packed probe is bound. The retained
+    // probe averages 0.00627 linear luminance at mip 5, so the explicit 32x
+    // exposure bridge restores a neutral 0.20 diffuse fill. This remains
+    // presentation-side because source fp_c4 light values and exposure are
+    // not available offline.
+    vec3 diffuseProbeDirection = safeNormalize(
+        vec3(normal.x, normal.y, -normal.z),
+        normal);
+    vec3 neutralDiffuseIrradiance = sampleZaLocalReflectionProbe(
+        environmentMap,
+        diffuseProbeDirection,
+        5.0,
+        1.0);
+    const float zaIkDiffuseEnvironmentExposureBridge = 32.0;
+    vec3 environmentDiffuse = neutralDiffuseIrradiance * sourceAlbedo *
+        (1.0 - metallic) * zaIkDiffuseEnvironmentExposureBridge;
+    vec3 nativeBase = shaded + environmentDiffuse +
+        sourceAlbedo * (rim + backRim);
 
     // IkCharacter's decompiled Z-A body variant has no roughness input or
     // generic PBR outer coat. It shapes direct specular from the authored

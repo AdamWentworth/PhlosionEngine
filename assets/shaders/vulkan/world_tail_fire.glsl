@@ -6,11 +6,7 @@ struct TailFireMaterialState {
     vec4 flipbook1;
 };
 
-vec4 evaluateNativeLayeredUnlitDisplaced(
-    sampler2D baseColorMap,
-    sampler2D layerMaskMap,
-    TailFireMaterialState materialState) {
-    float emissionIntensity = max(materialState.rect0.y, 0.0);
+vec2 nativeLayeredMaterialUv(TailFireMaterialState materialState) {
     bool exactSourceTrack = materialState.timingFlagsAtlas.y > 1.5;
     float baseScrollHz = max(materialState.rect0.z, 0.0);
     vec2 baseOffset = exactSourceTrack
@@ -27,25 +23,41 @@ vec4 evaluateNativeLayeredUnlitDisplaced(
     vec2 baseUv = vec2(
         (vertexUv.x - baseOffset.x) * baseScale.x,
         1.0 - ((1.0 - vertexUv.y) - baseOffset.y) * baseScale.y);
-    // The native layer mask is horizontally seamless; wrap the animated U
-    // coordinate so its sawtooth reset cannot expose a clamp-to-edge hitch.
     baseUv.x = fract(baseUv.x);
+    return baseUv;
+}
+
+vec4 evaluateNativeLayeredUnlitDisplaced(
+    sampler2D baseColorMap,
+    sampler2D layerMaskMap,
+    TailFireMaterialState materialState) {
+    float emissionIntensity = max(materialState.rect0.y, 0.0);
+    vec2 baseUv = nativeLayeredMaterialUv(materialState);
     vec4 base = texture(baseColorMap, baseUv);
     vec4 weights = clamp(texture(layerMaskMap, baseUv), vec4(0.0), vec4(1.0));
     float coverage = clamp(1.0 - dot(weights, vec4(1.0)), 0.0, 1.0);
-    vec3 color = base.rgb * coverage;
-    color = mix(color, base.rgb * materialState.flipbook0.rgb, weights.r);
-    coverage += weights.r * (1.0 - coverage);
-    color = mix(color, base.rgb * materialState.flipbook1.rgb, weights.g);
-    coverage += weights.g * (1.0 - coverage);
-    color = mix(color, base.rgb, weights.b);
-    coverage += weights.b * (1.0 - coverage);
-    color = mix(color, base.rgb, weights.a);
-    coverage += weights.a * (1.0 - coverage);
-    // Z-A smoke carries authored coverage in vertex alpha. Scarlet's
-    // NonDirectional Gastly smoke is authored opaque with zero vertex alpha;
-    // flag 3.25 keeps that source material alpha while sharing the motion and
-    // lighting response.
+    bool zaIkCharacterComposite =
+        materialState.timingFlagsAtlas.y > 3.3;
+    vec3 color = zaIkCharacterComposite
+        ? base.rgb
+        : base.rgb * coverage;
+    if (!zaIkCharacterComposite) {
+        color = mix(color, base.rgb * materialState.flipbook0.rgb, weights.r);
+        coverage += weights.r * (1.0 - coverage);
+        color = mix(color, base.rgb * materialState.flipbook1.rgb, weights.g);
+        coverage += weights.g * (1.0 - coverage);
+        color = mix(color, base.rgb, weights.b);
+        coverage += weights.b * (1.0 - coverage);
+        color = mix(color, base.rgb, weights.a);
+        coverage += weights.a * (1.0 - coverage);
+    } else {
+        coverage = 1.0;
+    }
+    // SSSEffect puffs use live vertex/visibility alpha for their emission
+    // cycle. Both Z-A and Scarlet Gastly smoke instead author zero vertex
+    // alpha under an opaque material pass. Flag 3.25 preserves Scarlet's
+    // coverage contract; flag 3.375 additionally selects Z-A's already-
+    // composited IkCharacter albedo and separate shadow-color response.
     float alpha = materialState.timingFlagsAtlas.y > 2.5 &&
                   materialState.timingFlagsAtlas.y < 3.125
         ? clamp(vertexColor.a, 0.0, 1.0)

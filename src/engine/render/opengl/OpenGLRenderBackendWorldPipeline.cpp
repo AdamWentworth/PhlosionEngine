@@ -1934,8 +1934,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             }
             return value / max(amplitudeSum, 1e-5);
         }
-        vec4 evalNativeLayeredUnlitDisplaced() {
-            float emissionIntensity = max(uMaterialRect0.y, 0.0);
+        vec2 nativeLayeredMaterialUv() {
             bool exactSourceTrack = uMaterialFlags > 1.5;
             float baseScrollHz = max(uMaterialRect0.z, 0.0);
             vec2 baseOffset = exactSourceTrack
@@ -1954,30 +1953,45 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             // UVScaleOffset animates U across a horizontally seamless mask.
             // Explicit wrapping avoids a clamp-to-edge jump at each reset.
             baseUv.x = fract(baseUv.x);
+            return baseUv;
+        }
+
+        vec4 evalNativeLayeredUnlitDisplaced() {
+            float emissionIntensity = max(uMaterialRect0.y, 0.0);
+            vec2 baseUv = nativeLayeredMaterialUv();
             vec4 base = texture(uTexture, baseUv);
             vec4 weights = clamp(
                 texture(uMetallicRoughnessTexture, baseUv),
                 vec4(0.0),
                 vec4(1.0));
             float coverage = clamp(1.0 - dot(weights, vec4(1.0)), 0.0, 1.0);
-            vec3 color = base.rgb * coverage;
+            bool zaIkCharacterComposite = uMaterialFlags > 3.3;
+            vec3 color = zaIkCharacterComposite
+                ? base.rgb
+                : base.rgb * coverage;
             vec3 layer1 = uMaterialFlipbook0.xyz;
             vec3 layer2 = uMaterialFlipbook1.xyz;
             // Scarlet Unlit variation 48 multiplies every layer color by the
             // shared base map before successive alpha-over compositing.
-            color = mix(color, base.rgb * layer1, weights.r);
-            coverage += weights.r * (1.0 - coverage);
-            color = mix(color, base.rgb * layer2, weights.g);
-            coverage += weights.g * (1.0 - coverage);
-            color = mix(color, base.rgb, weights.b);
-            coverage += weights.b * (1.0 - coverage);
-            color = mix(color, base.rgb, weights.a);
-            coverage += weights.a * (1.0 - coverage);
+            if (!zaIkCharacterComposite) {
+                color = mix(color, base.rgb * layer1, weights.r);
+                coverage += weights.r * (1.0 - coverage);
+                color = mix(color, base.rgb * layer2, weights.g);
+                coverage += weights.g * (1.0 - coverage);
+                color = mix(color, base.rgb, weights.b);
+                coverage += weights.b * (1.0 - coverage);
+                color = mix(color, base.rgb, weights.a);
+                coverage += weights.a * (1.0 - coverage);
+            } else {
+                coverage = 1.0;
+            }
             vec4 surface = vec4(
                 color / max(coverage, 1e-6) * emissionIntensity,
                 1.0);
-            // SSSEffect subtype 3 uses the complete dynamic alpha. Cached
-            // world-scene draws carry it in vColor; direct indexed draws
+            // SSSEffect subtype 3 uses complete dynamic alpha. Gastly's 3.25
+            // and 3.375 subtypes remain opaque because both source meshes
+            // author zero vertex alpha. Cached world-scene draws carry alpha
+            // in vColor; direct indexed draws
             // carry it in uVertexColorMul. Ignoring either path leaves hidden
             // smoke puffs visible on one of the submission routes.
             surface.a = uMaterialFlags > 2.5 && uMaterialFlags < 3.125
@@ -1986,24 +2000,102 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             return surface;
         }
 
-        vec3 applyNativeGastlySmokeLighting(vec3 color) {
+        vec3 applyNativeGastlySmokeLighting(
+            vec3 color,
+            vec4 authoredResponse,
+            bool useAuthoredShadowColor) {
             vec3 normal = normalize(vWorldNormal);
+            float cameraForwardLengthSquared = dot(
+                uCameraForward,
+                uCameraForward);
+            vec3 cameraForward = cameraForwardLengthSquared > 1e-10
+                ? uCameraForward * inversesqrt(cameraForwardLengthSquared)
+                : vec3(0.0, -0.6139406, -0.7893522);
+            vec3 cameraRightPacked = cross(
+                cameraForward,
+                vec3(0.0, 1.0, 0.0));
+            float cameraRightLengthSquared = dot(
+                cameraRightPacked,
+                cameraRightPacked);
+            vec3 cameraRight = cameraRightLengthSquared > 1e-10
+                ? cameraRightPacked * inversesqrt(cameraRightLengthSquared)
+                : vec3(1.0, 0.0, 0.0);
             vec3 toCamera = uCameraPos - vWorldPos;
             float toCameraLengthSquared = dot(toCamera, toCamera);
             vec3 viewDirection = toCameraLengthSquared > 1e-10
                 ? toCamera * inversesqrt(toCameraLengthSquared)
-                : vec3(0.0, 0.0, 1.0);
-            float facing = clamp(dot(normal, viewDirection), -1.0, 1.0);
+                : -cameraForward;
+            vec3 lightPosition = uCameraPos +
+                cameraRight * 0.5 - cameraForward * 0.8660254;
+            vec3 lightVector = lightPosition - uCameraTarget;
+            float lightVectorLengthSquared = dot(lightVector, lightVector);
+            vec3 lightDirection = lightVectorLengthSquared > 1e-10
+                ? lightVector * inversesqrt(lightVectorLengthSquared)
+                : vec3(0.45, 0.86, 0.24);
+            float lightFacing = clamp(
+                dot(normal, lightDirection),
+                -1.0,
+                1.0);
+            float viewFacing = clamp(
+                dot(normal, viewDirection),
+                -1.0,
+                1.0);
             // Z-A IkCharacter: HalfLambertBias=.1, ShadowStrength=.7,
             // RimLightOffset=.2, RimLightContrast=2,
             // RimLightIntensity=.8, BackRimLightIntensity=.01.
-            float halfLambert = clamp(facing * 0.5 + 0.6, 0.0, 1.0);
-            float diffuse = mix(1.0, halfLambert, 0.7);
-            float edge = clamp(1.0 - max(facing, 0.0), 0.0, 1.0);
+            float edge = clamp(
+                1.0 - max(viewFacing, 0.0),
+                0.0,
+                1.0);
             float rimDomain = clamp((edge - 0.2) / 0.8, 0.0, 1.0);
-            float rim = rimDomain * rimDomain * 0.8;
-            float backRim = clamp(-facing, 0.0, 1.0) * 0.01;
-            return max(color * (diffuse + rim + backRim), vec3(0.0));
+            float rim;
+            float backRim;
+            vec3 diffuseColor;
+            if (useAuthoredShadowColor) {
+                float wrappedLambert = clamp(
+                    lightFacing * 0.5 + 0.5,
+                    0.0,
+                    1.0);
+                float biasedLambert = wrappedLambert * wrappedLambert;
+                const float shadowBandLow = 0.3465;
+                const float shadowBandHigh = 0.3535;
+                float shadowAmount = clamp(
+                    1.0 - (biasedLambert - shadowBandLow) /
+                        (shadowBandHigh - shadowBandLow),
+                    0.0,
+                    1.0);
+                diffuseColor = color * mix(
+                    vec3(1.0),
+                    authoredResponse.rgb,
+                    shadowAmount);
+                float rimSmooth = rimDomain * rimDomain *
+                    (3.0 - 2.0 * rimDomain);
+                float rimShape = clamp(
+                    rimSmooth * 5.0 - 2.0,
+                    0.0,
+                    1.0);
+                const float zaIkRimPresentationScale = 0.25;
+                rim = rimShape * authoredResponse.a *
+                    zaIkRimPresentationScale;
+                float rimMask = clamp(
+                    authoredResponse.a / 0.8,
+                    0.0,
+                    1.0);
+                backRim = clamp(-viewFacing, 0.0, 1.0) * 0.01 *
+                    rimMask * zaIkRimPresentationScale;
+            } else {
+                float halfLambert = clamp(
+                    lightFacing * 0.5 + 0.6,
+                    0.0,
+                    1.0);
+                float diffuse = mix(1.0, halfLambert, 0.7);
+                diffuseColor = color * diffuse;
+                rim = rimDomain * rimDomain * 0.8;
+                backRim = clamp(-viewFacing, 0.0, 1.0) * 0.01;
+            }
+            return max(
+                diffuseColor + color * (rim + backRim),
+                vec3(0.0));
         }
 
         vec4 evalAuthoredFireMesh() {
@@ -2897,7 +2989,27 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             // base, normal, shadow, specular, and rim paths above; do not add
             // a species-classified sheen: that would execute a source-disabled
             // branch.
-            vec3 nativeBase = shaded + albedo * (rim + backRim);
+            // The selected Z-A IkCharacter fragments add scene diffuse
+            // irradiance at LOD 0 using vec3(n.x, n.y, -n.z). The source cube
+            // and exposure are scene-owned and absent from loose assets, so
+            // bridge that proven branch through the strongly filtered end of
+            // the authored local environment carrier. Its mip-5 mean is
+            // 0.00627 linear luminance, so the explicit 32x exposure bridge
+            // restores a neutral 0.20 diffuse fill. Its sampler falls back to
+            // the neutral room when the packed probe is unavailable.
+            vec3 diffuseProbeDirection = safeNormalize(
+                vec3(n.x, n.y, -n.z),
+                n);
+            vec3 neutralDiffuseIrradiance = sampleZaLocalReflectionProbe(
+                diffuseProbeDirection,
+                5.0,
+                1.0);
+            const float zaIkDiffuseEnvironmentExposureBridge = 32.0;
+            vec3 environmentDiffuse = neutralDiffuseIrradiance * albedo *
+                (1.0 - metallic) *
+                zaIkDiffuseEnvironmentExposureBridge;
+            vec3 nativeBase = shaded + environmentDiffuse +
+                albedo * (rim + backRim);
 
             // The decompiled Z-A IkCharacter body program carries no generic
             // roughness/PBR coat. Preserve its layer-resolved specular shape,
@@ -3558,7 +3670,19 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             if (uMaterialMode > 26.5 && uMaterialMode < 27.5) {
                 vec4 surface = evalNativeLayeredUnlitDisplaced();
                 if (uMaterialFlags > 2.5 && uMaterialFlags < 3.5) {
-                    surface.rgb = applyNativeGastlySmokeLighting(surface.rgb);
+                    bool useAuthoredShadowColor = uMaterialFlags > 3.3;
+                    vec2 smokeUv = nativeLayeredMaterialUv();
+                    vec4 authoredResponse = useAuthoredShadowColor
+                        ? sampleTextureWithWrap(
+                            uEmissiveTexture,
+                            smokeUv,
+                            dFdx(smokeUv),
+                            dFdy(smokeUv))
+                        : vec4(surface.rgb, 0.0);
+                    surface.rgb = applyNativeGastlySmokeLighting(
+                        surface.rgb,
+                        authoredResponse,
+                        useAuthoredShadowColor);
                 }
                 const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
                 // Preserve the hue separation in Scarlet's authored HDR

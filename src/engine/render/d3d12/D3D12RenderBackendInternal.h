@@ -262,6 +262,28 @@ inline WorldPsConstants makeWorldPsConstants(
         textureData->lightProjectionUvRowU;
     constants.lightProjectionUvRowV =
         textureData->lightProjectionUvRowV;
+    if (textureData->materialMode == 27u) {
+        // Mode 27 needs all four specialized material vectors for animated
+        // displacement and layered color, so it cannot reuse those lanes for
+        // the review camera. Its projected-shadow rows are otherwise unused;
+        // carry camera position/forward/target there so D3D12 evaluates the
+        // same Z-A light and rim domains as OpenGL and Vulkan.
+        constants.projectedShadowRowX = {
+            textureData->cameraPosX,
+            textureData->cameraPosY,
+            textureData->cameraPosZ,
+            0.0f};
+        constants.projectedShadowRowY = {
+            textureData->cameraForwardX,
+            textureData->cameraForwardY,
+            textureData->cameraForwardZ,
+            0.0f};
+        constants.projectedShadowRowZ = {
+            textureData->cameraTargetX,
+            textureData->cameraTargetY,
+            textureData->cameraTargetZ,
+            0.0f};
+    }
     // D3D12 root signature is constrained to 64 DWORD. For lit model mode (materialMode >= 2),
     // repurpose fire-tail payload slots to carry PBR/camera data needed for three-gltf-viewer parity.
     if (textureData->materialMode >= 2u &&
@@ -644,18 +666,6 @@ inline WorldPsConstants makeWorldPsConstants(
             constants.materialRect0H = textureData->materialRect0U;
             constants.materialRect1U = textureData->materialRect0V;
         }
-    }
-
-    // Native mode 27 normally consumes the flipbook payload as authored
-    // layer colors. The source-qualified variant bakes all four layer
-    // colors into the animated atlas, leaving flipbook0.xyz free for the
-    // camera position required by its IkCharacter rim response.
-    if (textureData->materialMode == 27u &&
-        textureData->materialFlags > 2.5f &&
-        textureData->materialFlags < 3.5f) {
-        constants.materialFlipbook0Cols = textureData->cameraPosX;
-        constants.materialFlipbook0Rows = textureData->cameraPosY;
-        constants.materialFlipbook0Frames = textureData->cameraPosZ;
     }
 
     return constants;
