@@ -441,6 +441,14 @@ vec2 resolveZaIkEyeParallaxUv(vec2 uv,
     return uv + currentOffset;
 }
 
+vec3 zaIkLocalReflectionDirection(vec3 viewDirection, vec3 mappedNormal) {
+    // The compiled source max-abs normalizes this vector before its cube
+    // lookup. Positive direction scaling is homogeneous for a cubemap, so
+    // retain the exact reflect(-view, normal) ray. The scene diffuse-
+    // irradiance cube flips Z; this material-local probe does not.
+    return reflect(-viewDirection, mappedNormal);
+}
+
 vec3 evaluateNativeIkCharacter(vec3 albedo,
                                vec3 vertexColorRgb,
                                vec2 uv,
@@ -773,7 +781,9 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     vec3 specularColor = vec3(1.0);
     vec3 directSpecular = specularColor * surfaceSpecular * specularLobe *
         normalDotLight * 0.72;
-    vec3 reflection = reflect(-viewDirection, normal);
+    vec3 reflection = zaIkLocalReflectionDirection(
+        viewDirection,
+        normal);
     float reflectionRoughness = clamp(
         reflectionBlur * 0.16,
         0.04,

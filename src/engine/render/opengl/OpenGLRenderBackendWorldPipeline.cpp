@@ -2609,6 +2609,17 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             return uv + currentOffset;
         }
 
+        vec3 zaIkLocalReflectionDirection(
+            vec3 viewDirection,
+            vec3 mappedNormal) {
+            // The compiled source max-abs normalizes this vector before its
+            // cube lookup. Positive direction scaling is homogeneous for a
+            // cubemap, so preserve the exact reflect(-view, normal) ray. The
+            // separate diffuse-irradiance cube flips Z; this local probe does
+            // not.
+            return reflect(-viewDirection, mappedNormal);
+        }
+
         vec3 applyNativeIkCharacter(
             vec3 linearColor,
             vec3 inputNormal,
@@ -2918,7 +2929,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 specularColor = vec3(1.0);
             vec3 directSpecular = specularColor * surfaceSpecular *
                 specularLobe * normalDotLight * 0.72;
-            vec3 reflection = reflect(-viewDirection, n);
+            vec3 reflection = zaIkLocalReflectionDirection(
+                viewDirection,
+                n);
             float reflectionRoughness = clamp(
                 reflectionBlur * 0.16,
                 0.04,

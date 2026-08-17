@@ -16,7 +16,9 @@ foreach(SOURCE_PATH IN ITEMS "${GL_PATH}" "${D3D_PATH}" "${VK_PATH}")
             "sourceSceneShadowBypass * sourceSceneShadowBypass"
             "biasedLambert * effectiveDirectShadowVisibility"
             "shadowedWrappedLambert - authoredShadowShift"
-            "max(directDiffuse")
+            "max(directDiffuse"
+            "zaIkLocalReflectionDirection"
+            "reflect(-viewDirection, mappedNormal)")
         string(FIND "${SOURCE_TEXT}" "${REQUIRED_TOKEN}" TOKEN_OFFSET)
         if(TOKEN_OFFSET EQUAL -1)
             message(FATAL_ERROR
@@ -37,6 +39,11 @@ foreach(SOURCE_PATH IN ITEMS "${GL_PATH}" "${D3D_PATH}" "${VK_PATH}")
             "shadowProcessDomain = (clamp|saturate)\\([^\\n]*wrappedLambert - authoredShadowShift")
         message(FATAL_ERROR
             "Z-A ShadowingShift still bypasses the scene-shadow stage in ${SOURCE_PATH}")
+    endif()
+    if(NOT SOURCE_TEXT MATCHES
+            "zaIkLocalReflectionDirection[^}]*return reflect\\(-viewDirection, mappedNormal\\)")
+        message(FATAL_ERROR
+            "Z-A local-reflection direction changed in ${SOURCE_PATH}")
     endif()
 endforeach()
 
