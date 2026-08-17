@@ -2731,6 +2731,21 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     shadowBandWidth,
                 0.0,
                 1.0);
+            // Selected Z-A IkCharacter programs combine a projected 2D mask
+            // with a 16-tap cascaded shadow-array result, then multiply that
+            // visibility into wrapped N.L before ShadowingShift. The loose
+            // model archive contains neither bound scene texture, so keep the
+            // scene boundary explicitly neutral. Do not substitute the LGPE
+            // projected-shadow format: its sampling contract is unrelated.
+            const float sourceSceneShadowVisibility = 1.0;
+            const float sourceSceneShadowBypass = 0.0;
+            float effectiveDirectShadowVisibility = clamp(
+                sourceSceneShadowVisibility +
+                    sourceSceneShadowBypass * sourceSceneShadowBypass,
+                0.0,
+                1.0);
+            float shadowedWrappedLambert =
+                wrappedLambert * sourceSceneShadowVisibility;
             float qualityDetail = clamp(
                 (0.90 - litTextureDetailLodBias()) / 1.30,
                 0.0,
@@ -2743,10 +2758,14 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 combinedShadowAmount);
             vec3 shaded = albedo * shadowTint;
             if (hasAuthoredColorProcess) {
-                // The source scene-light scalar is absent from the loose
-                // assets. Use the normalized review-light counterpart; the
-                // remaining selected-program operations are literal.
-                float colorProcessLight = biasedLambert;
+                // Source middle/dark processing consumes max(directDiffuse
+                // RGB) after inverse-pi scene light and shadow composition.
+                // With unavailable scene RGB normalized to unit white, this
+                // is its literal scalar counterpart.
+                float colorProcessLight = clamp(
+                    biasedLambert * effectiveDirectShadowVisibility,
+                    0.0,
+                    1.0);
                 float midDomain = clamp(
                     1.0 - colorProcessLight + uMaterialFlipbook0.x,
                     0.0,
@@ -2772,7 +2791,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     0.0,
                     1.0);
                 float shadowProcessDomain = clamp(
-                    wrappedLambert - authoredShadowShift,
+                    shadowedWrappedLambert - authoredShadowShift,
                     0.0,
                     1.0);
                 float shadowProcessSmooth = shadowProcessDomain *

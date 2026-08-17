@@ -2610,6 +2610,18 @@ float3 applyNativeIkCharacter(PSIn i,
   float shadowBandWidth = max(shadowBandHigh - shadowBandLow, 1e-5f);
   float shadowAmount = saturate(
       1.0f - (biasedLambert - shadowBandLow) / shadowBandWidth);
+  // Selected Z-A IkCharacter programs combine a projected 2D mask with a
+  // 16-tap cascaded shadow-array result, then multiply that visibility into
+  // wrapped N.L before ShadowingShift. The loose model archive contains
+  // neither bound scene texture, so keep the scene boundary explicitly
+  // neutral. Do not substitute the unrelated LGPE projected-shadow format.
+  const float sourceSceneShadowVisibility = 1.0f;
+  const float sourceSceneShadowBypass = 0.0f;
+  float effectiveDirectShadowVisibility = saturate(
+      sourceSceneShadowVisibility +
+          sourceSceneShadowBypass * sourceSceneShadowBypass);
+  float shadowedWrappedLambert =
+      wrappedLambert * sourceSceneShadowVisibility;
   float qualityDetail = saturate(
       (0.90f - litTextureDetailLodBias()) / 1.30f);
   float3 albedo = saturate(linearColor);
@@ -2620,10 +2632,11 @@ float3 applyNativeIkCharacter(PSIn i,
       combinedShadowAmount);
   float3 shaded = albedo * shadowTint;
   if (hasAuthoredColorProcess) {
-    // The source scene-light scalar is absent from the loose assets. Use the
-    // normalized review-light counterpart; all following operations are the
-    // literal selected-program order.
-    float colorProcessLight = biasedLambert;
+    // Source middle/dark processing consumes max(directDiffuse RGB) after
+    // inverse-pi scene light and shadow composition. With unavailable scene
+    // RGB normalized to unit white, this is its literal scalar counterpart.
+    float colorProcessLight = saturate(
+        biasedLambert * effectiveDirectShadowVisibility);
     float midDomain = saturate(
         1.0f - colorProcessLight + uProjectedShadowRowY.x);
     float midSmooth = midDomain * midDomain *
@@ -2639,7 +2652,7 @@ float3 applyNativeIkCharacter(PSIn i,
         darkSmooth * (1.0f + 2.0f * uProjectedShadowRowZ.x) -
         uProjectedShadowRowZ.x);
     float shadowProcessDomain = saturate(
-        wrappedLambert - authoredShadowShift);
+        shadowedWrappedLambert - authoredShadowShift);
     float shadowProcessSmooth = shadowProcessDomain *
         shadowProcessDomain * (3.0f - 2.0f * shadowProcessDomain);
     float shadowProcessArea = saturate(
