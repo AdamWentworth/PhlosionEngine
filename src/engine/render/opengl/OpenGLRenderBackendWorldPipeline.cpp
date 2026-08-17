@@ -2536,69 +2536,77 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 geometricNormal = safeNormalize(
                 vWorldNormal,
                 vec3(0.0, 1.0, 0.0));
-            vec3 tangent = vWorldTangent.xyz - geometricNormal *
-                dot(vWorldTangent.xyz, geometricNormal);
-            tangent = safeNormalize(tangent, vec3(1.0, 0.0, 0.0));
-            vec3 bitangent = safeNormalize(
-                cross(geometricNormal, tangent),
-                vec3(0.0, 0.0, 1.0)) *
-                (vWorldTangent.w < 0.0 ? -1.0 : 1.0);
+            vec3 tangent = safeNormalize(
+                vWorldTangent.xyz,
+                vec3(1.0, 0.0, 0.0));
+            vec3 bitangent =
+                cross(geometricNormal, tangent) * vWorldTangent.w;
             vec3 viewWorld = safeNormalize(
                 uCameraPos - vWorldPos,
                 geometricNormal);
             vec3 viewTangent = vec3(
                 dot(viewWorld, tangent),
                 dot(viewWorld, bitangent),
-                max(dot(viewWorld, geometricNormal), 0.08));
+                dot(viewWorld, geometricNormal));
             float eta = 1.0 / max(uMaterialRect0.z, 1.0);
-            vec3 refracted = refract(
-                -normalize(viewTangent),
-                vec3(0.0, 0.0, 1.0),
-                eta);
-            vec2 parallaxDirection = -refracted.xy /
-                max(abs(refracted.z), 0.12);
-            if (dot(refracted, refracted) < 1e-6) {
-                parallaxDirection = viewTangent.xy /
-                    max(viewTangent.z, 0.12);
+            float refractionK = 1.0 - eta * eta *
+                (1.0 - viewTangent.z * viewTangent.z);
+            if (refractionK < 0.0) return uv;
+            vec3 refracted = vec3(
+                -eta * viewTangent.x,
+                -eta * viewTangent.y,
+                -sqrt(refractionK));
+            float refractedLengthSquared = dot(refracted, refracted);
+            if (refractedLengthSquared <= 1e-8 ||
+                abs(refracted.z) <= 1e-6) {
+                return uv;
             }
-            parallaxDirection = clamp(
-                parallaxDirection,
-                vec2(-2.0),
-                vec2(2.0));
-            float grazing = clamp(1.0 - abs(viewTangent.z), 0.0, 1.0);
-            float layerCount = mix(8.0, 16.0, grazing);
-            float layerStep = 1.0 / layerCount;
-            vec2 uvStep = parallaxDirection * parallaxHeight / layerCount;
-            vec2 currentUv = uv;
-            float currentDepth = 0.0;
-            float sampledHeight = sampleTextureWithWrap(
-                uEmissiveTexture,
-                currentUv,
-                uvDx,
-                uvDy).a;
-            for (int layer = 0; layer < 16; ++layer) {
-                if (currentDepth >= sampledHeight ||
-                    float(layer) >= layerCount) break;
-                currentUv -= uvStep;
-                currentDepth += layerStep;
-                sampledHeight = sampleTextureWithWrap(
+            refracted *= inversesqrt(refractedLengthSquared);
+
+            // Z-A variations 682 and 1214 normalize the summed UV
+            // derivatives before applying the refracted texture offset.
+            vec2 footprint = abs(uvDx + uvDy);
+            float footprintLengthSquared = dot(footprint, footprint);
+            footprint = footprintLengthSquared > 1e-8
+                ? footprint * inversesqrt(footprintLengthSquared)
+                : vec2(0.70710678);
+
+            float normalDotView = clamp(abs(viewTangent.z), 0.0, 1.0);
+            float layerScale = 12.0 - 10.0 * normalDotView;
+            int sampleCount = int(floor(layerScale) + 2.0);
+            float depthStep = 1.0 / layerScale;
+            float grazingFade = 1.0 - pow(1.0 - normalDotView, 5.0);
+            vec2 offsetStep = vec2(-footprint.x, footprint.y) *
+                (refracted.xy / refracted.z) *
+                (parallaxHeight / layerScale) * grazingFade;
+
+            vec2 currentOffset = vec2(0.0);
+            float currentDepth = 1.0;
+            float previousDepth = 1.1;
+            float previousHeight = 1.0;
+            for (int layer = 0; layer < 14; ++layer) {
+                if (layer >= sampleCount) break;
+                float sampledHeight = sampleTextureWithWrap(
                     uEmissiveTexture,
-                    currentUv,
+                    uv + currentOffset,
                     uvDx,
                     uvDy).a;
+                if (sampledHeight >= currentDepth) {
+                    float currentDelta = sampledHeight - currentDepth;
+                    float previousDelta = previousHeight - previousDepth;
+                    float denominator = currentDelta - previousDelta;
+                    if (abs(denominator) > 1e-6) {
+                        currentOffset -= offsetStep *
+                            (currentDelta / denominator);
+                    }
+                    break;
+                }
+                previousDepth = currentDepth;
+                previousHeight = sampledHeight;
+                currentDepth -= depthStep;
+                currentOffset += offsetStep;
             }
-            vec2 previousUv = currentUv + uvStep;
-            float afterDepth = sampledHeight - currentDepth;
-            float beforeDepth = sampleTextureWithWrap(
-                uEmissiveTexture,
-                previousUv,
-                uvDx,
-                uvDy).a - (currentDepth - layerStep);
-            float denominator = afterDepth - beforeDepth;
-            float weight = abs(denominator) > 1e-5
-                ? clamp(afterDepth / denominator, 0.0, 1.0)
-                : 0.0;
-            return mix(currentUv, previousUv, weight);
+            return uv + currentOffset;
         }
 
         vec3 applyNativeIkCharacter(
