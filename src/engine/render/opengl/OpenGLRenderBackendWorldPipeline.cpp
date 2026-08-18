@@ -2712,6 +2712,19 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             return reflect(-viewDirection, mappedNormal);
         }
 
+        vec3 zaIkEmissionColor(float packedColor) {
+            float encoded = floor(max(packedColor, 0.0) + 0.5);
+            float red = floor(encoded / 65536.0);
+            float remainder = encoded - red * 65536.0;
+            float green = floor(remainder / 256.0);
+            float blue = remainder - green * 256.0;
+            vec3 color = vec3(red, green, blue) / 255.0;
+            float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+            return luminance > 1e-6
+                ? color / luminance
+                : vec3(1.0);
+        }
+
         vec3 applyNativeIkCharacter(
             vec3 linearColor,
             vec3 inputNormal,
@@ -3065,14 +3078,14 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 grazingResponse * environmentOcclusion *
                 __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
             vec3 diffuse = nativeBase * (1.0 - metallic * 0.85);
-            // Mode 32's packed rim texture reserves blue for the source
-            // IkCharacter final-combine emission. The selected Kanto Z-A
-            // corpus uses an achromatic value (Staryu layer 3), so a scalar
-            // lane preserves that authored term exactly without changing the
-            // six-texture material ABI. Mode 35's highlight is already in its
-            // source-proven pre-lighting base and shadow colors.
+            // Mode 32's packed rim texture reserves blue for source emission
+            // luminance; params0.z carries its material-constant 24-bit RGB.
+            // This reconstructs both Staryu's white emission and Mega
+            // Raichu's chromatic layer without growing the six-texture ABI.
+            // Mode 35's highlight is already in its source-proven pre-lighting
+            // base and shadow colors.
             vec3 bodyEmission = !nativeEye && uUseEmissiveTexture > 0.5
-                ? vec3(rimResponse.b)
+                ? rimResponse.b * zaIkEmissionColor(uMaterialRect0.z)
                 : vec3(0.0);
             return max(
                 diffuse + directSpecular + environmentSpecular + bodyEmission,

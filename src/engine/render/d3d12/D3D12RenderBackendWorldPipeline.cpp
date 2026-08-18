@@ -2569,6 +2569,19 @@ float3 zaIkLocalReflectionDirection(float3 viewDirection,
   return reflect(-viewDirection, mappedNormal);
 }
 
+float3 zaIkEmissionColor(float packedColor) {
+  float packed = floor(max(packedColor, 0.0f) + 0.5f);
+  float red = floor(packed / 65536.0f);
+  float remainder = packed - red * 65536.0f;
+  float green = floor(remainder / 256.0f);
+  float blue = remainder - green * 256.0f;
+  float3 color = float3(red, green, blue) / 255.0f;
+  float luminance = dot(color, float3(0.2126f, 0.7152f, 0.0722f));
+  return luminance > 1e-6f
+      ? color / luminance
+      : float3(1.0f, 1.0f, 1.0f);
+}
+
 float3 applyNativeIkCharacter(PSIn i,
                               bool isFrontFace,
                               float3 linearColor,
@@ -2651,8 +2664,7 @@ float3 applyNativeIkCharacter(PSIn i,
   float packedSurface = nativeEye
       ? 0.0f
       : max(uMaterialFlipbook1Fps, 0.0f);
-  float surfaceProfile = floor(packedSurface / 1000.0f);
-  float packedSurfaceRemainder = packedSurface - surfaceProfile * 1000.0f;
+  float packedSurfaceRemainder = packedSurface;
   float diffusionLevels = nativeEye
       ? 0.0f
       : saturate(frac(packedSurfaceRemainder));
@@ -2877,10 +2889,11 @@ float3 applyNativeIkCharacter(PSIn i,
       environmentRadiance * albedo * metallic * grazingResponse *
       environmentOcclusion * __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
   float3 diffuse = nativeBase * (1.0f - metallic * 0.85f);
-  // Mode 32 packs the selected Kanto corpus' achromatic body-emission final
-  // combine into blue. Mode 35's highlight is pre-lighting source color.
+  // Mode 32 packs per-pixel body-emission luminance into blue and transports
+  // its material-constant 24-bit RGB through the mode-local rowU.x lane.
+  // Mode 35's highlight is pre-lighting source color.
   float3 bodyEmission = !nativeEye && useEmissiveTexture
-      ? rimResponse.b.xxx
+      ? rimResponse.b * zaIkEmissionColor(uLightProjectionUvRowU.x)
       : float3(0.0f, 0.0f, 0.0f);
   return max(
       diffuse + directSpecular + environmentSpecular + bodyEmission,

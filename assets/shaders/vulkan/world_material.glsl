@@ -449,6 +449,19 @@ vec3 zaIkLocalReflectionDirection(vec3 viewDirection, vec3 mappedNormal) {
     return reflect(-viewDirection, mappedNormal);
 }
 
+vec3 zaIkEmissionColor(float packedColor) {
+    float encoded = floor(max(packedColor, 0.0) + 0.5);
+    float red = floor(encoded / 65536.0);
+    float remainder = encoded - red * 65536.0;
+    float green = floor(remainder / 256.0);
+    float blue = remainder - green * 256.0;
+    vec3 color = vec3(red, green, blue) / 255.0;
+    float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+    return luminance > 1e-6
+        ? color / luminance
+        : vec3(1.0);
+}
+
 vec3 evaluateNativeIkCharacter(vec3 albedo,
                                vec3 vertexColorRgb,
                                vec2 uv,
@@ -829,11 +842,11 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         environmentRadiance * sourceAlbedo * metallic *
         grazingResponse * environmentOcclusion * 0.44;
     vec3 diffuse = nativeBase * (1.0 - metallic * 0.85);
-    // Mode 32 packs the selected Kanto corpus' achromatic body-emission final
-    // combine into blue. Mode 35's layer-5 highlight is already composited
-    // into both base and shadow color at the source-proven pre-lighting point.
+    // Mode 32 packs per-pixel body-emission luminance into blue and its
+    // material-constant 24-bit RGB in surfaceParameters.z. Mode 35's layer-5
+    // highlight is already composited at the source-proven pre-lighting point.
     vec3 bodyEmission = !nativeEye
-        ? vec3(rimResponse.b)
+        ? rimResponse.b * zaIkEmissionColor(surfaceParameters.z)
         : vec3(0.0);
     return max(
         diffuse + directSpecular + environmentSpecular + bodyEmission,

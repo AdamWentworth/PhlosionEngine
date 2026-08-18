@@ -363,14 +363,15 @@ inline WorldPsConstants makeWorldPsConstants(
             // Generic PBR packing consumes rect0.xyz for roughness,
             // occlusion, and rim color. Native IkCharacter needs its three
             // independent source controls as well: reflection blur,
-            // diffusion, the importer-qualified surface profile, and
-            // ShadowingGIGain. Carry
+            // diffusion, the packed body-emission color, and ShadowingGIGain.
+            // Carry
             // them in PS-only slots mode 32 otherwise leaves unused. D3D12's
             // HLSL quality function can recover the tier from the unmodified
             // CPU texture data only if it is packed alongside those values.
             // Each component therefore occupies a fixed decimal field. Two
             // LOD decimal places are required because Medium uses 0.45:
-            // profile * 1000 + (lod + 1) * 100 + diffusion.
+            // (lod + 1) * 100 + diffusion. The packed emission color travels
+            // losslessly in the otherwise-unused light-projection row below.
             constants.materialTimeSec = textureData->materialRect0U;
             constants.materialFlipbook1Frames =
                 std::clamp(textureData->materialRect0H, 0.0f, 1.0f);
@@ -386,7 +387,6 @@ inline WorldPsConstants makeWorldPsConstants(
                     std::clamp(textureData->materialRect0V, 0.0f, 0.999f);
             } else {
                 constants.materialFlipbook1Fps =
-                    std::round(textureData->materialRect0W) * 1000.0f +
                     (std::clamp(
                          textureData->materialFlipbook1Frames,
                          -1.0f,
@@ -414,6 +414,11 @@ inline WorldPsConstants makeWorldPsConstants(
                 textureData->materialFlipbook1Rows,
                 textureData->materialFlipbook1Frames,
                 textureData->materialFlipbook1Fps};
+            if (textureData->materialMode ==
+                backend::kNativeIkCharacterMaterialMode) {
+                constants.lightProjectionUvRowU[0] =
+                    textureData->materialRect0W;
+            }
         }
         if (textureData->materialMode ==
             backend::kNativeSssMaterialMode) {

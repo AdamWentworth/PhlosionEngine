@@ -18,6 +18,7 @@ foreach(SOURCE_PATH IN ITEMS "${GL_PATH}" "${D3D_PATH}" "${VK_PATH}")
             "shadowedWrappedLambert - authoredShadowShift"
             "max(directDiffuse"
             "zaIkLocalReflectionDirection"
+            "zaIkEmissionColor"
             "reflect(-viewDirection, mappedNormal)")
         string(FIND "${SOURCE_TEXT}" "${REQUIRED_TOKEN}" TOKEN_OFFSET)
         if(TOKEN_OFFSET EQUAL -1)
@@ -44,6 +45,20 @@ foreach(SOURCE_PATH IN ITEMS "${GL_PATH}" "${D3D_PATH}" "${VK_PATH}")
             "zaIkLocalReflectionDirection[^}]*return reflect\\(-viewDirection, mappedNormal\\)")
         message(FATAL_ERROR
             "Z-A local-reflection direction changed in ${SOURCE_PATH}")
+    endif()
+endforeach()
+
+set(D3D_INTERNAL_PATH
+    "${PHLOSION_ROOT}/src/engine/render/d3d12/D3D12RenderBackendInternal.h")
+file(READ "${D3D_INTERNAL_PATH}" D3D_INTERNAL_TEXT)
+foreach(REQUIRED_TOKEN IN ITEMS
+        "backend::kNativeIkCharacterMaterialMode"
+        "constants.lightProjectionUvRowU[0]"
+        "textureData->materialRect0W")
+    string(FIND "${D3D_INTERNAL_TEXT}" "${REQUIRED_TOKEN}" TOKEN_OFFSET)
+    if(TOKEN_OFFSET EQUAL -1)
+        message(FATAL_ERROR
+            "Z-A body-emission transport token '${REQUIRED_TOKEN}' is missing from ${D3D_INTERNAL_PATH}")
     endif()
 endforeach()
 
