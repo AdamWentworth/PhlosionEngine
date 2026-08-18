@@ -3478,8 +3478,11 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                       uvDx,
                       uvDy)
                 : vec4(0.0);
-            float tongueMask = smoothstep(0.48, 0.52, shadowSpec.a);
-            if (uMaterialRect0.w > 0.5 && tongueMask > 0.5) {
+            // Z-A Gastly's authored face specular is at most 0.05. Forge
+            // reserves values above 0.0625 for tongue coverage; this guard
+            // band keeps filtered tongue edges distinct from face specular.
+            float tongueMask = smoothstep(0.07, 0.50, shadowSpec.a);
+            if (uMaterialRect0.w > 0.5 && shadowSpec.a > 0.07) {
                 discard;
             }
             float occlusion = uUseOcclusionTexture > 0.5

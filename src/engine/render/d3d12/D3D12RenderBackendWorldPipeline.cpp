@@ -2233,7 +2233,12 @@ float3 computeMappedFresnelLayerNormal(PSIn i,
                                        float normalScale) {
   float3 normalTexel = useLayerNormalTexture
       ? sampleTextureWithWrap(
-            gMetalRoughTex, sampleUv, uvDx, uvDy, uWrapS, uWrapT).xyz
+            gMetallicRoughnessTex,
+            sampleUv,
+            uvDx,
+            uvDy,
+            uWrapS,
+            uWrapT).xyz
       : float3(0.5f, 0.5f, 1.0f);
   return computeMappedNormalFromTexel(
       i,
@@ -2307,8 +2312,11 @@ float3 applyNativeGastlyFace(PSIn i,
   float shadowAmount = (1.0f - halfLambert) * 0.7f;
   float3 shaded = lerp(albedo, shadowSpec.rgb, shadowAmount) * occlusion;
   float3 halfVector = safeNormalize(view + light, normal);
-  float tongueMask = smoothstep(0.48f, 0.52f, shadowSpec.a);
-  if (concealTongue && tongueMask > 0.5f) {
+  // Z-A Gastly's authored face specular is at most 0.05. Forge reserves
+  // values above 0.0625 for tongue coverage; this guard band keeps filtered
+  // tongue edges distinct from face specular.
+  float tongueMask = smoothstep(0.07f, 0.50f, shadowSpec.a);
+  if (concealTongue && shadowSpec.a > 0.07f) {
     discard;
   }
   float sourceSpecularMask = max(
@@ -3354,7 +3362,9 @@ R"HLSL(
 
 float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   if (uMaterialMode > 2.5f && uMaterialMode < 3.5f) {
-    if (!isFrontFace) discard;
+    // Match the OpenGL/Vulkan inverted-hull outline contract: discard the
+    // expanded mesh's front faces and retain only its back-facing silhouette.
+    if (isFrontFace) discard;
     return float4(0.0f, 0.0f, 0.0f, 1.0f);
   }
   if (uMaterialMode > 0.5f && uMaterialMode < 1.5f) {

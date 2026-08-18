@@ -1263,8 +1263,11 @@ vec3 evaluateNativeGastlyFace(vec3 albedo,
         shadowSpecMap,
         uv,
         textureDetailLodBias);
-    float tongueMask = smoothstep(0.48, 0.52, shadowSpec.a);
-    if (concealTongue && tongueMask > 0.5) {
+    // Z-A Gastly's authored face specular is at most 0.05. Forge reserves
+    // values above 0.0625 for tongue coverage; this guard band keeps filtered
+    // tongue edges distinct from face specular.
+    float tongueMask = smoothstep(0.07, 0.50, shadowSpec.a);
+    if (concealTongue && shadowSpec.a > 0.07) {
         discard;
     }
     float occlusion = mix(
