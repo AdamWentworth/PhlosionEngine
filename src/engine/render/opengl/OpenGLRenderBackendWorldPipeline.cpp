@@ -2353,7 +2353,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             return clamp(
                 int(floor(length(cameraForwardPacked) + 0.5)) - 1,
                 0,
-                3);
+                4);
         }
 
         vec3 applyReviewLightingProfile(
@@ -2363,6 +2363,7 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             vec3 cameraForwardPacked) {
             int profile = decodeReviewLightingProfile(cameraForwardPacked);
             if (profile == 0) return max(composite, vec3(0.0));
+            if (profile == 4) return max(composite, vec3(0.0));
             vec3 albedo = max(resolvedAlbedo, vec3(0.0));
             if (profile == 1) {
                 vec3 shadowFloor = albedo * 0.50;
@@ -2612,9 +2613,14 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
         }
 
         vec3 sampleZaLocalReflectionProbe(
+            sampler2D probeTexture,
             vec3 direction,
             float sourceLod,
             float fallbackRoughness);
+        vec3 sampleSvLocalSpecularProbe(
+            sampler2D probeTexture,
+            vec3 direction,
+            float roughness);
 
         vec2 resolveZaIkEyeParallaxUv(
             vec2 uv,
@@ -2725,6 +2731,39 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 : vec3(1.0);
         }
 
+        int zaUiLightingCategory(float packedCategoryAndFlags) {
+            float category;
+            if (packedCategoryAndFlags >= 8.0) {
+                category = packedCategoryAndFlags - 8.0;
+            } else if (packedCategoryAndFlags < 0.5) {
+                category = 6.0;
+            } else if (fract(packedCategoryAndFlags) > 0.001) {
+                category = fract(packedCategoryAndFlags) * 16.0;
+            } else {
+                category = packedCategoryAndFlags;
+            }
+            return clamp(int(round(category)), 0, 7);
+        }
+
+        float zaUiDirectIntensity(int category) {
+            if (category == 2) return 0.08;
+            if (category == 5) return 4.14;
+            if (category == 6) return 4.20;
+            return 3.14;
+        }
+
+        float zaUiGiIntensity(int category) {
+            return category == 2 ? 0.07 : 1.0;
+        }
+
+        vec3 zaUiRimColor(int category) {
+            if (category == 0) return vec3(1.0);
+            if (category == 1) {
+                return vec3(0.7254902, 0.9843137, 0.5333334);
+            }
+            return vec3(0.0);
+        }
+
         vec3 applyNativeIkCharacter(
             vec3 linearColor,
             vec3 inputNormal,
@@ -2759,11 +2798,21 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 viewDirection = safeNormalize(
                 uCameraPos - vWorldPos,
                 -cameraForward);
+            bool zaSourceStage =
+                decodeReviewLightingProfile(uCameraForward) == 4;
+            int zaLightCategory = zaUiLightingCategory(
+                uLightProjectionUvRowV.w);
             vec3 lightPosition =
                 uCameraPos + cameraRight * 0.5 - cameraForward * 0.8660254;
-            vec3 lightDirection = safeNormalize(
-                lightPosition - uCameraTarget,
-                vec3(0.45, 0.86, 0.24));
+            vec3 lightDirection = zaSourceStage
+                ? vec3(-0.44695543, 0.64944804, 0.61518134)
+                : safeNormalize(
+                      lightPosition - uCameraTarget,
+                      vec3(0.45, 0.86, 0.24));
+            float sourceDirectScale = zaSourceStage
+                ? zaUiDirectIntensity(zaLightCategory) *
+                      (1.0 / 3.14159265)
+                : 1.0;
             vec4 shadowSpec = uUseMetallicRoughnessTexture > 0.5
                 ? sampleTextureWithWrap(
                       uMetallicRoughnessTexture,
@@ -2872,14 +2921,19 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 vec3(1.0),
                 shadowSpec.rgb,
                 combinedShadowAmount);
-            vec3 shaded = albedo * shadowTint;
+            vec3 shaded = albedo * shadowTint *
+                (zaSourceStage
+                     ? biasedLambert * effectiveDirectShadowVisibility *
+                           sourceDirectScale
+                     : 1.0);
             if (hasAuthoredColorProcess) {
                 // Source middle/dark processing consumes max(directDiffuse
                 // RGB) after inverse-pi scene light and shadow composition.
                 // With unavailable scene RGB normalized to unit white, this
                 // is its literal scalar counterpart.
                 float colorProcessLight = clamp(
-                    biasedLambert * effectiveDirectShadowVisibility,
+                    biasedLambert * effectiveDirectShadowVisibility *
+                        (zaSourceStage ? sourceDirectScale : 1.0),
                     0.0,
                     1.0);
                 float midDomain = clamp(
@@ -2996,6 +3050,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                           0.0,
                           1.0)) *
                     rimResponse.g * zaIkRimPresentationScale;
+            vec3 sceneRimColor = zaSourceStage
+                ? zaUiRimColor(zaLightCategory)
+                : vec3(1.0);
             float specularStrength = clamp(shadowSpec.a, 0.0, 1.0);
             // All selected Kanto Z-A materials disable EnableHairSpecular.
             // Their visible fur/feather relief therefore remains in the real
@@ -3013,16 +3070,34 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 diffuseProbeDirection = safeNormalize(
                 vec3(n.x, n.y, -n.z),
                 n);
-            vec3 neutralDiffuseIrradiance = sampleZaLocalReflectionProbe(
-                diffuseProbeDirection,
-                5.0,
-                1.0);
-            const float zaIkDiffuseEnvironmentExposureBridge = 32.0;
+            vec3 neutralDiffuseIrradiance = zaSourceStage
+                ? sampleSvLocalSpecularProbe(
+                      uLightProjectionTexture,
+                      diffuseProbeDirection,
+                      1.0)
+                : sampleZaLocalReflectionProbe(
+                      uEnvTexture,
+                      diffuseProbeDirection,
+                      5.0,
+                      1.0);
+            if (zaSourceStage) {
+                neutralDiffuseIrradiance = clamp(
+                    neutralDiffuseIrradiance,
+                    vec3(0.0),
+                    vec3(0.006));
+            }
+            float zaIkDiffuseEnvironmentExposureBridge = zaSourceStage
+                ? 64.0 * 3.14159265
+                : 32.0;
             vec3 environmentDiffuse = neutralDiffuseIrradiance * albedo *
                 (1.0 - metallic) *
-                zaIkDiffuseEnvironmentExposureBridge;
+                zaIkDiffuseEnvironmentExposureBridge *
+                (zaSourceStage
+                     ? zaUiGiIntensity(zaLightCategory) *
+                           (1.0 / 3.14159265)
+                     : 1.0);
             vec3 nativeBase = shaded + environmentDiffuse +
-                albedo * (rim + backRim);
+                albedo * sceneRimColor * (rim + backRim);
 
             // The decompiled Z-A IkCharacter body program carries no generic
             // roughness/PBR coat. Preserve its layer-resolved specular shape,
@@ -3053,7 +3128,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float surfaceSpecular = dielectricSpecular;
             vec3 specularColor = vec3(1.0);
             vec3 directSpecular = specularColor * surfaceSpecular *
-                specularLobe * normalDotLight * 0.72;
+                specularLobe * normalDotLight *
+                (zaSourceStage ? sourceDirectScale : 0.72);
             vec3 reflection = zaIkLocalReflectionDirection(
                 viewDirection,
                 n);
@@ -3062,6 +3138,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 0.04,
                 0.92);
             vec3 environmentRadiance = sampleZaLocalReflectionProbe(
+                uEnvTexture,
                 reflection,
                 reflectionBlur + max(litTextureDetailLodBias(), 0.0),
                 reflectionRoughness);
@@ -3076,7 +3153,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 environmentSpecular =
                 environmentRadiance * albedo * metallic *
                 grazingResponse * environmentOcclusion *
-                __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+                __PHLOSION_PBR_SPECULAR_IBL_SCALE__ *
+                (zaSourceStage ? 32.0 : 1.0);
             vec3 diffuse = nativeBase * (1.0 - metallic * 0.85);
             // Mode 32's packed rim texture reserves blue for source emission
             // luminance; params0.z carries its material-constant 24-bit RGB.
@@ -3235,9 +3313,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 exp2(float(exponentBits) - 15.0);
         }
 
-        vec3 decodeSvLocalProbeTexel(ivec2 texel) {
-            vec4 packedRg = texelFetch(uEnvTexture, texel, 0);
-            vec4 packedBa = texelFetch(uEnvTexture, texel + ivec2(1, 0), 0);
+        vec3 decodeSvLocalProbeTexel(sampler2D probeTexture, ivec2 texel) {
+            vec4 packedRg = texelFetch(probeTexture, texel, 0);
+            vec4 packedBa = texelFetch(probeTexture, texel + ivec2(1, 0), 0);
             uvec4 rg = uvec4(round(clamp(packedRg, 0.0, 1.0) * 255.0));
             uvec4 ba = uvec4(round(clamp(packedBa, 0.0, 1.0) * 255.0));
             return vec3(
@@ -3246,8 +3324,11 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 decodeSvLocalProbeHalf(ba.r | (ba.g << 8u)));
         }
 
-        vec3 sampleSvLocalSpecularProbe(vec3 direction, float roughness) {
-            ivec2 atlasSize = textureSize(uEnvTexture, 0);
+        vec3 sampleSvLocalSpecularProbe(
+            sampler2D probeTexture,
+            vec3 direction,
+            float roughness) {
+            ivec2 atlasSize = textureSize(probeTexture, 0);
             if (atlasSize.x != atlasSize.y * 3 ||
                 atlasSize.y < 2 || (atlasSize.y & 1) != 0) {
                 return sampleNeutralEnvironment(direction, roughness);
@@ -3290,13 +3371,13 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 (face % 3) * faceSize * 2,
                 (face / 3) * faceSize);
             vec3 c00 = decodeSvLocalProbeTexel(
-                origin + ivec2(lo.x * 2, lo.y));
+                probeTexture, origin + ivec2(lo.x * 2, lo.y));
             vec3 c10 = decodeSvLocalProbeTexel(
-                origin + ivec2(hi.x * 2, lo.y));
+                probeTexture, origin + ivec2(hi.x * 2, lo.y));
             vec3 c01 = decodeSvLocalProbeTexel(
-                origin + ivec2(lo.x * 2, hi.y));
+                probeTexture, origin + ivec2(lo.x * 2, hi.y));
             vec3 c11 = decodeSvLocalProbeTexel(
-                origin + ivec2(hi.x * 2, hi.y));
+                probeTexture, origin + ivec2(hi.x * 2, hi.y));
             return mix(
                 mix(c00, c10, blend.x),
                 mix(c01, c11, blend.x),
@@ -3304,6 +3385,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
         }
 
         vec3 sampleZaLocalReflectionProbeMip(
+            sampler2D probeTexture,
             vec3 direction,
             int baseFaceSize,
             int mipLevel) {
@@ -3346,13 +3428,13 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 (face % 3) * mipSize * 2,
                 mipStripY + (face / 3) * mipSize);
             vec3 c00 = decodeSvLocalProbeTexel(
-                origin + ivec2(lo.x * 2, lo.y));
+                probeTexture, origin + ivec2(lo.x * 2, lo.y));
             vec3 c10 = decodeSvLocalProbeTexel(
-                origin + ivec2(hi.x * 2, lo.y));
+                probeTexture, origin + ivec2(hi.x * 2, lo.y));
             vec3 c01 = decodeSvLocalProbeTexel(
-                origin + ivec2(lo.x * 2, hi.y));
+                probeTexture, origin + ivec2(lo.x * 2, hi.y));
             vec3 c11 = decodeSvLocalProbeTexel(
-                origin + ivec2(hi.x * 2, hi.y));
+                probeTexture, origin + ivec2(hi.x * 2, hi.y));
             return mix(
                 mix(c00, c10, blend.x),
                 mix(c01, c11, blend.x),
@@ -3360,10 +3442,11 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
         }
 
         vec3 sampleZaLocalReflectionProbe(
+            sampler2D probeTexture,
             vec3 direction,
             float sourceLod,
             float fallbackRoughness) {
-            ivec2 atlasSize = textureSize(uEnvTexture, 0);
+            ivec2 atlasSize = textureSize(probeTexture, 0);
             if (atlasSize.x < 6 || atlasSize.x % 6 != 0) {
                 return sampleNeutralEnvironment(direction, fallbackRoughness);
             }
@@ -3378,9 +3461,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             int hi = min(lo + 1, maxMip);
             return mix(
                 sampleZaLocalReflectionProbeMip(
-                    direction, faceSize, lo),
+                    probeTexture, direction, faceSize, lo),
                 sampleZaLocalReflectionProbeMip(
-                    direction, faceSize, hi),
+                    probeTexture, direction, faceSize, hi),
                 fract(lod));
         }
 
@@ -3450,6 +3533,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 -viewDirection,
                 layerNormal);
             vec3 environmentRadiance = sampleSvLocalSpecularProbe(
+                uEnvTexture,
                 reflection,
                 clamp(uRoughnessFactor, 0.04, 1.0));
             vec3 f0 = mix(

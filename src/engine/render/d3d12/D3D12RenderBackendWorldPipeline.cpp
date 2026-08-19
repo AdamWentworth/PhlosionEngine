@@ -2093,7 +2093,7 @@ int decodeReviewLightingProfile(float3 cameraForwardPacked) {
   return clamp(
       (int)floor(length(cameraForwardPacked) + 0.5f) - 1,
       0,
-      3);
+      4);
 }
 
 float3 applyReviewLightingProfile(float3 composite,
@@ -2102,6 +2102,7 @@ float3 applyReviewLightingProfile(float3 composite,
                                   float3 cameraForwardPacked) {
   const int profile = decodeReviewLightingProfile(cameraForwardPacked);
   if (profile == 0) return max(composite, float3(0.0f, 0.0f, 0.0f));
+  if (profile == 4) return max(composite, float3(0.0f, 0.0f, 0.0f));
   const float3 albedo = max(resolvedAlbedo, float3(0.0f, 0.0f, 0.0f));
   if (profile == 1) {
     const float3 shadowFloor = albedo * 0.50f;
@@ -2471,9 +2472,13 @@ float3 applyWorldLitModel(PSIn i,
   return max(shaded + emissive, float3(0.0f, 0.0f, 0.0f));
 }
 
-float3 sampleZaLocalReflectionProbe(float3 direction,
+float3 sampleZaLocalReflectionProbe(Texture2D probeTexture,
+                                    float3 direction,
                                     float sourceLod,
                                     float fallbackRoughness);
+float3 sampleSvLocalSpecularProbe(Texture2D probeTexture,
+                                  float3 direction,
+                                  float roughness);
 
 float2 resolveZaIkEyeParallaxUv(PSIn i,
                                 float2 uv,
@@ -2582,6 +2587,39 @@ float3 zaIkEmissionColor(float packedColor) {
       : float3(1.0f, 1.0f, 1.0f);
 }
 
+int zaUiLightingCategory(float packedCategoryAndFlags) {
+  float category;
+  if (packedCategoryAndFlags >= 8.0f) {
+    category = packedCategoryAndFlags - 8.0f;
+  } else if (packedCategoryAndFlags < 0.5f) {
+    category = 6.0f;
+  } else if (frac(packedCategoryAndFlags) > 0.001f) {
+    category = frac(packedCategoryAndFlags) * 16.0f;
+  } else {
+    category = packedCategoryAndFlags;
+  }
+  return clamp((int)round(category), 0, 7);
+}
+
+float zaUiDirectIntensity(int category) {
+  if (category == 2) return 0.08f;
+  if (category == 5) return 4.14f;
+  if (category == 6) return 4.20f;
+  return 3.14f;
+}
+
+float zaUiGiIntensity(int category) {
+  return category == 2 ? 0.07f : 1.0f;
+}
+
+float3 zaUiRimColor(int category) {
+  if (category == 0) return 1.0f.xxx;
+  if (category == 1) {
+    return float3(0.7254902f, 0.9843137f, 0.5333334f);
+  }
+  return 0.0f.xxx;
+}
+
 float3 applyNativeIkCharacter(PSIn i,
                               bool isFrontFace,
                               float3 linearColor,
@@ -2629,11 +2667,19 @@ float3 applyNativeIkCharacter(PSIn i,
   float3 viewDirection = safeNormalize(
       cameraPos - i.worldPos,
       -cameraForward);
+  bool zaSourceStage =
+      decodeReviewLightingProfile(cameraForwardPacked) == 4;
+  int zaLightCategory = zaUiLightingCategory(uLightProjectionUvRowV.w);
   float3 lightPosition =
       cameraPos + cameraRight * 0.5f - cameraForward * 0.8660254f;
-  float3 lightDirection = safeNormalize(
-      lightPosition - cameraTarget,
-      float3(0.45f, 0.86f, 0.24f));
+  float3 lightDirection = zaSourceStage
+      ? float3(-0.44695543f, 0.64944804f, 0.61518134f)
+      : safeNormalize(
+            lightPosition - cameraTarget,
+            float3(0.45f, 0.86f, 0.24f));
+  float sourceDirectScale = zaSourceStage
+      ? zaUiDirectIntensity(zaLightCategory) * (1.0f / 3.14159265f)
+      : 1.0f;
   float4 shadowSpec = useMetallicRoughnessTexture
       ? sampleTextureWithWrap(
             gMetallicRoughnessTex,
@@ -2728,13 +2774,18 @@ float3 applyNativeIkCharacter(PSIn i,
       float3(1.0f, 1.0f, 1.0f),
       shadowSpec.rgb,
       combinedShadowAmount);
-  float3 shaded = albedo * shadowTint;
+  float3 shaded = albedo * shadowTint *
+      (zaSourceStage
+           ? biasedLambert * effectiveDirectShadowVisibility *
+                 sourceDirectScale
+           : 1.0f);
   if (hasAuthoredColorProcess) {
     // Source middle/dark processing consumes max(directDiffuse RGB) after
     // inverse-pi scene light and shadow composition. With unavailable scene
     // RGB normalized to unit white, this is its literal scalar counterpart.
     float colorProcessLight = saturate(
-        biasedLambert * effectiveDirectShadowVisibility);
+        biasedLambert * effectiveDirectShadowVisibility *
+        (zaSourceStage ? sourceDirectScale : 1.0f));
     float midDomain = saturate(
         1.0f - colorProcessLight + uProjectedShadowRowY.x);
     float midSmooth = midDomain * midDomain *
@@ -2818,6 +2869,9 @@ float3 applyNativeIkCharacter(PSIn i,
             saturate(
                 (0.4f - normalDotLightSigned - saturate(facing)) * 2.5f)) *
           rimResponse.g * zaIkRimPresentationScale;
+  float3 sceneRimColor = zaSourceStage
+      ? zaUiRimColor(zaLightCategory)
+      : 1.0f.xxx;
   float specularStrength = saturate(shadowSpec.a);
   // Every selected Kanto Z-A material disables EnableHairSpecular. Fur and
   // feather relief stays in the real normal/specular/rim paths; adding a
@@ -2832,15 +2886,32 @@ float3 applyNativeIkCharacter(PSIn i,
   float3 diffuseProbeDirection = safeNormalize(
       float3(normal.x, normal.y, -normal.z),
       normal);
-  float3 neutralDiffuseIrradiance = sampleZaLocalReflectionProbe(
-      diffuseProbeDirection,
-      5.0f,
-      1.0f);
-  const float zaIkDiffuseEnvironmentExposureBridge = 32.0f;
+  float3 neutralDiffuseIrradiance = zaSourceStage
+      ? sampleSvLocalSpecularProbe(
+            gLightProjectionTex,
+            diffuseProbeDirection,
+            1.0f)
+      : sampleZaLocalReflectionProbe(
+            gEnvTex,
+            diffuseProbeDirection,
+            5.0f,
+            1.0f);
+  if (zaSourceStage) {
+    neutralDiffuseIrradiance = clamp(
+        neutralDiffuseIrradiance,
+        float3(0.0f, 0.0f, 0.0f),
+        float3(0.006f, 0.006f, 0.006f));
+  }
+  float zaIkDiffuseEnvironmentExposureBridge = zaSourceStage
+      ? 64.0f * 3.14159265f
+      : 32.0f;
   float3 environmentDiffuse = neutralDiffuseIrradiance * albedo *
-      (1.0f - metallic) * zaIkDiffuseEnvironmentExposureBridge;
+      (1.0f - metallic) * zaIkDiffuseEnvironmentExposureBridge *
+      (zaSourceStage
+           ? zaUiGiIntensity(zaLightCategory) * (1.0f / 3.14159265f)
+           : 1.0f);
   float3 nativeBase = shaded + environmentDiffuse +
-      albedo * (rim + backRim);
+      albedo * sceneRimColor * (rim + backRim);
 
   // The decompiled Z-A IkCharacter body program carries no generic
   // roughness/PBR coat. Preserve its layer-resolved specular shape, metal
@@ -2865,7 +2936,7 @@ float3 applyNativeIkCharacter(PSIn i,
   float surfaceSpecular = dielectricSpecular;
   float3 specularColor = 1.0f.xxx;
   float3 directSpecular = specularColor * surfaceSpecular * specularLobe *
-      normalDotLight * 0.72f;
+      normalDotLight * (zaSourceStage ? sourceDirectScale : 0.72f);
   float3 reflection = zaIkLocalReflectionDirection(
       viewDirection,
       normal);
@@ -2874,6 +2945,7 @@ float3 applyNativeIkCharacter(PSIn i,
       0.04f,
       0.92f);
   float3 environmentRadiance = sampleZaLocalReflectionProbe(
+      gEnvTex,
       reflection,
       reflectionBlur + max(litTextureDetailLodBias(), 0.0f),
       reflectionRoughness);
@@ -2887,7 +2959,8 @@ float3 applyNativeIkCharacter(PSIn i,
       reflectionRoughness);
   float3 environmentSpecular =
       environmentRadiance * albedo * metallic * grazingResponse *
-      environmentOcclusion * __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+      environmentOcclusion * __PHLOSION_PBR_SPECULAR_IBL_SCALE__ *
+      (zaSourceStage ? 32.0f : 1.0f);
   float3 diffuse = nativeBase * (1.0f - metallic * 0.85f);
   // Mode 32 packs per-pixel body-emission luminance into blue and transports
   // its material-constant 24-bit RGB through the mode-local rowU.x lane.
@@ -3043,9 +3116,9 @@ float3 applyNativeSssSurface(PSIn i,
       float3(0.0f, 0.0f, 0.0f));
 }
 
-float3 decodeSvLocalProbeTexel(int2 texel) {
-  float4 packedRg = gEnvTex.Load(int3(texel, 0));
-  float4 packedBa = gEnvTex.Load(int3(texel + int2(1, 0), 0));
+float3 decodeSvLocalProbeTexel(Texture2D probeTexture, int2 texel) {
+  float4 packedRg = probeTexture.Load(int3(texel, 0));
+  float4 packedBa = probeTexture.Load(int3(texel + int2(1, 0), 0));
   uint4 rg = (uint4)round(saturate(packedRg) * 255.0f);
   uint4 ba = (uint4)round(saturate(packedBa) * 255.0f);
   return float3(
@@ -3054,10 +3127,12 @@ float3 decodeSvLocalProbeTexel(int2 texel) {
       f16tof32(ba.r | (ba.g << 8u)));
 }
 
-float3 sampleSvLocalSpecularProbe(float3 direction, float roughness) {
+float3 sampleSvLocalSpecularProbe(Texture2D probeTexture,
+                                  float3 direction,
+                                  float roughness) {
   uint atlasWidth = 0u;
   uint atlasHeight = 0u;
-  gEnvTex.GetDimensions(atlasWidth, atlasHeight);
+  probeTexture.GetDimensions(atlasWidth, atlasHeight);
   if (atlasWidth != atlasHeight * 3u ||
       atlasHeight < 2u || (atlasHeight & 1u) != 0u) {
     return sampleNeutralEnvironment(direction, roughness);
@@ -3099,20 +3174,21 @@ float3 sampleSvLocalSpecularProbe(float3 direction, float roughness) {
       (face % 3) * faceSize * 2,
       (face / 3) * faceSize);
   float3 c00 = decodeSvLocalProbeTexel(
-      origin + int2(lo.x * 2, lo.y));
+      probeTexture, origin + int2(lo.x * 2, lo.y));
   float3 c10 = decodeSvLocalProbeTexel(
-      origin + int2(hi.x * 2, lo.y));
+      probeTexture, origin + int2(hi.x * 2, lo.y));
   float3 c01 = decodeSvLocalProbeTexel(
-      origin + int2(lo.x * 2, hi.y));
+      probeTexture, origin + int2(lo.x * 2, hi.y));
   float3 c11 = decodeSvLocalProbeTexel(
-      origin + int2(hi.x * 2, hi.y));
+      probeTexture, origin + int2(hi.x * 2, hi.y));
   return lerp(
       lerp(c00, c10, blend.x),
       lerp(c01, c11, blend.x),
       blend.y);
 }
 
-float3 sampleZaLocalReflectionProbeMip(float3 direction,
+float3 sampleZaLocalReflectionProbeMip(Texture2D probeTexture,
+                                       float3 direction,
                                        int baseFaceSize,
                                        int mipLevel) {
   int mipSize = max(baseFaceSize >> mipLevel, 1);
@@ -3154,25 +3230,26 @@ float3 sampleZaLocalReflectionProbeMip(float3 direction,
       (face % 3) * mipSize * 2,
       mipStripY + (face / 3) * mipSize);
   float3 c00 = decodeSvLocalProbeTexel(
-      origin + int2(lo.x * 2, lo.y));
+      probeTexture, origin + int2(lo.x * 2, lo.y));
   float3 c10 = decodeSvLocalProbeTexel(
-      origin + int2(hi.x * 2, lo.y));
+      probeTexture, origin + int2(hi.x * 2, lo.y));
   float3 c01 = decodeSvLocalProbeTexel(
-      origin + int2(lo.x * 2, hi.y));
+      probeTexture, origin + int2(lo.x * 2, hi.y));
   float3 c11 = decodeSvLocalProbeTexel(
-      origin + int2(hi.x * 2, hi.y));
+      probeTexture, origin + int2(hi.x * 2, hi.y));
   return lerp(
       lerp(c00, c10, blend.x),
       lerp(c01, c11, blend.x),
       blend.y);
 }
 
-float3 sampleZaLocalReflectionProbe(float3 direction,
+float3 sampleZaLocalReflectionProbe(Texture2D probeTexture,
+                                    float3 direction,
                                     float sourceLod,
                                     float fallbackRoughness) {
   uint atlasWidth = 0u;
   uint atlasHeight = 0u;
-  gEnvTex.GetDimensions(atlasWidth, atlasHeight);
+  probeTexture.GetDimensions(atlasWidth, atlasHeight);
   if (atlasWidth < 6u || atlasWidth % 6u != 0u) {
     return sampleNeutralEnvironment(direction, fallbackRoughness);
   }
@@ -3187,9 +3264,9 @@ float3 sampleZaLocalReflectionProbe(float3 direction,
   int hi = min(lo + 1, maxMip);
   return lerp(
       sampleZaLocalReflectionProbeMip(
-          direction, (int)faceSize, lo),
+          probeTexture, direction, (int)faceSize, lo),
       sampleZaLocalReflectionProbeMip(
-          direction, (int)faceSize, hi),
+          probeTexture, direction, (int)faceSize, hi),
       frac(lod));
 }
 
@@ -3256,6 +3333,7 @@ float3 applyNativeFresnelEffectLayer(PSIn i,
       ao * max(uLightProjectionUvRowU.y, 0.0f) *
       (1.0f - fresnelAlpha);
   float3 environmentRadiance = sampleSvLocalSpecularProbe(
+      gEnvTex,
       reflect(-viewDirection, normal),
       clamp(roughnessFactor, 0.04f, 1.0f));
   float3 f0 = lerp(

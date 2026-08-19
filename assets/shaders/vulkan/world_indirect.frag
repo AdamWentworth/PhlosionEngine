@@ -1870,6 +1870,18 @@ void main() {
         return;
     }
 
+    // See the direct world path: the exact 384x128 probe carrier is a
+    // stable, profile-private Vulkan marker when editor view-state coalescing
+    // removes the redundant camera-vector length lane.
+    ivec2 zaUiDiffuseProbeSize = textureSize(
+        lightProjectionTextures[nonuniformEXT(materialIndex)], 0);
+    bool zaSourceStageCarrier =
+        zaUiDiffuseProbeSize.x == 384 && zaUiDiffuseProbeSize.y == 128;
+    vec3 reviewCameraForward = zaSourceStageCarrier
+        ? safeNormalize(
+              worldView.cameraForward.xyz,
+              vec3(0.0, -0.6139406, -0.7893522)) * 5.0
+        : worldView.cameraForward.xyz;
     if ((materialMode >= 1.5 && materialMode < 2.5) ||
         (materialMode > 27.5 && materialMode < 35.5)) {
         bool nativeEyeClearCoat =
@@ -1901,7 +1913,7 @@ void main() {
                 vertexNormal,
                 vertexTangent,
                 worldView.cameraPosition.xyz,
-                worldView.cameraForward.xyz,
+                reviewCameraForward,
                 normalTextures[nonuniformEXT(materialIndex)],
                 metallicRoughnessTextures[nonuniformEXT(materialIndex)],
                 occlusionTextures[nonuniformEXT(materialIndex)],
@@ -1920,7 +1932,7 @@ void main() {
                 vertexNormal,
                 vertexTangent,
                 worldView.cameraPosition.xyz,
-                worldView.cameraForward.xyz,
+                reviewCameraForward,
                 worldView.cameraTarget.xyz,
                 baseColorTextures[nonuniformEXT(materialIndex)],
                 normalTextures[nonuniformEXT(materialIndex)],
@@ -1928,6 +1940,7 @@ void main() {
                 occlusionTextures[nonuniformEXT(materialIndex)],
                 emissiveTextures[nonuniformEXT(materialIndex)],
                 environmentTextures[nonuniformEXT(materialIndex)],
+                lightProjectionTextures[nonuniformEXT(materialIndex)],
                 textureDetailLodBias,
                 drawState.pbrFactors,
                 drawState.emissiveAndCamera.rgb,
@@ -1935,6 +1948,7 @@ void main() {
                 drawState.specializedRect1,
                 drawState.specializedFlipbook0,
                 drawState.specializedFlipbook1,
+                drawState.specializedLightProjectionUvRowV.w,
                 nativeIkCharacterEye);
         } else if (nativeGastlyFace) {
             linearColor = evaluateNativeGastlyFace(
@@ -2050,7 +2064,7 @@ void main() {
             linearColor,
             reviewAlbedo,
             vertexNormal,
-            worldView.cameraForward.xyz);
+            reviewCameraForward);
     }
     const float toneMappingExposure = 1.15;
     vec3 mapped = tonemapACESFilmic(max(linearColor, vec3(0.0)), toneMappingExposure);

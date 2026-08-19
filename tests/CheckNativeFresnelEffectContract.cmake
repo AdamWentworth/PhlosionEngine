@@ -22,7 +22,7 @@ endforeach()
 file(READ "${D3D_PATH}" D3D_SOURCE)
 foreach(TOKEN IN ITEMS
         "computeMappedFresnelLayerNormal"
-        "gMetalRoughTex"
+        "gMetallicRoughnessTex"
         "uLightProjectionUvRowU.w"
         "nativeFresnelEffect")
     if(NOT D3D_SOURCE MATCHES "${TOKEN}")

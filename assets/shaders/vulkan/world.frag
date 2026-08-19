@@ -1657,6 +1657,19 @@ void main() {
         return;
     }
 
+    // The transient preview profile is normally transported in the
+    // camera-forward length. Vulkan can coalesce view state across the
+    // editor's scene and inspector passes, so also recognize the exact
+    // recovered Z-A diffuse carrier. It is attached only by the Inspector's
+    // Z-A Source Stage profile.
+    ivec2 zaUiDiffuseProbeSize = textureSize(lightProjectionTexture, 0);
+    bool zaSourceStageCarrier =
+        zaUiDiffuseProbeSize.x == 384 && zaUiDiffuseProbeSize.y == 128;
+    vec3 reviewCameraForward = zaSourceStageCarrier
+        ? safeNormalize(
+              worldView.cameraForward.xyz,
+              vec3(0.0, -0.6139406, -0.7893522)) * 5.0
+        : worldView.cameraForward.xyz;
     if ((materialMode >= 1.5 && materialMode < 2.5) ||
         (materialMode > 27.5 && materialMode < 35.5)) {
         bool nativeEyeClearCoat =
@@ -1688,7 +1701,7 @@ void main() {
                 vertexNormal,
                 vertexTangent,
                 worldView.cameraPosition.xyz,
-                worldView.cameraForward.xyz,
+                reviewCameraForward,
                 normalTexture,
                 metallicRoughnessTexture,
                 occlusionTexture,
@@ -1707,7 +1720,7 @@ void main() {
                 vertexNormal,
                 vertexTangent,
                 worldView.cameraPosition.xyz,
-                worldView.cameraForward.xyz,
+                reviewCameraForward,
                 worldView.cameraTarget.xyz,
                 baseColorTexture,
                 normalTexture,
@@ -1715,6 +1728,7 @@ void main() {
                 occlusionTexture,
                 emissiveTexture,
                 environmentTexture,
+                lightProjectionTexture,
                 textureDetailLodBias,
                 pushData.pbrFactors,
                 pushData.emissiveAndCamera.rgb,
@@ -1722,6 +1736,7 @@ void main() {
                 worldSpecializedMaterial.rect1,
                 worldSpecializedMaterial.flipbook0,
                 worldSpecializedMaterial.flipbook1,
+                worldSpecializedMaterial.lightProjectionUvRowV.w,
                 nativeIkCharacterEye);
         } else if (nativeGastlyFace) {
             linearColor = evaluateNativeGastlyFace(
@@ -1837,7 +1852,7 @@ void main() {
             linearColor,
             reviewAlbedo,
             vertexNormal,
-            worldView.cameraForward.xyz);
+            reviewCameraForward);
     }
     const float toneMappingExposure = 1.15;
     vec3 mapped = tonemapACESFilmic(max(linearColor, vec3(0.0)), toneMappingExposure);

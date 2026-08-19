@@ -24,7 +24,7 @@ if(NOT GL_SOURCE MATCHES "decodeSvLocalProbeHalf" OR
     message(FATAL_ERROR "OpenGL lost exact packed-half reconstruction")
 endif()
 if(NOT D3D_SOURCE MATCHES "f16tof32" OR
-   NOT D3D_SOURCE MATCHES "gEnvTex.GetDimensions")
+   NOT D3D_SOURCE MATCHES "probeTexture.GetDimensions")
     message(FATAL_ERROR "D3D12 lost exact packed-half reconstruction")
 endif()
 if(NOT VK_SOURCE MATCHES "decodeSvLocalProbeHalf" OR

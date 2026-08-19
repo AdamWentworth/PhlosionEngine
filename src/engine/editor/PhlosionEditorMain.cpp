@@ -242,11 +242,15 @@ Arguments parseArguments(int argc, char** argv) {
             } else if (value == "grazing" ||
                        value == "grazing-check") {
                 result.assetPreviewLightingProfile = 3;
+            } else if (value == "za" ||
+                       value == "za-source" ||
+                       value == "za-source-stage") {
+                result.assetPreviewLightingProfile = 4;
             } else {
                 result.assetPreviewLightingProfile = std::clamp(
                     std::stoi(value),
                     0,
-                    3);
+                    4);
             }
         } else if (
             argument.rfind(

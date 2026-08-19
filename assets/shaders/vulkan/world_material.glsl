@@ -6,11 +6,12 @@ vec3 safeNormalize(vec3 value, vec3 fallback) {
 int decodeReviewLightingProfile(vec3 cameraForwardPacked) {
     // The camera direction is normalized everywhere it is consumed. Model
     // previews use its redundant length as a transient cross-backend profile
-    // lane: 1=source bridge, 2=studio, 3=albedo-biased, 4=grazing.
+    // lane: 1=source bridge, 2=studio, 3=albedo-biased, 4=grazing,
+    // 5=Z-A source stage.
     return clamp(
         int(floor(length(cameraForwardPacked) + 0.5)) - 1,
         0,
-        3);
+        4);
 }
 
 vec3 applyReviewLightingProfile(vec3 composite,
@@ -19,6 +20,9 @@ vec3 applyReviewLightingProfile(vec3 composite,
                                 vec3 cameraForwardPacked) {
     int profile = decodeReviewLightingProfile(cameraForwardPacked);
     if (profile == 0) return max(composite, vec3(0.0));
+    // The dedicated Z-A path is reconstructed inside its native material
+    // functions, before this common diagnostic presentation boundary.
+    if (profile == 4) return max(composite, vec3(0.0));
 
     vec3 albedo = max(resolvedAlbedo, vec3(0.0));
     if (profile == 1) {
@@ -354,6 +358,9 @@ vec3 sampleZaLocalReflectionProbe(sampler2D environmentMap,
                                   vec3 direction,
                                   float sourceLod,
                                   float fallbackRoughness);
+vec3 sampleSvLocalSpecularProbe(sampler2D environmentMap,
+                                vec3 direction,
+                                float roughness);
 
 vec2 resolveZaIkEyeParallaxUv(vec2 uv,
                               vec3 position,
@@ -462,6 +469,42 @@ vec3 zaIkEmissionColor(float packedColor) {
         : vec3(1.0);
 }
 
+int zaUiLightingCategory(float packedCategoryAndFlags) {
+    float category;
+    if (packedCategoryAndFlags >= 8.0) {
+        category = packedCategoryAndFlags - 8.0;
+    } else if (packedCategoryAndFlags < 0.5) {
+        // Every retained Kanto Z-A surface uses category 6. Preserve the
+        // already-cooked corpus from before the category lane was added.
+        category = 6.0;
+    } else if (fract(packedCategoryAndFlags) > 0.001) {
+        category = fract(packedCategoryAndFlags) * 16.0;
+    } else {
+        // Accept the brief literal-category development encoding as well.
+        category = packedCategoryAndFlags;
+    }
+    return clamp(int(round(category)), 0, 7);
+}
+
+float zaUiDirectIntensity(int category) {
+    if (category == 2) return 0.08;
+    if (category == 5) return 4.14;
+    if (category == 6) return 4.20;
+    return 3.14;
+}
+
+float zaUiGiIntensity(int category) {
+    return category == 2 ? 0.07 : 1.0;
+}
+
+vec3 zaUiRimColor(int category) {
+    if (category == 0) return vec3(1.0);
+    if (category == 1) {
+        return vec3(0.7254902, 0.9843137, 0.5333334);
+    }
+    return vec3(0.0);
+}
+
 vec3 evaluateNativeIkCharacter(vec3 albedo,
                                vec3 vertexColorRgb,
                                vec2 uv,
@@ -477,6 +520,7 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
                                sampler2D occlusionMap,
                                sampler2D rimResponseMap,
                                sampler2D environmentMap,
+                               sampler2D zaUiDiffuseProbeMap,
                                float textureDetailLodBias,
                                vec4 factors,
                                vec3 rimParameters,
@@ -484,6 +528,7 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
                                vec4 shadowProcessParameters,
                                vec4 midProcessParameters,
                                vec4 darkProcessParameters,
+                               float packedLightingCategory,
                                bool nativeEye) {
     uv = nativeEye
         ? resolveZaIkEyeParallaxUv(
@@ -536,11 +581,19 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     vec3 viewDirection = safeNormalize(
         cameraPosition - position,
         -cameraForward);
+    bool zaSourceStage =
+        decodeReviewLightingProfile(cameraForwardPacked) == 4;
+    int zaLightCategory = zaUiLightingCategory(packedLightingCategory);
     vec3 lightPosition =
         cameraPosition + cameraRight * 0.5 - cameraForward * 0.8660254;
-    vec3 lightDirection = safeNormalize(
-        lightPosition - cameraTarget,
-        vec3(0.45, 0.86, 0.24));
+    vec3 lightDirection = zaSourceStage
+        ? vec3(-0.44695543, 0.64944804, 0.61518134)
+        : safeNormalize(
+              lightPosition - cameraTarget,
+              vec3(0.45, 0.86, 0.24));
+    float sourceDirectScale = zaSourceStage
+        ? zaUiDirectIntensity(zaLightCategory) * (1.0 / 3.14159265)
+        : 1.0;
     vec4 shadowSpec = sampleWorldMaterialTexture(
         shadowSpecMap,
         uv,
@@ -634,14 +687,19 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         vec3(1.0),
         shadowSpec.rgb,
         combinedShadowAmount);
-    vec3 shaded = sourceAlbedo * shadowTint;
+    vec3 shaded = sourceAlbedo * shadowTint *
+        (zaSourceStage
+             ? biasedLambert * effectiveDirectShadowVisibility *
+                   sourceDirectScale
+             : 1.0);
     if (hasAuthoredColorProcess) {
         // Source middle/dark processing consumes max(directDiffuse RGB) after
         // inverse-pi scene light and shadow composition. With unavailable
         // scene RGB normalized to unit white, this is its literal scalar
         // counterpart.
         float colorProcessLight = clamp(
-            biasedLambert * effectiveDirectShadowVisibility,
+            biasedLambert * effectiveDirectShadowVisibility *
+                (zaSourceStage ? sourceDirectScale : 1.0),
             0.0,
             1.0);
         float midDomain = clamp(
@@ -756,34 +814,49 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
                     0.0,
                     1.0)) *
             rimResponse.g * zaIkRimPresentationScale;
+    vec3 sceneRimColor = zaSourceStage
+        ? zaUiRimColor(zaLightCategory)
+        : vec3(1.0);
     // Every selected Kanto Z-A material disables EnableHairSpecular. Fur and
     // feather relief stays in the real normal/specular/rim paths; adding a
     // species-classified sheen here would execute a source-disabled branch.
     // Z-A's selected IkCharacter programs add a scene-owned diffuse-
     // irradiance cube sampled at LOD 0 with the mapped shading normal's Z
-    // component flipped. The loose model archive cannot provide that bound
-    // cube, but omitting the entire proven branch leaves normal detail and
-    // non-metal material separation visibly flat. Bridge the missing scene
-    // payload through the strongly filtered end of the material's authored
-    // environment carrier. The sampler automatically falls back to Phlosion's
-    // neutral environment when no Z-A packed probe is bound. The retained
-    // probe averages 0.00627 linear luminance at mip 5, so the explicit 32x
-    // exposure bridge restores a neutral 0.20 diffuse fill. This remains
-    // presentation-side because source fp_c4 light values and exposure are
-    // not available offline.
+    // component flipped. Source Stage binds the recovered off-screen UI cube;
+    // other profiles retain the prior strongly-filtered material-probe bridge.
+    // The material-probe fallback retains its measured 32x exposure. Source
+    // Stage targets a 0.315 neutral fill from the exact cube's 0.004927 mean
+    // and precompensates the exact shader's later inverse-pi GI term.
     vec3 diffuseProbeDirection = safeNormalize(
         vec3(normal.x, normal.y, -normal.z),
         normal);
-    vec3 neutralDiffuseIrradiance = sampleZaLocalReflectionProbe(
-        environmentMap,
-        diffuseProbeDirection,
-        5.0,
-        1.0);
-    const float zaIkDiffuseEnvironmentExposureBridge = 32.0;
+    vec3 neutralDiffuseIrradiance = zaSourceStage
+        ? sampleSvLocalSpecularProbe(
+              zaUiDiffuseProbeMap,
+              diffuseProbeDirection,
+              1.0)
+        : sampleZaLocalReflectionProbe(
+              environmentMap,
+              diffuseProbeDirection,
+              5.0,
+              1.0);
+    if (zaSourceStage) {
+        // The retained cube's measured channel range is
+        // 0.004524..0.005196. Keep the lossless carrier decode inside its
+        // proven HDR domain on every texture implementation.
+        neutralDiffuseIrradiance = clamp(
+            neutralDiffuseIrradiance, vec3(0.0), vec3(0.006));
+    }
+    float zaIkDiffuseEnvironmentExposureBridge = zaSourceStage
+        ? 64.0 * 3.14159265
+        : 32.0;
     vec3 environmentDiffuse = neutralDiffuseIrradiance * sourceAlbedo *
-        (1.0 - metallic) * zaIkDiffuseEnvironmentExposureBridge;
+        (1.0 - metallic) * zaIkDiffuseEnvironmentExposureBridge *
+        (zaSourceStage
+             ? zaUiGiIntensity(zaLightCategory) * (1.0 / 3.14159265)
+             : 1.0);
     vec3 nativeBase = shaded + environmentDiffuse +
-        sourceAlbedo * (rim + backRim);
+        sourceAlbedo * sceneRimColor * (rim + backRim);
 
     // IkCharacter's decompiled Z-A body variant has no roughness input or
     // generic PBR outer coat. It shapes direct specular from the authored
@@ -817,7 +890,7 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     float surfaceSpecular = dielectricSpecular;
     vec3 specularColor = vec3(1.0);
     vec3 directSpecular = specularColor * surfaceSpecular * specularLobe *
-        normalDotLight * 0.72;
+        normalDotLight * (zaSourceStage ? sourceDirectScale : 0.72);
     vec3 reflection = zaIkLocalReflectionDirection(
         viewDirection,
         normal);
@@ -840,7 +913,8 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         reflectionRoughness);
     vec3 environmentSpecular =
         environmentRadiance * sourceAlbedo * metallic *
-        grazingResponse * environmentOcclusion * 0.44;
+        grazingResponse * environmentOcclusion * 0.44 *
+        (zaSourceStage ? 32.0 : 1.0);
     vec3 diffuse = nativeBase * (1.0 - metallic * 0.85);
     // Mode 32 packs per-pixel body-emission luminance into blue and its
     // material-constant 24-bit RGB in surfaceParameters.z. Mode 35's layer-5

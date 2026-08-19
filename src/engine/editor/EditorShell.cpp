@@ -3200,7 +3200,7 @@ EditorShellActions EditorShell::drawWorkspace(
                         std::clamp(
                             preview.lightingProfile,
                             0,
-                            3);
+                            4);
                 }
                 if (!impl_->
                         assetPreviewGraphicsQualityOverridden) {
@@ -3414,7 +3414,8 @@ EditorShellActions EditorShell::drawWorkspace(
                     "Source Bridge",
                     "Neutral Studio",
                     "Albedo-biased",
-                    "Grazing Check"};
+                    "Grazing Check",
+                    "Z-A Source Stage"};
                 ImGui::TextUnformatted("Review Lighting");
                 ImGui::SetNextItemWidth(-1.0f);
                 if (ImGui::Combo(
@@ -3436,7 +3437,9 @@ EditorShellActions EditorShell::drawWorkspace(
                         "general review; Source Bridge preserves the current "
                         "recovered renderer path; Albedo-biased prioritizes "
                         "authored color; Grazing Check emphasizes surface "
-                        "breakup. These are review rigs, not captured SV "
+                        "breakup; Z-A Source Stage uses the retained source "
+                        "off-screen character light and HDR probes for Z-A "
+                        "assets. These are review rigs, not captured SV "
                         "environment lighting.");
                 }
                 constexpr const char* materialViewNames[] = {
