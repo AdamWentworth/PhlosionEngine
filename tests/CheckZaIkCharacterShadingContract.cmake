@@ -12,6 +12,7 @@ foreach(SOURCE_PATH IN ITEMS "${GL_PATH}" "${D3D_PATH}" "${VK_PATH}")
             "shadowingGiGain"
             "combinedShadowAmount"
             "shadowAmount * shadowingGiGain"
+            "packed shadowSpec RGB is not a multiplicative"
             "normalDotHalf - specularOffset"
             "shadowProcessArea"
             "rimShape")
@@ -22,6 +23,7 @@ foreach(SOURCE_PATH IN ITEMS "${GL_PATH}" "${D3D_PATH}" "${VK_PATH}")
         endif()
     endforeach()
     foreach(FORBIDDEN_TOKEN IN ITEMS
+            "shadowTint"
             "normalDetailDelta"
             "geometricHalfLambert")
         string(FIND "${SOURCE_TEXT}" "${FORBIDDEN_TOKEN}" TOKEN_OFFSET)
@@ -32,4 +34,23 @@ foreach(SOURCE_PATH IN ITEMS "${GL_PATH}" "${D3D_PATH}" "${VK_PATH}")
     endforeach()
 endforeach()
 
-message(STATUS "Z-A IkCharacter single normal-response contract verified")
+file(READ "${GL_PATH}" GL_TEXT)
+file(READ "${D3D_PATH}" D3D_TEXT)
+file(READ "${VK_PATH}" VK_TEXT)
+string(REGEX MATCH
+    "vec3[ \t\r\n]+shaded[ \t\r\n]*=[ \t\r\n]*mix\\([ \t\r\n]*albedo,[ \t\r\n]*shadowSpec\\.rgb,"
+    GL_ABSOLUTE_SHADOW_MATCH "${GL_TEXT}")
+string(REGEX MATCH
+    "float3[ \t\r\n]+shaded[ \t\r\n]*=[ \t\r\n]*lerp\\([ \t\r\n]*albedo,[ \t\r\n]*shadowSpec\\.rgb,"
+    D3D_ABSOLUTE_SHADOW_MATCH "${D3D_TEXT}")
+string(REGEX MATCH
+    "vec3[ \t\r\n]+shaded[ \t\r\n]*=[ \t\r\n]*mix\\([ \t\r\n]*sourceAlbedo,[ \t\r\n]*shadowSpec\\.rgb,"
+    VK_ABSOLUTE_SHADOW_MATCH "${VK_TEXT}")
+if(NOT GL_ABSOLUTE_SHADOW_MATCH OR
+   NOT D3D_ABSOLUTE_SHADOW_MATCH OR
+   NOT VK_ABSOLUTE_SHADOW_MATCH)
+    message(FATAL_ERROR
+        "Z-A IkCharacter must interpolate albedo to its absolute packed shadow color")
+endif()
+
+message(STATUS "Z-A IkCharacter absolute-shadow and single-normal-response contract verified")

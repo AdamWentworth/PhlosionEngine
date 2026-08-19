@@ -2761,15 +2761,14 @@ float3 applyNativeIkCharacter(PSIn i,
       wrappedLambert * sourceSceneShadowVisibility;
   float3 albedo = saturate(linearColor);
   // ShadowingGIGain scales the compiled RGB difference between the
-  // unshadowed diffuse color and the AO-resolved shadow color. It is not a
-  // generic albedo multiplier. Ignoring this authored 0.5 control applied the
-  // full dark difference and created heavy bands at facial and mesh edges.
+  // unshadowed diffuse color and the AO-resolved absolute shadow color. The
+  // packed shadowSpec RGB is not a multiplicative tint; multiplying by it
+  // double-darkens pale bodies around eye sockets and other contours.
   float combinedShadowAmount = shadowAmount * shadowingGiGain;
-  float3 shadowTint = lerp(
-      float3(1.0f, 1.0f, 1.0f),
+  float3 shaded = lerp(
+      albedo,
       shadowSpec.rgb,
-      combinedShadowAmount);
-  float3 shaded = albedo * shadowTint *
+      combinedShadowAmount) *
       (zaSourceStage
            ? biasedLambert * effectiveDirectShadowVisibility *
                  sourceDirectScale

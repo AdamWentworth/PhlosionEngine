@@ -2899,17 +2899,16 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 wrappedLambert * sourceSceneShadowVisibility;
             vec3 albedo = clamp(resolvedLinearColor, 0.0, 1.0);
             // ShadowingGIGain scales the source shader's RGB difference from
-            // the unshadowed diffuse color to the AO-resolved shadow color.
-            // It is authored as 0.5 throughout the selected Kanto corpus.
-            // Ignoring it applied the entire dark difference and produced the
-            // heavy eye/edge bands visible in the previous bridge.
+            // the unshadowed diffuse color to the AO-resolved absolute shadow
+            // color. The packed shadowSpec RGB is not a multiplicative
+            // tint. Multiplying albedo by it darkens the same color twice and
+            // creates false eye-socket and contour bands on pale bodies.
             float combinedShadowAmount =
                 shadowAmount * shadowingGiGain;
-            vec3 shadowTint = mix(
-                vec3(1.0),
+            vec3 shaded = mix(
+                albedo,
                 shadowSpec.rgb,
-                combinedShadowAmount);
-            vec3 shaded = albedo * shadowTint *
+                combinedShadowAmount) *
                 (zaSourceStage
                      ? biasedLambert * effectiveDirectShadowVisibility *
                            sourceDirectScale

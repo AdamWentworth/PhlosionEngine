@@ -663,15 +663,14 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         wrappedLambert * sourceSceneShadowVisibility;
     vec3 sourceAlbedo = clamp(albedo, 0.0, 1.0);
     // ShadowingGIGain scales the compiled RGB difference between the
-    // unshadowed diffuse color and the AO-resolved shadow color. Ignoring the
-    // retained source value applied the full dark difference twice as hard as
-    // authored and produced heavy eye/edge bands.
+    // unshadowed diffuse color and the AO-resolved absolute shadow color. The
+    // packed shadowSpec RGB is not a multiplicative tint; multiplying by it
+    // double-darkens pale bodies around eye sockets and other contours.
     float combinedShadowAmount = shadowAmount * shadowingGiGain;
-    vec3 shadowTint = mix(
-        vec3(1.0),
+    vec3 shaded = mix(
+        sourceAlbedo,
         shadowSpec.rgb,
-        combinedShadowAmount);
-    vec3 shaded = sourceAlbedo * shadowTint *
+        combinedShadowAmount) *
         (zaSourceStage
              ? biasedLambert * effectiveDirectShadowVisibility *
                    sourceDirectScale
