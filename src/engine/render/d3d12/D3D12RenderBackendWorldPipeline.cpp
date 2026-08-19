@@ -2441,11 +2441,17 @@ float3 applyWorldLitModel(PSIn i,
   float3 specularIBL = envRadiance * singleScattering + multiScattering * cosineWeightedIrradiance;
   diffuseIBL *= __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
   specularIBL *= __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-  // Native eye modes reserve their outer specular response for the dedicated
-  // coat pass below. PLA's negative metallic marker additionally identifies
-  // the plain Eye family, which bypasses that pass altogether.
-  if (uMaterialMode > 27.5f && uMaterialMode < 28.5f &&
-      uProjectedShadowRowY.w < -0.5f) {
+  const bool nativeEyeMode =
+      (uMaterialMode > 27.5f && uMaterialMode < 28.5f) ||
+      (uMaterialMode > 29.5f && uMaterialMode < 30.5f);
+  const bool nativePlainEye =
+      nativeEyeMode && uProjectedShadowRowY.w < -0.5f;
+  const bool nativeSeparateEyeCoat =
+      nativeEyeMode && !nativePlainEye;
+  // Scarlet's EyeClearCoat reserves its outer specular response for the
+  // dedicated coat pass below. PLA's plain Eye family has no separate coat,
+  // so preserve its ordinary dielectric/environment reflection.
+  if (nativeSeparateEyeCoat) {
     specularIBL = float3(0.0f, 0.0f, 0.0f);
   }
   diffuseIBL *= ao;
@@ -2464,8 +2470,7 @@ float3 applyWorldLitModel(PSIn i,
   // emissive texture while the rest of the eye still needs its softer native
   // diffuse response. Gate the fill per pixel so the catchlight stays exact
   // without making Geodude's non-emissive sclera/iris collapse to charcoal.
-  if (uMaterialMode > 27.5f && uMaterialMode < 28.5f &&
-      uProjectedShadowRowY.w < -0.5f) {
+  if (nativePlainEye) {
     float emissiveCoverage = saturate(max(emissive.r, max(emissive.g, emissive.b)));
     shaded = lerp(shaded, albedo, 0.25f * (1.0f - emissiveCoverage));
   }
@@ -3725,6 +3730,10 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
     const bool nativeEyeClearCoat =
         (uMaterialMode > 27.5f && uMaterialMode < 28.5f) ||
         (uMaterialMode > 29.5f && uMaterialMode < 30.5f);
+    const bool nativePlainEye =
+        nativeEyeClearCoat && uProjectedShadowRowY.w < -0.5f;
+    const bool nativeSeparateEyeCoat =
+        nativeEyeClearCoat && !nativePlainEye;
     const int pbrFlags = (int)(uMaterialFlags + 0.5f);
     const bool useNormalTexture = (pbrFlags & (1 << 0)) != 0;
     const bool useMetallicRoughnessTexture = (pbrFlags & (1 << 1)) != 0;
@@ -3865,19 +3874,21 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
                                      wrappedUv,
                                      uvDx,
                                      uvDy,
-                                     nativeEyeClearCoat
+                                     nativeSeparateEyeCoat
                                          ? false
                                          : useNormalTexture,
                                      useMetallicRoughnessTexture,
-                                     nativeEyeClearCoat
+                                     nativeSeparateEyeCoat
                                          ? true
                                          : useSpecularStrengthTexture,
                                      useOcclusionTexture,
                                      useEmissiveTexture,
-                                     normalScale,
+                                     nativePlainEye
+                                         ? normalScale * 0.8f
+                                         : normalScale,
                                      metallicFactor,
                                      roughnessFactor,
-                                     nativeEyeClearCoat
+                                     nativeSeparateEyeCoat
                                          ? 0.0f
                                          : uMaterialFlipbook1Frames,
                                      occlusionStrength,

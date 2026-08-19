@@ -1887,6 +1887,10 @@ void main() {
         bool nativeEyeClearCoat =
             (materialMode > 27.5 && materialMode < 28.5) ||
             (materialMode > 29.5 && materialMode < 30.5);
+        bool nativePlainEye =
+            nativeEyeClearCoat && drawState.specializedRect1.w < -0.5;
+        bool nativeSeparateEyeCoat =
+            nativeEyeClearCoat && !nativePlainEye;
         bool nativeGastlyFace =
             materialMode > 30.5 &&
             drawState.specializedTimingFlagsAtlas.y > 3.5 &&
@@ -2027,18 +2031,24 @@ void main() {
                   emissiveTextures[nonuniformEXT(materialIndex)],
                   environmentTextures[nonuniformEXT(materialIndex)],
                   textureDetailLodBias,
-                  nativeEyeClearCoat
+                  nativeSeparateEyeCoat
                       ? vec4(0.0, drawState.pbrFactors.yzw)
-                      : drawState.pbrFactors,
+                      : nativePlainEye
+                          ? vec4(
+                                drawState.pbrFactors.x * 0.8,
+                                drawState.pbrFactors.yzw)
+                          : drawState.pbrFactors,
                   drawState.emissiveAndCamera.rgb,
-                  nativeEyeClearCoat
+                  nativeSeparateEyeCoat
                       ? 0.0
+                      : nativePlainEye
+                          ? -2.0
                       : (materialMode > 1.5 && materialMode < 2.5 &&
                          drawState.specializedTimingFlagsAtlas.y > 4.5 &&
                          drawState.specializedTimingFlagsAtlas.y < 5.5)
                             ? clamp(drawState.specializedRect0.x, 0.0, 1.0)
                             : -1.0,
-                  nativeEyeClearCoat ? 0.0 : 1.0,
+                  nativeSeparateEyeCoat ? 0.0 : 1.0,
                   true);
         }
         if (nativeEyeClearCoat) {

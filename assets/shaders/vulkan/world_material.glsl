@@ -306,7 +306,7 @@ vec3 evaluateWorldMaterial(vec3 albedo,
         0.0,
         1.0) *
                     max(emissiveFactor, vec3(0.0));
-    if (specularIblScale < 0.5) {
+    if (dielectricSpecularIntensity < -1.5) {
         // PLA may encode only a sparse layer-5 catchlight in this map. Gate
         // the plain-Eye diffuse fill per pixel so authored emissive regions
         // stay exact without darkening the rest of Geodude's eye.

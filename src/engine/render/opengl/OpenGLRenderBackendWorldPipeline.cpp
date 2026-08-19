@@ -2518,10 +2518,14 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             bool nativeEyeClearCoat =
                 (uMaterialMode > 27.5 && uMaterialMode < 28.5) ||
                 (uMaterialMode > 29.5 && uMaterialMode < 30.5);
+            bool nativePlainEye =
+                nativeEyeClearCoat && uMaterialRect1.w < -0.5;
+            bool nativeSeparateEyeCoat =
+                nativeEyeClearCoat && !nativePlainEye;
             bool useSpecularStrengthTexture =
                 uMaterialMode > 1.5 && uMaterialMode < 2.5 &&
                 uMaterialFlags > 4.5 && uMaterialFlags < 5.5;
-            float dielectricSpecular = nativeEyeClearCoat
+            float dielectricSpecular = nativeSeparateEyeCoat
                 ? 0.0
                 : useSpecularStrengthTexture
                     ? clamp(uMaterialRect0.x, 0.0, 1.0) *
@@ -2568,10 +2572,11 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 specularIBL = envRadiance * singleScattering + multiScattering * cosineWeightedIrradiance;
             diffuseIBL *= __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
             specularIBL *= __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-            // Native eye modes reserve their outer specular response for the
-            // dedicated coat pass. Suppress the generic neutral-room lobe so
-            // the two paths do not double-light the eye shell.
-            if (nativeEyeClearCoat) {
+            // Scarlet's EyeClearCoat reserves its outer specular response for
+            // the dedicated coat pass. PLA's plain Eye family has no separate
+            // coat, so it must retain this ordinary dielectric/environment
+            // lobe instead of becoming completely matte.
+            if (nativeSeparateEyeCoat) {
                 specularIBL = vec3(0.0);
             }
             diffuseIBL *= ao;
@@ -2598,8 +2603,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             // Gate the fill per pixel instead: authored emissive regions stay
             // exact, while non-emissive sclera/iris pixels retain their baked
             // layer color. The proportional blend still preserves pupils.
-            if (uMaterialMode > 27.5 && uMaterialMode < 28.5 &&
-                uMaterialRect1.w < -0.5) {
+            if (nativePlainEye) {
                 float emissiveCoverage = clamp(
                     max(emissive.r, max(emissive.g, emissive.b)),
                     0.0,
@@ -4057,6 +4061,10 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 bool nativeEyeClearCoat =
                     (uMaterialMode > 27.5 && uMaterialMode < 28.5) ||
                     (uMaterialMode > 29.5 && uMaterialMode < 30.5);
+                bool nativePlainEye =
+                    nativeEyeClearCoat && uMaterialRect1.w < -0.5;
+                bool nativeSeparateEyeCoat =
+                    nativeEyeClearCoat && !nativePlainEye;
                 bool nativeGastlyFace =
                     uMaterialMode > 30.5 &&
                     uMaterialFlags > 3.5 &&
@@ -4079,7 +4087,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     wrappedUv,
                     uvDx,
                     uvDy,
-                    (nativeIkCharacter || nativeIkCharacterEye) ? 0.8 : 1.0);
+                    (nativeIkCharacter || nativeIkCharacterEye ||
+                     nativePlainEye) ? 0.8 : 1.0);
                 // NormalMap1 is the source EyeClearCoat highlight-normal
                 // input, not a replacement for the eye shell's base surface
                 // normal. Applying it to generic PBR turns its small authored
@@ -4131,7 +4140,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 } else {
                     outLinear = applyWorldLitModel(
                         outLinear,
-                        nativeEyeClearCoat ? eyeSurfaceNormal : n,
+                        nativeSeparateEyeCoat ? eyeSurfaceNormal : n,
                         wrappedUv,
                         uvDx,
                         uvDy);

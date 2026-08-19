@@ -495,6 +495,11 @@ if (PHLOSION_BUILD_TESTS)
             -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckZaEyeParallaxContract.cmake)
     add_test(
+        NAME PhlosionPlaEyeSpecularContract
+        COMMAND ${CMAKE_COMMAND}
+            -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckPlaEyeSpecularContract.cmake)
+    add_test(
         NAME PhlosionZaSceneLightContract
         COMMAND ${CMAKE_COMMAND}
             -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
