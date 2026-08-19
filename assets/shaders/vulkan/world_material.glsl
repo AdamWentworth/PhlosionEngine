@@ -610,6 +610,7 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     float specularOffset = surfaceControl.b * 1.5 - 0.5;
     float specularContrast = surfaceControl.a * 5.0;
     float reflectionBlur = max(surfaceParameters.x, 0.0);
+    float shadowingGiGain = clamp(surfaceParameters.w, 0.0, 1.0);
     float diffusionLevels = nativeEye
         ? 0.0
         : clamp(surfaceParameters.y, 0.0, 1.0);
@@ -682,7 +683,11 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     float shadowedWrappedLambert =
         wrappedLambert * sourceSceneShadowVisibility;
     vec3 sourceAlbedo = clamp(albedo, 0.0, 1.0);
-    float combinedShadowAmount = shadowAmount;
+    // ShadowingGIGain scales the compiled RGB difference between the
+    // unshadowed diffuse color and the AO-resolved shadow color. Ignoring the
+    // retained source value applied the full dark difference twice as hard as
+    // authored and produced heavy eye/edge bands.
+    float combinedShadowAmount = shadowAmount * shadowingGiGain;
     vec3 shadowTint = mix(
         vec3(1.0),
         shadowSpec.rgb,

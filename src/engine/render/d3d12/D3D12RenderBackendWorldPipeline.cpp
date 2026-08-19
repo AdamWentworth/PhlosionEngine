@@ -2709,6 +2709,7 @@ float3 applyNativeIkCharacter(PSIn i,
   float metallic = saturate(surfaceControl.g);
   float specularOffset = surfaceControl.b * 1.5f - 0.5f;
   float specularContrast = surfaceControl.a * 5.0f;
+  float shadowingGiGain = saturate(uMaterialFlipbook1Frames);
   // D3D12's fixed 64-DWORD root signature repacks mode-32 rect0.xyz into
   // otherwise-unused PS-only fields; see makeWorldPsConstants().
   float reflectionBlur = max(uMaterialTimeSec, 0.0f);
@@ -2774,7 +2775,11 @@ float3 applyNativeIkCharacter(PSIn i,
   float qualityDetail = saturate(
       (0.90f - litTextureDetailLodBias()) / 1.30f);
   float3 albedo = saturate(linearColor);
-  float combinedShadowAmount = shadowAmount;
+  // ShadowingGIGain scales the compiled RGB difference between the
+  // unshadowed diffuse color and the AO-resolved shadow color. It is not a
+  // generic albedo multiplier. Ignoring this authored 0.5 control applied the
+  // full dark difference and created heavy bands at facial and mesh edges.
+  float combinedShadowAmount = shadowAmount * shadowingGiGain;
   float3 shadowTint = lerp(
       float3(1.0f, 1.0f, 1.0f),
       shadowSpec.rgb,

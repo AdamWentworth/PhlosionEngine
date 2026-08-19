@@ -2839,6 +2839,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float specularOffset = surfaceControl.b * 1.5 - 0.5;
             float specularContrast = surfaceControl.a * 5.0;
             float reflectionBlur = max(uMaterialRect0.x, 0.0);
+            float shadowingGiGain = clamp(uMaterialRect0.w, 0.0, 1.0);
             float diffusionLevels = nativeEye
                 ? 0.0
                 : clamp(uMaterialRect0.y, 0.0, 1.0);
@@ -2920,7 +2921,13 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 0.0,
                 1.0);
             vec3 albedo = clamp(resolvedLinearColor, 0.0, 1.0);
-            float combinedShadowAmount = shadowAmount;
+            // ShadowingGIGain scales the source shader's RGB difference from
+            // the unshadowed diffuse color to the AO-resolved shadow color.
+            // It is authored as 0.5 throughout the selected Kanto corpus.
+            // Ignoring it applied the entire dark difference and produced the
+            // heavy eye/edge bands visible in the previous bridge.
+            float combinedShadowAmount =
+                shadowAmount * shadowingGiGain;
             vec3 shadowTint = mix(
                 vec3(1.0),
                 shadowSpec.rgb,
