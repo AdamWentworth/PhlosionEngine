@@ -2843,10 +2843,6 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float diffusionLevels = nativeEye
                 ? 0.0
                 : clamp(uMaterialRect0.y, 0.0, 1.0);
-            float faceDirection = gl_FrontFacing ? 1.0 : -1.0;
-            vec3 geometricNormal = safeNormalize(
-                vWorldNormal,
-                vec3(0.0, 1.0, 0.0)) * faceDirection;
             float normalDotLightSigned = dot(n, lightDirection);
             float lambert = max(normalDotLightSigned, 0.0);
             float wrappedLambert = clamp(
@@ -2864,21 +2860,6 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     (wrappedLambert * wrappedLambert - wrappedLambert),
                 0.0,
                 1.0);
-            float halfLambert = biasedLambert;
-            float geometricNormalDotLight = dot(
-                geometricNormal,
-                lightDirection);
-            float geometricWrappedLambert = clamp(
-                geometricNormalDotLight * 0.5 + 0.5,
-                0.0,
-                1.0);
-            float geometricBiasedLambert = clamp(
-                geometricWrappedLambert + authoredShadowBias *
-                    (geometricWrappedLambert * geometricWrappedLambert -
-                     geometricWrappedLambert),
-                0.0,
-                1.0);
-            float geometricHalfLambert = geometricBiasedLambert;
             float authoredShadowShift = hasAuthoredColorProcess
                 ? uMaterialRect1.y
                 : -0.5;
@@ -2916,10 +2897,6 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 1.0);
             float shadowedWrappedLambert =
                 wrappedLambert * sourceSceneShadowVisibility;
-            float qualityDetail = clamp(
-                (0.90 - litTextureDetailLodBias()) / 1.30,
-                0.0,
-                1.0);
             vec3 albedo = clamp(resolvedLinearColor, 0.0, 1.0);
             // ShadowingGIGain scales the source shader's RGB difference from
             // the unshadowed diffuse color to the AO-resolved shadow color.
@@ -3010,15 +2987,6 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 shaded *= 1.0 + 2.0 * diffusionLevels *
                     (1.0 - colorProcessLight);
             }
-            // Recover local diffuse relief authored in Z-A's normal map as a
-            // bounded delta from the geometric-normal response. Broad light
-            // stays stable and sharp atlas features cannot recreate dark
-            // facial or whole-body bands.
-            float normalDetailDelta = clamp(
-                halfLambert - geometricHalfLambert,
-                -0.22,
-                0.22);
-            shaded *= 1.0 + normalDetailDelta * qualityDetail * 0.62;
             vec4 rimResponse = !nativeEye && uUseEmissiveTexture > 0.5
                 ? sampleTextureWithWrap(
                       uEmissiveTexture,

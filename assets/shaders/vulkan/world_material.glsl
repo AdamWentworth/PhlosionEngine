@@ -551,10 +551,6 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
             0.0,
             1.0);
     }
-    float qualityDetail = clamp(
-        (0.90 - textureDetailLodBias) / 1.30,
-        0.0,
-        1.0);
     vec3 normal = mappedWorldNormal(
         uv,
         position,
@@ -566,10 +562,6 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         // Z-A IkCharacter's NormalHeight is already an authored shader
         // amplitude, so cancel that boost and preserve the source value.
         factors.x * 0.8);
-    float faceDirection = gl_FrontFacing ? 1.0 : -1.0;
-    vec3 geometricNormal = safeNormalize(
-        sourceNormal,
-        vec3(0.0, 1.0, 0.0)) * faceDirection;
     vec3 cameraForward = safeNormalize(
         cameraForwardPacked,
         normalize(vec3(0.0, -0.6139406, -0.7893522)));
@@ -632,19 +624,6 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
             (wrappedLambert * wrappedLambert - wrappedLambert),
         0.0,
         1.0);
-    float halfLambert = biasedLambert;
-    float geometricNormalDotLight = dot(geometricNormal, lightDirection);
-    float geometricWrappedLambert = clamp(
-        geometricNormalDotLight * 0.5 + 0.5,
-        0.0,
-        1.0);
-    float geometricBiasedLambert = clamp(
-        geometricWrappedLambert + authoredShadowBias *
-            (geometricWrappedLambert * geometricWrappedLambert -
-             geometricWrappedLambert),
-        0.0,
-        1.0);
-    float geometricHalfLambert = geometricBiasedLambert;
     float authoredShadowShift = hasAuthoredColorProcess
         ? shadowProcessParameters.y
         : -0.5;
@@ -766,17 +745,6 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
         shaded *= 1.0 + 2.0 * diffusionLevels *
             (1.0 - colorProcessLight);
     }
-    // The source normal map also perturbs IkCharacter's diffuse term. Its
-    // contribution was previously visible only where the authored shadow
-    // tint differed strongly from albedo, leaving skin, fur, and pale stone
-    // flat even though their full-resolution normals were present. Apply only
-    // the bounded difference from the geometric-normal response: broad light
-    // and shadow stay unchanged, while High/Ultra recover local relief.
-    float normalDetailDelta = clamp(
-        halfLambert - geometricHalfLambert,
-        -0.22,
-        0.22);
-    shaded *= 1.0 + normalDetailDelta * qualityDetail * 0.62;
     float specularStrength = clamp(shadowSpec.a, 0.0, 1.0);
     vec4 rimResponse = !nativeEye && rimParameters.b > 0.5
         ? sampleWorldMaterialTexture(

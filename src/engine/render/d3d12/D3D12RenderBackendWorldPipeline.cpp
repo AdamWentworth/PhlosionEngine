@@ -2720,10 +2720,6 @@ float3 applyNativeIkCharacter(PSIn i,
   float diffusionLevels = nativeEye
       ? 0.0f
       : saturate(frac(packedSurfaceRemainder));
-  float faceDirection = isFrontFace ? 1.0f : -1.0f;
-  float3 geometricNormal = safeNormalize(
-      i.worldNormal,
-      float3(0.0f, 1.0f, 0.0f)) * faceDirection;
   float normalDotLightSigned = dot(normal, lightDirection);
   float lambert = max(normalDotLightSigned, 0.0f);
   float wrappedLambert = saturate(
@@ -2737,15 +2733,6 @@ float3 applyNativeIkCharacter(PSIn i,
   float biasedLambert = saturate(
       wrappedLambert + authoredShadowBias *
           (wrappedLambert * wrappedLambert - wrappedLambert));
-  float halfLambert = biasedLambert;
-  float geometricNormalDotLight = dot(geometricNormal, lightDirection);
-  float geometricWrappedLambert = saturate(
-      geometricNormalDotLight * 0.5f + 0.5f);
-  float geometricBiasedLambert = saturate(
-      geometricWrappedLambert + authoredShadowBias *
-          (geometricWrappedLambert * geometricWrappedLambert -
-           geometricWrappedLambert));
-  float geometricHalfLambert = geometricBiasedLambert;
   float authoredShadowShift = hasAuthoredColorProcess
       ? uProjectedShadowRowX.y
       : -0.5f;
@@ -2772,8 +2759,6 @@ float3 applyNativeIkCharacter(PSIn i,
           sourceSceneShadowBypass * sourceSceneShadowBypass);
   float shadowedWrappedLambert =
       wrappedLambert * sourceSceneShadowVisibility;
-  float qualityDetail = saturate(
-      (0.90f - litTextureDetailLodBias()) / 1.30f);
   float3 albedo = saturate(linearColor);
   // ShadowingGIGain scales the compiled RGB difference between the
   // unshadowed diffuse color and the AO-resolved shadow color. It is not a
@@ -2836,14 +2821,6 @@ float3 applyNativeIkCharacter(PSIn i,
     shaded *= 1.0f + 2.0f * diffusionLevels *
         (1.0f - colorProcessLight);
   }
-  // Restore local normal-map diffuse relief as a bounded delta from the
-  // geometric-normal response. This keeps broad Z-A lighting stable and
-  // avoids the former whole-body/facial shadow bands.
-  float normalDetailDelta = clamp(
-      halfLambert - geometricHalfLambert,
-      -0.22f,
-      0.22f);
-  shaded *= 1.0f + normalDetailDelta * qualityDetail * 0.62f;
   float4 rimResponse = !nativeEye && useEmissiveTexture
       ? sampleTextureWithWrap(
             gEmissiveTex,
