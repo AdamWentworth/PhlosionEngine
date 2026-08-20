@@ -2891,8 +2891,12 @@ float3 applyNativeIkCharacter(PSIn i,
         float3(0.0f, 0.0f, 0.0f),
         float3(0.006f, 0.006f, 0.006f));
   }
+  // The retained cube is exact, but the source framebuffer exposure is not
+  // present in the loose UI-light package. A 96x review exposure keeps broad
+  // airborne silhouettes readable from above and behind without rotating the
+  // recovered key light or baking a fill into the imported material.
   float zaIkDiffuseEnvironmentExposureBridge = zaSourceStage
-      ? 64.0f * 3.14159265f
+      ? 96.0f * 3.14159265f
       : 32.0f;
   float3 environmentDiffuse = neutralDiffuseIrradiance * albedo *
       (1.0f - metallic) * zaIkDiffuseEnvironmentExposureBridge *

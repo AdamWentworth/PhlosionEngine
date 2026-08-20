@@ -3068,8 +3068,13 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     vec3(0.0),
                     vec3(0.006));
             }
+            // The retained cube is exact, but the source framebuffer exposure
+            // is not present in the loose UI-light package. A 96x review
+            // exposure keeps broad airborne silhouettes readable from above
+            // and behind without rotating the recovered key light or baking a
+            // fill into the imported material.
             float zaIkDiffuseEnvironmentExposureBridge = zaSourceStage
-                ? 64.0 * 3.14159265
+                ? 96.0 * 3.14159265
                 : 32.0;
             vec3 environmentDiffuse = neutralDiffuseIrradiance * albedo *
                 (1.0 - metallic) *
