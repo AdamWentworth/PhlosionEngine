@@ -2808,8 +2808,12 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 uLightProjectionUvRowV.w);
             vec3 lightPosition =
                 uCameraPos + cameraRight * 0.5 - cameraForward * 0.8660254;
+            // The retained stage record and imported model shading basis use
+            // opposite Z handedness. Convert at that boundary so the
+            // off-screen stage keys the character front instead of
+            // backlighting it.
             vec3 lightDirection = zaSourceStage
-                ? vec3(-0.44695543, 0.64944804, 0.61518134)
+                ? vec3(-0.44695543, 0.64944804, -0.61518134)
                 : safeNormalize(
                       lightPosition - uCameraTarget,
                       vec3(0.45, 0.86, 0.24));

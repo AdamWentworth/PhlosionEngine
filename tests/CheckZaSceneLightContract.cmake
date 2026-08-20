@@ -19,6 +19,9 @@ foreach(SOURCE_PATH IN ITEMS "${GL_PATH}" "${D3D_PATH}" "${VK_PATH}")
             "max(directDiffuse"
             "zaIkLocalReflectionDirection"
             "zaIkEmissionColor"
+            "-0.44695543"
+            "0.64944804"
+            "-0.61518134"
             "reflect(-viewDirection, mappedNormal)")
         string(FIND "${SOURCE_TEXT}" "${REQUIRED_TOKEN}" TOKEN_OFFSET)
         if(TOKEN_OFFSET EQUAL -1)

@@ -2677,8 +2677,11 @@ float3 applyNativeIkCharacter(PSIn i,
   int zaLightCategory = zaUiLightingCategory(uLightProjectionUvRowV.w);
   float3 lightPosition =
       cameraPos + cameraRight * 0.5f - cameraForward * 0.8660254f;
+  // The retained stage record and imported model shading basis use opposite Z
+  // handedness. Convert here so the source-stage review rig illuminates the
+  // character's face instead of its back.
   float3 lightDirection = zaSourceStage
-      ? float3(-0.44695543f, 0.64944804f, 0.61518134f)
+      ? float3(-0.44695543f, 0.64944804f, -0.61518134f)
       : safeNormalize(
             lightPosition - cameraTarget,
             float3(0.45f, 0.86f, 0.24f));

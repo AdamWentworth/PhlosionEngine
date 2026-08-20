@@ -578,8 +578,11 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     int zaLightCategory = zaUiLightingCategory(packedLightingCategory);
     vec3 lightPosition =
         cameraPosition + cameraRight * 0.5 - cameraForward * 0.8660254;
+    // The retained stage record and imported model shading basis use opposite Z
+    // handedness. Convert here so the source-stage review rig illuminates the
+    // character's face instead of its back.
     vec3 lightDirection = zaSourceStage
-        ? vec3(-0.44695543, 0.64944804, 0.61518134)
+        ? vec3(-0.44695543, 0.64944804, -0.61518134)
         : safeNormalize(
               lightPosition - cameraTarget,
               vec3(0.45, 0.86, 0.24));
