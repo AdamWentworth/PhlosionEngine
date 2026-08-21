@@ -313,6 +313,7 @@ struct EditorProjectTerrainTile {
     bool sourceOccupied = false;
     bool authored = false;
     bool hasSourceReference = false;
+    bool receivesProjectedShadow = true;
 };
 
 struct EditorProjectTerrainSurface {
@@ -367,6 +368,7 @@ struct EditorProjectTerrainTileStamp {
     const char* visualVariant = nullptr;
     EditorProjectTerrainTileCoordinate sourceReference{};
     bool hasSourceReference = false;
+    bool receivesProjectedShadow = true;
 };
 
 struct EditorProjectTerrainTileEditRequest {

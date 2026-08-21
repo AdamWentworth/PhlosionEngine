@@ -113,6 +113,7 @@ struct WorkspaceTerrainTile {
     bool sourceOccupied = false;
     bool authored = false;
     bool hasSourceReference = false;
+    bool receivesProjectedShadow = true;
 };
 
 struct WorkspaceTerrainSurface {
@@ -146,6 +147,7 @@ struct WorkspaceTerrainTileStamp {
     std::string visualVariant;
     EditorProjectTerrainTileCoordinate sourceReference{};
     bool hasSourceReference = false;
+    bool receivesProjectedShadow = true;
 };
 
 struct WorkspaceProjectCommandField {

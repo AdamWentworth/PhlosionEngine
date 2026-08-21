@@ -56,7 +56,8 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
                     .visualVariant = "lawn_c",
                     .sourceReference = TerrainTileSourceReference{
                         .gridX = 21,
-                        .gridZ = -13}}}}};
+                        .gridZ = -13},
+                    .receivesProjectedShadow = false}}}};
     std::string error;
     if (!validateAuthoredSceneDocument(source, &error)) {
         outFail = "valid document failed: " + error;
@@ -82,7 +83,8 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
         decoded.nodes[3].terrainTile->visualVariant != "lawn_c" ||
         !decoded.nodes[3].terrainTile->sourceReference ||
         decoded.nodes[3].terrainTile->sourceReference->gridX != 21 ||
-        decoded.nodes[3].terrainTile->sourceReference->gridZ != -13) {
+        decoded.nodes[3].terrainTile->sourceReference->gridZ != -13 ||
+        decoded.nodes[3].terrainTile->receivesProjectedShadow) {
         outFail = "document fields changed during round trip";
         return false;
     }
@@ -132,9 +134,10 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
     if (!parseAuthoredSceneDocument(schemaTwo, decoded, &error) ||
         decoded.nodes.size() != 1u ||
         !decoded.nodes.front().terrainTile ||
-        decoded.nodes.front().terrainTile->visualVariant != "auto") {
+        decoded.nodes.front().terrainTile->visualVariant != "auto" ||
+        !decoded.nodes.front().terrainTile->receivesProjectedShadow) {
         outFail =
-            "schema-2 terrain visual-variant compatibility failed: " +
+            "legacy terrain visual/shadow compatibility failed: " +
             error;
         return false;
     }

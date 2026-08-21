@@ -10,7 +10,7 @@
 
 namespace engine::assets::phlosion {
 
-inline constexpr std::uint32_t kAuthoredSceneSchemaVersion = 4u;
+inline constexpr std::uint32_t kAuthoredSceneSchemaVersion = 5u;
 inline constexpr std::uint32_t kMinimumAuthoredSceneSchemaVersion = 1u;
 inline constexpr char kAuthoredSceneKind[] =
     "phlosion_authored_scene";
@@ -55,6 +55,7 @@ struct TerrainTileBinding {
     std::string shape = "flat";
     std::string visualVariant = "auto";
     std::optional<TerrainTileSourceReference> sourceReference;
+    bool receivesProjectedShadow = true;
 };
 
 struct AuthoredSceneNode {
