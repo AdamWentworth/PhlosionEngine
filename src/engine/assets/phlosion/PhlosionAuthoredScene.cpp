@@ -318,7 +318,9 @@ bool parseAuthoredSceneDocument(
                         .visualVariant = terrainTile->value(
                             "visual_variant", std::string("auto")),
                         .receivesProjectedShadow = terrainTile->value(
-                            "receives_projected_shadow", true)};
+                            "receives_projected_shadow", true),
+                        .normalizeSourceTint = terrainTile->value(
+                            "normalize_source_tint", false)};
                     if (const auto sourceReference =
                             terrainTile->find("source_reference");
                         sourceReference != terrainTile->end()) {
@@ -412,7 +414,9 @@ std::string serializeAuthoredSceneDocument(
                 {"shape", binding.shape},
                 {"visual_variant", binding.visualVariant},
                 {"receives_projected_shadow",
-                 binding.receivesProjectedShadow}};
+                 binding.receivesProjectedShadow},
+                {"normalize_source_tint",
+                 binding.normalizeSourceTint}};
             if (binding.sourceReference) {
                 record["components"]["terrain_tile"]
                     ["source_reference"] = {

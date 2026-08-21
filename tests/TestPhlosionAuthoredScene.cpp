@@ -57,7 +57,8 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
                     .sourceReference = TerrainTileSourceReference{
                         .gridX = 21,
                         .gridZ = -13},
-                    .receivesProjectedShadow = false}}}};
+                    .receivesProjectedShadow = false,
+                    .normalizeSourceTint = true}}}};
     std::string error;
     if (!validateAuthoredSceneDocument(source, &error)) {
         outFail = "valid document failed: " + error;
@@ -84,7 +85,8 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
         !decoded.nodes[3].terrainTile->sourceReference ||
         decoded.nodes[3].terrainTile->sourceReference->gridX != 21 ||
         decoded.nodes[3].terrainTile->sourceReference->gridZ != -13 ||
-        decoded.nodes[3].terrainTile->receivesProjectedShadow) {
+        decoded.nodes[3].terrainTile->receivesProjectedShadow ||
+        !decoded.nodes[3].terrainTile->normalizeSourceTint) {
         outFail = "document fields changed during round trip";
         return false;
     }
@@ -135,7 +137,8 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
         decoded.nodes.size() != 1u ||
         !decoded.nodes.front().terrainTile ||
         decoded.nodes.front().terrainTile->visualVariant != "auto" ||
-        !decoded.nodes.front().terrainTile->receivesProjectedShadow) {
+        !decoded.nodes.front().terrainTile->receivesProjectedShadow ||
+        decoded.nodes.front().terrainTile->normalizeSourceTint) {
         outFail =
             "legacy terrain visual/shadow compatibility failed: " +
             error;

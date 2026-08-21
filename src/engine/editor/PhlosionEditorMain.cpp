@@ -1917,7 +1917,9 @@ void refreshTerrainTileViews(LoadedProject& project) {
                 .authored = tile.authored,
                 .hasSourceReference = tile.hasSourceReference,
                 .receivesProjectedShadow =
-                    tile.receivesProjectedShadow});
+                    tile.receivesProjectedShadow,
+                .normalizeSourceTint =
+                    tile.normalizeSourceTint});
     }
     const std::size_t surfaceCount =
         project.runtime->terrainSurfaceCount();
@@ -4301,7 +4303,9 @@ int main(int argc, char** argv) {
                             .hasSourceReference =
                                 stamp.hasSourceReference,
                             .receivesProjectedShadow =
-                                stamp.receivesProjectedShadow});
+                                stamp.receivesProjectedShadow,
+                            .normalizeSourceTint =
+                                stamp.normalizeSourceTint});
                 }
                 const engine::editor::
                     EditorProjectTerrainTileEditRequest request{

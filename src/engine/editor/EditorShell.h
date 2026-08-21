@@ -114,6 +114,7 @@ struct WorkspaceTerrainTile {
     bool authored = false;
     bool hasSourceReference = false;
     bool receivesProjectedShadow = true;
+    bool normalizeSourceTint = false;
 };
 
 struct WorkspaceTerrainSurface {
@@ -148,6 +149,7 @@ struct WorkspaceTerrainTileStamp {
     EditorProjectTerrainTileCoordinate sourceReference{};
     bool hasSourceReference = false;
     bool receivesProjectedShadow = true;
+    bool normalizeSourceTint = false;
 };
 
 struct WorkspaceProjectCommandField {

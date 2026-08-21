@@ -314,6 +314,7 @@ struct EditorProjectTerrainTile {
     bool authored = false;
     bool hasSourceReference = false;
     bool receivesProjectedShadow = true;
+    bool normalizeSourceTint = false;
 };
 
 struct EditorProjectTerrainSurface {
@@ -369,6 +370,7 @@ struct EditorProjectTerrainTileStamp {
     EditorProjectTerrainTileCoordinate sourceReference{};
     bool hasSourceReference = false;
     bool receivesProjectedShadow = true;
+    bool normalizeSourceTint = false;
 };
 
 struct EditorProjectTerrainTileEditRequest {
