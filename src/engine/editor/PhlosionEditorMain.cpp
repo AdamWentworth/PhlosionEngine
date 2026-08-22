@@ -3568,8 +3568,10 @@ int main(int argc, char** argv) {
                     project &&
                     activeViewport ==
                         engine::editor::EditorViewportKind::Game &&
-                    playState !=
-                        engine::editor::EditorPlayState::Editing) {
+                    engine::editor::shouldForwardGamePreviewInput(
+                        playState !=
+                            engine::editor::EditorPlayState::Editing,
+                        event.type == SDL_MOUSEWHEEL)) {
                     InputEvent gameInput;
                     if (translateGamePreviewInput(
                             event,

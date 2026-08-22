@@ -33,6 +33,11 @@ active scene unless another preview for that scene is already active. Project
 hosts may set `GameContext::deferBulkModelPrewarm` for embedded previews so
 their UI is not blocked by an application-wide model preload; standalone game
 hosts retain the full-prewarm default.
+Embedded hosts should also set `GameContext::deferStartupFramePrewarm` so
+standalone UI-card and world-layer warmup frames cannot target the editor
+backbuffer before the Game viewport render surface is bound. Mouse-wheel camera
+navigation remains active over the Game viewport while simulation is frozen in
+Edit mode.
 
 For unattended visual/performance qualification, use the automation switches
 instead of starting an interactive editor:

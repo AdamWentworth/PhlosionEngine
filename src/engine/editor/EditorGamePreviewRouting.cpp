@@ -49,4 +49,10 @@ std::optional<std::size_t> preferredGamePreviewRoute(
     return std::nullopt;
 }
 
+bool shouldForwardGamePreviewInput(
+    bool playModeActive,
+    bool mouseWheelEvent) noexcept {
+    return playModeActive || mouseWheelEvent;
+}
+
 } // namespace engine::editor

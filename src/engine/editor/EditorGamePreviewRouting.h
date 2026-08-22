@@ -17,4 +17,8 @@ std::optional<std::size_t> preferredGamePreviewRoute(
     std::string_view activeSceneId,
     std::string_view activePreviewId) noexcept;
 
+bool shouldForwardGamePreviewInput(
+    bool playModeActive,
+    bool mouseWheelEvent) noexcept;
+
 } // namespace engine::editor

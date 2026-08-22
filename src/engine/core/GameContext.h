@@ -51,4 +51,9 @@ struct GameContext {
     // Embedded editor previews should load visible models on demand instead
     // of blocking the UI while every configured model is prewarmed.
     bool deferBulkModelPrewarm = false;
+
+    // Embedded hosts do not have a project render surface bound during game
+    // initialization. Defer any prewarm that opens or draws a frame so it
+    // cannot render into the host application's backbuffer.
+    bool deferStartupFramePrewarm = false;
 };
