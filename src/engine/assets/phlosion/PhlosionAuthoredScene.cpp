@@ -320,7 +320,11 @@ bool parseAuthoredSceneDocument(
                         .receivesProjectedShadow = terrainTile->value(
                             "receives_projected_shadow", true),
                         .normalizeSourceTint = terrainTile->value(
-                            "normalize_source_tint", false)};
+                            "normalize_source_tint", false),
+                        .suppressOverlappingVegetation =
+                            terrainTile->value(
+                                "suppress_overlapping_vegetation",
+                                false)};
                     if (const auto sourceReference =
                             terrainTile->find("source_reference");
                         sourceReference != terrainTile->end()) {
@@ -416,7 +420,9 @@ std::string serializeAuthoredSceneDocument(
                 {"receives_projected_shadow",
                  binding.receivesProjectedShadow},
                 {"normalize_source_tint",
-                 binding.normalizeSourceTint}};
+                 binding.normalizeSourceTint},
+                {"suppress_overlapping_vegetation",
+                 binding.suppressOverlappingVegetation}};
             if (binding.sourceReference) {
                 record["components"]["terrain_tile"]
                     ["source_reference"] = {

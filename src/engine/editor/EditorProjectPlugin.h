@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 30u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 31u;
 inline constexpr char kEditorProjectPluginContractSymbol[] =
     "phlosionEditorProjectPluginContract";
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
@@ -315,6 +315,7 @@ struct EditorProjectTerrainTile {
     bool hasSourceReference = false;
     bool receivesProjectedShadow = true;
     bool normalizeSourceTint = false;
+    bool suppressOverlappingVegetation = false;
 };
 
 struct EditorProjectTerrainSurface {
@@ -371,6 +372,7 @@ struct EditorProjectTerrainTileStamp {
     bool hasSourceReference = false;
     bool receivesProjectedShadow = true;
     bool normalizeSourceTint = false;
+    bool suppressOverlappingVegetation = false;
 };
 
 struct EditorProjectTerrainTileEditRequest {
@@ -378,7 +380,9 @@ struct EditorProjectTerrainTileEditRequest {
     std::size_t coordinateCount = 0u;
     // create, raise, lower, terrace_raise, terrace_lower, flatten_tidy,
     // tidy_surface, platform_set, swap_prefab, paste_tiles_relative,
-    // paste_tiles_exact, paint_surface, set_shape, or restore_source.
+    // paste_tiles_exact, paint_surface, set_shape,
+    // suppress_overlapping_vegetation, restore_overlapping_vegetation,
+    // or restore_source.
     const char* operation = nullptr;
     const char* surface = nullptr;
     const char* shape = nullptr;

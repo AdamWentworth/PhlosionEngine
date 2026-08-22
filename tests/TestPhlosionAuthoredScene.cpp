@@ -58,7 +58,8 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
                         .gridX = 21,
                         .gridZ = -13},
                     .receivesProjectedShadow = false,
-                    .normalizeSourceTint = true}}}};
+                    .normalizeSourceTint = true,
+                    .suppressOverlappingVegetation = true}}}};
     std::string error;
     if (!validateAuthoredSceneDocument(source, &error)) {
         outFail = "valid document failed: " + error;
@@ -86,7 +87,9 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
         decoded.nodes[3].terrainTile->sourceReference->gridX != 21 ||
         decoded.nodes[3].terrainTile->sourceReference->gridZ != -13 ||
         decoded.nodes[3].terrainTile->receivesProjectedShadow ||
-        !decoded.nodes[3].terrainTile->normalizeSourceTint) {
+        !decoded.nodes[3].terrainTile->normalizeSourceTint ||
+        !decoded.nodes[3].terrainTile
+             ->suppressOverlappingVegetation) {
         outFail = "document fields changed during round trip";
         return false;
     }
@@ -138,7 +141,9 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
         !decoded.nodes.front().terrainTile ||
         decoded.nodes.front().terrainTile->visualVariant != "auto" ||
         !decoded.nodes.front().terrainTile->receivesProjectedShadow ||
-        decoded.nodes.front().terrainTile->normalizeSourceTint) {
+        decoded.nodes.front().terrainTile->normalizeSourceTint ||
+        decoded.nodes.front().terrainTile
+            ->suppressOverlappingVegetation) {
         outFail =
             "legacy terrain visual/shadow compatibility failed: " +
             error;

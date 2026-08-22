@@ -10,7 +10,7 @@
 
 namespace engine::assets::phlosion {
 
-inline constexpr std::uint32_t kAuthoredSceneSchemaVersion = 6u;
+inline constexpr std::uint32_t kAuthoredSceneSchemaVersion = 7u;
 inline constexpr std::uint32_t kMinimumAuthoredSceneSchemaVersion = 1u;
 inline constexpr char kAuthoredSceneKind[] =
     "phlosion_authored_scene";
@@ -57,6 +57,11 @@ struct TerrainTileBinding {
     std::optional<TerrainTileSourceReference> sourceReference;
     bool receivesProjectedShadow = true;
     bool normalizeSourceTint = false;
+    // Project runtimes may use this cell-scoped mask for authored foliage,
+    // encounter grass, or another overlapping vegetation layer. Keeping the
+    // mask on the terrain binding makes the edit persistent and portable
+    // without teaching the engine about a project's vegetation taxonomy.
+    bool suppressOverlappingVegetation = false;
 };
 
 struct AuthoredSceneNode {

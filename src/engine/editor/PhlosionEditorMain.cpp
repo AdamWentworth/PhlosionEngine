@@ -1946,7 +1946,9 @@ void refreshTerrainTileViews(LoadedProject& project) {
                 .receivesProjectedShadow =
                     tile.receivesProjectedShadow,
                 .normalizeSourceTint =
-                    tile.normalizeSourceTint});
+                    tile.normalizeSourceTint,
+                .suppressOverlappingVegetation =
+                    tile.suppressOverlappingVegetation});
     }
     const std::size_t surfaceCount =
         project.runtime->terrainSurfaceCount();
@@ -4367,7 +4369,9 @@ int main(int argc, char** argv) {
                             .receivesProjectedShadow =
                                 stamp.receivesProjectedShadow,
                             .normalizeSourceTint =
-                                stamp.normalizeSourceTint});
+                                stamp.normalizeSourceTint,
+                            .suppressOverlappingVegetation =
+                                stamp.suppressOverlappingVegetation});
                 }
                 const engine::editor::
                     EditorProjectTerrainTileEditRequest request{

@@ -115,6 +115,7 @@ struct WorkspaceTerrainTile {
     bool hasSourceReference = false;
     bool receivesProjectedShadow = true;
     bool normalizeSourceTint = false;
+    bool suppressOverlappingVegetation = false;
 };
 
 struct WorkspaceTerrainSurface {
@@ -150,6 +151,7 @@ struct WorkspaceTerrainTileStamp {
     bool hasSourceReference = false;
     bool receivesProjectedShadow = true;
     bool normalizeSourceTint = false;
+    bool suppressOverlappingVegetation = false;
 };
 
 struct WorkspaceProjectCommandField {
