@@ -5,6 +5,7 @@
 #include "engine/editor/EditorProjectPluginContract.h"
 #include "engine/editor/EditorPackagePlugin.h"
 #include "engine/editor/D3D12EditorRenderSurface.h"
+#include "engine/editor/EditorGamePreviewRouting.h"
 #include "engine/editor/EditorRenderSurface.h"
 #include "engine/editor/EditorRendererPreference.h"
 #include "engine/editor/EditorShell.h"
@@ -1505,10 +1506,36 @@ struct LoadedProject {
     engine::editor::WorkspaceAssetPreview
         assetPreviewView;
     std::string activeGamePreviewId = "main-menu";
+    bool gamePreviewSelectionPending = false;
     std::vector<std::pair<std::string, double>>
         loadPhaseMilliseconds;
     double totalLoadMilliseconds = 0.0;
 };
+
+bool queuePreferredGamePreviewForActiveScene(
+    LoadedProject& project) {
+    if (project.gamePreviewViews.empty() ||
+        project.activeSceneIndex >= project.sceneViews.size()) {
+        return false;
+    }
+    std::vector<engine::editor::GamePreviewRoute> routes;
+    routes.reserve(project.gamePreviewViews.size());
+    for (const auto& preview : project.gamePreviewViews) {
+        routes.push_back({preview.id, preview.sceneId});
+    }
+    const auto preferred =
+        engine::editor::preferredGamePreviewRoute(
+            routes,
+            project.sceneViews[project.activeSceneIndex].id,
+            project.activeGamePreviewId);
+    if (!preferred) {
+        return false;
+    }
+    project.activeGamePreviewId =
+        project.gamePreviewViews[*preferred].id;
+    project.gamePreviewSelectionPending = true;
+    return true;
+}
 
 using EditorClock = std::chrono::steady_clock;
 
@@ -2874,6 +2901,7 @@ std::unique_ptr<LoadedProject> loadProject(
                         ? preview.sceneId
                         : ""});
     }
+    (void)queuePreferredGamePreviewForActiveScene(*loaded);
     for (auto& scene : loaded->sceneViews) {
         const auto previewCount = std::count_if(
             loaded->gamePreviewViews.begin(),
@@ -3641,13 +3669,14 @@ int main(int argc, char** argv) {
                                 &previewError)) {
                             project->activeGamePreviewId =
                                 arguments.gamePreview;
+                            project->gamePreviewSelectionPending = false;
                             refreshLayoutObjectViews(*project);
-                            const auto& activeScene =
+                            const auto& selectedScene =
                                 project->sceneViews[
                                     project->activeSceneIndex];
                             rebuildProjectHierarchy(
                                 *project,
-                                activeScene,
+                                selectedScene,
                                 project->runtime->stats(),
                                 renderer.backendId()
                                     ? renderer.backendId()
@@ -4128,8 +4157,9 @@ int main(int argc, char** argv) {
                 }
                 if (activeViewport ==
                         engine::editor::EditorViewportKind::Game &&
-                    !project->runtime->gamePreviewReady() &&
-                    !project->gamePreviewViews.empty()) {
+                    !project->gamePreviewViews.empty() &&
+                    (!project->runtime->gamePreviewReady() ||
+                     project->gamePreviewSelectionPending)) {
                     std::string previewError;
                     if (!ensureGamePreviewInitialized(
                             *project,
@@ -4139,6 +4169,36 @@ int main(int argc, char** argv) {
                         project->status =
                             "Game preview initialization failed: " +
                             previewError;
+                    } else if (
+                        project->gamePreviewSelectionPending) {
+                        project->gamePreviewSelectionPending = false;
+                        if (project->runtime->selectGamePreview(
+                                project->activeGamePreviewId.c_str(),
+                                &previewError)) {
+                            refreshLayoutObjectViews(*project);
+                            const auto& selectedScene =
+                                project->sceneViews[
+                                    project->activeSceneIndex];
+                            rebuildProjectHierarchy(
+                                *project,
+                                selectedScene,
+                                project->runtime->stats(),
+                                renderer.backendId()
+                                    ? renderer.backendId()
+                                    : "unknown");
+                            gameFixedAccumulator = 0.0f;
+                            project->status =
+                                project->runtime->status()
+                                    ? project->runtime->status()
+                                    : "Embedded game preview selected.";
+                        } else {
+                            project->status =
+                                "Game preview selection failed: " +
+                                previewError;
+                            std::cerr
+                                << "[Phlosion Editor] "
+                                << project->status << '\n';
+                        }
                     }
                 }
                 editorViewportWidth =
@@ -4813,6 +4873,7 @@ int main(int argc, char** argv) {
                         preview.id.c_str(),
                         &previewError)) {
                     project->activeGamePreviewId = preview.id;
+                    project->gamePreviewSelectionPending = false;
                     refreshLayoutObjectViews(*project);
                     const auto& activeScene =
                         project->sceneViews[
@@ -4891,6 +4952,8 @@ int main(int argc, char** argv) {
                     } else {
                         project->activeSceneIndex =
                             requestedSceneIndex;
+                        (void)queuePreferredGamePreviewForActiveScene(
+                            *project);
                         project->scenePath =
                             scene.path;
                         project->scenePathText =

@@ -28,6 +28,11 @@ Use this repeatable smoke benchmark from the engine repository:
 
 Run once without `--game-preview` to measure editing startup, then with
 `--game-preview=<id>` to measure the explicitly requested gameplay warmup.
+Interactive Game-tab activation selects the first preview associated with the
+active scene unless another preview for that scene is already active. Project
+hosts may set `GameContext::deferBulkModelPrewarm` for embedded previews so
+their UI is not blocked by an application-wide model preload; standalone game
+hosts retain the full-prewarm default.
 
 For unattended visual/performance qualification, use the automation switches
 instead of starting an interactive editor:

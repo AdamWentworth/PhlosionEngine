@@ -47,4 +47,8 @@ struct GameContext {
     // Runtime video controls (optional)
     std::function<bool(int /*width*/, int /*height*/, bool /*fullscreen*/)> applyVideoMode;
     std::function<VideoMode()> queryVideoMode;
+
+    // Embedded editor previews should load visible models on demand instead
+    // of blocking the UI while every configured model is prewarmed.
+    bool deferBulkModelPrewarm = false;
 };

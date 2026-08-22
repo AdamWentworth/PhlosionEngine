@@ -328,6 +328,7 @@ target_link_libraries(engine_runtime PUBLIC Engine)
 phlosion_apply_settings(engine_runtime)
 
 add_library(engine_editor_core STATIC
+    src/engine/editor/EditorGamePreviewRouting.cpp
     src/engine/editor/EditorRendererPreference.cpp
     src/engine/editor/EditorProjectPluginContract.cpp
     src/engine/editor/ProjectDescriptor.cpp
@@ -453,6 +454,7 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestCamera3D.cpp
         tests/TestEditorRendererPreference.cpp
         tests/TestEditorProjectPluginContract.cpp
+        tests/TestEditorGamePreviewRouting.cpp
         tests/TestProjectDescriptor.cpp
         tests/TestPhlosionAuthoredScene.cpp
         tests/TestPhlosionResourceContainer.cpp
