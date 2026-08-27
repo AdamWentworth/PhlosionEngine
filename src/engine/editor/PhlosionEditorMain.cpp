@@ -78,6 +78,8 @@ struct Arguments {
     std::filesystem::path stateDirectory;
     std::filesystem::path metricsOutput;
     std::optional<float> fixedDeltaSeconds;
+    std::optional<glm::vec3> sceneCameraPosition;
+    std::optional<glm::vec3> sceneCameraTarget;
     bool hidden = false;
     int frameLimit = 0;
 };
@@ -90,6 +92,35 @@ struct WindowPlacement {
     bool maximized = false;
     bool valid = false;
 };
+
+std::optional<glm::vec3> parseVec3Argument(
+    std::string_view value) {
+    const auto firstComma = value.find(',');
+    const auto secondComma = firstComma == std::string_view::npos
+        ? std::string_view::npos
+        : value.find(',', firstComma + 1u);
+    if (firstComma == std::string_view::npos ||
+        secondComma == std::string_view::npos ||
+        value.find(',', secondComma + 1u) != std::string_view::npos) {
+        return std::nullopt;
+    }
+    try {
+        const glm::vec3 parsed{
+            std::stof(std::string(value.substr(0u, firstComma))),
+            std::stof(std::string(value.substr(
+                firstComma + 1u,
+                secondComma - firstComma - 1u))),
+            std::stof(std::string(value.substr(secondComma + 1u)))};
+        if (!std::isfinite(parsed.x) ||
+            !std::isfinite(parsed.y) ||
+            !std::isfinite(parsed.z)) {
+            return std::nullopt;
+        }
+        return parsed;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
 
 Arguments parseArguments(int argc, char** argv) {
     Arguments result;
@@ -127,6 +158,10 @@ Arguments parseArguments(int argc, char** argv) {
             "--metrics-output=";
         constexpr std::string_view fixedDeltaPrefix =
             "--fixed-delta=";
+        constexpr std::string_view sceneCameraPositionPrefix =
+            "--scene-camera-position=";
+        constexpr std::string_view sceneCameraTargetPrefix =
+            "--scene-camera-target=";
         if (argument.rfind(projectPrefix, 0u) == 0u) {
             result.project = argument.substr(projectPrefix.size());
         } else if (
@@ -148,6 +183,16 @@ Arguments parseArguments(int argc, char** argv) {
                 value == "bind" || value == "Bind"
                     ? -1
                     : std::stoi(value);
+        } else if (
+            argument.rfind(sceneCameraPositionPrefix, 0u) == 0u) {
+            result.sceneCameraPosition = parseVec3Argument(
+                std::string_view(argument).substr(
+                    sceneCameraPositionPrefix.size()));
+        } else if (
+            argument.rfind(sceneCameraTargetPrefix, 0u) == 0u) {
+            result.sceneCameraTarget = parseVec3Argument(
+                std::string_view(argument).substr(
+                    sceneCameraTargetPrefix.size()));
         } else if (
             argument.rfind(
                 assetPreviewQualityPrefix,
@@ -3414,6 +3459,12 @@ int main(int argc, char** argv) {
                 static_cast<float>(height),
             0.1f,
             200.0f);
+        if (arguments.sceneCameraPosition) {
+            camera.setPosition(*arguments.sceneCameraPosition);
+        }
+        if (arguments.sceneCameraTarget) {
+            camera.lookAt(*arguments.sceneCameraTarget);
+        }
         Camera3D gameCamera(
             45.0f,
             16.0f / 9.0f,

@@ -61,6 +61,10 @@ than the presentation interval. Pair it with a dedicated `--state-directory`
 so ImGui layout state cannot affect or overwrite the interactive editor.
 
 `--asset-preview-quality` accepts `low`, `medium`, `high`, `ultra`, or `0`-`3`.
+Scene-view captures can set a deterministic inspection pose with
+`--scene-camera-position=x,y,z` and `--scene-camera-target=x,y,z`. Position is
+applied before the camera looks at the target, so a fresh state directory does
+not need an interactive camera gesture to reproduce a close-up.
 `--fixed-delta` makes animation/simulation input deterministic. The metrics
 document records project-load phases, all-frame and post-warmup CPU/present/GPU
 summaries, last-frame backend submission statistics, project statistics, and
