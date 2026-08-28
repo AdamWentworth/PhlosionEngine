@@ -184,6 +184,7 @@ add_library(engine_core STATIC
     src/engine/core/EventBus.cpp
     src/engine/core/ecs/World.cpp
     src/engine/assets/phlosion/PhlosionAuthoredScene.cpp
+    src/engine/assets/phlosion/PhlosionEnvironmentPatch.cpp
     src/engine/assets/phlosion/PhlosionResourceContainer.cpp
     src/engine/assets/phlosion/PhlosionSceneArchive.cpp
 )
@@ -457,6 +458,7 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestEditorGamePreviewRouting.cpp
         tests/TestProjectDescriptor.cpp
         tests/TestPhlosionAuthoredScene.cpp
+        tests/TestPhlosionEnvironmentPatch.cpp
         tests/TestPhlosionResourceContainer.cpp
         tests/TestPhlosionSceneArchive.cpp
     )

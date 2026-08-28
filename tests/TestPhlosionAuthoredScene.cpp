@@ -59,7 +59,16 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
                         .gridZ = -13},
                     .receivesProjectedShadow = false,
                     .normalizeSourceTint = true,
-                    .suppressOverlappingVegetation = true}}}};
+                    .suppressOverlappingVegetation = true}},
+            AuthoredSceneNode{
+                .id = "mesh-patch/ledge-corner",
+                .displayName = "Ledge Corner Patch",
+                .parentId = "folder/environment",
+                .siblingOrder = 3u,
+                .transform = AuthoredSceneTransform{},
+                .meshPatch = MeshPatchBinding{
+                    .assetPath =
+                        "environment/route1/ledge-corner.patch.json"}}}};
     std::string error;
     if (!validateAuthoredSceneDocument(source, &error)) {
         outFail = "valid document failed: " + error;
@@ -73,7 +82,7 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
         return false;
     }
     if (decoded.sceneId != source.sceneId ||
-        decoded.nodes.size() != 4u ||
+        decoded.nodes.size() != 5u ||
         !decoded.nodes[1].importedSource ||
         decoded.nodes[1].transform->translation[2] != 3.0f ||
         !decoded.nodes[2].prefabInstance ||
@@ -89,7 +98,10 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
         decoded.nodes[3].terrainTile->receivesProjectedShadow ||
         !decoded.nodes[3].terrainTile->normalizeSourceTint ||
         !decoded.nodes[3].terrainTile
-             ->suppressOverlappingVegetation) {
+             ->suppressOverlappingVegetation ||
+        !decoded.nodes[4].meshPatch ||
+        decoded.nodes[4].meshPatch->assetPath !=
+            "environment/route1/ledge-corner.patch.json") {
         outFail = "document fields changed during round trip";
         return false;
     }

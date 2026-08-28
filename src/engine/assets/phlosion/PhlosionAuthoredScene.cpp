@@ -104,6 +104,7 @@ bool validateAuthoredSceneDocument(
         const std::uint32_t bindingCount =
             static_cast<std::uint32_t>(node.importedSource.has_value()) +
             static_cast<std::uint32_t>(node.prefabInstance.has_value()) +
+            static_cast<std::uint32_t>(node.meshPatch.has_value()) +
             static_cast<std::uint32_t>(node.terrainTile.has_value());
         const bool tileNode = node.terrainTile.has_value();
         if (bindingCount > 1u ||
@@ -143,6 +144,12 @@ bool validateAuthoredSceneDocument(
                     "Authored scene prefab-instance binding is invalid: " +
                         node.id);
             }
+        }
+        if (node.meshPatch && node.meshPatch->assetPath.empty()) {
+            return fail(
+                outError,
+                "Authored scene mesh-patch binding is invalid: " +
+                    node.id);
         }
         if (node.terrainTile) {
             const auto& binding = *node.terrainTile;
@@ -297,6 +304,13 @@ bool parseAuthoredSceneDocument(
                                     prefab->at("creation_transform"),
                                     "creation")};
                 }
+                if (const auto meshPatch =
+                        components->find("mesh_patch");
+                    meshPatch != components->end()) {
+                    node.meshPatch = MeshPatchBinding{
+                        .assetPath = meshPatch->at("asset_path")
+                            .get<std::string>()};
+                }
                 if (const auto terrainTile =
                         components->find("terrain_tile");
                     terrainTile != components->end()) {
@@ -406,6 +420,10 @@ std::string serializeAuthoredSceneDocument(
                 {"prefab_asset_id", binding.prefabAssetId},
                 {"creation_transform",
                  transformJson(binding.creationTransform)}};
+        }
+        if (node.meshPatch) {
+            record["components"]["mesh_patch"] = {
+                {"asset_path", node.meshPatch->assetPath}};
         }
         if (node.terrainTile) {
             const auto& binding = *node.terrainTile;

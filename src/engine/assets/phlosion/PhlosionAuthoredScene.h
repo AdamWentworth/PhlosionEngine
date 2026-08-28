@@ -10,7 +10,7 @@
 
 namespace engine::assets::phlosion {
 
-inline constexpr std::uint32_t kAuthoredSceneSchemaVersion = 7u;
+inline constexpr std::uint32_t kAuthoredSceneSchemaVersion = 8u;
 inline constexpr std::uint32_t kMinimumAuthoredSceneSchemaVersion = 1u;
 inline constexpr char kAuthoredSceneKind[] =
     "phlosion_authored_scene";
@@ -32,6 +32,14 @@ struct PrefabInstanceBinding {
     std::string prototypeNodeId;
     std::string prefabAssetId;
     AuthoredSceneTransform creationTransform;
+};
+
+// References a project-owned, source-space mesh patch produced by a DCC
+// authoring bridge. The patch asset retains its own source provenance and
+// canonical material references; the scene node owns only placement and
+// visibility, just like a prefab instance.
+struct MeshPatchBinding {
+    std::string assetPath;
 };
 
 // Identifies one immutable cell in the tile set's source environment. The
@@ -74,11 +82,12 @@ struct AuthoredSceneNode {
     std::optional<AuthoredSceneTransform> transform;
     std::optional<ImportedSourceBinding> importedSource;
     std::optional<PrefabInstanceBinding> prefabInstance;
+    std::optional<MeshPatchBinding> meshPatch;
     std::optional<TerrainTileBinding> terrainTile;
 
     bool folder() const noexcept {
         return !transform && !importedSource && !prefabInstance &&
-            !terrainTile;
+            !meshPatch && !terrainTile;
     }
 };
 
