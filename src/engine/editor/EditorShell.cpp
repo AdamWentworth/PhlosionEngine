@@ -1367,6 +1367,17 @@ EditorShellActions EditorShell::drawWorkspace(
             }
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("Gameplay")) {
+            if (ImGui::MenuItem("Auto Reload on Save", nullptr,
+                    workspace.gameplayAutoReload, workspace.gameplayReloadAvailable)) {
+                actions.toggleGameplayAutoReload = true;
+            }
+            if (ImGui::MenuItem("Rebuild Gameplay", nullptr, false,
+                    workspace.gameplayReloadAvailable && !workspace.gameplayBuilding)) {
+                actions.rebuildGameplay = true;
+            }
+            ImGui::EndMenu();
+        }
         if (ImGui::BeginMenu("Play")) {
             if (workspace.playState ==
                 EditorPlayState::Editing) {
@@ -1624,6 +1635,9 @@ EditorShellActions EditorShell::drawWorkspace(
         }
         ImGui::Separator();
 
+        if (!workspace.gameplayReloadStatus.empty()) {
+            ImGui::TextWrapped("%s", text(workspace.gameplayReloadStatus).c_str());
+        }
         const EditorViewportKind kind =
             impl_->selectedViewport;
         const std::uint64_t textureId =
@@ -3793,6 +3807,17 @@ EditorShellActions EditorShell::drawWorkspace(
     ImGui::End();
 
     ImGui::Begin("Console");
+    if (!workspace.gameplayReloadStatus.empty()) {
+        ImGui::TextWrapped("%s", text(workspace.gameplayReloadStatus).c_str());
+        if (!workspace.gameplayBuildLog.empty() &&
+                ImGui::CollapsingHeader("Gameplay compiler output", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::BeginChild("GameplayBuildLog", ImVec2(0.0f, 180.0f), ImGuiChildFlags_Borders,
+                ImGuiWindowFlags_HorizontalScrollbar);
+            ImGui::TextUnformatted(workspace.gameplayBuildLog.data(),
+                workspace.gameplayBuildLog.data() + workspace.gameplayBuildLog.size());
+            ImGui::EndChild();
+        }
+    }
     ImGui::TextColored(
         ImVec4(0.35f, 0.90f, 0.58f, 1.0f),
         "[Phlosion Editor]");
@@ -3921,7 +3946,7 @@ bool EditorShell::allocateTextureDescriptor(
 }
 
 void EditorShell::selectAsset(int assetIndex) {
-    if (!impl_ || assetIndex < 0) {
+    if (!impl_) {
         return;
     }
     impl_->selectedAsset = assetIndex;
@@ -3944,6 +3969,10 @@ bool EditorShell::wantsMouseCapture() const {
 
 bool EditorShell::wantsKeyboardCapture() const {
     return impl_ && impl_->ready && ImGui::GetIO().WantCaptureKeyboard;
+}
+
+bool EditorShell::isEditingText() const {
+    return impl_ && impl_->ready && ImGui::GetIO().WantTextInput;
 }
 
 bool EditorShell::initialized() const noexcept {

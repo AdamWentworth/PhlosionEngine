@@ -10,8 +10,15 @@ bool test_editor_renderer_preference_contract(std::string& outFail);
 bool test_camera_view_plane_pan_contract(std::string& outFail);
 bool test_editor_project_plugin_contract(std::string& outFail);
 bool test_editor_game_preview_routing_contract(std::string& outFail);
+bool test_editor_gameplay_reload(std::string& outFail);
 
-int main() {
+int main(int argc, char** argv) {
+    // A real child process for reload launcher tests; avoids shell-specific
+    // argument parsing and verifies ordinary executable argument boundaries.
+    if (argc == 4 && std::string(argv[1]) == "--reload-child") {
+        std::cout << argv[3] << '\n';
+        return std::stoi(argv[2]);
+    }
     struct TestCase {
         const char* name;
         bool (*run)(std::string&);
@@ -27,6 +34,7 @@ int main() {
         {"camera_view_plane_pan_contract", &test_camera_view_plane_pan_contract},
         {"editor_project_plugin_contract", &test_editor_project_plugin_contract},
         {"editor_game_preview_routing_contract", &test_editor_game_preview_routing_contract},
+        {"editor_gameplay_reload", &test_editor_gameplay_reload},
     };
 
     bool passed = true;

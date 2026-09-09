@@ -265,6 +265,11 @@ struct WorkspaceView {
     EditorRendererPreference rendererPreference =
         EditorRendererPreference::Auto;
     std::string_view status;
+    std::string_view gameplayReloadStatus;
+    std::string_view gameplayBuildLog;
+    bool gameplayReloadAvailable = false;
+    bool gameplayAutoReload = false;
+    bool gameplayBuilding = false;
     EditorPlayState playState = EditorPlayState::Editing;
     float simulationSeconds = 0.0f;
     const std::vector<WorkspacePlayConfiguration>*
@@ -317,6 +322,8 @@ struct ProjectBrowserView {
 };
 
 struct EditorShellActions {
+    bool rebuildGameplay = false;
+    bool toggleGameplayAutoReload = false;
     bool openProject = false;
     bool closeProject = false;
     bool exit = false;
@@ -434,6 +441,7 @@ public:
 
     bool wantsMouseCapture() const;
     bool wantsKeyboardCapture() const;
+    bool isEditingText() const;
     bool initialized() const noexcept;
 
 private:

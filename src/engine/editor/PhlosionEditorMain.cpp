@@ -6,6 +6,7 @@
 #include "engine/editor/EditorPackagePlugin.h"
 #include "engine/editor/D3D12EditorRenderSurface.h"
 #include "engine/editor/EditorGamePreviewRouting.h"
+#include "engine/editor/EditorGameplayReload.h"
 #include "engine/editor/EditorRenderSurface.h"
 #include "engine/editor/EditorRendererPreference.h"
 #include "engine/editor/EditorShell.h"
@@ -81,6 +82,8 @@ struct Arguments {
     std::optional<glm::vec3> sceneCameraPosition;
     std::optional<glm::vec3> sceneCameraTarget;
     bool hidden = false;
+    std::optional<bool> autoReload;
+    int exitAfterGameplayReloads = 0;
     int frameLimit = 0;
 };
 
@@ -355,6 +358,13 @@ Arguments parseArguments(int argc, char** argv) {
                 0.05f);
         } else if (argument == "--hidden") {
             result.hidden = true;
+        } else if (argument == "--auto-reload") {
+            result.autoReload = true;
+        } else if (argument == "--no-auto-reload") {
+            result.autoReload = false;
+        } else if (argument.starts_with("--exit-after-gameplay-reloads=")) {
+            result.exitAfterGameplayReloads = std::max(0,
+                std::stoi(argument.substr(std::string_view("--exit-after-gameplay-reloads=").size())));
         } else if (!argument.empty() && argument.front() != '-') {
             result.project = argument;
         }
@@ -1497,6 +1507,7 @@ struct LoadedProject {
     std::string rootText;
     std::string scenePathText;
     std::string status;
+    std::shared_ptr<engine::editor::GameplayPluginCopy> pluginCopy;
     DynamicLibrary library;
     engine::editor::IEditorProjectRuntime* runtime = nullptr;
     engine::editor::DestroyEditorProjectRuntimeFn destroyRuntime =
@@ -2508,7 +2519,9 @@ std::unique_ptr<LoadedProject> loadProject(
     const std::filesystem::path& requestedDescriptorPath,
     IRenderBackend& renderer,
     const Camera3D& camera,
-    std::string& outError) {
+    std::string& outError,
+    const std::filesystem::path& pluginOverride = {},
+    const std::string& sceneOverride = {}) {
     const auto loadStart = EditorClock::now();
     auto phaseStart = loadStart;
     auto loaded = std::make_unique<LoadedProject>();
@@ -2527,6 +2540,7 @@ std::unique_ptr<LoadedProject> loadProject(
             &outError)) {
         return nullptr;
     }
+    if (!sceneOverride.empty()) loaded->descriptor.startupSceneId = sceneOverride;
     if (!engine::editor::resolveStartupScenePath(
             loaded->descriptorPath,
             loaded->descriptor,
@@ -2547,7 +2561,7 @@ std::unique_ptr<LoadedProject> loadProject(
         logProjectLoadPhase("descriptor", phaseStart));
     phaseStart = EditorClock::now();
     if (!std::filesystem::is_regular_file(
-            loaded->pluginPath)) {
+            pluginOverride.empty() ? loaded->pluginPath : pluginOverride)) {
         outError =
             "Project editor plugin is not built for " +
             std::string(PHLOSION_EDITOR_BUILD_CONFIGURATION) +
@@ -2557,7 +2571,9 @@ std::unique_ptr<LoadedProject> loadProject(
             " target in the game repository, then open the project again.";
         return nullptr;
     }
-    if (!loaded->library.open(loaded->pluginPath, outError)) {
+    loaded->pluginCopy = engine::editor::GameplayPluginCopy::create(
+        pluginOverride.empty() ? loaded->pluginPath : pluginOverride, outError);
+    if (!loaded->pluginCopy || !loaded->library.open(loaded->pluginCopy->path(), outError)) {
         return nullptr;
     }
 
@@ -3508,6 +3524,9 @@ int main(int argc, char** argv) {
                 ? std::vector<std::string>{}
                 : loadRecentProjects(stateDirectory);
         std::unique_ptr<LoadedProject> project;
+        std::unique_ptr<engine::editor::EditorGameplayReload> gameplayReload;
+        bool reloadDrawn = false;
+        int gameplayReloadCount = 0;
         std::optional<std::filesystem::path> pendingProject;
         if (!arguments.project.empty()) {
             pendingProject = arguments.project;
@@ -3682,6 +3701,101 @@ int main(int argc, char** argv) {
                 break;
             }
 
+            if (project && gameplayReload && !pendingProject) {
+                gameplayReload->tick();
+                if (gameplayReload->ready() && reloadDrawn &&
+                        SDL_GetMouseState(nullptr, nullptr) == 0u && !editor.isEditingText()) {
+                    // Validate the candidate before touching the working runtime.
+                    std::string reloadError;
+                    auto candidateCopy = engine::editor::GameplayPluginCopy::create(
+                        project->pluginPath, reloadError);
+                    bool compatible = false;
+                    if (candidateCopy) {
+                        DynamicLibrary candidateLibrary;
+                        if (candidateLibrary.open(candidateCopy->path(), reloadError)) {
+                            const auto getContract = candidateLibrary.function<
+                                engine::editor::EditorProjectPluginContractFn>(
+                                    engine::editor::kEditorProjectPluginContractSymbol);
+                            compatible = getContract && engine::editor::validateEditorProjectPluginContract(
+                                getContract(), PHLOSION_EDITOR_BUILD_CONFIGURATION, reloadError);
+                            if (!getContract) reloadError = "The rebuilt module has no editor contract.";
+                        }
+                    }
+                    if (!compatible) {
+                        gameplayReload->reloaded(false, reloadError + " Current version kept.");
+                    } else {
+                        const auto descriptorPath = project->descriptorPath;
+                        const auto sceneId = project->sceneViews[project->activeSceneIndex].id;
+                        const auto previewId = project->activeGamePreviewId;
+                        const bool previewReady = project->runtime->gamePreviewReady();
+                        const Camera3D savedSceneCamera = camera;
+                        const Camera3D savedGameCamera = gameCamera;
+                        // Retain the exact previous bytes for rollback, even though
+                        // the original build output has already been replaced.
+                        auto lastGood = project->pluginCopy;
+                        project.reset();
+                        playState = engine::editor::EditorPlayState::Editing;
+                        simulationSeconds = gameFixedAccumulator = 0.0f;
+                        selectedAssetPreviewIndex = -1;
+                        editor.selectAsset(-1);
+                        const auto restore = [&](const std::filesystem::path& module,
+                                                 std::string& error) -> std::unique_ptr<LoadedProject> {
+                            try {
+                                auto restored = loadProject(descriptorPath, renderer, savedSceneCamera,
+                                    error, module, sceneId);
+                                if (!restored) return {};
+                                if (previewReady) {
+                                    if (!ensureGamePreviewInitialized(*restored, renderer, gameCamera, error) ||
+                                        !restored->runtime->selectGamePreview(previewId.c_str(), &error)) return {};
+                                    restored->activeGamePreviewId = previewId;
+                                    restored->gamePreviewSelectionPending = false;
+                                    refreshLayoutObjectViews(*restored);
+                                    rebuildProjectHierarchy(*restored,
+                                        restored->sceneViews[restored->activeSceneIndex],
+                                        restored->runtime->stats(), renderer.backendId());
+                                }
+                                return restored;
+                            } catch (const std::exception& e) {
+                                error = e.what();
+                                return {};
+                            }
+                        };
+                        project = restore(candidateCopy->path(), reloadError);
+                        const bool success = project != nullptr;
+                        if (!success) {
+                            std::string recoveryError;
+                            project = restore(lastGood->path(), recoveryError);
+                            reloadError += project ? " Previous version restored." :
+                                " Previous version could not reopen: " + recoveryError;
+                        }
+                        camera = savedSceneCamera;
+                        gameCamera = savedGameCamera;
+                        focusActiveViewport = true;
+                        gameplayReload->reloaded(success, reloadError);
+                        if (project) {
+                            project->status = gameplayReload->status();
+                            std::cerr << "[Gameplay Reload] restored scene=" << sceneId
+                                << " preview=" << previewId << " status=" << project->runtime->status()
+                                << " camera_preserved=" <<
+                                    (camera.getPosition() == savedSceneCamera.getPosition() &&
+                                     camera.getTarget() == savedSceneCamera.getTarget() &&
+                                     gameCamera.getPosition() == savedGameCamera.getPosition() &&
+                                     gameCamera.getTarget() == savedGameCamera.getTarget()) << '\n';
+                        } else {
+                            browserError = gameplayReload->status();
+                            gameplayReload.reset();
+                            window.setTitle("Phlosion Editor");
+                        }
+                        if (success) ++gameplayReloadCount;
+                    }
+                    reloadDrawn = false;
+                } else {
+                    // Present the reload message for one frame before the
+                    // synchronous graphics/runtime initialization begins.
+                    reloadDrawn = gameplayReload->ready();
+                }
+            }
+
             if (pendingProject) {
                 std::unique_ptr<LoadedProject> candidate =
                     loadProject(
@@ -3700,6 +3814,11 @@ int main(int argc, char** argv) {
                             recentProjects);
                     }
                     project = std::move(candidate);
+                    gameplayReload = std::make_unique<engine::editor::EditorGameplayReload>();
+                    gameplayReload->configure(project->descriptorPath,
+                        PHLOSION_EDITOR_BUILD_CONFIGURATION,
+                        arguments.autoReload.value_or(!arguments.hidden));
+                    reloadDrawn = false;
                     browserError.clear();
                     browserStatus = "Project loaded.";
                     simulationSeconds = 0.0f;
@@ -4133,6 +4252,11 @@ int main(int argc, char** argv) {
                     .rendererPreference =
                         rendererPreference,
                     .status = project->status,
+                    .gameplayReloadStatus = gameplayReload ? gameplayReload->status() : std::string_view{},
+                    .gameplayBuildLog = gameplayReload ? gameplayReload->log() : std::string_view{},
+                    .gameplayReloadAvailable = gameplayReload && gameplayReload->available(),
+                    .gameplayAutoReload = gameplayReload && gameplayReload->automatic(),
+                    .gameplayBuilding = gameplayReload && gameplayReload->building(),
                     .playState = playState,
                     .simulationSeconds = simulationSeconds,
                     .playConfigurations =
@@ -4840,6 +4964,12 @@ int main(int argc, char** argv) {
             if (actions.exit) {
                 running = false;
             }
+            if (gameplayReload && actions.rebuildGameplay) gameplayReload->requestBuild();
+            if (gameplayReload && actions.toggleGameplayAutoReload) {
+                gameplayReload->setAutomatic(!gameplayReload->automatic());
+            }
+            if (arguments.exitAfterGameplayReloads > 0 &&
+                    gameplayReloadCount >= arguments.exitAfterGameplayReloads) running = false;
             if (actions.rendererPreferenceChanged) {
                 saveRendererPreference(
                     stateDirectory,
@@ -4852,6 +4982,8 @@ int main(int argc, char** argv) {
                 running = false;
             }
             if (actions.closeProject) {
+                gameplayReload.reset();
+                reloadDrawn = false;
                 project.reset();
                 selectedAssetPreviewIndex = -1;
                 simulationSeconds = 0.0f;
@@ -5133,6 +5265,7 @@ int main(int argc, char** argv) {
                 stateDirectory,
                 windowPlacement);
         }
+        gameplayReload.reset();
         project.reset();
         sceneSurface->shutdown();
         gameSurface->shutdown();
