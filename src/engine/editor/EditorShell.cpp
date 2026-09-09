@@ -1823,7 +1823,10 @@ EditorShellActions EditorShell::drawWorkspace(
         if (layoutViewportEditing &&
             workspace.playState == EditorPlayState::Editing &&
             workspace.layoutObjects &&
-            !workspace.layoutObjects->empty()) {
+            std::any_of(workspace.layoutObjects->begin(), workspace.layoutObjects->end(),
+                        [kind](const WorkspaceLayoutObject &object) {
+                            return object.viewportVisible && layoutObjectVisibleInViewport(object, kind);
+                        })) {
             const auto& objects = *workspace.layoutObjects;
             const auto objectVisibleInViewport =
                 [&](const WorkspaceLayoutObject& object) {

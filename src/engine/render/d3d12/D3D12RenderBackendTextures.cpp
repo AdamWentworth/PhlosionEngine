@@ -280,7 +280,16 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureSpriteTexture(const
         return ensureFallbackSpriteTexture();
     }
     if (!device_ || !commandQueue_ || !fence_ || !srvHeap_) return ensureFallbackSpriteTexture();
-    if (nextSrvDescriptorIndex_ >= kMaxSrvDescriptors) return ensureFallbackSpriteTexture();
+    if (nextSrvDescriptorIndex_ >= kMaxSrvDescriptors) {
+        // Cache failure so a full heap reports each missing sprite once rather
+        // than silently dropping it or flooding the log every rendered frame.
+        std::cerr << "[Renderer][D3D12] Sprite texture descriptor capacity exhausted ("
+                  << kMaxSrvDescriptors << "): " << texturePath << "\n";
+        SpriteTexture failed;
+        failed.valid = false;
+        spriteTextures_.emplace(texturePath, failed);
+        return ensureFallbackSpriteTexture();
+    }
 
     LoadedSpritePixels loaded;
     if (!loadSpritePixels(texturePath, loaded)) {

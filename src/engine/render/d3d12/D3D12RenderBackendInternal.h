@@ -108,7 +108,9 @@ inline constexpr std::size_t kMaxWorldIndices = kMaxWorldTriangles * 3;
 // D3D12 world-material descriptor blocks consume additional shader-visible SRVs
 // beyond the raw texture descriptors, so keep extra headroom for prewarmed
 // world materials plus runtime-loaded effects.
-inline constexpr std::size_t kMaxSrvDescriptors = 4096;
+// Shared by model materials, environment textures, VFX, and UI. Full-content
+// startup prewarm can exceed 4096 before the first frontend sprite is loaded.
+inline constexpr std::size_t kMaxSrvDescriptors = 16384;
 inline constexpr const char* kFallbackSpriteTextureKey = "__fallback_sprite_texture__";
 inline constexpr int kGlRepeat = 10497;
 inline constexpr int kGlMirroredRepeat = 33648;
