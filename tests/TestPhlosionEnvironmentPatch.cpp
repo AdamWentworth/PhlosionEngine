@@ -24,7 +24,10 @@ bool test_phlosion_environment_patch_contract(std::string& outFail) {
             .vertices = {a, b, c},
             .materialGroups = {EnvironmentPatchMaterialGroup{
                 .materialIndex = 7u,
-                .indices = {0u, 1u, 2u}}}}}};
+                .indices = {0u, 1u, 2u}}}}},
+        .terrainReplacement = EnvironmentPatchTerrainReplacement{
+            .tileSizeCm = 100.0f,
+            .cells = {{17, -4}, {18, -4}}}};
     std::string error;
     if (!validateEnvironmentPatchDocument(source, &error)) {
         outFail = "valid patch failed: " + error;
@@ -39,13 +42,33 @@ bool test_phlosion_environment_patch_contract(std::string& outFail) {
     if (decoded.meshes.size() != 1u ||
         decoded.meshes.front().vertices.size() != 3u ||
         decoded.meshes.front().materialGroups.front().materialIndex != 7u ||
-        decoded.source.geometrySha256 != source.source.geometrySha256) {
+        decoded.source.geometrySha256 != source.source.geometrySha256 ||
+        !decoded.terrainReplacement ||
+        decoded.terrainReplacement->cells !=
+            source.terrainReplacement->cells) {
         outFail = "patch fields changed during round trip";
+        return false;
+    }
+    EnvironmentPatchDocument binaryDecoded;
+    const auto binary = serializeEnvironmentPatchBinary(source);
+    if (!parseEnvironmentPatchBinary(binary, binaryDecoded, &error) ||
+        binaryDecoded.meshes.size() != source.meshes.size() ||
+        binaryDecoded.meshes.front().vertices.size() != 3u ||
+        !binaryDecoded.terrainReplacement ||
+        binaryDecoded.terrainReplacement->cells !=
+            source.terrainReplacement->cells) {
+        outFail = "binary patch round trip failed: " + error;
         return false;
     }
     decoded.meshes.front().materialGroups.front().indices = {0u, 0u, 2u};
     if (validateEnvironmentPatchDocument(decoded, nullptr)) {
         outFail = "patch accepted a degenerate triangle";
+        return false;
+    }
+    decoded = source;
+    decoded.terrainReplacement->cells.push_back({17, -4});
+    if (validateEnvironmentPatchDocument(decoded, nullptr)) {
+        outFail = "patch accepted a duplicate terrain replacement cell";
         return false;
     }
     return true;

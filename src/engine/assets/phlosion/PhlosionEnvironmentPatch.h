@@ -4,6 +4,8 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -12,6 +14,8 @@ namespace engine::assets::phlosion {
 inline constexpr std::uint32_t kEnvironmentPatchSchemaVersion = 1u;
 inline constexpr char kEnvironmentPatchKind[] =
     "phlosion_environment_patch";
+inline constexpr std::array<std::uint8_t, 8> kEnvironmentPatchBinaryMagic{
+    'P', 'H', 'L', 'O', 'E', 'P', 'A', 'T'};
 
 struct EnvironmentPatchSourceLock {
     std::string profileId;
@@ -45,9 +49,15 @@ struct EnvironmentPatchMesh {
     std::vector<EnvironmentPatchMaterialGroup> materialGroups;
 };
 
+struct EnvironmentPatchTerrainReplacement {
+    float tileSizeCm = 100.0f;
+    std::vector<std::array<std::int32_t, 2>> cells;
+};
+
 struct EnvironmentPatchDocument {
     EnvironmentPatchSourceLock source;
     std::vector<EnvironmentPatchMesh> meshes;
+    std::optional<EnvironmentPatchTerrainReplacement> terrainReplacement;
 };
 
 bool validateEnvironmentPatchDocument(
@@ -59,6 +69,11 @@ bool parseEnvironmentPatchDocument(
     EnvironmentPatchDocument& out,
     std::string* outError = nullptr);
 
+bool parseEnvironmentPatchBinary(
+    std::span<const std::uint8_t> bytes,
+    EnvironmentPatchDocument& out,
+    std::string* outError = nullptr);
+
 bool loadEnvironmentPatchDocument(
     const IAssetStore& store,
     const std::string& virtualPath,
@@ -66,6 +81,9 @@ bool loadEnvironmentPatchDocument(
     std::string* outError = nullptr);
 
 std::string serializeEnvironmentPatchDocument(
+    const EnvironmentPatchDocument& document);
+
+std::vector<std::uint8_t> serializeEnvironmentPatchBinary(
     const EnvironmentPatchDocument& document);
 
 } // namespace engine::assets::phlosion
