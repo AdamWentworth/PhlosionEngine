@@ -31,6 +31,125 @@ namespace engine::editor {
 
 namespace {
 
+void drawPlayControls(const WorkspaceView &workspace, EditorShellActions &actions) {
+    const bool editing =
+        workspace.playState == EditorPlayState::Editing;
+    if (ImGui::Button(
+            editing ? "Play" : "Stop",
+            ImVec2(70.0f, 25.0f))) {
+        actions.togglePlay = true;
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(editing);
+    if (ImGui::Button(
+            workspace.playState == EditorPlayState::Paused
+                ? "Resume"
+                : "Pause",
+            ImVec2(70.0f, 25.0f))) {
+        actions.togglePause = true;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(
+        workspace.playState != EditorPlayState::Paused);
+    if (ImGui::Button("Step", ImVec2(52.0f, 25.0f))) {
+        actions.step = true;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    const char *stateLabel = "Ready";
+    ImVec4 stateColor(0.68f, 0.72f, 0.76f, 1.0f);
+    if (workspace.playState == EditorPlayState::Playing) {
+        stateLabel = "Running";
+        stateColor = ImVec4(0.35f, 0.90f, 0.58f, 1.0f);
+    } else if (
+        workspace.playState == EditorPlayState::Paused) {
+        stateLabel = "Paused";
+        stateColor = ImVec4(1.0f, 0.75f, 0.25f, 1.0f);
+    }
+    ImGui::TextColored(stateColor, "%s", stateLabel);
+}
+
+void drawSceneScenarioToolbar(const WorkspaceView &workspace, EditorShellActions &actions) {
+    if (!workspace.scenes || workspace.scenes->empty()) return;
+
+    const auto activeScene = std::find_if(workspace.scenes->begin(), workspace.scenes->end(),
+                                          [&](const WorkspaceScene &scene) { return scene.id == workspace.activeSceneId; });
+    const float width = ImGui::GetContentRegionAvail().x;
+    const bool stacked = width < 650.0f;
+    const float fieldWidth = stacked ? width : (width - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+    ImGui::PushID("SceneScenarioToolbar");
+    ImGui::TextUnformatted("Scene / location");
+    if (!stacked) {
+        ImGui::SameLine(fieldWidth + ImGui::GetStyle().ItemSpacing.x + ImGui::GetStyle().WindowPadding.x);
+        ImGui::TextUnformatted("Scenario / starting setup");
+    }
+    ImGui::SetNextItemWidth(fieldWidth);
+    if (ImGui::BeginCombo("##scene", activeScene != workspace.scenes->end() ? activeScene->displayName.c_str() : "Choose a scene")) {
+        std::string previousCategory;
+        for (std::size_t index = 0; index < workspace.scenes->size(); ++index) {
+            const auto &scene = (*workspace.scenes)[index];
+            if (scene.category != previousCategory) {
+                ImGui::TextDisabled("%s", scene.category.c_str());
+                previousCategory = scene.category;
+            }
+            ImGui::PushID(static_cast<int>(index));
+            const bool active = scene.id == workspace.activeSceneId;
+            if (ImGui::Selectable(scene.displayName.c_str(), active) && !active) {
+                actions.openSceneIndex = static_cast<int>(index);
+            }
+            if (active) ImGui::SetItemDefaultFocus();
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
+    }
+    if (stacked) ImGui::TextUnformatted("Scenario / starting setup");
+    else ImGui::SameLine();
+
+    const WorkspaceGamePreview *activePreview = nullptr;
+    if (workspace.gamePreviews) {
+        for (const auto &preview : *workspace.gamePreviews) {
+            if (preview.id == workspace.activeGamePreviewId) activePreview = &preview;
+        }
+    }
+    ImGui::SetNextItemWidth(fieldWidth);
+    if (ImGui::BeginCombo("##scenario", activePreview ? activePreview->displayName.c_str() : "Choose a scenario")) {
+        bool hasSceneScenarios = false;
+        if (workspace.gamePreviews) {
+            const auto drawScenario = [&](std::size_t index) {
+                const auto &preview = (*workspace.gamePreviews)[index];
+                ImGui::PushID(static_cast<int>(index));
+                const bool active = preview.id == workspace.activeGamePreviewId;
+                if (ImGui::Selectable(preview.displayName.c_str(), active)) {
+                    actions.selectGamePreviewIndex = static_cast<int>(index);
+                }
+                if (active) ImGui::SetItemDefaultFocus();
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", preview.description.c_str());
+                ImGui::PopID();
+            };
+            for (std::size_t index = 0; index < workspace.gamePreviews->size(); ++index) {
+                if ((*workspace.gamePreviews)[index].sceneId == workspace.activeSceneId && !workspace.activeSceneId.empty()) {
+                    drawScenario(index);
+                    hasSceneScenarios = true;
+                }
+            }
+            if (!hasSceneScenarios) ImGui::TextDisabled("No scenarios for this scene.");
+            if (ImGui::BeginMenu("Frontend / menus")) {
+                for (std::size_t index = 0; index < workspace.gamePreviews->size(); ++index) {
+                    if ((*workspace.gamePreviews)[index].sceneId.empty()) drawScenario(index);
+                }
+                ImGui::EndMenu();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (activePreview && ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s\nSelect a scenario to load its starting setup, then press Play.", activePreview->description.c_str());
+    }
+    ImGui::PopID();
+    ImGui::Separator();
+}
+
 bool hasLayoutCapability(
     const WorkspaceLayoutObject& object,
     EditorProjectLayoutCapability capability) {
@@ -1287,7 +1406,7 @@ EditorShellActions EditorShell::drawWorkspace(
         bottom = ImGui::DockBuilderSplitNode(
             center, ImGuiDir_Down, 0.25f, nullptr, &center);
         ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
-        ImGui::DockBuilderDockWindow("Game Preview", left);
+        ImGui::DockBuilderDockWindow("Scenarios", left);
         ImGui::DockBuilderDockWindow("Inspector", right);
         ImGui::DockBuilderDockWindow("Assets", bottom);
         ImGui::DockBuilderDockWindow("Scenes", bottom);
@@ -1490,6 +1609,7 @@ EditorShellActions EditorShell::drawWorkspace(
             impl_->selectedViewport =
                 workspace.activeViewport;
         }
+        drawSceneScenarioToolbar(workspace, actions);
         if (ImGui::Selectable(
                 "Scene",
                 impl_->selectedViewport ==
@@ -1499,6 +1619,7 @@ EditorShellActions EditorShell::drawWorkspace(
             impl_->selectedViewport =
                 EditorViewportKind::Scene;
         }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Inspect and edit the environment with the editor camera.");
         ImGui::SameLine();
         if (ImGui::Selectable(
                 "Game",
@@ -1509,6 +1630,9 @@ EditorShellActions EditorShell::drawWorkspace(
             impl_->selectedViewport =
                 EditorViewportKind::Game;
         }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Inspect and place units in the selected scenario. Press Play to run it.");
+        if (ImGui::GetContentRegionAvail().x >= 480.0f) ImGui::SameLine();
+        drawPlayControls(workspace, actions);
         const EditorPackageDrawContext toolbarPackageContext{
             .imguiContext = ImGui::GetCurrentContext()};
         (void)drawEditorPackageExtensions(
@@ -2270,61 +2394,6 @@ EditorShellActions EditorShell::drawWorkspace(
     }
     ImGui::End();
 
-    const ImVec2 toolbarSize(294.0f, 42.0f);
-    ImGui::SetNextWindowPos(
-        ImVec2(
-            viewport->WorkPos.x +
-                (viewport->WorkSize.x - toolbarSize.x) * 0.5f,
-            viewport->WorkPos.y + 28.0f),
-        ImGuiCond_Always);
-    ImGui::SetNextWindowSize(toolbarSize, ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.96f);
-    constexpr ImGuiWindowFlags toolbarFlags =
-        ImGuiWindowFlags_NoTitleBar |
-        ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoDocking |
-        ImGuiWindowFlags_NoSavedSettings |
-        ImGuiWindowFlags_NoScrollbar;
-    ImGui::Begin("##PhlosionPlayToolbar", nullptr, toolbarFlags);
-    const bool editing =
-        workspace.playState == EditorPlayState::Editing;
-    if (ImGui::Button(
-            editing ? "Play" : "Stop",
-            ImVec2(70.0f, 25.0f))) {
-        actions.togglePlay = true;
-    }
-    ImGui::SameLine();
-    ImGui::BeginDisabled(editing);
-    if (ImGui::Button(
-            workspace.playState == EditorPlayState::Paused
-                ? "Resume"
-                : "Pause",
-            ImVec2(70.0f, 25.0f))) {
-        actions.togglePause = true;
-    }
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::BeginDisabled(
-        workspace.playState != EditorPlayState::Paused);
-    if (ImGui::Button("Step", ImVec2(52.0f, 25.0f))) {
-        actions.step = true;
-    }
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    const char* stateLabel = "EDIT";
-    ImVec4 stateColor(0.68f, 0.72f, 0.76f, 1.0f);
-    if (workspace.playState == EditorPlayState::Playing) {
-        stateLabel = "PLAY";
-        stateColor = ImVec4(0.35f, 0.90f, 0.58f, 1.0f);
-    } else if (
-        workspace.playState == EditorPlayState::Paused) {
-        stateLabel = "PAUSED";
-        stateColor = ImVec4(1.0f, 0.75f, 0.25f, 1.0f);
-    }
-    ImGui::TextColored(stateColor, "%s", stateLabel);
-    ImGui::End();
-
     ImGui::Begin("Scene Hierarchy");
     ImGui::TextDisabled("%s", text(workspace.sceneId).c_str());
     ImGui::Separator();
@@ -2432,14 +2501,19 @@ EditorShellActions EditorShell::drawWorkspace(
     }
     ImGui::End();
 
-    ImGui::Begin("Game Preview");
-    ImGui::TextDisabled(
-        "Warm in-editor runtime states");
+    // Keep the old preview panel's dock when opening an existing workspace.
+    if (!ImGui::FindWindowSettingsByID(ImHashStr("Scenarios"))) {
+        if (const auto *oldSettings = ImGui::FindWindowSettingsByID(ImHashStr("Game Preview"))) {
+            ImGui::SetNextWindowDockID(oldSettings->DockId, ImGuiCond_FirstUseEver);
+        }
+    }
+    ImGui::Begin("Scenarios");
+    ImGui::TextWrapped("Starting setups for the open scene. Load one, then press Play.");
     ImGui::Separator();
     const auto* gamePreviews = workspace.gamePreviews;
     if (!gamePreviews || gamePreviews->empty()) {
         ImGui::TextWrapped(
-            "This project does not provide embedded game previews.");
+            "This project does not provide play scenarios.");
     } else {
         const std::string activePreviewId =
             text(workspace.activeGamePreviewId);
@@ -2556,14 +2630,12 @@ EditorShellActions EditorShell::drawWorkspace(
         } else {
             ImGui::TextDisabled("Current Scene");
             ImGui::TextWrapped(
-                "No runtime previews are associated with this scene.");
+                "No scenarios for this scene. Choose another location above the viewport.");
         }
 
-        if (!applicationPreviewIndices.empty()) {
+        if (!applicationPreviewIndices.empty() && ImGui::CollapsingHeader("Frontend / menus")) {
             ImGui::Spacing();
             ImGui::Separator();
-            ImGui::TextDisabled(
-                "Application and runtime-only previews");
             std::string previousGroup;
             for (const std::size_t index :
                  applicationPreviewIndices) {
@@ -2590,13 +2662,12 @@ EditorShellActions EditorShell::drawWorkspace(
             "%s",
             selected.description.c_str());
         if (ImGui::Button(
-                "Open In Game",
+                "Load Scenario",
                 ImVec2(-1.0f, 32.0f))) {
             actions.selectGamePreviewIndex =
                 impl_->selectedGamePreview;
         }
-        ImGui::TextDisabled(
-            "Switches the already initialized game session.");
+        ImGui::TextWrapped("Loads the starting setup in Game view. Play starts the simulation; Stop restores it.");
     }
     ImGui::End();
 
@@ -3710,8 +3781,7 @@ EditorShellActions EditorShell::drawWorkspace(
     ImGui::End();
 
     ImGui::Begin("Scenes");
-    ImGui::TextDisabled(
-        "Game scene catalog");
+    ImGui::TextWrapped("Locations and environments. Choose a starting setup from Scenario above the viewport.");
     ImGui::Separator();
     if (!workspace.scenes || workspace.scenes->empty()) {
         ImGui::TextWrapped(
@@ -3793,7 +3863,7 @@ EditorShellActions EditorShell::drawWorkspace(
                 static_cast<std::size_t>(
                     impl_->selectedScene)];
         ImGui::TextWrapped(
-            "A game scene composes a reusable environment backdrop with its runtime state. Opening it updates the Scene view, hierarchy, Inspector, and associated game previews.");
+            "Opening a scene changes the location and its available scenarios. Scene view edits the environment; Game view shows the selected scenario.");
         if (ImGui::Button(
                 selected.id ==
                         workspace.activeSceneId

@@ -5063,6 +5063,11 @@ int main(int argc, char** argv) {
                         &previewError)) {
                     project->activeGamePreviewId = preview.id;
                     project->gamePreviewSelectionPending = false;
+                    // Selecting a starting setup must leave time to inspect/place
+                    // units even when the previous scenario was playing.
+                    playState = engine::editor::EditorPlayState::Editing;
+                    simulationSeconds = 0.0f;
+                    project->runtime->update(simulationSeconds);
                     refreshLayoutObjectViews(*project);
                     const auto& activeScene =
                         project->sceneViews[
