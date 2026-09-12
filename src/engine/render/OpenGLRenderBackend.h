@@ -20,6 +20,7 @@ public:
     const char* backendId() const override { return "opengl"; }
     void beginFrame(float r, float g, float b, float a) override;
     void endFrame() override;
+    bool beginScreenshotCaptureSequence() override;
     void onResize(int width, int height) override;
     bool requiresOpenGLContext() const override { return true; }
     bool handlesPresentation() const override { return false; }
@@ -442,6 +443,7 @@ private:
     float lastGpuFrameMs_ = 0.0f;
     bool lastGpuFrameValid_ = false;
 
+    bool screenshotCaptureDeferred_ = false;
     bool screenshotCaptureConfigured_ = false;
     bool screenshotCaptured_ = false;
     std::uint64_t screenshotFrameTarget_ = 0u;

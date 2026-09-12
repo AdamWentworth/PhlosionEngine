@@ -258,12 +258,20 @@ void OpenGLRenderBackend::shutdown() {
     lastFrameIndexedGlTextureBindCalls_ = 0u;
 }
 
+bool OpenGLRenderBackend::beginScreenshotCaptureSequence() {
+    if (!screenshotCaptureConfigured_ || !screenshotCaptureDeferred_ || screenshotCaptured_) return false;
+    screenshotFrameTarget_ += frameCounter_;
+    screenshotCaptureDeferred_ = false;
+    return true;
+}
+
 void OpenGLRenderBackend::configureScreenshotCapture() {
     const auto path = engine::env::get("PHLOSION_BACKEND_SCREENSHOT_PATH");
     if (!path.has_value() || path->empty()) return;
 
     screenshotPath_ = *path;
     screenshotCaptureConfigured_ = true;
+    screenshotCaptureDeferred_ = engine::env::flagEnabled("PHLOSION_BACKEND_SCREENSHOT_DEFER");
     screenshotCaptured_ = false;
     frameCounter_ = 0u;
     screenshotFrameTarget_ = 0u;
@@ -278,7 +286,7 @@ void OpenGLRenderBackend::configureScreenshotCapture() {
 }
 
 void OpenGLRenderBackend::captureScreenshotIfRequested() {
-    if (!screenshotCaptureConfigured_ || screenshotCaptured_) return;
+    if (!screenshotCaptureConfigured_ || screenshotCaptured_ || screenshotCaptureDeferred_) return;
     if (frameCounter_ < screenshotFrameTarget_) return;
 
     GLint viewport[4] = {0, 0, 0, 0};

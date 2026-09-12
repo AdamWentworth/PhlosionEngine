@@ -29,6 +29,14 @@ void VulkanRenderBackend::endFrame() {
     if (impl_) impl_->endFrame();
 }
 
+bool VulkanRenderBackend::beginScreenshotCaptureSequence() {
+    if (!impl_ || !impl_->screenshotCaptureConfigured || !impl_->screenshotCaptureDeferred ||
+        impl_->screenshotCaptured) return false;
+    impl_->screenshotFrameTarget += impl_->frameCounter;
+    impl_->screenshotCaptureDeferred = false;
+    return true;
+}
+
 void VulkanRenderBackend::beginWorldSceneColorPass(
     int surfaceWidth,
     int surfaceHeight) {

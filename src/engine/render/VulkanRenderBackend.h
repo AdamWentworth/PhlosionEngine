@@ -40,6 +40,7 @@ public:
     const char* backendId() const override { return "vulkan"; }
     void beginFrame(float r, float g, float b, float a) override;
     void endFrame() override;
+    bool beginScreenshotCaptureSequence() override;
     void onResize(int width, int height) override;
     bool requiresOpenGLContext() const override { return false; }
     bool handlesPresentation() const override { return true; }

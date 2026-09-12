@@ -63,6 +63,7 @@ namespace {
 struct Arguments {
     std::filesystem::path project;
     std::string gamePreview;
+    bool playGamePreview = false;
     std::string assetPreview;
     std::optional<int> assetPreviewAnimation;
     std::optional<int> assetPreviewQuality;
@@ -171,6 +172,8 @@ Arguments parseArguments(int argc, char** argv) {
             argument.rfind(gamePreviewPrefix, 0u) == 0u) {
             result.gamePreview =
                 argument.substr(gamePreviewPrefix.size());
+        } else if (argument == "--play-game-preview") {
+            result.playGamePreview = true;
         } else if (
             argument.rfind(assetPreviewPrefix, 0u) == 0u) {
             result.assetPreview =
@@ -3859,6 +3862,11 @@ int main(int argc, char** argv) {
                                 engine::editor::
                                     EditorViewportKind::Game;
                             focusActiveViewport = true;
+                            if (arguments.playGamePreview) {
+                                simulationSeconds = 0.0f;
+                                project->runtime->update(simulationSeconds);
+                                playState = engine::editor::EditorPlayState::Playing;
+                            }
                             project->status =
                                 project->runtime->status()
                                     ? project->runtime->status()

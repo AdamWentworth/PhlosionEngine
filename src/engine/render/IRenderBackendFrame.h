@@ -31,4 +31,8 @@ public:
         (void)enabled;
     }
     virtual void shutdown() = 0;
+    // Arm an environment-configured deferred screenshot after application loading.
+    // The requested frame is relative to the next beginFrame, without resetting
+    // GPU/resource frame counters. Return false if no deferred capture is pending.
+    virtual bool beginScreenshotCaptureSequence() { return false; }
 };

@@ -147,6 +147,7 @@ struct VulkanRenderBackendImpl {
     bool vsyncEnabled = true;
     bool transientOverflowLogged = false;
     bool swapchainTransferSourceSupported = false;
+    bool screenshotCaptureDeferred = false;
     bool screenshotCaptureConfigured = false;
     bool screenshotCaptured = false;
     bool screenshotCopyPending = false;

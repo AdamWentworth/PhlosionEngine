@@ -43,6 +43,7 @@ public:
     const char* backendId() const override { return "d3d12"; }
     void beginFrame(float r, float g, float b, float a) override;
     void endFrame() override;
+    bool beginScreenshotCaptureSequence() override;
     void onResize(int width, int height) override;
     bool requiresOpenGLContext() const override { return false; }
     bool handlesPresentation() const override { return true; }
@@ -408,6 +409,7 @@ private:
     std::uint32_t lastFrameFastSceneMaterialTableBinds_ = 0u;
     std::uint32_t lastFrameFastSceneIndirectCommands_ = 0u;
     WorldSceneFastPathCaps worldSceneFastPathCaps_{};
+    bool screenshotCaptureDeferred_ = false;
     bool screenshotCaptureConfigured_ = false;
     bool screenshotCaptured_ = false;
     bool vsyncEnabled_ = true;

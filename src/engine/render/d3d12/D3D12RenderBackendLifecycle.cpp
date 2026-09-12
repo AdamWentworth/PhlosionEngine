@@ -193,6 +193,7 @@ void D3D12RenderBackend::endFrame() {
 
     const bool captureThisFrame =
         screenshotCaptureConfigured_ &&
+        !screenshotCaptureDeferred_ &&
         !screenshotCaptured_ &&
         frameCounter_ >= screenshotFrameTarget_;
     Microsoft::WRL::ComPtr<ID3D12Resource> screenshotReadbackBuffer;

@@ -1929,6 +1929,7 @@ void VulkanRenderBackendImpl::configureScreenshotCapture() {
     if (!path.has_value() || path->empty()) return;
     screenshotPath = *path;
     screenshotCaptureConfigured = true;
+    screenshotCaptureDeferred = engine::env::flagEnabled("PHLOSION_BACKEND_SCREENSHOT_DEFER");
     screenshotCaptured = false;
     screenshotFrameTarget = 0u;
     if (const auto target = engine::env::get("PHLOSION_BACKEND_SCREENSHOT_FRAME")) {
@@ -1941,7 +1942,7 @@ void VulkanRenderBackendImpl::configureScreenshotCapture() {
 }
 
 bool VulkanRenderBackendImpl::recordScreenshotCopy(VkCommandBuffer commandBuffer) {
-    if (!screenshotCaptureConfigured || screenshotCaptured || screenshotCopyPending ||
+    if (!screenshotCaptureConfigured || screenshotCaptured || screenshotCopyPending || screenshotCaptureDeferred ||
         frameCounter < screenshotFrameTarget) {
         return false;
     }

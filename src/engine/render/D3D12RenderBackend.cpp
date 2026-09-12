@@ -104,12 +104,20 @@ void D3D12RenderBackend::recordWorldIndexedSubmissionStats(
     frameIndexedTextureSwitches_ += stats.textureSwitches;
 }
 
+bool D3D12RenderBackend::beginScreenshotCaptureSequence() {
+    if (!screenshotCaptureConfigured_ || !screenshotCaptureDeferred_ || screenshotCaptured_) return false;
+    screenshotFrameTarget_ += frameCounter_;
+    screenshotCaptureDeferred_ = false;
+    return true;
+}
+
 void D3D12RenderBackend::configureScreenshotCapture() {
     const auto path = engine::env::get("PHLOSION_BACKEND_SCREENSHOT_PATH");
     if (!path.has_value() || path->empty()) return;
 
     screenshotPath_ = *path;
     screenshotCaptureConfigured_ = true;
+    screenshotCaptureDeferred_ = engine::env::flagEnabled("PHLOSION_BACKEND_SCREENSHOT_DEFER");
     screenshotCaptured_ = false;
     frameCounter_ = 0u;
     screenshotFrameTarget_ = 0u;
