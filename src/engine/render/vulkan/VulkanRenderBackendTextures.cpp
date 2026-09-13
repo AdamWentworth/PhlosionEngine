@@ -507,7 +507,12 @@ VulkanRenderBackendImpl::Texture* VulkanRenderBackendImpl::ensureSpriteTexture(
 
     Texture uploaded;
     try {
-        uploaded = createTexture(pixels, width, height, false, 33071, 33071, true);
+        // UI sprites use a single bilinear level on OpenGL and D3D12. Supplying
+        // that level explicitly prevents the world-texture uploader from adding
+        // a mip chain that blurs small portraits, type icons and card art here.
+        const IRenderBackend::WorldTextureMipLevel baseLevel{pixels, width, height};
+        uploaded = createTexture(pixels, width, height, false, 33071, 33071, true,
+                                 &baseLevel, 1u);
     } catch (...) {
         stbi_image_free(pixels);
         throw;
