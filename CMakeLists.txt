@@ -457,6 +457,7 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestEditorRendererPreference.cpp
         tests/TestEditorProjectPluginContract.cpp
         tests/TestEditorGamePreviewRouting.cpp
+        tests/TestEditorPerformance.cpp
         tests/TestEditorGameplayReload.cpp
         tests/TestProjectDescriptor.cpp
         tests/TestPhlosionAuthoredScene.cpp

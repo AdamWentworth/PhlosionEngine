@@ -693,6 +693,9 @@ struct EditorShell::Impl {
     int selectedScene = 0;
     int selectedGamePreview = 0;
     bool preferencesOpen = false;
+    bool showPerformance = false;
+    EditorPerformanceSnapshot performance;
+    std::string buildConfiguration;
     EditorRendererPreference pendingRendererPreference =
         EditorRendererPreference::Auto;
     std::string observedActiveGamePreviewId;
@@ -1015,6 +1018,16 @@ void EditorShell::processEvent(const SDL_Event& event) {
         default:
             break;
     }
+}
+
+void EditorShell::setPerformanceOverlayVisible(bool visible) {
+    impl_->showPerformance = visible;
+}
+
+void EditorShell::setPerformanceStats(const EditorPerformanceSnapshot& stats,
+                                     const char* buildConfiguration) {
+    impl_->performance = stats;
+    impl_->buildConfiguration = buildConfiguration ? buildConfiguration : "Unknown";
 }
 
 void EditorShell::beginFrame(float deltaSeconds) {
@@ -1651,6 +1664,12 @@ EditorShellActions EditorShell::drawWorkspace(
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Inspect and place units in the selected scenario. Press Play to run it.");
         if (ImGui::GetContentRegionAvail().x >= 480.0f) ImGui::SameLine();
         drawPlayControls(workspace, actions);
+        ImGui::SameLine();
+        ImGui::Checkbox("Stats", &impl_->showPerformance);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "Real editor FPS and frame/GPU time, including editor UI and presentation.\n"
+            "Viewport CPU measures Scene/Game rendering; Sim CPU measures gameplay ticks.\n"
+            "Pause freezes simulation, not these measurements. Use Release for performance tests.");
         const EditorPackageDrawContext toolbarPackageContext{
             .imguiContext = ImGui::GetCurrentContext()};
         (void)drawEditorPackageExtensions(
@@ -2411,6 +2430,28 @@ EditorShellActions EditorShell::drawWorkspace(
             impl_->layoutGizmoDragging = false;
             impl_->layoutGizmoPreviewActive = false;
             impl_->layoutBoxSelecting = false;
+        }
+        if (impl_->showPerformance) {
+            const auto& perf = impl_->performance;
+            char gpu[40];
+            if (perf.gpuValid) std::snprintf(gpu, sizeof(gpu), "%.2f ms", perf.gpuMs);
+            else std::snprintf(gpu, sizeof(gpu), "n/a");
+            char label[512];
+            std::snprintf(label, sizeof(label),
+                "Editor %s | %s | %.0f FPS\nFrame %.2f ms | GPU %s\n"
+                "%s CPU %.2f ms | Sim %.2f ms\n%llu draws | %llu tris | %dx%d",
+                impl_->buildConfiguration.c_str(), text(workspace.backendName).c_str(), perf.fps,
+                perf.frameMs, gpu, kind == EditorViewportKind::Game ? "Game" : "Scene",
+                perf.viewportMs, perf.simulationMs,
+                static_cast<unsigned long long>(perf.drawCalls),
+                static_cast<unsigned long long>(perf.triangles), viewportWidth, viewportHeight);
+            const ImVec2 size = ImGui::CalcTextSize(label);
+            const ImVec2 top(std::max(origin.x + 8, origin.x + viewportWidth - size.x - 20), origin.y + 8);
+            auto* draw = ImGui::GetWindowDrawList();
+            draw->PushClipRect(origin, ImVec2(origin.x+viewportWidth,origin.y+viewportHeight),true);
+            draw->AddRectFilled(top, ImVec2(top.x+size.x+12,top.y+size.y+12), IM_COL32(10,16,18,235),4);
+            draw->AddText(ImVec2(top.x+6,top.y+6),IM_COL32(222,246,235,255),label);
+            draw->PopClipRect();
         }
         actions.activeViewport = kind;
         actions.viewportWidth = viewportWidth;

@@ -1,4 +1,25 @@
-# Editor startup and caching
+# Editor performance and startup
+
+## Live viewport statistics
+
+Enable **Stats** next to Play in the viewport toolbar, or launch with `--stats`.
+The top-right overlay works in Scene and Game views, including Edit/Pause.
+It labels the editor build configuration and native API. FPS and Frame use
+actual elapsed time, independent of `--fixed-delta` and simulation speed.
+GPU time covers the complete editor frame; Game/Scene CPU covers the viewport
+render callback and its layout refresh, and Sim CPU covers gameplay ticks.
+Whole-frame timings also include editor UI, driver waits and presentation.
+Missing GPU queries display `n/a`. Use Release for everyday play/performance
+evaluation; Debug deliberately retains expensive diagnostics and unoptimized code.
+
+`--metrics-output` also records viewport/simulation CPU summaries, actual viewport
+dimensions, build configuration and the live stats sample. Set
+`--metrics-warmup-samples=120` to discard initial samples (default 10).
+Use a separate screenshot run: image readback/writes distort frame timings.
+The interactive HUD uses a bounded half-second accumulator; historical frame
+arrays are collected only when an automation metrics output is requested.
+
+## Startup and automation
 
 Project opening and embedded game startup are separate lifecycle phases.
 

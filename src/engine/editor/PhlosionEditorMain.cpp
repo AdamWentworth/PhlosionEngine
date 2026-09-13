@@ -88,6 +88,8 @@ struct Arguments {
     std::optional<glm::vec3> sceneCameraPosition;
     std::optional<glm::vec3> sceneCameraTarget;
     bool hidden = false;
+    bool showStats = false;
+    int metricsWarmupSamples = 10;
     std::optional<bool> autoReload;
     int exitAfterGameplayReloads = 0;
     int frameLimit = 0;
@@ -382,6 +384,11 @@ Arguments parseArguments(int argc, char** argv) {
                 0.05f);
         } else if (argument == "--hidden") {
             result.hidden = true;
+        } else if (argument == "--stats") {
+            result.showStats = true;
+        } else if (argument.starts_with("--metrics-warmup-samples=")) {
+            result.metricsWarmupSamples = std::stoi(argument.substr(std::string_view("--metrics-warmup-samples=").size()));
+            if (result.metricsWarmupSamples < 0) throw std::runtime_error("Metrics warmup must be non-negative.");
         } else if (argument == "--auto-reload") {
             result.autoReload = true;
         } else if (argument == "--no-auto-reload") {
@@ -1681,7 +1688,11 @@ void writeAutomationMetrics(
     int selectedAssetPreviewIndex,
     const std::vector<double>& cpuFrameMilliseconds,
     const std::vector<double>& presentWaitMilliseconds,
-    const std::vector<double>& gpuFrameMilliseconds) {
+    const std::vector<double>& gpuFrameMilliseconds,
+    const std::vector<double>& viewportMilliseconds,
+    const std::vector<double>& simulationMilliseconds,
+    const engine::editor::EditorPerformanceSnapshot& livePerformance,
+    int viewportWidth, int viewportHeight) {
     if (arguments.metricsOutput.empty()) {
         return;
     }
@@ -1693,6 +1704,11 @@ void writeAutomationMetrics(
         {"frames", frameCount},
         {"width", width},
         {"height", height},
+        {"build_configuration", PHLOSION_EDITOR_BUILD_CONFIGURATION},
+        {"stats_requested", arguments.showStats},
+        {"metrics_warmup_samples", arguments.metricsWarmupSamples},
+        {"viewport_width", viewportWidth},
+        {"viewport_height", viewportHeight},
         {"fixed_delta_seconds",
          arguments.fixedDeltaSeconds
              ? nlohmann::json(*arguments.fixedDeltaSeconds)
@@ -1717,14 +1733,19 @@ void writeAutomationMetrics(
         {"gpu_is_discrete", renderer.activeGpuIsDiscrete()},
         {"cpu_frame_all", metricSummary(cpuFrameMilliseconds)},
         {"cpu_frame_steady",
-         metricSummary(cpuFrameMilliseconds, 10u)},
+         metricSummary(cpuFrameMilliseconds, arguments.metricsWarmupSamples)},
         {"present_wait_all",
          metricSummary(presentWaitMilliseconds)},
         {"present_wait_steady",
-         metricSummary(presentWaitMilliseconds, 10u)},
+         metricSummary(presentWaitMilliseconds, arguments.metricsWarmupSamples)},
         {"gpu_frame_all", metricSummary(gpuFrameMilliseconds)},
         {"gpu_frame_steady",
-         metricSummary(gpuFrameMilliseconds, 10u)}};
+         metricSummary(gpuFrameMilliseconds, arguments.metricsWarmupSamples)},
+        {"viewport_cpu_steady", metricSummary(viewportMilliseconds, arguments.metricsWarmupSamples)},
+        {"simulation_cpu_steady", metricSummary(simulationMilliseconds, arguments.metricsWarmupSamples)},
+        {"live_stats", {{"fps",livePerformance.fps}, {"frame_ms",livePerformance.frameMs},
+                        {"gpu_valid",livePerformance.gpuValid}, {"gpu_ms",livePerformance.gpuMs},
+                        {"samples",livePerformance.samples}}}};
 
     IRenderBackend::BackendFrameStats backendStats{};
     const bool backendStatsValid =
@@ -3606,6 +3627,10 @@ int main(int argc, char** argv) {
         std::vector<double> cpuFrameMilliseconds;
         std::vector<double> presentWaitMilliseconds;
         std::vector<double> gpuFrameMilliseconds;
+        std::vector<double> viewportMilliseconds;
+        std::vector<double> simulationMilliseconds;
+        engine::editor::EditorPerformanceWindow performance;
+        editor.setPerformanceOverlayVisible(arguments.showStats);
         if (arguments.frameLimit > 0) {
             cpuFrameMilliseconds.reserve(
                 static_cast<std::size_t>(arguments.frameLimit));
@@ -3618,6 +3643,8 @@ int main(int argc, char** argv) {
         while (running) {
             const auto now = Clock::now();
             const auto frameStart = now;
+            const double wallFrameMs = std::chrono::duration<double, std::milli>(now - previous).count();
+            double viewportMs = 0;
             const float deltaSeconds =
                 arguments.fixedDeltaSeconds.value_or(
                     std::min(
@@ -4117,6 +4144,7 @@ int main(int argc, char** argv) {
                 camera.zoom(wheelDelta * 1.25f);
             }
 
+            const auto simulationStart = Clock::now();
             if (project &&
                 project->runtime->gamePreviewReady() &&
                 playState ==
@@ -4137,6 +4165,7 @@ int main(int argc, char** argv) {
                 }
             }
 
+            const double simulationMs = elapsedMilliseconds(simulationStart);
             renderer.beginFrame(
                 0.025f,
                 0.031f,
@@ -4194,6 +4223,7 @@ int main(int argc, char** argv) {
                             glm::value_ptr(cameraForward),
                         .cameraTarget3 =
                             glm::value_ptr(cameraTarget)};
+                const auto viewportStart = Clock::now();
                 if (activeViewport ==
                     engine::editor::EditorViewportKind::Scene) {
                     if (sceneSurface->begin(
@@ -4224,6 +4254,7 @@ int main(int argc, char** argv) {
                     refreshLayoutObjectViews(*project);
                 }
 
+                viewportMs = elapsedMilliseconds(viewportStart);
                 if (selectedAssetPreviewIndex >= 0) {
                     project->runtime->updateAssetPreview(
                         deltaSeconds);
@@ -4374,6 +4405,7 @@ int main(int argc, char** argv) {
                         stats.shadowTriangleCount,
                     .archiveFileCount =
                         stats.archiveFileCount};
+                editor.setPerformanceStats(performance.latest(), PHLOSION_EDITOR_BUILD_CONFIGURATION);
                 actions = editor.drawWorkspace(workspace);
                 if (!focusActiveViewport ||
                     actions.activeViewport ==
@@ -4455,15 +4487,24 @@ int main(int argc, char** argv) {
             editor.render();
             renderer.endFrame();
             window.swapBuffers();
-            cpuFrameMilliseconds.push_back(
-                elapsedMilliseconds(frameStart));
+            const double frameCpuMs = elapsedMilliseconds(frameStart);
             IRenderBackend::BackendFrameTimings frameTimings{};
-            if (renderer.getLastFrameTimings(frameTimings)) {
-                presentWaitMilliseconds.push_back(
-                    frameTimings.presentWaitMs);
-                if (frameTimings.gpuFrameValid) {
-                    gpuFrameMilliseconds.push_back(
-                        frameTimings.gpuFrameMs);
+            const bool timingsValid = renderer.getLastFrameTimings(frameTimings);
+            IRenderBackend::BackendFrameStats frameStats{};
+            renderer.getLastFrameStats(frameStats);
+            performance.add({
+                .frameMs = wallFrameMs, .viewportMs = viewportMs, .simulationMs = simulationMs,
+                .presentMs = timingsValid ? frameTimings.presentWaitMs : 0,
+                .gpuMs = frameTimings.gpuFrameMs, .gpuValid = timingsValid && frameTimings.gpuFrameValid,
+                .drawCalls = frameStats.drawCalls, .triangles = frameStats.triangles});
+            // Interactive sessions keep only the bounded live window.
+            if (!arguments.metricsOutput.empty()) {
+                cpuFrameMilliseconds.push_back(frameCpuMs);
+                viewportMilliseconds.push_back(viewportMs);
+                simulationMilliseconds.push_back(simulationMs);
+                if (timingsValid) {
+                    presentWaitMilliseconds.push_back(frameTimings.presentWaitMs);
+                    if (frameTimings.gpuFrameValid) gpuFrameMilliseconds.push_back(frameTimings.gpuFrameMs);
                 }
             }
 
@@ -5336,7 +5377,11 @@ int main(int argc, char** argv) {
             selectedAssetPreviewIndex,
             cpuFrameMilliseconds,
             presentWaitMilliseconds,
-            gpuFrameMilliseconds);
+            gpuFrameMilliseconds,
+            viewportMilliseconds,
+            simulationMilliseconds,
+            performance.latest(),
+            editorViewportWidth, editorViewportHeight);
         if (!arguments.hidden) {
             updateWindowPlacement(
                 window.getSDLWindow(),

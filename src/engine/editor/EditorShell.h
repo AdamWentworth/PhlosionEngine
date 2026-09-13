@@ -3,6 +3,7 @@
 #include "engine/editor/EditorPackagePlugin.h"
 #include "engine/editor/EditorProjectPlugin.h"
 #include "engine/editor/EditorRendererPreference.h"
+#include "engine/editor/EditorPerformance.h"
 
 #include <array>
 #include <cstddef>
@@ -430,6 +431,9 @@ public:
 
     void processEvent(const SDL_Event& event);
     void beginFrame(float deltaSeconds);
+    void setPerformanceOverlayVisible(bool visible);
+    void setPerformanceStats(const EditorPerformanceSnapshot& stats,
+                             const char* buildConfiguration);
     EditorShellActions drawProjectBrowser(
         const ProjectBrowserView& browser);
     EditorShellActions drawWorkspace(
