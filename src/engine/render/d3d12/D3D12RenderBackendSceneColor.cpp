@@ -58,7 +58,8 @@ float4 main(PSIn input) : SV_TARGET {
       linearToSrgbChannel(scene.r),
       linearToSrgbChannel(scene.g),
       linearToSrgbChannel(scene.b),
-      scene.a);
+      // The completed view is opaque when embedded in the editor UI.
+      1.0f);
 }
 )HLSL";
 

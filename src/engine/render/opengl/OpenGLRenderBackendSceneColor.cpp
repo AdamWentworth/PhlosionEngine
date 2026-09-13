@@ -37,7 +37,9 @@ constexpr const char* kSceneColorFragmentShader = R"GLSL(
 
     void main() {
         vec4 scene = texture(uLinearSceneColor, vUv);
-        FragColor = vec4(linearToSrgb(scene.rgb), scene.a);
+        // This is a completed view with its background already composited.
+        // Material alpha must not fade the whole view again in the editor UI.
+        FragColor = vec4(linearToSrgb(scene.rgb), 1.0);
     }
 )GLSL";
 

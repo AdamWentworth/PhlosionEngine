@@ -21,5 +21,7 @@ vec3 encodeNativeSrgb(vec3 linearColor) {
 
 void main() {
     vec4 sceneColor = texture(sceneColorTexture, textureUv);
-    outColor = vec4(encodeNativeSrgb(sceneColor.rgb), sceneColor.a);
+    // Material alpha was already composited over the view's background.
+    // The editor must display the completed image at full opacity.
+    outColor = vec4(encodeNativeSrgb(sceneColor.rgb), 1.0);
 }
