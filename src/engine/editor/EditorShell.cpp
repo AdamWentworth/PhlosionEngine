@@ -127,8 +127,15 @@ void drawSceneScenarioToolbar(const WorkspaceView &workspace, EditorShellActions
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", preview.description.c_str());
                 ImGui::PopID();
             };
+            std::string previousGroup;
             for (std::size_t index = 0; index < workspace.gamePreviews->size(); ++index) {
                 if ((*workspace.gamePreviews)[index].sceneId == workspace.activeSceneId && !workspace.activeSceneId.empty()) {
+                    const auto &group = (*workspace.gamePreviews)[index].group;
+                    if (group != previousGroup) {
+                        if (hasSceneScenarios) ImGui::Separator();
+                        ImGui::TextDisabled("%s", group.c_str());
+                        previousGroup = group;
+                    }
                     drawScenario(index);
                     hasSceneScenarios = true;
                 }
@@ -678,6 +685,7 @@ struct EditorShell::Impl {
         RendererBackend::OpenGL;
     bool ready = false;
     bool firstLayout = true;
+    int workflowTabsToFocus = 0;
     int selectedHierarchyItem = 0;
     std::unordered_map<std::string, bool>
         hierarchyFolderExpanded;
@@ -1384,8 +1392,9 @@ EditorShellActions EditorShell::drawWorkspace(
 
     const ImGuiID dockspaceId =
         ImGui::GetID("PhlosionEditorDockspaceV3");
-    if (impl_->firstLayout &&
-        ImGui::DockBuilderGetNode(dockspaceId) == nullptr) {
+    const bool creatingDefaultLayout = impl_->firstLayout &&
+        ImGui::DockBuilderGetNode(dockspaceId) == nullptr;
+    if (creatingDefaultLayout) {
         impl_->firstLayout = false;
         ImGui::DockBuilderRemoveNode(dockspaceId);
         ImGui::DockBuilderAddNode(
@@ -1413,7 +1422,16 @@ EditorShellActions EditorShell::drawWorkspace(
         ImGui::DockBuilderDockWindow("Console", bottom);
         ImGui::DockBuilderDockWindow("Viewport", center);
         ImGui::DockBuilderFinish(dockspaceId);
+        impl_->workflowTabsToFocus = 2;
     }
+
+    // Newly created tabs auto-select as their windows first appear. Apply the
+    // workspace defaults on the next frame, once both tab bars exist.
+    // Focus one dock per frame; focusing both together selects only the last.
+    const bool focusScenarios = impl_->workflowTabsToFocus == 2 &&
+        ImGui::FindWindowByName("Scenarios") && ImGui::FindWindowByName("Scenes");
+    const bool focusScenes = impl_->workflowTabsToFocus == 1;
+    if (focusScenarios || focusScenes) --impl_->workflowTabsToFocus;
 
     ImGui::DockSpace(
         dockspaceId,
@@ -1619,7 +1637,7 @@ EditorShellActions EditorShell::drawWorkspace(
             impl_->selectedViewport =
                 EditorViewportKind::Scene;
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Inspect and edit the environment with the editor camera.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Inspect the environment with the editor camera. Only objects authored in this editor expose editing controls.");
         ImGui::SameLine();
         if (ImGui::Selectable(
                 "Game",
@@ -1655,7 +1673,15 @@ EditorShellActions EditorShell::drawWorkspace(
             layoutObjectVisibleInViewport(
                 *selectedViewportLayout,
                 impl_->selectedViewport);
-        if (((impl_->selectedViewport ==
+        const bool hasTransformableObjects = workspace.layoutObjects &&
+            std::any_of(workspace.layoutObjects->begin(), workspace.layoutObjects->end(),
+                [&](const WorkspaceLayoutObject &object) {
+                    return layoutObjectVisibleInViewport(object, impl_->selectedViewport) &&
+                        (hasLayoutCapability(object, EditorProjectLayoutTranslate) ||
+                         hasLayoutCapability(object, EditorProjectLayoutRotate) ||
+                         hasLayoutCapability(object, EditorProjectLayoutScale));
+                });
+        if (hasTransformableObjects && ((impl_->selectedViewport ==
                   EditorViewportKind::Scene &&
               !editorPackagesCaptureSceneViewport(workspace)) ||
              (impl_->selectedViewport ==
@@ -1841,6 +1867,8 @@ EditorShellActions EditorShell::drawWorkspace(
                 static_cast<int>(objects.size() - 1u));
             ImDrawList* drawList =
                 ImGui::GetWindowDrawList();
+            drawList->PushClipRect(origin,
+                ImVec2(origin.x + viewportWidth, origin.y + viewportHeight), true);
             const ImVec2 mouse = ImGui::GetMousePos();
             int hoveredObject = -1;
             float hoveredObjectDistance =
@@ -2376,6 +2404,7 @@ EditorShellActions EditorShell::drawWorkspace(
                     : kind == EditorViewportKind::Game
                     ? "PREVIEW UNIT EDIT - click a unit marker; W moves, E rotates, runtime scale stays locked"
                     : "EDIT MODE - click, Ctrl/Shift-click, or drag empty space; W/E/R edits primary");
+            drawList->PopClipRect();
         } else if (
             impl_->layoutGizmoDragging ||
             impl_->layoutBoxSelecting) {
@@ -2510,8 +2539,9 @@ EditorShellActions EditorShell::drawWorkspace(
             ImGui::SetNextWindowDockID(oldSettings->DockId, ImGuiCond_FirstUseEver);
         }
     }
+    if (focusScenarios) ImGui::SetNextWindowFocus();
     ImGui::Begin("Scenarios");
-    ImGui::TextWrapped("Starting setups for the open scene. Load one, then press Play.");
+    ImGui::TextWrapped("Select a setup for this location, then press Play. Tests use prepared teams.");
     ImGui::Separator();
     const auto* gamePreviews = workspace.gamePreviews;
     if (!gamePreviews || gamePreviews->empty()) {
@@ -2586,9 +2616,6 @@ EditorShellActions EditorShell::drawWorkspace(
                 const auto& preview =
                     (*gamePreviews)[index];
                 ImGui::PushID(static_cast<int>(index));
-                const bool selected =
-                    impl_->selectedGamePreview ==
-                    static_cast<int>(index);
                 const bool active =
                     preview.id == activePreviewId;
                 const std::string label =
@@ -2596,15 +2623,12 @@ EditorShellActions EditorShell::drawWorkspace(
                     (active ? "  [active]" : "");
                 if (ImGui::Selectable(
                         label.c_str(),
-                        selected)) {
+                        active)) {
                     impl_->selectedGamePreview =
                         static_cast<int>(index);
-                    if (ImGui::IsMouseDoubleClicked(
-                            ImGuiMouseButton_Left)) {
-                        actions.selectGamePreviewIndex =
-                            static_cast<int>(index);
-                    }
+                    actions.selectGamePreviewIndex = static_cast<int>(index);
                 }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", preview.description.c_str());
                 ImGui::PopID();
             };
 
@@ -2626,8 +2650,15 @@ EditorShellActions EditorShell::drawWorkspace(
             ImGui::TextDisabled(
                 "Current Scene - %s",
                 sceneName.c_str());
+            std::string previousGroup;
             for (const std::size_t index :
                  scenePreviewIndices) {
+                const auto &group = (*gamePreviews)[index].group;
+                if (group != previousGroup) {
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("%s", group.c_str());
+                    previousGroup = group;
+                }
                 drawPreview(index);
             }
         } else {
@@ -2665,7 +2696,7 @@ EditorShellActions EditorShell::drawWorkspace(
             "%s",
             selected.description.c_str());
         if (ImGui::Button(
-                "Load Scenario",
+                "Reload Starting Setup",
                 ImVec2(-1.0f, 32.0f))) {
             actions.selectGamePreviewIndex =
                 impl_->selectedGamePreview;
@@ -2778,8 +2809,6 @@ EditorShellActions EditorShell::drawWorkspace(
                 actions.layoutOverlayVisibilityChanged = true;
                 actions.layoutOverlayVisible = overlayVisible;
             }
-            ImGui::TextDisabled(
-                "Canonical source stays locked; edits are saved as project-owned overrides.");
             ImGui::Spacing();
         }
         if (workspace.projectCommands) {
@@ -3783,8 +3812,9 @@ EditorShellActions EditorShell::drawWorkspace(
             : 0u);
     ImGui::End();
 
+    if (focusScenes) ImGui::SetNextWindowFocus();
     ImGui::Begin("Scenes");
-    ImGui::TextWrapped("Locations and environments. Choose a starting setup from Scenario above the viewport.");
+    ImGui::TextWrapped("Select a location to open it. Scenarios choose the starting setup within that location.");
     ImGui::Separator();
     if (!workspace.scenes || workspace.scenes->empty()) {
         ImGui::TextWrapped(
@@ -3822,25 +3852,16 @@ EditorShellActions EditorShell::drawWorkspace(
                          : "");
             if (ImGui::Selectable(
                     sceneLabel.c_str(),
-                    impl_->inspectorSelection ==
-                            InspectorSelectionDomain::Scene &&
-                        impl_->selectedScene ==
-                            static_cast<int>(index))) {
+                    active)) {
                 impl_->selectedScene =
                     static_cast<int>(index);
                 impl_->inspectorSelection =
                     InspectorSelectionDomain::Scene;
-                if (ImGui::IsMouseDoubleClicked(
-                        ImGuiMouseButton_Left)) {
+                if (!active) {
                     actions.openSceneIndex =
                         static_cast<int>(index);
                 }
             }
-            ImGui::SameLine();
-            ImGui::TextDisabled(
-                "%s / %s",
-                scene.status.c_str(),
-                scene.environmentDisplayName.c_str());
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip(
                     "%s\nEnvironment: %s (%s)\n%s%s%s",
@@ -3861,21 +3882,8 @@ EditorShellActions EditorShell::drawWorkspace(
         }
         ImGui::Spacing();
         ImGui::Separator();
-        const auto& selected =
-            (*workspace.scenes)[
-                static_cast<std::size_t>(
-                    impl_->selectedScene)];
         ImGui::TextWrapped(
-            "Opening a scene changes the location and its available scenarios. Scene view edits the environment; Game view shows the selected scenario.");
-        if (ImGui::Button(
-                selected.id ==
-                        workspace.activeSceneId
-                    ? "Focus Open Scene"
-                    : "Open Scene",
-                ImVec2(-1.0f, 30.0f))) {
-            actions.openSceneIndex =
-                impl_->selectedScene;
-        }
+            "Scene view inspects the environment. Game view shows the selected setup and its editable starting positions.");
     }
     ImGui::End();
 

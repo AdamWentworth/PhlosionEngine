@@ -1750,6 +1750,23 @@ void writeAutomationMetrics(
             {"shadow_triangles", projectStats.shadowTriangleCount},
             {"archive_file_count", projectStats.archiveFileCount},
             {"load_total_ms", project->totalLoadMilliseconds}};
+        auto& editorContents = document["project"]["editor_contents"];
+        editorContents["scenes"] = nlohmann::json::array();
+        for (const auto& scene : project->sceneViews) {
+            editorContents["scenes"].push_back({
+                {"id", scene.id}, {"category", scene.category}});
+        }
+        editorContents["scenarios"] = nlohmann::json::array();
+        for (const auto& preview : project->gamePreviewViews) {
+            editorContents["scenarios"].push_back({
+                {"id", preview.id}, {"scene_id", preview.sceneId}, {"group", preview.group}});
+        }
+        editorContents["layout_objects"] = nlohmann::json::array();
+        for (const auto& object : project->layoutObjectViews) {
+            editorContents["layout_objects"].push_back({
+                {"id", object.stableId}, {"capabilities", object.capabilities},
+                {"viewport_mask", object.viewportMask}, {"viewport_visible", object.viewportVisible}});
+        }
         nlohmann::json phases = nlohmann::json::object();
         for (const auto& [phase, milliseconds] :
              project->loadPhaseMilliseconds) {
