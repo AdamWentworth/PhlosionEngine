@@ -60,6 +60,11 @@
 
 namespace {
 
+struct ScheduledSceneOpen {
+    int frame = 0;
+    std::string sceneId;
+};
+
 struct Arguments {
     std::filesystem::path project;
     std::string gamePreview;
@@ -86,6 +91,7 @@ struct Arguments {
     std::optional<bool> autoReload;
     int exitAfterGameplayReloads = 0;
     int frameLimit = 0;
+    std::vector<ScheduledSceneOpen> sceneOpens;
 };
 
 struct WindowPlacement {
@@ -154,6 +160,7 @@ Arguments parseArguments(int argc, char** argv) {
         constexpr std::string_view assetPreviewTargetOffsetYPrefix =
             "--asset-preview-target-offset-y=";
         constexpr std::string_view framesPrefix = "--frames=";
+        constexpr std::string_view sceneOpenPrefix = "--open-scene-at=";
         constexpr std::string_view rendererPrefix =
             "--renderer=";
         constexpr std::string_view stateDirectoryPrefix =
@@ -168,6 +175,20 @@ Arguments parseArguments(int argc, char** argv) {
             "--scene-camera-target=";
         if (argument.rfind(projectPrefix, 0u) == 0u) {
             result.project = argument.substr(projectPrefix.size());
+        } else if (argument.rfind(sceneOpenPrefix, 0u) == 0u) {
+            const std::string value = argument.substr(sceneOpenPrefix.size());
+            const auto colon = value.find(':');
+            std::size_t consumed = 0u;
+            const int frame = std::stoi(value.substr(0u, colon), &consumed);
+            if (colon == std::string::npos || consumed != colon ||
+                frame < 1 || colon + 1u == value.size() ||
+                (!result.sceneOpens.empty() &&
+                 frame <= result.sceneOpens.back().frame)) {
+                throw std::runtime_error(
+                    "--open-scene-at requires FRAME:SCENE_ID in increasing "
+                    "frame order, starting after frame zero.");
+            }
+            result.sceneOpens.push_back({frame, value.substr(colon + 1u)});
         } else if (
             argument.rfind(gamePreviewPrefix, 0u) == 0u) {
             result.gamePreview =
@@ -3559,6 +3580,7 @@ int main(int argc, char** argv) {
 
         bool running = true;
         int frameCount = 0;
+        std::size_t nextSceneOpen = 0u;
         float simulationSeconds = 0.0f;
         engine::editor::EditorPlayState playState =
             engine::editor::EditorPlayState::Editing;
@@ -5121,6 +5143,23 @@ int main(int argc, char** argv) {
                         << project->status << '\n';
                 }
             }
+            // Exercise the normal scene-selection path after rendering previous
+            // frames, keeping GPU caches alive for transition regression captures.
+            const bool scheduledSceneOpen = nextSceneOpen < arguments.sceneOpens.size() &&
+                frameCount == arguments.sceneOpens[nextSceneOpen].frame;
+            if (scheduledSceneOpen) {
+                const auto& request = arguments.sceneOpens[nextSceneOpen];
+                if (!project) {
+                    throw std::runtime_error("Scheduled scene open has no loaded project.");
+                }
+                const auto scene = std::find_if(
+                    project->sceneViews.begin(), project->sceneViews.end(),
+                    [&request](const auto& candidate) { return candidate.id == request.sceneId; });
+                if (scene == project->sceneViews.end()) {
+                    throw std::runtime_error("Unknown scheduled scene: " + request.sceneId);
+                }
+                actions.openSceneIndex = static_cast<int>(scene - project->sceneViews.begin());
+            }
             if (project &&
                 actions.openSceneIndex >= 0 &&
                 static_cast<std::size_t>(
@@ -5168,6 +5207,9 @@ int main(int argc, char** argv) {
                         project->status =
                             "Scene open failed: " +
                             sceneError;
+                        if (scheduledSceneOpen) {
+                            throw std::runtime_error(project->status);
+                        }
                     } else {
                         project->activeSceneIndex =
                             requestedSceneIndex;
@@ -5221,6 +5263,11 @@ int main(int argc, char** argv) {
                             scene.displayName + ".";
                     }
                 }
+            }
+            if (scheduledSceneOpen) {
+                std::cout << "[Phlosion Editor][SceneSwitch] frame=" << frameCount
+                          << " scene=" << arguments.sceneOpens[nextSceneOpen].sceneId << '\n';
+                ++nextSceneOpen;
             }
             if (project &&
                 actions.launchPlayConfigurationIndex >= 0 &&
@@ -5276,6 +5323,9 @@ int main(int argc, char** argv) {
             }
         }
 
+        if (nextSceneOpen != arguments.sceneOpens.size()) {
+            throw std::runtime_error("Editor exited before all scheduled scene opens completed.");
+        }
         writeAutomationMetrics(
             arguments,
             project.get(),

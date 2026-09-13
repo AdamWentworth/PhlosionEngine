@@ -65,6 +65,13 @@ Scene-view captures can set a deterministic inspection pose with
 `--scene-camera-position=x,y,z` and `--scene-camera-target=x,y,z`. Position is
 applied before the camera looks at the target, so a fresh state directory does
 not need an interactive camera gesture to reproduce a close-up.
+Use repeatable `--open-scene-at=FRAME:SCENE_ID` arguments to test scene changes
+without restarting the renderer or discarding GPU caches. Frames are zero-based;
+requests must be strictly increasing and start after frame zero, for example
+`--open-scene-at=40:maps/second --open-scene-at=80:maps/first --frames=120`.
+Each request follows the same action as selecting a scene in the editor and
+logs `[Phlosion Editor][SceneSwitch] frame=... scene=...` after success. Invalid
+scene IDs, load failures and exiting before all requests complete fail the run.
 `--fixed-delta` makes animation/simulation input deterministic. The metrics
 document records project-load phases, all-frame and post-warmup CPU/present/GPU
 summaries, last-frame backend submission statistics, project statistics, and
