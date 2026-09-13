@@ -1680,7 +1680,10 @@ EditorShellActions EditorShell::drawWorkspace(
             impl_->selectedViewport =
                 EditorViewportKind::Scene;
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Inspect the environment with the editor camera. Only objects authored in this editor expose editing controls.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "Inspect the environment with the editor camera. Only objects authored in this editor expose editing controls.\n"
+            "For editable objects: click, Ctrl/Shift-click, or drag empty space to select; W/E/R moves, rotates, or scales.\n"
+            "Release a transform drag to save; Esc cancels it.");
         ImGui::SameLine();
         if (ImGui::Selectable(
                 "Game",
@@ -1691,7 +1694,10 @@ EditorShellActions EditorShell::drawWorkspace(
             impl_->selectedViewport =
                 EditorViewportKind::Game;
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Inspect and place units in the selected scenario. Press Play to run it.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "Inspect and place units in the selected scenario. Press Play to run it.\n"
+            "While stopped: click a unit marker; W moves, E rotates.\n"
+            "Release a transform drag to save; Esc cancels it.");
         if (ImGui::GetContentRegionAvail().x >= 480.0f) ImGui::SameLine();
         drawPlayControls(workspace, actions);
         ImGui::SameLine();
@@ -2449,16 +2455,6 @@ EditorShellActions EditorShell::drawWorkspace(
                 }
             }
 
-            drawList->AddText(
-                ImVec2(origin.x + 12.0f, origin.y + 12.0f),
-                IM_COL32(235, 245, 240, 220),
-                impl_->layoutGizmoDragging
-                    ? "LIVE EDIT - release to autosave, Esc to cancel"
-                    : impl_->layoutBoxSelecting
-                    ? "BOX SELECT - release to select enclosed objects"
-                    : kind == EditorViewportKind::Game
-                    ? "PREVIEW UNIT EDIT - click a unit marker; W moves, E rotates, runtime scale stays locked"
-                    : "EDIT MODE - click, Ctrl/Shift-click, or drag empty space; W/E/R edits primary");
             drawList->PopClipRect();
         } else if (
             impl_->layoutGizmoDragging ||
