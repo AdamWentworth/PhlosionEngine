@@ -173,6 +173,18 @@ struct GameplayBuildProcess::Impl {
 };
 GameplayBuildProcess::GameplayBuildProcess() : impl_(std::make_unique<Impl>()) {}
 GameplayBuildProcess::~GameplayBuildProcess() = default;
+bool GameplayBuildProcess::startCMake(const std::filesystem::path& buildDirectory,
+    const std::string& configuration, const std::string& target,
+    const std::filesystem::path& workingDirectory,
+    const std::filesystem::path& logPath, std::string& error) {
+    const auto cmake = cmakeExecutable(buildDirectory);
+    if (cmake.empty()) { error = "Configure the project's CMake build directory first."; return false; }
+    std::error_code ec;
+    std::filesystem::create_directories(logPath.parent_path(), ec);
+    if (ec) { error = ec.message(); return false; }
+    return start(cmake, {"--build", buildDirectory.string(), "--config", configuration,
+        "--target", target, "--parallel", "4"}, workingDirectory, logPath, error);
+}
 bool GameplayBuildProcess::start(const std::filesystem::path& executable,
     const std::vector<std::string>& arguments, const std::filesystem::path& workingDirectory,
     const std::filesystem::path& logPath, std::string& error) {

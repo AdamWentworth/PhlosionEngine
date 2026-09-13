@@ -323,6 +323,7 @@ struct ProjectBrowserView {
 };
 
 struct EditorShellActions {
+    bool recordPerformance = false;
     bool rebuildGameplay = false;
     bool toggleGameplayAutoReload = false;
     bool openProject = false;
@@ -434,6 +435,8 @@ public:
     void setPerformanceOverlayVisible(bool visible);
     void setPerformanceStats(const EditorPerformanceSnapshot& stats,
                              const char* buildConfiguration);
+    void setPerformanceRecordingStatus(bool recording, double remainingSeconds,
+                                       const std::string& report);
     EditorShellActions drawProjectBrowser(
         const ProjectBrowserView& browser);
     EditorShellActions drawWorkspace(

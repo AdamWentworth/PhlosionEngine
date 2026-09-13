@@ -9,8 +9,10 @@ actual elapsed time, independent of `--fixed-delta` and simulation speed.
 GPU time covers the complete editor frame; Game/Scene CPU covers the viewport
 render callback and its layout refresh, and Sim CPU covers gameplay ticks.
 Whole-frame timings also include editor UI, driver waits and presentation.
-Missing GPU queries display `n/a`. Use Release for everyday play/performance
-evaluation; Debug deliberately retains expensive diagnostics and unoptimized code.
+Missing GPU queries display `n/a`. Use Development (`RelWithDebInfo`) for daily
+work: optimized C++, symbols, assertions and release-runtime ABI. Release remains
+the shipping baseline; Debug is a diagnostic configuration. Match the editor
+and project DLL configuration; the UI calls RelWithDebInfo Development.
 
 `--metrics-output` also records viewport/simulation CPU summaries, actual viewport
 dimensions, build configuration and the live stats sample. Set
@@ -18,6 +20,35 @@ dimensions, build configuration and the live stats sample. Set
 Use a separate screenshot run: image readback/writes distort frame timings.
 The interactive HUD uses a bounded half-second accumulator; historical frame
 arrays are collected only when an automation metrics output is requested.
+
+## Performance recordings and standalone play
+
+**Performance > Record 30 Seconds** (also beside Stats) excludes two seconds of
+warmup, records a bounded frame history, then opens a summary. Reports contain
+mean, nearest-rank p95 and worst timings, valid GPU sample counts, per-frame
+CPU/GPU data, project/scene/scenario/profile/API/resolution metadata, and the
+starting camera and layout. Default output is `.phlosion/performance` beneath
+the project. Changing the measurement context or building code cancels a run;
+partial runs are discarded. Camera movement and simulation changes within a
+running scenario remain part of the measured workload.
+
+Automation uses the same recording path:
+`--record-performance-at=40 --record-performance-seconds=30
+--record-performance-warmup-seconds=2 --performance-output=<file.json>`.
+
+The **Play** menu exposes the project's `play_configurations`. Optional paired
+`build_directory` and `build_target` fields run an asynchronous incremental CMake
+build using the editor configuration before launch; failure never launches an
+old executable. Build and working directories must be portable project-relative
+paths. The host serializes these builds with gameplay reload. Environment values
+exactly equal to `{renderer}` resolve to the active native API. Projects determine
+whether the executable opens a fresh game or a particular scenario.
+
+A successful standalone launch pauses embedded play and minimizes the editor.
+Minimized interactive editors suspend rendering and simulation to release GPU
+capacity; hidden automation continues rendering normally. Restore the window to
+resume editing. `--launch-play=<id> --exit-after-play-launch` exercises the same
+build/launch action in automation and reports errors as failure exit codes.
 
 ## Startup and automation
 

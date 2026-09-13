@@ -407,6 +407,12 @@ bool parseProjectDescriptor(
                     playJson.value(
                         "arguments",
                         std::vector<std::string>{});
+                configuration.buildDirectory = playJson.value("build_directory", std::string{});
+                configuration.buildTarget = playJson.value("build_target", std::string{});
+                if (configuration.buildDirectory.empty() != configuration.buildTarget.empty() ||
+                    (!configuration.buildDirectory.empty() && !isPortableRelativePath(configuration.buildDirectory))) {
+                    return fail("Play builds require both a portable relative build_directory and a build_target.", outError);
+                }
 
                 if (configuration.id.empty() ||
                     configuration.displayName.empty() ||

@@ -3,6 +3,7 @@
 #endif
 
 #include "engine/editor/EditorShell.h"
+#include "engine/editor/EditorBuildProfile.h"
 
 #include <algorithm>
 #include <array>
@@ -694,6 +695,10 @@ struct EditorShell::Impl {
     int selectedGamePreview = 0;
     bool preferencesOpen = false;
     bool showPerformance = false;
+    bool recordingPerformance = false;
+    bool performanceReportOpen = false;
+    double recordingSeconds = 0;
+    std::string performanceReport;
     EditorPerformanceSnapshot performance;
     std::string buildConfiguration;
     EditorRendererPreference pendingRendererPreference =
@@ -1022,6 +1027,14 @@ void EditorShell::processEvent(const SDL_Event& event) {
 
 void EditorShell::setPerformanceOverlayVisible(bool visible) {
     impl_->showPerformance = visible;
+}
+
+void EditorShell::setPerformanceRecordingStatus(bool recording, double remainingSeconds,
+                                               const std::string& report) {
+    impl_->recordingPerformance = recording;
+    impl_->recordingSeconds = remainingSeconds;
+    if (!report.empty() && report != impl_->performanceReport) impl_->performanceReportOpen = true;
+    impl_->performanceReport = report;
 }
 
 void EditorShell::setPerformanceStats(const EditorPerformanceSnapshot& stats,
@@ -1562,6 +1575,23 @@ EditorShellActions EditorShell::drawWorkspace(
                         EditorPlayState::Paused)) {
                 actions.step = true;
             }
+            if (workspace.playConfigurations && !workspace.playConfigurations->empty()) {
+                ImGui::Separator();
+                for (std::size_t i = 0; i < workspace.playConfigurations->size(); ++i) {
+                    const auto& configuration = (*workspace.playConfigurations)[i];
+                    if (ImGui::MenuItem(configuration.displayName.c_str(), nullptr, false, configuration.available && !workspace.gameplayBuilding))
+                        actions.launchPlayConfigurationIndex = static_cast<int>(i);
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                        ImGui::SetTooltip("%s", configuration.description.c_str());
+                }
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Performance")) {
+            if (ImGui::MenuItem("Show Stats", nullptr, impl_->showPerformance)) impl_->showPerformance = !impl_->showPerformance;
+            if (ImGui::MenuItem(impl_->recordingPerformance ? "Cancel Recording" : "Record 30 Seconds", nullptr,
+                                false, !workspace.gameplayBuilding)) actions.recordPerformance = true;
+            if (ImGui::MenuItem("Last Report", nullptr, false, !impl_->performanceReport.empty())) impl_->performanceReportOpen = true;
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("View")) {
@@ -1666,6 +1696,12 @@ EditorShellActions EditorShell::drawWorkspace(
         drawPlayControls(workspace, actions);
         ImGui::SameLine();
         ImGui::Checkbox("Stats", &impl_->showPerformance);
+        ImGui::SameLine();
+        if (ImGui::SmallButton(impl_->recordingPerformance ? "Cancel Recording" : "Record 30s")) actions.recordPerformance = true;
+        if (impl_->recordingPerformance) {
+            ImGui::SameLine();
+            ImGui::Text("%.0fs", impl_->recordingSeconds);
+        }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip(
             "Real editor FPS and frame/GPU time, including editor UI and presentation.\n"
             "Viewport CPU measures Scene/Game rendering; Sim CPU measures gameplay ticks.\n"
@@ -2440,7 +2476,7 @@ EditorShellActions EditorShell::drawWorkspace(
             std::snprintf(label, sizeof(label),
                 "Editor %s | %s | %.0f FPS\nFrame %.2f ms | GPU %s\n"
                 "%s CPU %.2f ms | Sim %.2f ms\n%llu draws | %llu tris | %dx%d",
-                impl_->buildConfiguration.c_str(), text(workspace.backendName).c_str(), perf.fps,
+                std::string(buildProfileName(impl_->buildConfiguration)).c_str(), text(workspace.backendName).c_str(), perf.fps,
                 perf.frameMs, gpu, kind == EditorViewportKind::Game ? "Game" : "Scene",
                 perf.viewportMs, perf.simulationMs,
                 static_cast<unsigned long long>(perf.drawCalls),
@@ -2467,6 +2503,13 @@ EditorShellActions EditorShell::drawWorkspace(
     }
     ImGui::End();
 
+    if (impl_->performanceReportOpen) {
+        ImGui::SetNextWindowSize(ImVec2(590, 270), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Performance Report", &impl_->performanceReportOpen)) {
+            ImGui::TextWrapped("%s", impl_->performanceReport.c_str());
+        }
+        ImGui::End();
+    }
     ImGui::Begin("Scene Hierarchy");
     ImGui::TextDisabled("%s", text(workspace.sceneId).c_str());
     ImGui::Separator();

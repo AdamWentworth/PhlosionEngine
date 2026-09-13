@@ -96,6 +96,8 @@ bool test_editor_gameplay_reload(std::string& outFail) {
         GetModuleFileNameW(nullptr, executablePath, 32768);
         const auto executable = std::filesystem::path(executablePath);
         GameplayBuildProcess process;
+        require(!process.startCMake(root / "not configured", "RelWithDebInfo", "TestGame", root,
+            root / "standalone.log", error) && !error.empty(), "An unconfigured standalone build must fail before launch.");
         const auto log = root / "build output.log";
         require(process.start(executable, {"--reload-child", "7", "failed"}, root, log, error), "Asynchronous child launch failed.");
         std::optional<int> code;

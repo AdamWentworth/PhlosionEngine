@@ -1,4 +1,6 @@
 #include "engine/editor/EditorPerformance.h"
+#include "engine/editor/EditorPerformanceRecording.h"
+#include "engine/editor/EditorBuildProfile.h"
 #include <cmath>
 #include <limits>
 #include <string>
@@ -23,6 +25,26 @@ bool test_editor_performance_contract(std::string& error) {
         second.viewportMs != 4 || second.simulationMs != 1) {
         error = "A new stats window must discard old GPU readings and invalid frame intervals.";
         return false;
+    }
+    EditorPerformanceRecording recording;
+    recording.start(.1, .05);
+    recording.add({.frameMs=50}); // Warmup is excluded even if it contains a spike.
+    for (int i = 0; i < 9; ++i) {
+        if (recording.add({.frameMs=10})) { error="Recording ended early."; return false; }
+    }
+    if (!recording.add({.frameMs=10}) || recording.active() || recording.samples().size() != 10) {
+        error="A recording must end on real elapsed frame time with warmup excluded."; return false;
+    }
+    const auto metric = summarizePerformance({1, 2, 3, 4, 90, -1, std::numeric_limits<double>::quiet_NaN()});
+    if (metric.samples != 5 || metric.meanMs != 20 || metric.p95Ms != 90 || metric.maxMs != 90) {
+        error="Recordings must retain frame spikes and reject invalid observations."; return false;
+    }
+    recording.start(.1, 0);
+    recording.add({.frameMs=10});
+    recording.cancel();
+    if (recording.add({.frameMs=100}) || !recording.samples().empty() ||
+        buildProfileName("RelWithDebInfo") != "Development" || buildProfileName("Debug") != "Debug") {
+        error="Cancellation must discard partial data; build profiles must identify the optimized development build."; return false;
     }
     return true;
 }

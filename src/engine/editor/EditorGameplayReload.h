@@ -64,6 +64,10 @@ public:
         const std::vector<std::string>& arguments,
         const std::filesystem::path& workingDirectory,
         const std::filesystem::path& logPath, std::string& error);
+    bool startCMake(const std::filesystem::path& buildDirectory,
+        const std::string& configuration, const std::string& target,
+        const std::filesystem::path& workingDirectory,
+        const std::filesystem::path& logPath, std::string& error);
     std::optional<int> poll();
 private:
     struct Impl;

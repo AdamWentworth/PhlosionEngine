@@ -81,6 +81,8 @@ bool test_project_descriptor_contract(std::string& outFail) {
                 "description": "Run the real game frontend.",
                 "executable": "build/{config}/TestGame.exe",
                 "working_directory": ".",
+                "build_directory": "build",
+                "build_target": "TestGame",
                 "arguments": ["--editor-preview"],
                 "environment": {
                     "TEST_GAME_VIEW": "main-menu"
@@ -124,6 +126,8 @@ bool test_project_descriptor_contract(std::string& outFail) {
         project.editorPackages.front().version != "0.1.0" ||
         project.playConfigurations.front().id != "main-menu" ||
         project.playConfigurations.front().arguments.size() != 1u ||
+        project.playConfigurations.front().buildDirectory != "build" ||
+        project.playConfigurations.front().buildTarget != "TestGame" ||
         project.playConfigurations.front().environment.size() != 1u ||
         project.privateAssetDepotEnvironment !=
             "PHLOSION_ASSET_DEPOT") {
@@ -324,6 +328,15 @@ bool test_project_descriptor_contract(std::string& outFail) {
             nullptr)) {
         outFail = "descriptor accepted a non-locked package version";
         return false;
+    }
+    for (const auto& replacement : {std::string("\"build_directory\": \"../outside\""), std::string("\"build_directory\": \"\" ")}) {
+        std::string invalidBuild(kProject);
+        const std::string original = "\"build_directory\": \"build\"";
+        invalidBuild.replace(invalidBuild.find(original), original.size(), replacement);
+        if (engine::editor::parseProjectDescriptor(invalidBuild, project, nullptr)) {
+            outFail = "Standalone build accepted an escaping path or missing build directory.";
+            return false;
+        }
     }
     std::string projectWithoutPackages(kProject);
     const auto packageBlockStart =

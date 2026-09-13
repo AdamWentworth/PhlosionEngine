@@ -7,6 +7,8 @@
 #include "engine/editor/D3D12EditorRenderSurface.h"
 #include "engine/editor/EditorGamePreviewRouting.h"
 #include "engine/editor/EditorGameplayReload.h"
+#include "engine/editor/EditorPerformanceRecording.h"
+#include "engine/editor/EditorBuildProfile.h"
 #include "engine/editor/EditorRenderSurface.h"
 #include "engine/editor/EditorRendererPreference.h"
 #include "engine/editor/EditorShell.h"
@@ -36,6 +38,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iomanip>
+#include <sstream>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -89,6 +93,12 @@ struct Arguments {
     std::optional<glm::vec3> sceneCameraTarget;
     bool hidden = false;
     bool showStats = false;
+    int recordPerformanceAt = -1;
+    std::string launchPlayId;
+    bool exitAfterPlayLaunch = false;
+    double recordPerformanceSeconds = 30;
+    double recordPerformanceWarmupSeconds = 2;
+    std::filesystem::path performanceOutput;
     int metricsWarmupSamples = 10;
     std::optional<bool> autoReload;
     int exitAfterGameplayReloads = 0;
@@ -386,6 +396,23 @@ Arguments parseArguments(int argc, char** argv) {
             result.hidden = true;
         } else if (argument == "--stats") {
             result.showStats = true;
+        } else if (argument.starts_with("--launch-play=")) {
+            result.launchPlayId = argument.substr(std::string_view("--launch-play=").size());
+        } else if (argument == "--exit-after-play-launch") {
+            result.exitAfterPlayLaunch = true;
+        } else if (argument.starts_with("--record-performance-at=")) {
+            result.recordPerformanceAt = std::stoi(argument.substr(std::string_view("--record-performance-at=").size()));
+            if (result.recordPerformanceAt < 0) throw std::runtime_error("Recording frame must be non-negative.");
+        } else if (argument.starts_with("--record-performance-seconds=")) {
+            result.recordPerformanceSeconds = std::stod(argument.substr(std::string_view("--record-performance-seconds=").size()));
+            if (!std::isfinite(result.recordPerformanceSeconds) || result.recordPerformanceSeconds < .1 || result.recordPerformanceSeconds > 300)
+                throw std::runtime_error("Recording duration must be between 0.1 and 300 seconds.");
+        } else if (argument.starts_with("--performance-output=")) {
+            result.performanceOutput = argument.substr(std::string_view("--performance-output=").size());
+        } else if (argument.starts_with("--record-performance-warmup-seconds=")) {
+            result.recordPerformanceWarmupSeconds = std::stod(argument.substr(std::string_view("--record-performance-warmup-seconds=").size()));
+            if (!std::isfinite(result.recordPerformanceWarmupSeconds) || result.recordPerformanceWarmupSeconds < 0 || result.recordPerformanceWarmupSeconds > 30)
+                throw std::runtime_error("Recording warmup must be between 0 and 30 seconds.");
         } else if (argument.starts_with("--metrics-warmup-samples=")) {
             result.metricsWarmupSamples = std::stoi(argument.substr(std::string_view("--metrics-warmup-samples=").size()));
             if (result.metricsWarmupSamples < 0) throw std::runtime_error("Metrics warmup must be non-negative.");
@@ -2935,9 +2962,9 @@ std::unique_ptr<LoadedProject> loadProject(
         std::error_code executableError;
         std::error_code directoryError;
         const bool available =
-            std::filesystem::is_regular_file(
+            (!configuration.buildTarget.empty() || std::filesystem::is_regular_file(
                 executable,
-                executableError) &&
+                executableError)) &&
             !executableError &&
             std::filesystem::is_directory(
                 workingDirectory,
@@ -3630,6 +3657,80 @@ int main(int argc, char** argv) {
         std::vector<double> viewportMilliseconds;
         std::vector<double> simulationMilliseconds;
         engine::editor::EditorPerformanceWindow performance;
+        engine::editor::EditorPerformanceRecording recording;
+        nlohmann::json recordingContext;
+        nlohmann::json recordingSetup;
+        std::string recordingReport;
+        std::unique_ptr<engine::editor::GameplayBuildProcess> standaloneBuild;
+        std::size_t standaloneIndex = 0;
+        bool commandLinePlayApplied = false;
+        const auto launchStandalone = [&](std::size_t index) {
+            auto resolved = project->playConfigurations[index];
+            auto configuration = *resolved.configuration;
+            for (auto& variable : configuration.environment)
+                if (variable.value == "{renderer}") variable.value = renderer.backendId();
+            resolved.configuration = &configuration;
+            std::string error;
+            if (!launchPlayConfiguration(resolved, error)) {
+                project->status = "Standalone launch failed: " + error;
+                if (arguments.exitAfterPlayLaunch) throw std::runtime_error(project->status);
+            } else {
+                if (playState == engine::editor::EditorPlayState::Playing)
+                    playState = engine::editor::EditorPlayState::Paused;
+                if (!arguments.hidden) SDL_MinimizeWindow(window.getSDLWindow());
+                project->status = "Launched standalone: " + configuration.displayName;
+                if (arguments.exitAfterPlayLaunch) running = false;
+            }
+            std::clog << "[Standalone] " << project->status << '\n';
+        };
+        const auto finishRecording = [&]() {
+            using namespace engine::editor;
+            nlohmann::json document{{"schema", "phlosion-performance-recording-v1"}, {"context", recordingContext}};
+            document["starting_setup"] = recordingSetup;
+            document["warmup_seconds"] = arguments.recordPerformanceWarmupSeconds;
+            std::vector<double> frames, viewport, simulation, gpu, present;
+            for (const auto& sample : recording.samples()) {
+                frames.push_back(sample.frameMs); viewport.push_back(sample.viewportMs);
+                simulation.push_back(sample.simulationMs); present.push_back(sample.presentMs);
+                if (sample.gpuValid) gpu.push_back(sample.gpuMs);
+            }
+            const auto metric = [](const std::vector<double>& values) {
+                const auto m = summarizePerformance(values);
+                return nlohmann::json{{"samples", m.samples}, {"mean_ms", m.meanMs}, {"p95_ms", m.p95Ms}, {"max_ms", m.maxMs}};
+            };
+            document["frame"] = metric(frames); document["viewport_cpu"] = metric(viewport);
+            document["simulation_cpu"] = metric(simulation); document["gpu"] = metric(gpu);
+            document["present_wait"] = metric(present);
+            document["frames"] = nlohmann::json::array();
+            for (const auto& s : recording.samples()) document["frames"].push_back({
+                {"frame_ms",s.frameMs},{"viewport_cpu_ms",s.viewportMs},{"simulation_cpu_ms",s.simulationMs},
+                {"gpu_ms",s.gpuValid ? nlohmann::json(s.gpuMs) : nlohmann::json(nullptr)},
+                {"draws",s.drawCalls},{"triangles",s.triangles}});
+            const auto stamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            auto output = arguments.performanceOutput;
+            if (output.empty()) output = project->descriptorPath.parent_path() / ".phlosion" / "performance" /
+                ("recording-" + std::to_string(stamp) + ".json");
+            try {
+                if (!output.parent_path().empty()) std::filesystem::create_directories(output.parent_path());
+                std::ofstream stream(output);
+                stream << document.dump(2);
+                stream.flush();
+                if (!stream) throw std::runtime_error("Could not write " + output.string());
+                const auto f = summarizePerformance(frames), g = summarizePerformance(gpu);
+                std::ostringstream summary;
+                summary << std::fixed << std::setprecision(2)
+                    << "Editor recording: " << frames.size() << " frames\n"
+                    << "Frame: " << f.meanMs << " ms average | " << f.p95Ms << " ms p95 | " << f.maxMs << " ms worst\n"
+                    << "Viewport CPU: " << summarizePerformance(viewport).meanMs << " ms | Simulation CPU: "
+                    << summarizePerformance(simulation).meanMs << " ms\n"
+                    << (g.samples ? "GPU: " + std::to_string(g.meanMs) + " ms" : "GPU timing unavailable")
+                    << "\nIncludes editor overhead. Warmup excluded: " << arguments.recordPerformanceWarmupSeconds
+                    << " s.\nSaved: " << output.generic_string();
+                recordingReport = summary.str();
+                std::clog << "[PerformanceRecording] saved=" << output.generic_string() << " samples=" << frames.size() << '\n';
+            } catch (const std::exception& e) { recordingReport = std::string("Recording failed: ") + e.what(); }
+        };
         editor.setPerformanceOverlayVisible(arguments.showStats);
         if (arguments.frameLimit > 0) {
             cpuFrameMilliseconds.reserve(
@@ -3652,11 +3753,6 @@ int main(int argc, char** argv) {
                         std::chrono::duration<float>(
                             now - previous).count()));
             previous = now;
-            if (playState ==
-                engine::editor::EditorPlayState::Playing) {
-                simulationSeconds += deltaSeconds;
-            }
-
             float wheelDelta = 0.0f;
             glm::vec2 panPixels(0.0f);
             glm::vec2 orbitRadians(0.0f);
@@ -3770,7 +3866,33 @@ int main(int argc, char** argv) {
                 break;
             }
 
-            if (project && gameplayReload && !pendingProject) {
+            // Minimized interactive editors release the GPU for standalone play.
+            // Hidden qualification runs still render normally.
+            if (!arguments.hidden && (SDL_GetWindowFlags(window.getSDLWindow()) & SDL_WINDOW_MINIMIZED)) {
+                if (recording.active()) {
+                    recording.cancel();
+                    recordingReport = "Recording cancelled because the editor was minimized.";
+                }
+                SDL_Delay(50);
+                previous = Clock::now();
+                continue;
+            }
+            if (playState == engine::editor::EditorPlayState::Playing)
+                simulationSeconds += deltaSeconds;
+            if (standaloneBuild) {
+                if (!project || pendingProject) standaloneBuild.reset();
+                else if (const auto buildExitCode = standaloneBuild->poll()) {
+                    standaloneBuild.reset();
+                    if (*buildExitCode == 0) launchStandalone(standaloneIndex);
+                    else {
+                        project->status = "Standalone build failed. See .phlosion/standalone-build.log. Current editor kept.";
+                        std::cerr << "[Standalone] " << project->status << '\n';
+                        if (arguments.exitAfterPlayLaunch) throw std::runtime_error(project->status);
+                    }
+                }
+            }
+            // Do not run two CMake builds in the same tree at once.
+            if (project && gameplayReload && !pendingProject && !standaloneBuild) {
                 gameplayReload->tick();
                 if (gameplayReload->ready() && reloadDrawn &&
                         SDL_GetMouseState(nullptr, nullptr) == 0u && !editor.isEditingText()) {
@@ -4334,7 +4456,7 @@ int main(int argc, char** argv) {
                     .gameplayBuildLog = gameplayReload ? gameplayReload->log() : std::string_view{},
                     .gameplayReloadAvailable = gameplayReload && gameplayReload->available(),
                     .gameplayAutoReload = gameplayReload && gameplayReload->automatic(),
-                    .gameplayBuilding = gameplayReload && gameplayReload->building(),
+                    .gameplayBuilding = standaloneBuild || (gameplayReload && gameplayReload->building()),
                     .playState = playState,
                     .simulationSeconds = simulationSeconds,
                     .playConfigurations =
@@ -4497,6 +4619,43 @@ int main(int argc, char** argv) {
                 .presentMs = timingsValid ? frameTimings.presentWaitMs : 0,
                 .gpuMs = frameTimings.gpuFrameMs, .gpuValid = timingsValid && frameTimings.gpuFrameValid,
                 .drawCalls = frameStats.drawCalls, .triangles = frameStats.triangles});
+            if (recording.active() || actions.recordPerformance || frameCount == arguments.recordPerformanceAt) {
+                const nlohmann::json currentRecordingContext = project ? nlohmann::json{
+                    {"project",project->descriptor.projectId}, {"scene",project->sceneViews[project->activeSceneIndex].id},
+                    {"scenario",project->activeGamePreviewId}, {"backend",renderer.backendId()},
+                    {"build_configuration",PHLOSION_EDITOR_BUILD_CONFIGURATION},
+                    {"profile",engine::editor::buildProfileName(PHLOSION_EDITOR_BUILD_CONFIGURATION)},
+                    {"gpu_name",renderer.activeGpuName()}, {"viewport_width",editorViewportWidth}, {"viewport_height",editorViewportHeight},
+                    {"view",activeViewport == engine::editor::EditorViewportKind::Game ? "Game" : "Scene"},
+                    {"play_state",static_cast<int>(playState)}, {"fixed_delta_seconds",arguments.fixedDeltaSeconds ? nlohmann::json(*arguments.fixedDeltaSeconds) : nlohmann::json(nullptr)}
+                } : nlohmann::json{};
+                if (recording.active()) {
+                    if (!project || currentRecordingContext != recordingContext || standaloneBuild || (gameplayReload && gameplayReload->building())) {
+                        recording.cancel();
+                        recordingReport = "Recording cancelled: scene, scenario, view, resolution, play state or build changed. Start a fresh recording for a comparable result.";
+                    } else if (recording.add({.frameMs=wallFrameMs,.viewportMs=viewportMs,.simulationMs=simulationMs,
+                        .presentMs=timingsValid ? frameTimings.presentWaitMs : 0,.gpuMs=frameTimings.gpuFrameMs,
+                        .gpuValid=timingsValid && frameTimings.gpuFrameValid,.drawCalls=frameStats.drawCalls,.triangles=frameStats.triangles})) finishRecording();
+                }
+                if (project && (actions.recordPerformance || frameCount == arguments.recordPerformanceAt)) {
+                    if (recording.active()) { recording.cancel(); recordingReport = "Recording cancelled."; }
+                    else {
+                        recordingContext = currentRecordingContext;
+                        recordingSetup = nlohmann::json{{"simulation_seconds", simulationSeconds}, {"layout_objects", nlohmann::json::array()}};
+                        const auto& recordedCamera = activeViewport == engine::editor::EditorViewportKind::Game ? gameCamera : camera;
+                        const auto recordedPosition = recordedCamera.getPosition();
+                        const auto recordedTarget = recordedCamera.getTarget();
+                        recordingSetup["camera_position"] = {recordedPosition.x, recordedPosition.y, recordedPosition.z};
+                        recordingSetup["camera_target"] = {recordedTarget.x, recordedTarget.y, recordedTarget.z};
+                        for (const auto& object : project->layoutObjectViews) recordingSetup["layout_objects"].push_back({
+                            {"id",object.stableId},{"translation",object.translation},{"rotation",object.rotationDegrees},{"scale",object.scale},
+                            {"viewport_visible",object.viewportVisible}});
+                        recording.start(arguments.recordPerformanceSeconds, arguments.recordPerformanceWarmupSeconds);
+                        recordingReport.clear();
+                    }
+                }
+            }
+            editor.setPerformanceRecordingStatus(recording.active(), recording.remainingSeconds(), recordingReport);
             // Interactive sessions keep only the bounded live window.
             if (!arguments.metricsOutput.empty()) {
                 cpuFrameMilliseconds.push_back(frameCpuMs);
@@ -5070,6 +5229,7 @@ int main(int argc, char** argv) {
                 running = false;
             }
             if (actions.closeProject) {
+                standaloneBuild.reset();
                 gameplayReload.reset();
                 reloadDrawn = false;
                 project.reset();
@@ -5310,7 +5470,14 @@ int main(int argc, char** argv) {
                           << " scene=" << arguments.sceneOpens[nextSceneOpen].sceneId << '\n';
                 ++nextSceneOpen;
             }
-            if (project &&
+            if (project && !arguments.launchPlayId.empty() && !commandLinePlayApplied) {
+                const auto found = std::find_if(project->playConfigurations.begin(), project->playConfigurations.end(),
+                    [&](const auto& configuration) { return configuration.configuration->id == arguments.launchPlayId; });
+                if (found == project->playConfigurations.end()) throw std::runtime_error("Unknown play configuration: " + arguments.launchPlayId);
+                actions.launchPlayConfigurationIndex = static_cast<int>(found - project->playConfigurations.begin());
+                commandLinePlayApplied = true;
+            }
+            if (project && !standaloneBuild && !(gameplayReload && gameplayReload->building()) &&
                 actions.launchPlayConfigurationIndex >= 0 &&
                 static_cast<std::size_t>(
                     actions.launchPlayConfigurationIndex) <
@@ -5318,22 +5485,24 @@ int main(int argc, char** argv) {
                 const std::size_t configurationIndex =
                     static_cast<std::size_t>(
                         actions.launchPlayConfigurationIndex);
-                std::string launchError;
-                if (launchPlayConfiguration(
-                        project->playConfigurations[
-                            configurationIndex],
-                        launchError)) {
-                    project->status =
-                        "Launched game view: " +
-                        project->playConfigurationViews[
-                            configurationIndex].displayName;
-                } else {
-                    project->status =
-                        "Game view launch failed: " +
-                        launchError;
-                    std::cerr
-                        << "[Phlosion Editor] "
-                        << project->status << '\n';
+                const auto& configuration = *project->playConfigurations[configurationIndex].configuration;
+                if (configuration.buildTarget.empty()) launchStandalone(configurationIndex);
+                else {
+                    standaloneBuild = std::make_unique<engine::editor::GameplayBuildProcess>();
+                    const auto root = project->descriptorPath.parent_path();
+                    std::string buildError;
+                    if (!standaloneBuild->startCMake(root / configuration.buildDirectory,
+                            PHLOSION_EDITOR_BUILD_CONFIGURATION, configuration.buildTarget, root,
+                            root / ".phlosion" / "standalone-build.log", buildError)) {
+                        standaloneBuild.reset();
+                        project->status = "Standalone build could not start: " + buildError;
+                        std::cerr << "[Standalone] " << project->status << '\n';
+                        if (arguments.exitAfterPlayLaunch) throw std::runtime_error(project->status);
+                    } else {
+                        standaloneIndex = configurationIndex;
+                        project->status = "Building standalone game... You can keep using the editor.";
+                        std::clog << "[Standalone] " << project->status << '\n';
+                    }
                 }
             }
             if (actions.recentProjectIndex >= 0 &&
@@ -5390,6 +5559,7 @@ int main(int argc, char** argv) {
                 stateDirectory,
                 windowPlacement);
         }
+        standaloneBuild.reset();
         gameplayReload.reset();
         project.reset();
         sceneSurface->shutdown();

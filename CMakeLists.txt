@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.22)
 project(PhlosionEngine VERSION 0.1.0 LANGUAGES CXX)
 
+# RelWithDebInfo backs the Development editor: optimization, symbols and assertions.
+# Keep the release CRT/iterator ABI so optimized engine and game agree.
+string(REPLACE "/DNDEBUG" "" CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
+string(REPLACE "-DNDEBUG" "" CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

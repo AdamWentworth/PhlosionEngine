@@ -63,6 +63,9 @@ struct PlayConfiguration {
     std::string description;
     std::filesystem::path executable;
     std::filesystem::path workingDirectory = ".";
+    // Optional incremental CMake build before launching, using the host profile.
+    std::filesystem::path buildDirectory;
+    std::string buildTarget;
     std::vector<std::string> arguments;
     std::vector<PlayEnvironmentVariable> environment;
 };

@@ -33,6 +33,8 @@
     }
   ],
   "buildPresets": [
+    { "name": "editor", "displayName": "Development editor", "configurePreset": "vs2026", "configuration": "RelWithDebInfo", "targets": ["PhlosionEditor", "PhlosionEditorPluginProbe"] },
+    { "name": "development", "configurePreset": "vs2026", "configuration": "RelWithDebInfo" },
     { "name": "debug", "configurePreset": "vs2026", "configuration": "Debug" },
     { "name": "release", "configurePreset": "vs2026", "configuration": "Release" },
     { "name": "vs2022-debug", "configurePreset": "vs2022", "configuration": "Debug" },
