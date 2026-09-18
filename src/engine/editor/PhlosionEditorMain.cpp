@@ -81,6 +81,8 @@ struct Arguments {
     std::optional<float> assetPreviewTime;
     std::optional<float> assetPreviewZoom;
     std::optional<float> assetPreviewTargetOffsetY;
+    std::optional<float> assetPreviewYawDegrees;
+    std::optional<float> assetPreviewElevationDegrees;
     bool assetPreviewFront = false;
     bool assetPreviewBack = false;
     std::optional<
@@ -171,6 +173,10 @@ Arguments parseArguments(int argc, char** argv) {
             "--asset-preview-zoom=";
         constexpr std::string_view assetPreviewTargetOffsetYPrefix =
             "--asset-preview-target-offset-y=";
+        constexpr std::string_view assetPreviewYawPrefix =
+            "--asset-preview-yaw=";
+        constexpr std::string_view assetPreviewElevationPrefix =
+            "--asset-preview-elevation=";
         constexpr std::string_view framesPrefix = "--frames=";
         constexpr std::string_view sceneOpenPrefix = "--open-scene-at=";
         constexpr std::string_view rendererPrefix =
@@ -363,6 +369,18 @@ Arguments parseArguments(int argc, char** argv) {
                     assetPreviewTargetOffsetYPrefix.size())),
                 -2.0f,
                 2.0f);
+        } else if (argument.rfind(assetPreviewYawPrefix, 0u) == 0u) {
+            const float degrees = std::stof(argument.substr(assetPreviewYawPrefix.size()));
+            if (!std::isfinite(degrees)) {
+                throw std::invalid_argument("Asset preview yaw must be finite");
+            }
+            result.assetPreviewYawDegrees = std::remainder(degrees, 360.0f);
+        } else if (argument.rfind(assetPreviewElevationPrefix, 0u) == 0u) {
+            const float degrees = std::stof(argument.substr(assetPreviewElevationPrefix.size()));
+            if (!std::isfinite(degrees)) {
+                throw std::invalid_argument("Asset preview elevation must be finite");
+            }
+            result.assetPreviewElevationDegrees = std::clamp(degrees, -85.0f, 85.0f);
         } else if (argument == "--asset-preview-front") {
             result.assetPreviewFront = true;
         } else if (argument == "--asset-preview-back") {
@@ -4118,6 +4136,23 @@ int main(int argc, char** argv) {
                                             arguments.assetPreviewBack
                                                 ? -distance
                                                 : distance));
+                                }
+                                if (arguments.assetPreviewYawDegrees ||
+                                    arguments.assetPreviewElevationDegrees) {
+                                    const glm::vec3 target = assetPreviewCamera.getTarget();
+                                    const glm::vec3 offset = assetPreviewCamera.getPosition() - target;
+                                    const float distance = glm::length(offset);
+                                    const float yaw = arguments.assetPreviewYawDegrees
+                                        ? glm::radians(*arguments.assetPreviewYawDegrees)
+                                        : std::atan2(offset.x, offset.z);
+                                    const float elevation = arguments.assetPreviewElevationDegrees
+                                        ? glm::radians(*arguments.assetPreviewElevationDegrees)
+                                        : std::asin(std::clamp(offset.y / std::max(distance, 0.001f), -1.0f, 1.0f));
+                                    assetPreviewCamera.setPosition(target + distance * glm::vec3(
+                                        std::sin(yaw) * std::cos(elevation),
+                                        std::sin(elevation),
+                                        std::cos(yaw) * std::cos(elevation)));
+                                    assetPreviewCamera.lookAt(target);
                                 }
                                 if (arguments.assetPreviewTargetOffsetY) {
                                     assetPreviewCamera.move(glm::vec3(
