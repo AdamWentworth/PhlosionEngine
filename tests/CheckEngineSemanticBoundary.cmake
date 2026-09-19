@@ -31,12 +31,23 @@ foreach(_file IN LISTS _engine_boundary_files)
     if (_lower MATCHES "pokemon|autochess|gamefreak|lgpe|route[ _-]*1|pac_")
         list(APPEND _violations "${_file}")
     endif()
+    if (_lower MATCHES "(^|[^a-z0-9_])(boardrenderer|battlefeed|healthbarrenderer|healthbardata|growlvfx|scratchvfx|combatdecision|shopms|roundms|combatms|movementluams|sessionbackdroptilesenabled)([^a-z0-9_]|$)"
+            OR _lower MATCHES "enginegrowl|enginescratch")
+        list(APPEND _violations "${_file}")
+    endif()
 endforeach()
 
 foreach(_removed_path IN ITEMS
     "${PHLOSION_ROOT}/src/engine/assets/lgpe"
     "${PHLOSION_ROOT}/src/engine/ui/Card.h"
-    "${PHLOSION_ROOT}/src/engine/ui/Card.cpp")
+    "${PHLOSION_ROOT}/src/engine/ui/Card.cpp"
+    "${PHLOSION_ROOT}/src/engine/render/BoardRenderer.h"
+    "${PHLOSION_ROOT}/src/engine/render/BoardRenderer.cpp"
+    "${PHLOSION_ROOT}/src/engine/ui/BattleFeed.h"
+    "${PHLOSION_ROOT}/src/engine/ui/BattleFeed.cpp"
+    "${PHLOSION_ROOT}/src/engine/ui/HealthBarRenderer.h"
+    "${PHLOSION_ROOT}/src/engine/ui/HealthBarRenderer.cpp"
+    "${PHLOSION_ROOT}/src/engine/ui/HealthBarData.h")
     if (EXISTS "${_removed_path}")
         list(APPEND _violations "${_removed_path}")
     endif()

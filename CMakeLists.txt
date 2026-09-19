@@ -259,7 +259,6 @@ add_library(engine_render STATIC
     src/engine/render/vulkan/VulkanRenderBackendTextures.cpp
     src/engine/render/Renderer.cpp
     src/engine/render/Camera3D.cpp
-    src/engine/render/BoardRenderer.cpp
     src/engine/render/Model.cpp
     src/engine/render/ModelAnimation.cpp
     src/engine/render/ModelCache.cpp
@@ -273,8 +272,6 @@ add_library(engine_render STATIC
     src/engine/render/gltf/ModelFastGltfTextures.cpp
     src/engine/ui/UIManager.cpp
     src/engine/ui/TextRenderer.cpp
-    src/engine/ui/HealthBarRenderer.cpp
-    src/engine/ui/BattleFeed.cpp
     src/engine/ui/BootLoadingView.cpp
     src/engine/utils/Shader.cpp
     src/engine/utils/ShaderCache.cpp

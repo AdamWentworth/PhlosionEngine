@@ -1,7 +1,7 @@
 # Engine Extraction Status
 
 Status: Active
-Last updated: 2026-07-30
+Last updated: 2026-09-19
 
 Phlosion Engine now has an independent repository and build graph. Its source
 history was retained from the `src/engine` subtree of Pokemon Autochess.
@@ -21,6 +21,8 @@ Phlosion Engine owns:
 Pokemon Autochess owns:
 
 - game rules, simulation, sessions, and board behavior;
+- board rendering, battle feed, health-bar semantics, and game UI;
+- shop/round/combat profiling, board flags, and move-specific VFX diagnostics;
 - Pokemon-specific runtime projection and VFX bridges;
 - game-specific import/cooking orchestration;
 - content manifests and asset IDs;
@@ -32,20 +34,16 @@ public redistribution.
 
 ## Honest compatibility boundaries
 
-The first extraction deliberately preserves working behavior. Several
-LGPE-named material contracts and canonical-scene structures still live in the
-renderer because Pokemon Autochess previously implemented them there. They are
-compatibility code, not the intended generic API surface.
+The remaining recovered LGPE field-material GPU evaluator is isolated to the
+five files allowlisted by `PhlosionEngineSemanticBoundary`. Source decoders,
+canonical scene adaptation, editor semantics, and game presentation belong to
+the game or private research workspace. See [Engine boundaries](ENGINE_BOUNDARIES.md)
+for the exact ownership contract.
 
-The next cleanup stages are:
+The September cleanup moves the remaining Autochess renderers and diagnostics
+out of the engine while retaining their behavior. It is a repository cleanup
+checkpoint, not an API freeze or a commitment to add Cyberpunk features.
 
-1. replace title-specific renderer names with data-driven material families;
-2. move import/cook adapters out of runtime rendering;
-3. lift common cooked mesh, skeleton, animation, and material resource types
-   into the engine;
-4. publish an installed CMake package after the add-subdirectory integration
-   is proven;
-5. add CI configurations that build the engine without Pokemon Autochess.
-
-These boundaries must be improved with parity tests in place. The extraction
-does not justify silently changing promoted renderer behavior.
+Replacing the remaining material compatibility profile with a project-loadable
+extension and publishing an installed CMake package are separate future work.
+Renderer changes still require native OpenGL, Vulkan, and D3D12 parity checks.

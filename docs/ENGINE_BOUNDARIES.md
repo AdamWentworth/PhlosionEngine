@@ -33,14 +33,27 @@ does not request it.
 Pokemon Autochess therefore owns its autochess board and benches, Pokemon
 data/model conventions, Route 1 scene adapter, LGPE canonical-scene decoder,
 recovered CPU material oracles, terrain palette, battle/planning previews, and
-all Pokemon-specific editor adapters. It configures `phlosion.tile-tools`, but
-does not own the generic package implementation.
+all Pokemon-specific editor adapters. It can configure `phlosion.tile-tools`, but
+does not own the generic package implementation. The current Blender workflow
+does not activate that optional package.
+
+`BoardRenderer`, `BattleFeed`, `HealthBarRenderer`, and health-bar data now live
+in the game. The engine retains generic mesh, text, sprite and UI primitives.
+The shared `healthbar` shader filenames remain for asset-depot compatibility;
+their implementation is a generic solid-color rectangle used by boot loading.
+
+`EngineServices` holds generic host services and presentation settings.
+`EngineFramePerfStats` holds backend-neutral frame measurements. Autochess owns
+`GameRuntimeServices`, including shop/round/combat profiling, board flags,
+terminal modes, and Growl/Scratch diagnostics. Its runner and editor share that
+game-owned state; a plain engine host supplies only the generic base services.
 
 ## Enforced boundary
 
 `PhlosionEngineSemanticBoundary` scans engine source and shaders for project
-vocabulary. It also asserts that the moved LGPE decoder and legacy card widget
-cannot return to their former engine paths. Adding an exception is an
+vocabulary and the removed game diagnostics. It also asserts that the moved LGPE
+decoder, card widget, board renderer, battle feed and health-bar types cannot
+return to their former engine paths. Adding an exception is an
 architectural decision, not routine test maintenance.
 
 ## Explicit compatibility debt
