@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <type_traits>
 
 #include "engine/render/DebugGeometry.h"
@@ -195,9 +196,10 @@ static_assert(
     "D3D12 world pixel constants must leave room for the other root parameters.");
 
 inline WorldPsConstants makeWorldPsConstants(
-    const IRenderBackend::WorldTextureData* textureData,
+    const IRenderBackend::WorldTextureData *textureData,
     float useTexture,
-    bool sceneColorPostEnabled = false) {
+    bool sceneColorPostEnabled = false,
+    const WorldMaterialProfile *profile = nullptr) {
     WorldPsConstants constants;
     constants.useTexture = useTexture;
     constants.sceneColorPostEnabled = sceneColorPostEnabled ? 1.0f : 0.0f;
@@ -482,196 +484,16 @@ inline WorldPsConstants makeWorldPsConstants(
                 0.0f};
         }
 
-        // Specialized foliage modes use typed source-material payloads, not the
-        // generic PBR interpretation above. Preserve their raw specialized
-        // values and move Shadow_Color into otherwise-unused PS multiplier
-        // constants without changing the vertex instance color.
-        if (textureData->materialMode == 6u ||
-            textureData->materialMode == 7u ||
-            textureData->materialMode == 21u ||
-            textureData->materialMode == 22u ||
-            textureData->materialMode == 25u) {
-            constants.vertexColorMulR = textureData->normalScale;
-            constants.vertexColorMulG = textureData->metallicFactor;
-            constants.vertexColorMulB = textureData->roughnessFactor;
-            constants.vertexColorMulA = 1.0f;
-            constants.materialFlags = textureData->materialFlags;
-            constants.materialAtlasWidth = textureData->materialAtlasWidth;
-            constants.materialAtlasHeight = textureData->materialAtlasHeight;
-            constants.materialRect0U = textureData->materialRect0U;
-            constants.materialRect0V = textureData->materialRect0V;
-            constants.materialRect0W = textureData->materialRect0W;
-            constants.materialRect0H = textureData->materialRect0H;
-            constants.materialRect1U = textureData->materialRect1U;
-            constants.materialFlipbook0Fps =
-                textureData->materialFlipbook0Fps;
-            if (textureData->materialMode == 6u ||
-                textureData->materialMode == 21u ||
-                textureData->materialMode == 22u ||
-                textureData->materialMode == 25u) {
-                constants.materialFlipbook0Cols =
-                    textureData->emissiveFactorR;
-                constants.materialFlipbook0Rows =
-                    textureData->emissiveFactorG;
-                constants.materialFlipbook0Frames =
-                    textureData->emissiveFactorB;
+        if (profile) {
+            for (const auto &mapping : profile->d3d12Constants[textureData->materialMode]) {
+                float value = mapping.value;
+                if (mapping.fromTexture) {
+                    std::memcpy(&value, reinterpret_cast<const unsigned char *>(textureData) + mapping.sourceOffset, sizeof(value));
+                }
+                std::memcpy(reinterpret_cast<unsigned char *>(&constants) +
+                                mapping.destinationOffset,
+                            &value, sizeof(value));
             }
-        } else if (textureData->materialMode == 8u ||
-                   textureData->materialMode == 19u ||
-                   textureData->materialMode == 23u ||
-                   textureData->materialMode == 24u ||
-                   textureData->materialMode == 26u) {
-            // FieldTreeShader02 has five independent source colors plus its
-            // camera-dependent rim. Repack the typed mode-8 payload around
-            // the fixed 64-DWORD root-signature limit.
-            constants.vertexColorMulR = textureData->normalScale;
-            constants.vertexColorMulG = textureData->metallicFactor;
-            constants.vertexColorMulB = textureData->roughnessFactor;
-            constants.vertexColorMulA = 1.0f;
-            constants.materialFlags = textureData->materialFlags;
-            constants.materialAtlasWidth = textureData->materialAtlasWidth;
-            constants.materialAtlasHeight = textureData->materialAtlasHeight;
-            constants.materialRect0U = textureData->materialRect0U;
-            constants.materialRect0V = textureData->materialRect0V;
-            constants.materialRect0W = textureData->emissiveFactorR;
-            constants.materialRect0H = textureData->emissiveFactorG;
-            constants.materialRect1U = textureData->emissiveFactorB;
-            constants.materialRect1V = textureData->materialRect0W;
-            constants.materialRect1W = textureData->materialRect0H;
-            constants.materialRect1H = textureData->materialRect1U;
-            constants.materialFlipbook0Cols = textureData->materialRect1V;
-            constants.materialFlipbook0Rows = textureData->materialRect1W;
-            constants.materialFlipbook0Frames = textureData->materialRect1H;
-            constants.materialFlipbook1Cols = textureData->cameraPosX;
-            constants.materialFlipbook1Rows = textureData->cameraPosY;
-            constants.materialFlipbook1Frames = textureData->cameraPosZ;
-        } else if (textureData->materialMode == 9u ||
-                   textureData->materialMode == 10u) {
-            // FieldGrassShader02/01 typed payload. The vertex color multiplier
-            // slots carry source Color; authored vertex/instance color is
-            // already present in the interpolated shader input.
-            constants.vertexColorMulR = textureData->normalScale;
-            constants.vertexColorMulG = textureData->metallicFactor;
-            constants.vertexColorMulB = textureData->roughnessFactor;
-            constants.vertexColorMulA = 1.0f;
-            constants.materialFlags = textureData->materialFlags;
-            constants.materialAtlasWidth = textureData->materialAtlasWidth;
-            constants.materialAtlasHeight = textureData->materialAtlasHeight;
-            constants.materialRect0U = textureData->materialRect0U;
-            constants.materialRect0V = textureData->materialRect0V;
-            constants.materialRect0W = textureData->emissiveFactorR;
-            constants.materialRect0H = textureData->emissiveFactorG;
-            constants.materialRect1U = textureData->emissiveFactorB;
-            constants.materialFlipbook0Fps =
-                textureData->materialFlipbook0Fps;
-        } else if (textureData->materialMode == 11u ||
-                   textureData->materialMode == 12u) {
-            // FieldGrassShader04/05 use source Shadow_Color in the fixed
-            // multiplier slots and retain their typed OnGame/scroll payload.
-            constants.vertexColorMulR = textureData->normalScale;
-            constants.vertexColorMulG = textureData->metallicFactor;
-            constants.vertexColorMulB = textureData->roughnessFactor;
-            constants.vertexColorMulA = 1.0f;
-            constants.materialTimeSec = textureData->materialTimeSec;
-            constants.materialFlags = textureData->materialFlags;
-            constants.materialAtlasWidth = textureData->materialAtlasWidth;
-            constants.materialAtlasHeight = textureData->materialAtlasHeight;
-            constants.materialRect0U = textureData->materialRect0U;
-            constants.materialRect0V = textureData->materialRect0V;
-            constants.materialRect0W = textureData->materialRect0W;
-        } else if (textureData->materialMode == 13u ||
-                   textureData->materialMode == 14u) {
-            // FieldObjectShader roadstone and FieldGrassShader02 rock-mask
-            // overlays preserve source Shadow_Color, OnGame, opacity, and
-            // mip-bias payloads. Both source programs write premultiplied RGB.
-            constants.vertexColorMulR = textureData->emissiveFactorR;
-            constants.vertexColorMulG = textureData->emissiveFactorG;
-            constants.vertexColorMulB = textureData->emissiveFactorB;
-            constants.vertexColorMulA = 1.0f;
-            constants.materialTimeSec = textureData->materialTimeSec;
-            constants.materialFlags = textureData->materialFlags;
-            constants.materialAtlasWidth = textureData->materialAtlasWidth;
-            constants.materialAtlasHeight = textureData->materialAtlasHeight;
-            constants.materialRect0U = textureData->materialRect0U;
-            constants.materialRect0V = textureData->materialRect0V;
-            constants.materialFlipbook0Fps =
-                textureData->materialFlipbook0Fps;
-            if (textureData->materialMode == 14u) {
-                // Rock-mask source Color is independent of Shadow_Color.
-                constants.materialFlipbook0Cols =
-                    textureData->normalScale;
-                constants.materialFlipbook0Rows =
-                    textureData->metallicFactor;
-                constants.materialFlipbook0Frames =
-                    textureData->roughnessFactor;
-            }
-        } else if (textureData->materialMode == 15u ||
-                   textureData->materialMode == 20u) {
-            // FieldObjectShader flower cutout retains source Shadow_Color,
-            // OnGame, transparency, and mip-bias values. Unlike the overlay
-            // modes its recovered fragment output is not premultiplied.
-            constants.materialTimeSec = textureData->materialTimeSec;
-            constants.materialFlags = textureData->materialFlags;
-            constants.materialAtlasWidth = textureData->materialAtlasWidth;
-            constants.materialAtlasHeight = textureData->materialAtlasHeight;
-            constants.materialRect0U = textureData->materialRect0U;
-            constants.materialRect0V = textureData->materialRect0V;
-            constants.materialRect0W = textureData->emissiveFactorR;
-            constants.materialRect0H = textureData->emissiveFactorG;
-            constants.materialRect1U = textureData->emissiveFactorB;
-            constants.materialFlipbook0Fps =
-                textureData->materialFlipbook0Fps;
-        } else if (textureData->materialMode == 16u) {
-            // FieldRockShader needs four independent source color triples.
-            // Repack them around the fixed 64-DWORD root-signature limit;
-            // rect1.yzw remain the camera position for the recovered rim.
-            constants.vertexColorMulR = textureData->normalScale;
-            constants.vertexColorMulG = textureData->metallicFactor;
-            constants.vertexColorMulB = textureData->roughnessFactor;
-            constants.vertexColorMulA = 1.0f;
-            constants.materialTimeSec = textureData->materialTimeSec;
-            constants.materialFlags = textureData->materialFlags;
-            constants.materialAtlasWidth = textureData->materialAtlasWidth;
-            constants.materialAtlasHeight = textureData->materialAtlasHeight;
-            constants.materialRect0U = textureData->materialRect0U;
-            constants.materialRect0V = textureData->occlusionStrength;
-            constants.materialRect0W = textureData->emissiveFactorR;
-            constants.materialRect0H = textureData->emissiveFactorG;
-            constants.materialRect1U = textureData->emissiveFactorB;
-            constants.materialFlipbook0Fps =
-                textureData->materialFlipbook0Fps;
-        } else if (textureData->materialMode == 17u) {
-            // FieldObjectShader signboard carries light, shadow, and rim
-            // triples plus a camera-dependent rim. Repack those around the
-            // fixed 64-DWORD root-signature limit.
-            constants.vertexColorMulR = textureData->emissiveFactorR;
-            constants.vertexColorMulG = textureData->emissiveFactorG;
-            constants.vertexColorMulB = textureData->emissiveFactorB;
-            constants.vertexColorMulA = 1.0f;
-            constants.materialTimeSec = textureData->normalScale;
-            constants.materialFlags = textureData->metallicFactor;
-            constants.materialAtlasWidth = textureData->roughnessFactor;
-            constants.materialAtlasHeight = textureData->materialTimeSec;
-            constants.materialRect0U = textureData->materialFlags;
-            constants.materialRect0V = textureData->materialAtlasWidth;
-            constants.materialRect0W = textureData->materialAtlasHeight;
-            constants.materialRect0H = textureData->materialRect0U;
-            constants.materialRect1U = textureData->materialRect0V;
-            constants.materialFlipbook0Fps =
-                textureData->materialFlipbook0Fps;
-        } else if (textureData->materialMode == 18u) {
-            // FieldEncGrassShader01 uses Texture02 as a rim mask and retains
-            // independent shadow/rim triples. Its LightColor branch is
-            // identically zero for the shipped Y-up source normals.
-            constants.materialTimeSec = textureData->normalScale;
-            constants.materialFlags = textureData->metallicFactor;
-            constants.materialAtlasWidth = textureData->roughnessFactor;
-            constants.materialAtlasHeight = textureData->materialTimeSec;
-            constants.materialRect0U = textureData->materialFlags;
-            constants.materialRect0V = textureData->materialAtlasWidth;
-            constants.materialRect0W = textureData->materialAtlasHeight;
-            constants.materialRect0H = textureData->materialRect0U;
-            constants.materialRect1U = textureData->materialRect0V;
         }
     }
 

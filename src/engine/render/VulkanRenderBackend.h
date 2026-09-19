@@ -30,12 +30,14 @@ public:
         std::uint32_t imageCount = 2u;
     };
 
-    VulkanRenderBackend(SDL_Window* window,
+    VulkanRenderBackend(SDL_Window *window,
                         int width,
                         int height,
                         bool vsyncEnabled,
-                        const std::string& preferredAdapterName = {});
+                        const std::string &preferredAdapterName = {},
+                        const engine::render::WorldMaterialProfile &profile = {});
     ~VulkanRenderBackend() override;
+    void setWorldMaterialProfile(const engine::render::WorldMaterialProfile &profile) override;
 
     const char* backendId() const override { return "vulkan"; }
     void beginFrame(float r, float g, float b, float a) override;

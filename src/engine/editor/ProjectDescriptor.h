@@ -79,6 +79,7 @@ struct ProjectDescriptor {
     std::vector<ProjectEnvironment> environments;
     std::vector<ProjectScene> scenes;
     EditorPlugin editorPlugin;
+    std::filesystem::path worldMaterialProfile;
     std::vector<EditorPackageDependency> editorPackages;
     std::vector<PlayConfiguration> playConfigurations;
     std::string privateAssetDepotEnvironment;

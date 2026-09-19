@@ -86,9 +86,8 @@ vec3 linearToSrgb(vec3 color) {
     return mix(low, high, step(vec3(0.0031308), color));
 }
 
-vec3 encodeLgpeFinalColorNative(vec3 linearColor) {
-    // The source writes linear color to UNORM before its dedicated
-    // gamma_correction shader applies the standard sRGB transfer.
+vec3 encodeClampedLinearColor(vec3 linearColor) {
+    // Clamp to the normalized output range before the standard sRGB transfer.
     return linearToSrgb(clamp(linearColor, 0.0, 1.0));
 }
 
@@ -653,7 +652,7 @@ vec3 evaluateNativeIkCharacter(vec3 albedo,
     // 16-tap cascaded shadow-array result, then multiply that visibility into
     // wrapped N.L before ShadowingShift. The loose model archive contains
     // neither bound scene texture, so keep the scene boundary explicitly
-    // neutral. Do not substitute the LGPE projected-shadow format: its
+    // neutral. Do not substitute a project-specific projected-shadow format: its
     // sampling contract is unrelated.
     const float sourceSceneShadowVisibility = 1.0;
     const float sourceSceneShadowBypass = 0.0;

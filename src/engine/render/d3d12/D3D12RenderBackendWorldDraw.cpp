@@ -811,7 +811,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
         worldInstanceBufferGpuAddress_ +
             static_cast<std::uint64_t>(worldInstanceFrameBaseOffset_));
     WorldPsConstants worldPs = makeWorldPsConstants(
-        textureData, useTexture, worldSceneColorPassActive_);
+        textureData, useTexture, worldSceneColorPassActive_, &worldMaterialProfile_);
     if (textureData && textureData->materialMode >= 2u &&
         worldMaterialDebugView() > 0) {
         worldPs.materialFlipbook1Fps =
@@ -861,7 +861,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
     // character materials do not guarantee a depth write.
     if (drawCharacterOutline) {
         WorldPsConstants outlinePs = makeWorldPsConstants(
-            textureData, 0.0f, worldSceneColorPassActive_);
+            textureData, 0.0f, worldSceneColorPassActive_, &worldMaterialProfile_);
         outlinePs.materialMode = 3.0f;
         commandList_->SetGraphicsRoot32BitConstants(
             1,
@@ -1032,7 +1032,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     commandList_->SetGraphicsRootShaderResourceView(2, skinMatrixGpuAddress);
     commandList_->SetGraphicsRootShaderResourceView(4, instanceDataGpuAddress);
     WorldPsConstants worldPs = makeWorldPsConstants(
-        textureData, useTexture, worldSceneColorPassActive_);
+        textureData, useTexture, worldSceneColorPassActive_, &worldMaterialProfile_);
     if (textureData && textureData->materialMode >= 2u &&
         worldMaterialDebugView() > 0) {
         worldPs.materialFlipbook1Fps =
@@ -1080,7 +1080,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     // Keep the cached path in the same outline-then-surface order.
     if (drawCharacterOutline) {
         WorldPsConstants outlinePs = makeWorldPsConstants(
-            textureData, 0.0f, worldSceneColorPassActive_);
+            textureData, 0.0f, worldSceneColorPassActive_, &worldMaterialProfile_);
         outlinePs.materialMode = 3.0f;
         commandList_->SetGraphicsRoot32BitConstants(
             1,

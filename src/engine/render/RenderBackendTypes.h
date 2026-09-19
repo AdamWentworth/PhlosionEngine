@@ -95,9 +95,7 @@ struct WorldMeshVertex {
     float ty = 0.0f;
     float tz = 0.0f;
     float tw = 1.0f;
-    // Source TEXCOORD_1 and TEXCOORD_2. These channels joined the compact GPU
-    // stream only after direct FieldCliffShader01 and FieldGroundShader01
-    // evidence established their authored use.
+    // Additional authored texture-coordinate channels for material profiles.
     float sourceUv1U = 0.0f;
     float sourceUv1V = 0.0f;
     float sourceUv2U = 0.0f;

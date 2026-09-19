@@ -330,6 +330,13 @@ bool parseProjectDescriptor(
                 outError);
         }
 
+        if (root.contains("world_material_profile")) {
+            parsed.worldMaterialProfile = root.at("world_material_profile").get<std::string>();
+            if (!isPortableRelativePath(parsed.worldMaterialProfile)) {
+                return fail("World material profile requires a relative project path.", outError);
+            }
+        }
+
         if (root.contains("editor_plugin")) {
             const auto& pluginJson = root.at("editor_plugin");
             parsed.editorPlugin.library =

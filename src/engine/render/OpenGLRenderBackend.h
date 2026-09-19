@@ -14,113 +14,114 @@ class Renderer;
 
 class OpenGLRenderBackend final : public IRenderBackend {
 public:
-    OpenGLRenderBackend();
-    ~OpenGLRenderBackend() override;
+  explicit OpenGLRenderBackend(const engine::render::WorldMaterialProfile &profile = {});
+  ~OpenGLRenderBackend() override;
+  void setWorldMaterialProfile(const engine::render::WorldMaterialProfile &profile) override;
 
-    const char* backendId() const override { return "opengl"; }
-    void beginFrame(float r, float g, float b, float a) override;
-    void endFrame() override;
-    bool beginScreenshotCaptureSequence() override;
-    void onResize(int width, int height) override;
-    bool requiresOpenGLContext() const override { return true; }
-    bool handlesPresentation() const override { return false; }
-    bool getLastFrameTimings(BackendFrameTimings& outTimings) const override;
-    bool getLastFrameStats(BackendFrameStats& outStats) const override;
-    bool supportsWorldTriangles3D() const override { return true; }
-    bool supportsWorldIndexedMeshes() const override { return true; }
-    bool supportsWorldIndexedMeshInstancing() const override { return true; }
-    std::string activeGpuName() const override;
-    bool activeGpuIsDiscrete() const override;
-    void beginWorldSceneColorPass(int surfaceWidth, int surfaceHeight) override;
-    void endWorldSceneColorPass() override;
-    void beginWorldIndexedBatchSubmission() override;
-    void endWorldIndexedBatchSubmission() override;
-    void recordWorldIndexedSubmissionStats(const WorldIndexedSubmissionStats& stats) override;
-    void drawWorldTriangles(const WorldTriangle* triangles,
-                            std::size_t triangleCount,
-                            const float* viewProjectionMatrix4x4,
-                            int surfaceWidth,
-                            int surfaceHeight) override;
-    void drawWorldIndexedMesh(const WorldMeshVertex* vertices,
-                              std::size_t vertexCount,
-                              const std::uint32_t* indices,
-                              std::size_t indexCount,
-                              const float* viewProjectionMatrix4x4,
-                              int surfaceWidth,
-                              int surfaceHeight) override;
-    void drawWorldIndexedMeshCached(const char* geometryKey,
-                                    const WorldMeshVertex* vertices,
-                                    std::size_t vertexCount,
-                                    const std::uint32_t* indices,
-                                    std::size_t indexCount,
-                                    const float* viewProjectionMatrix4x4,
-                                    int surfaceWidth,
-                                    int surfaceHeight) override;
-    void prewarmWorldIndexedMeshCached(const char* geometryKey,
-                                       const WorldMeshVertex* vertices,
-                                       std::size_t vertexCount,
-                                       const std::uint32_t* indices,
-                                       std::size_t indexCount) override;
-    void prewarmWorldIndexedMeshInstances(std::size_t instanceCount) override;
-    void prewarmWorldTextureData(const WorldTextureData* texture) override;
-    void prewarmWorldRenderAssets() override;
-    void drawWorldIndexedMeshTextured(const WorldMeshVertex* vertices,
-                                      std::size_t vertexCount,
-                                      const std::uint32_t* indices,
-                                      std::size_t indexCount,
-                                      const WorldTextureData* texture,
-                                      const float* viewProjectionMatrix4x4,
-                                      int surfaceWidth,
-                                      int surfaceHeight) override;
-    void drawWorldIndexedMeshTexturedCached(const char* geometryKey,
-                                            const WorldMeshVertex* vertices,
-                                            std::size_t vertexCount,
-                                            const std::uint32_t* indices,
-                                            std::size_t indexCount,
-                                            const WorldTextureData* texture,
-                                            const float* viewProjectionMatrix4x4,
-                                            int surfaceWidth,
-                                            int surfaceHeight) override;
-    void drawWorldIndexedMeshTexturedCachedInstanced(
-        const char* geometryKey,
-        const WorldMeshVertex* vertices,
-        std::size_t vertexCount,
-        const std::uint32_t* indices,
-        std::size_t indexCount,
-        const WorldTextureData* texture,
-        const WorldMeshInstance* instances,
-        std::size_t instanceCount,
-        const float* viewProjectionMatrix4x4,
-        int surfaceWidth,
-        int surfaceHeight) override;
-    void drawDebugQuads(const DebugQuad* quads,
-                        std::size_t quadCount,
-                        int surfaceWidth,
-                        int surfaceHeight) override;
-    void drawDebugQuadsCached(const char* cacheKey,
-                              const DebugQuad* quads,
-                              std::size_t quadCount,
-                              int surfaceWidth,
-                              int surfaceHeight) override;
-    void drawDebugLines(const DebugLine* lines,
-                        std::size_t lineCount,
-                        int surfaceWidth,
-                        int surfaceHeight) override;
-    void drawDebugLinesCached(const char* cacheKey,
-                              const DebugLine* lines,
-                              std::size_t lineCount,
-                              int surfaceWidth,
-                              int surfaceHeight) override;
-    void drawDebugTriangles(const DebugTriangle* triangles,
-                            std::size_t triangleCount,
-                            int surfaceWidth,
-                            int surfaceHeight) override;
-    void drawDebugSprites(const DebugSprite* sprites,
-                          std::size_t spriteCount,
+  const char *backendId() const override { return "opengl"; }
+  void beginFrame(float r, float g, float b, float a) override;
+  void endFrame() override;
+  bool beginScreenshotCaptureSequence() override;
+  void onResize(int width, int height) override;
+  bool requiresOpenGLContext() const override { return true; }
+  bool handlesPresentation() const override { return false; }
+  bool getLastFrameTimings(BackendFrameTimings &outTimings) const override;
+  bool getLastFrameStats(BackendFrameStats &outStats) const override;
+  bool supportsWorldTriangles3D() const override { return true; }
+  bool supportsWorldIndexedMeshes() const override { return true; }
+  bool supportsWorldIndexedMeshInstancing() const override { return true; }
+  std::string activeGpuName() const override;
+  bool activeGpuIsDiscrete() const override;
+  void beginWorldSceneColorPass(int surfaceWidth, int surfaceHeight) override;
+  void endWorldSceneColorPass() override;
+  void beginWorldIndexedBatchSubmission() override;
+  void endWorldIndexedBatchSubmission() override;
+  void recordWorldIndexedSubmissionStats(const WorldIndexedSubmissionStats &stats) override;
+  void drawWorldTriangles(const WorldTriangle *triangles,
+                          std::size_t triangleCount,
+                          const float *viewProjectionMatrix4x4,
                           int surfaceWidth,
                           int surfaceHeight) override;
-    void prewarmDebugSpriteTexture(const char* texturePath) override;
-    void shutdown() override;
+  void drawWorldIndexedMesh(const WorldMeshVertex *vertices,
+                            std::size_t vertexCount,
+                            const std::uint32_t *indices,
+                            std::size_t indexCount,
+                            const float *viewProjectionMatrix4x4,
+                            int surfaceWidth,
+                            int surfaceHeight) override;
+  void drawWorldIndexedMeshCached(const char *geometryKey,
+                                  const WorldMeshVertex *vertices,
+                                  std::size_t vertexCount,
+                                  const std::uint32_t *indices,
+                                  std::size_t indexCount,
+                                  const float *viewProjectionMatrix4x4,
+                                  int surfaceWidth,
+                                  int surfaceHeight) override;
+  void prewarmWorldIndexedMeshCached(const char *geometryKey,
+                                     const WorldMeshVertex *vertices,
+                                     std::size_t vertexCount,
+                                     const std::uint32_t *indices,
+                                     std::size_t indexCount) override;
+  void prewarmWorldIndexedMeshInstances(std::size_t instanceCount) override;
+  void prewarmWorldTextureData(const WorldTextureData *texture) override;
+  void prewarmWorldRenderAssets() override;
+  void drawWorldIndexedMeshTextured(const WorldMeshVertex *vertices,
+                                    std::size_t vertexCount,
+                                    const std::uint32_t *indices,
+                                    std::size_t indexCount,
+                                    const WorldTextureData *texture,
+                                    const float *viewProjectionMatrix4x4,
+                                    int surfaceWidth,
+                                    int surfaceHeight) override;
+  void drawWorldIndexedMeshTexturedCached(const char *geometryKey,
+                                          const WorldMeshVertex *vertices,
+                                          std::size_t vertexCount,
+                                          const std::uint32_t *indices,
+                                          std::size_t indexCount,
+                                          const WorldTextureData *texture,
+                                          const float *viewProjectionMatrix4x4,
+                                          int surfaceWidth,
+                                          int surfaceHeight) override;
+  void drawWorldIndexedMeshTexturedCachedInstanced(
+      const char *geometryKey,
+      const WorldMeshVertex *vertices,
+      std::size_t vertexCount,
+      const std::uint32_t *indices,
+      std::size_t indexCount,
+      const WorldTextureData *texture,
+      const WorldMeshInstance *instances,
+      std::size_t instanceCount,
+      const float *viewProjectionMatrix4x4,
+      int surfaceWidth,
+      int surfaceHeight) override;
+  void drawDebugQuads(const DebugQuad *quads,
+                      std::size_t quadCount,
+                      int surfaceWidth,
+                      int surfaceHeight) override;
+  void drawDebugQuadsCached(const char *cacheKey,
+                            const DebugQuad *quads,
+                            std::size_t quadCount,
+                            int surfaceWidth,
+                            int surfaceHeight) override;
+  void drawDebugLines(const DebugLine *lines,
+                      std::size_t lineCount,
+                      int surfaceWidth,
+                      int surfaceHeight) override;
+  void drawDebugLinesCached(const char *cacheKey,
+                            const DebugLine *lines,
+                            std::size_t lineCount,
+                            int surfaceWidth,
+                            int surfaceHeight) override;
+  void drawDebugTriangles(const DebugTriangle *triangles,
+                          std::size_t triangleCount,
+                          int surfaceWidth,
+                          int surfaceHeight) override;
+  void drawDebugSprites(const DebugSprite *sprites,
+                        std::size_t spriteCount,
+                        int surfaceWidth,
+                        int surfaceHeight) override;
+  void prewarmDebugSpriteTexture(const char *texturePath) override;
+  void shutdown() override;
 
 private:
     void configureScreenshotCapture();

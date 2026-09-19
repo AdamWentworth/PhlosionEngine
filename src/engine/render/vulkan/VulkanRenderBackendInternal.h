@@ -22,6 +22,7 @@
 struct SDL_Window;
 
 struct VulkanRenderBackendImpl {
+    engine::render::WorldMaterialProfile worldMaterialProfile;
     static constexpr std::uint32_t kFramesInFlight = 2u;
     static constexpr VkDeviceSize kTransientBytesPerFrame = 128ull * 1024ull * 1024ull;
 

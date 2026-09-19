@@ -2622,13 +2622,13 @@ bool selectAssetPreview(
     return true;
 }
 
-std::unique_ptr<LoadedProject> loadProject(
-    const std::filesystem::path& requestedDescriptorPath,
-    IRenderBackend& renderer,
-    const Camera3D& camera,
-    std::string& outError,
-    const std::filesystem::path& pluginOverride = {},
-    const std::string& sceneOverride = {}) {
+std::unique_ptr<LoadedProject> loadProjectRuntime(
+    const std::filesystem::path &requestedDescriptorPath,
+    IRenderBackend &renderer,
+    const Camera3D &camera,
+    std::string &outError,
+    const std::filesystem::path &pluginOverride = {},
+    const std::string &sceneOverride = {}) {
     const auto loadStart = EditorClock::now();
     auto phaseStart = loadStart;
     auto loaded = std::make_unique<LoadedProject>();
@@ -3102,6 +3102,32 @@ std::unique_ptr<LoadedProject> loadProject(
         << "ms game_preview=deferred\n";
     outError.clear();
     return loaded;
+}
+
+std::unique_ptr<LoadedProject> loadProject(
+    const std::filesystem::path &requestedDescriptorPath,
+    IRenderBackend &renderer,
+    const Camera3D &camera,
+    std::string &outError,
+    const std::filesystem::path &pluginOverride = {},
+    const std::string &sceneOverride = {}) {
+    const auto previousProfile = renderer.worldMaterialProfile();
+    try {
+        const auto descriptorPath = normalizeDescriptorPath(requestedDescriptorPath);
+        engine::editor::ProjectDescriptor descriptor;
+        if (!engine::editor::loadProjectDescriptor(descriptorPath, descriptor, &outError)) return nullptr;
+        const auto profile = engine::render::loadWorldMaterialProfile(
+            descriptorPath.parent_path(), descriptor.worldMaterialProfile);
+        renderer.setWorldMaterialProfile(profile);
+        auto loaded = loadProjectRuntime(requestedDescriptorPath, renderer, camera, outError,
+                                         pluginOverride, sceneOverride);
+        if (loaded) return loaded;
+    } catch (const std::exception &error) {
+        outError = error.what();
+    }
+    // The current project remains usable when a candidate fails to open.
+    renderer.setWorldMaterialProfile(previousProfile);
+    return nullptr;
 }
 
 bool ensureGamePreviewInitialized(
@@ -3993,6 +4019,7 @@ int main(int argc, char** argv) {
                         } else {
                             browserError = gameplayReload->status();
                             gameplayReload.reset();
+                            renderer.setWorldMaterialProfile({});
                             window.setTitle("Phlosion Editor");
                         }
                         if (success) ++gameplayReloadCount;
@@ -5268,6 +5295,7 @@ int main(int argc, char** argv) {
                 gameplayReload.reset();
                 reloadDrawn = false;
                 project.reset();
+                renderer.setWorldMaterialProfile({});
                 selectedAssetPreviewIndex = -1;
                 simulationSeconds = 0.0f;
                 gameFixedAccumulator = 0.0f;

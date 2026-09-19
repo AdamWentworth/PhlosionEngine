@@ -28,15 +28,13 @@
 using namespace engine::render::d3d12_internal;
 #endif
 
-D3D12RenderBackend::D3D12RenderBackend(SDL_Window* window,
+D3D12RenderBackend::D3D12RenderBackend(SDL_Window *window,
                                        int width,
                                        int height,
                                        bool vsyncEnabled,
-                                       const std::string& preferredAdapterName)
-    : window_(window)
-    , width_((width > 1) ? width : 1)
-    , height_((height > 1) ? height : 1)
-    , vsyncEnabled_(vsyncEnabled) {
+                                       const std::string &preferredAdapterName,
+                                       const engine::render::WorldMaterialProfile &profile)
+    : IRenderBackend(profile), window_(window), width_((width > 1) ? width : 1), height_((height > 1) ? height : 1), vsyncEnabled_(vsyncEnabled) {
     if (!window_) {
         throw std::runtime_error("D3D12RenderBackend requires a valid SDL_Window.");
     }
@@ -51,6 +49,25 @@ D3D12RenderBackend::D3D12RenderBackend(SDL_Window* window,
 
 D3D12RenderBackend::~D3D12RenderBackend() {
     shutdown();
+}
+
+void D3D12RenderBackend::setWorldMaterialProfile(const engine::render::WorldMaterialProfile &profile) {
+    profile.validate();
+    if (profile == worldMaterialProfile_) return;
+#if defined(_WIN32)
+    waitForGpu();
+    auto previous = worldMaterialProfile_;
+    worldMaterialProfile_ = profile;
+    try {
+        createWorldPipeline(false);
+    } catch (...) {
+        worldMaterialProfile_ = std::move(previous);
+        createWorldPipeline(false);
+        throw;
+    }
+#else
+    IRenderBackend::setWorldMaterialProfile(profile);
+#endif
 }
 
 bool D3D12RenderBackend::getLastFrameTimings(BackendFrameTimings& outTimings) const {

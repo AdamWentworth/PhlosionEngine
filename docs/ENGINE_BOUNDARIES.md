@@ -56,16 +56,29 @@ decoder, card widget, board renderer, battle feed and health-bar types cannot
 return to their former engine paths. Adding an exception is an
 architectural decision, not routine test maintenance.
 
-## Explicit compatibility debt
+## Project material profiles
 
-The shared world pipelines currently contain the recovered LGPE field-material
-GPU evaluator in exactly five allowlisted backend shader files. It is dormant
-unless a project submits those specialized material-mode IDs, but it is still
-compiled into the reusable renderer. The correct long-term removal is a
-backend-neutral, project-loadable shader/material-profile package selected
-before renderer pipeline creation. Until that API exists, the boundary test
-keeps this compatibility island fixed and prevents it from spreading.
+The recovered LGPE field-material evaluator, field-mode dispatch, material
+tuning, CPU oracles, and D3D12 field-parameter packing belong to Pokemon
+Autochess. They are not compiled into the standalone engine. The former
+five-file shader exception has been removed from the semantic boundary check.
 
-For a racing game or shooter today, the compatibility evaluator is the only
-Pokemon-derived implementation left in the engine binary. No Pokemon data,
-scene loader, editor tool, gameplay system, prefab, or environment is included.
+`WorldMaterialProfile` provides versioned world-fragment insertion points and
+validated scalar constant mappings. A project supplies OpenGL/D3D12 source
+sections and all four Vulkan fragment variants (direct/indirect, each with
+standard/dual-source blending). The engine's shader templates and default
+build do not include project material files. Standard color-space conversion
+and RGB/HSV math remain generic renderer helpers.
+
+An empty profile selects the engine defaults. Projects select a profile before
+renderer construction; the editor reads the optional `world_material_profile`
+descriptor entry before loading a project's scene. Opening another project
+replaces the selected profile, and a failed open restores the previous profile.
+Renderer-owned copies survive project-plugin unloads. See
+[material profiles](MATERIAL_PROFILES.md) for the extension contract.
+
+This extraction covers field surfaces. Existing recovered character-shading
+paths (including Scarlet/Violet and Legends material variants and the named
+Gastly lighting helper) remain in the renderer and have their own qualification
+contracts. Their ownership needs a separate semantic review; passing the
+vocabulary boundary check is not proof that every renderer path is source-neutral.

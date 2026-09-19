@@ -32,8 +32,8 @@ bool containsCi(const std::string& haystack, const std::string& needle) {
 
 } // namespace
 
-OpenGLRenderBackend::OpenGLRenderBackend()
-    : renderer_(std::make_unique<Renderer>()) {
+OpenGLRenderBackend::OpenGLRenderBackend(const engine::render::WorldMaterialProfile &profile)
+    : IRenderBackend(profile), renderer_(std::make_unique<Renderer>()) {
     glEnable(GL_DEPTH_TEST);
     bool fbSrgbEnabled = false;
     // Shader path already tone-maps + encodes to sRGB explicitly.
@@ -67,6 +67,23 @@ OpenGLRenderBackend::OpenGLRenderBackend()
 
 OpenGLRenderBackend::~OpenGLRenderBackend() {
     shutdown();
+}
+
+void OpenGLRenderBackend::setWorldMaterialProfile(const engine::render::WorldMaterialProfile &profile) {
+    profile.validate();
+    if (profile == worldMaterialProfile_) return;
+    auto previous = worldMaterialProfile_;
+    destroyWorldPipeline();
+    worldMaterialProfile_ = profile;
+    try {
+        ensureWorldPipeline();
+        if (!worldProgram_) throw std::runtime_error("Unable to compile the project world material profile.");
+    } catch (...) {
+        destroyWorldPipeline();
+        worldMaterialProfile_ = std::move(previous);
+        ensureWorldPipeline();
+        throw;
+    }
 }
 
 void OpenGLRenderBackend::beginFrame(float r, float g, float b, float a) {

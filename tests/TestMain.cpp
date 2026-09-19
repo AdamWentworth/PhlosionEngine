@@ -12,6 +12,7 @@ bool test_editor_project_plugin_contract(std::string& outFail);
 bool test_editor_game_preview_routing_contract(std::string& outFail);
 bool test_editor_gameplay_reload(std::string& outFail);
 bool test_editor_performance_contract(std::string& outFail);
+bool test_world_material_profile_contract(std::string &outFail);
 
 int main(int argc, char** argv) {
     // A real child process for reload launcher tests; avoids shell-specific
@@ -26,6 +27,7 @@ int main(int argc, char** argv) {
     };
 
     const TestCase tests[] = {
+        {"world_material_profile_contract", &test_world_material_profile_contract},
         {"phlosion_resource_container_contract", &test_phlosion_resource_container_contract},
         {"phlosion_authored_scene_contract", &test_phlosion_authored_scene_contract},
         {"phlosion_environment_patch_contract", &test_phlosion_environment_patch_contract},

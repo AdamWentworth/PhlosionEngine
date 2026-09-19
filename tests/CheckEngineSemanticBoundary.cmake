@@ -9,26 +9,11 @@ file(GLOB_RECURSE _engine_boundary_files
 list(APPEND _engine_boundary_files
     "${PHLOSION_ROOT}/CMakeLists.txt")
 
-# The shared renderer still carries one deliberately isolated compatibility
-# profile for the recovered LGPE field materials. No other engine file may
-# acquire project vocabulary. This allowlist must shrink when material-profile
-# shaders become project-loadable; it must never grow casually.
-set(_legacy_field_profile_allowlist
-    "${PHLOSION_ROOT}/src/engine/render/d3d12/D3D12RenderBackendWorldPipeline.cpp"
-    "${PHLOSION_ROOT}/src/engine/render/opengl/OpenGLRenderBackendWorldPipeline.cpp"
-    "${PHLOSION_ROOT}/assets/shaders/vulkan/world.frag"
-    "${PHLOSION_ROOT}/assets/shaders/vulkan/world_indirect.frag"
-    "${PHLOSION_ROOT}/assets/shaders/vulkan/world_material.glsl")
-
 set(_violations "")
 foreach(_file IN LISTS _engine_boundary_files)
-    list(FIND _legacy_field_profile_allowlist "${_file}" _allowed_index)
-    if (NOT _allowed_index EQUAL -1)
-        continue()
-    endif()
     file(READ "${_file}" _content)
     string(TOLOWER "${_content}" _lower)
-    if (_lower MATCHES "pokemon|autochess|gamefreak|lgpe|route[ _-]*1|pac_")
+    if (_lower MATCHES "pokemon|autochess|gamefreak|lgpe|route[ _-]*1|pac_|evaluatefieldgroundsurface|evaluatefieldcliffsurface|fieldtreeshader|fieldgrassshader|fieldgroundshader|fieldcliffshader")
         list(APPEND _violations "${_file}")
     endif()
     if (_lower MATCHES "(^|[^a-z0-9_])(boardrenderer|battlefeed|healthbarrenderer|healthbardata|growlvfx|scratchvfx|combatdecision|shopms|roundms|combatms|movementluams|sessionbackdroptilesenabled)([^a-z0-9_]|$)"
@@ -71,4 +56,4 @@ if (_violations)
 endif()
 
 message(STATUS
-    "Phlosion semantic boundary is clean outside the explicit legacy field-material profile")
+    "Phlosion semantic boundary is clean; project material implementations are external")

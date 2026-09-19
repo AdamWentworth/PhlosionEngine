@@ -264,6 +264,7 @@ add_library(engine_render STATIC
     src/engine/render/ModelCache.cpp
     src/engine/render/RendererParityContract.cpp
     src/engine/render/WorldPbrShaderShared.cpp
+    src/engine/render/WorldMaterialProfile.cpp
     src/engine/render/NeutralPmrem.cpp
     src/engine/render/gltf/ModelFastGltfLoader.cpp
     src/engine/render/gltf/ModelFastGltfLoaderHelpers.cpp
@@ -455,6 +456,7 @@ if (PHLOSION_BUILD_TESTS)
     include(CTest)
     add_executable(PhlosionEngineTests
         tests/TestMain.cpp
+        tests/TestWorldMaterialProfile.cpp
         tests/TestCamera3D.cpp
         tests/TestEditorRendererPreference.cpp
         tests/TestEditorProjectPluginContract.cpp

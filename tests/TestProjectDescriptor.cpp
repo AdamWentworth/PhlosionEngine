@@ -363,5 +363,19 @@ bool test_project_descriptor_contract(std::string& outFail) {
             error;
         return false;
     }
+    std::string withProfile(kProject);
+    withProfile.insert(withProfile.find('{') + 1,
+                       "\"world_material_profile\":\"config/materials.json\",");
+    if (!engine::editor::parseProjectDescriptor(withProfile, project, &error) ||
+        project.worldMaterialProfile != "config/materials.json") {
+        outFail = "Project material profile was not preserved: " + error;
+        return false;
+    }
+    withProfile.replace(withProfile.find("config/materials.json"),
+                        std::string("config/materials.json").size(), "../outside.json");
+    if (engine::editor::parseProjectDescriptor(withProfile, project, nullptr)) {
+        outFail = "Project material profile accepted an escaping path.";
+        return false;
+    }
     return true;
 }

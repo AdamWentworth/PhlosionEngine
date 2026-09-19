@@ -138,7 +138,7 @@ void D3D12RenderBackend::drawWorldTriangles(const WorldTriangle* triangles,
         worldInstanceBufferGpuAddress_ +
             static_cast<std::uint64_t>(worldInstanceFrameBaseOffset_));
     const WorldPsConstants worldPs = makeWorldPsConstants(
-        nullptr, useTexture, worldSceneColorPassActive_);
+        nullptr, useTexture, worldSceneColorPassActive_, &worldMaterialProfile_);
     commandList_->SetGraphicsRoot32BitConstants(
         1,
         static_cast<UINT>(sizeof(WorldPsConstants) / sizeof(float)),

@@ -1172,6 +1172,19 @@ void VulkanRenderBackendImpl::createFramebuffers() {
 }
 
 VkShaderModule VulkanRenderBackendImpl::loadShaderModule(const char* fileName) const {
+    constexpr std::array<std::string_view, 4> profileFiles{
+        "world.frag.spv", "world_dual_source.frag.spv",
+        "world_indirect.frag.spv", "world_indirect_dual_source.frag.spv"};
+    const auto found = std::find(profileFiles.begin(), profileFiles.end(), fileName);
+    if (!worldMaterialProfile.empty() && found != profileFiles.end()) {
+        const auto &words = worldMaterialProfile.vulkan[static_cast<std::size_t>(found - profileFiles.begin())];
+        VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+        info.codeSize = words.size() * sizeof(std::uint32_t);
+        info.pCode = words.data();
+        VkShaderModule module = VK_NULL_HANDLE;
+        requireVk(vkCreateShaderModule(device, &info, nullptr, &module), "vkCreateShaderModule(project material)");
+        return module;
+    }
     const std::filesystem::path path = std::filesystem::path(PHLOSION_VULKAN_SHADER_DIR) / fileName;
     std::ifstream input(path, std::ios::binary | std::ios::ate);
     if (!input.is_open()) {

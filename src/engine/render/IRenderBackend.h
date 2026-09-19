@@ -3,13 +3,26 @@
 #include "engine/render/IRenderBackendDebug.h"
 #include "engine/render/IRenderBackendFrame.h"
 #include "engine/render/IRenderBackendWorld.h"
+#include "engine/render/WorldMaterialProfile.h"
 
 #include <algorithm>
+#include <stdexcept>
 
 class IRenderBackend : public IRenderBackendFrame,
                        public IRenderBackendWorld,
                        public IRenderBackendDebug {
 public:
+  explicit IRenderBackend(const engine::render::WorldMaterialProfile &profile = {})
+      : worldMaterialProfile_(profile) { worldMaterialProfile_.validate(); }
+
+  // Call between frames. Native backends rebuild their world pipelines and
+  // retain a copy, so project-plugin unloads cannot invalidate shader data.
+  virtual void setWorldMaterialProfile(const engine::render::WorldMaterialProfile &profile) {
+      if (!profile.empty()) throw std::runtime_error("This renderer does not support project material profiles.");
+  }
+  const engine::render::WorldMaterialProfile &worldMaterialProfile() const noexcept {
+      return worldMaterialProfile_;
+  }
     using BackendFrameTimings = IRenderBackendFrame::BackendFrameTimings;
     using BackendFrameStats = IRenderBackendFrame::BackendFrameStats;
 
@@ -74,6 +87,9 @@ public:
 
     virtual ~IRenderBackend() = default;
 
-private:
+  protected:
+    engine::render::WorldMaterialProfile worldMaterialProfile_;
+
+  private:
     int worldMaterialDebugView_ = 0;
 };

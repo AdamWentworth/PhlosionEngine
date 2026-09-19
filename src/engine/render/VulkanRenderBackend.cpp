@@ -5,20 +5,44 @@
 #include <algorithm>
 #include <stdexcept>
 
-VulkanRenderBackend::VulkanRenderBackend(SDL_Window* window,
+VulkanRenderBackend::VulkanRenderBackend(SDL_Window *window,
                                          int width,
                                          int height,
                                          bool vsyncEnabled,
-                                         const std::string& preferredAdapterName)
-    : impl_(std::make_unique<VulkanRenderBackendImpl>()) {
+                                         const std::string &preferredAdapterName,
+                                         const engine::render::WorldMaterialProfile &profile)
+    : IRenderBackend(profile), impl_(std::make_unique<VulkanRenderBackendImpl>()) {
     if (!window) {
         throw std::runtime_error("VulkanRenderBackend requires a valid SDL_Window.");
     }
+    impl_->worldMaterialProfile = profile;
     impl_->initialize(window, width, height, vsyncEnabled, preferredAdapterName);
 }
 
 VulkanRenderBackend::~VulkanRenderBackend() {
     shutdown();
+}
+
+void VulkanRenderBackend::setWorldMaterialProfile(const engine::render::WorldMaterialProfile &profile) {
+    profile.validate();
+    if (profile == worldMaterialProfile_) return;
+    if (!impl_ || impl_->frameActive) {
+        throw std::runtime_error("Material profiles must be selected between Vulkan frames.");
+    }
+    if (vkDeviceWaitIdle(impl_->device) != VK_SUCCESS) {
+        throw std::runtime_error("Unable to wait for Vulkan material pipeline replacement.");
+    }
+    impl_->destroyPipelines();
+    impl_->worldMaterialProfile = profile;
+    try {
+        impl_->createPipelines();
+    } catch (...) {
+        impl_->destroyPipelines();
+        impl_->worldMaterialProfile = worldMaterialProfile_;
+        impl_->createPipelines();
+        throw;
+    }
+    worldMaterialProfile_ = profile;
 }
 
 void VulkanRenderBackend::beginFrame(float r, float g, float b, float a) {
