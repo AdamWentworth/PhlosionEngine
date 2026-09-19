@@ -817,13 +817,13 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
         worldPs.materialFlipbook1Fps =
             -100.0f - static_cast<float>(worldMaterialDebugView());
     } else if (textureData &&
-        textureData->materialMode >= 2u &&
-        textureData->materialMode != 27u &&
-        textureData->materialMode != 31u &&
-        textureData->materialMode !=
-            engine::render::backend::kNativeIkCharacterMaterialMode &&
-        textureData->materialMode !=
-            engine::render::backend::kNativeIkCharacterEyeMaterialMode) {
+               textureData->materialMode >= 2u &&
+               textureData->materialMode != 27u &&
+               textureData->materialMode != 31u &&
+               textureData->materialMode !=
+                   engine::render::backend::kNativeIkCharacterMaterialMode &&
+               textureData->materialMode !=
+                   engine::render::backend::kNativeIkCharacterEyeMaterialMode) {
         // Reuse an unused packed slot in ordinary lit modes for shader debug
         // view selection. Native IkCharacter owns this slot for its surface
         // profile, quality LOD, and diffusion payload.
@@ -1038,13 +1038,13 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
         worldPs.materialFlipbook1Fps =
             -100.0f - static_cast<float>(worldMaterialDebugView());
     } else if (textureData &&
-        textureData->materialMode >= 2u &&
-        textureData->materialMode != 27u &&
-        textureData->materialMode != 31u &&
-        textureData->materialMode !=
-            engine::render::backend::kNativeIkCharacterMaterialMode &&
-        textureData->materialMode !=
-            engine::render::backend::kNativeIkCharacterEyeMaterialMode) {
+               textureData->materialMode >= 2u &&
+               textureData->materialMode != 27u &&
+               textureData->materialMode != 31u &&
+               textureData->materialMode !=
+                   engine::render::backend::kNativeIkCharacterMaterialMode &&
+               textureData->materialMode !=
+                   engine::render::backend::kNativeIkCharacterEyeMaterialMode) {
         // Keep mode 32's native surface/profile payload intact; see the
         // uncached path above.
         worldPs.materialFlipbook1Fps = static_cast<float>(pbrDebugViewMode());
