@@ -404,7 +404,7 @@ void VulkanRenderBackendImpl::drawWorldIndexedMeshBuffers(
     }
     bindVertexBuffer(commandBuffer, vertexBuffer, vertexOffset);
     bindIndexBuffer(commandBuffer, indexBuffer, indexOffset, VK_INDEX_TYPE_UINT32);
-    WorldPushConstants push = engine::render::vulkan_backend::makeWorldPushConstants(textureData);
+    WorldPushConstants push = engine::render::vulkan_backend::makeWorldPushConstants(textureData, &worldMaterialProfile);
     push.reserved0 = worldSceneColorPassActive ? 1.0f : 0.0f;
     std::memcpy(push.viewProjection.data(), viewProjectionMatrix4x4, sizeof(float) * 16u);
     const bool drawCharacterOutline =

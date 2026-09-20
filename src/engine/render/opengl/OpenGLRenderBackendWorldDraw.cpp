@@ -288,9 +288,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
         worldAlphaModeLoc_ < 0 || worldAlphaCutoffLoc_ < 0 ||
         worldAlphaWindowMinLoc_ < 0 || worldAlphaWindowMaxLoc_ < 0 ||
         worldCameraPosLoc_ < 0 || worldCameraForwardLoc_ < 0 ||
-        worldMaterialModeLoc_ < 0 || worldMaterialTimeLoc_ < 0 || worldMaterialFlagsLoc_ < 0 ||
-        worldMaterialAtlasSizeLoc_ < 0 || worldMaterialRect0Loc_ < 0 || worldMaterialRect1Loc_ < 0 ||
-        worldMaterialFlipbook0Loc_ < 0 || worldMaterialFlipbook1Loc_ < 0 ||
+        worldMaterialModeLoc_ < 0 || worldMaterialFlipbook1Loc_ < 0 ||
         worldSkinningEnabledLoc_ < 0 || worldSkinningModeLoc_ < 0 || worldSkinMatrixCountLoc_ < 0) {
         return;
     }
@@ -853,18 +851,10 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             texture ? std::clamp(texture->roughnessFactor, 0.0f, 1.0f) : 1.0f);
     }
     if (worldOcclusionStrengthLoc_ >= 0) {
-        glUniform1f(
-            worldOcclusionStrengthLoc_,
-            texture
-                ? (texture->materialMode ==
-                           engine::render::backend::
-                               kNativeIkCharacterMaterialMode ||
-                           texture->materialMode ==
-                               engine::render::backend::
-                                   kNativeIkCharacterEyeMaterialMode
-                       ? std::max(texture->occlusionStrength, 0.0f)
-                       : std::clamp(texture->occlusionStrength, 0.0f, 1.0f))
-                : 1.0f);
+        glUniform1f(worldOcclusionStrengthLoc_, texture
+                                                    ? std::clamp(texture->occlusionStrength, 0.0f,
+                                                                 worldMaterialProfile_.modes[texture->materialMode].occlusionMaximum)
+                                                    : 1.0f);
     }
     if (worldEmissiveFactorLoc_ >= 0) {
         glUniform3f(worldEmissiveFactorLoc_,
@@ -907,7 +897,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     const float materialFlipbook1Fps =
         explicitMaterialDebugView > 0 && texture && materialMode >= 2u
             ? -100.0f - static_cast<float>(explicitMaterialDebugView)
-            : ((texture && materialMode >= 2u && materialMode != 27u)
+            : ((texture && materialMode >= 2u && worldMaterialProfile_.modes[materialMode].openglDebugParameter)
                    ? static_cast<float>(pbrDebugViewMode())
                    : (texture ? texture->materialFlipbook1Fps : 0.0f));
     glUniform4f(worldMaterialFlipbook1Loc_,

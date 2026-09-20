@@ -63,10 +63,10 @@ tuning, CPU oracles, and D3D12 field-parameter packing belong to Pokemon
 Autochess. They are not compiled into the standalone engine. The former
 five-file shader exception has been removed from the semantic boundary check.
 
-`WorldMaterialProfile` provides versioned world-fragment insertion points and
-validated scalar constant mappings. A project supplies OpenGL/D3D12 source
-sections and all four Vulkan fragment variants (direct/indirect, each with
-standard/dual-source blending). The engine's shader templates and default
+`WorldMaterialProfile` provides versioned world vertex/fragment insertion points
+and validated scalar packing expressions. A project supplies OpenGL/D3D12 source
+sections and six Vulkan variants: direct/indirect vertices, plus fragments with
+standard/dual-source blending. The engine's shader templates and default
 build do not include project material files. Standard color-space conversion
 and RGB/HSV math remain generic renderer helpers.
 
@@ -77,8 +77,10 @@ replaces the selected profile, and a failed open restores the previous profile.
 Renderer-owned copies survive project-plugin unloads. See
 [material profiles](MATERIAL_PROFILES.md) for the extension contract.
 
-This extraction covers field surfaces. Existing recovered character-shading
-paths (including Scarlet/Violet and Legends material variants and the named
-Gastly lighting helper) remain in the renderer and have their own qualification
-contracts. Their ownership needs a separate semantic review; passing the
-vocabulary boundary check is not proof that every renderer path is source-neutral.
+Recovered character shaders, eye/skin formulas, reflection-atlas decoding,
+layered effects, vertex displacement and their per-mode packing now also belong
+to the consuming game. Their eight shader contracts moved with the code. The
+engine retains standard PBR, skinning, generic shader interfaces and review
+presentation. Its semantic guard rejects the removed character identifiers,
+without shader-file exemptions. The editor's project-defined lighting preset is
+labelled Authored Stage.

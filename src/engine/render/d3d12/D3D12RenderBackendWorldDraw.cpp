@@ -818,15 +818,8 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
             -100.0f - static_cast<float>(worldMaterialDebugView());
     } else if (textureData &&
                textureData->materialMode >= 2u &&
-               textureData->materialMode != 27u &&
-               textureData->materialMode != 31u &&
-               textureData->materialMode !=
-                   engine::render::backend::kNativeIkCharacterMaterialMode &&
-               textureData->materialMode !=
-                   engine::render::backend::kNativeIkCharacterEyeMaterialMode) {
-        // Reuse an unused packed slot in ordinary lit modes for shader debug
-        // view selection. Native IkCharacter owns this slot for its surface
-        // profile, quality LOD, and diffusion payload.
+               worldMaterialProfile_.modes[textureData->materialMode].d3d12DebugParameter) {
+        // A project may reserve this packed scalar for its own material data.
         worldPs.materialFlipbook1Fps = static_cast<float>(pbrDebugViewMode());
     }
     D3D12_GPU_DESCRIPTOR_HANDLE materialHandle = srvHeap_->GetGPUDescriptorHandleForHeapStart();
@@ -1039,13 +1032,8 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
             -100.0f - static_cast<float>(worldMaterialDebugView());
     } else if (textureData &&
                textureData->materialMode >= 2u &&
-               textureData->materialMode != 27u &&
-               textureData->materialMode != 31u &&
-               textureData->materialMode !=
-                   engine::render::backend::kNativeIkCharacterMaterialMode &&
-               textureData->materialMode !=
-                   engine::render::backend::kNativeIkCharacterEyeMaterialMode) {
-        // Keep mode 32's native surface/profile payload intact; see the
+               worldMaterialProfile_.modes[textureData->materialMode].d3d12DebugParameter) {
+        // Respect project-owned packed parameters; see the
         // uncached path above.
         worldPs.materialFlipbook1Fps = static_cast<float>(pbrDebugViewMode());
     }

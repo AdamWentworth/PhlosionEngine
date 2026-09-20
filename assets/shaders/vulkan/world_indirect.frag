@@ -34,8 +34,9 @@ layout(location = 0, index = 1) out vec4 outBlendAlpha;
 layout(location = 0) out vec4 outColor;
 #endif
 
+#ifndef PHLOSION_PROJECT_MATERIAL
 #include "world_material.glsl"
-#include "world_tail_fire.glsl"
+#endif
 
 vec3 rgbToHsv(vec3 color) {
     vec4 k = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -86,142 +87,27 @@ vec3 encodeWorldSurfaceColor(vec3 linearColor) {
         : encodeClampedLinearColor(linearColor);
 }
 
-vec3 applyNativeGastlySmokeLighting(
-    vec3 color,
-    vec4 authoredResponse,
-    bool useAuthoredShadowColor) {
-    vec3 normal = normalize(vertexNormal);
-    vec3 cameraForward = safeNormalize(
-        worldView.cameraForward.xyz,
-        vec3(0.0, -0.6139406, -0.7893522));
-    vec3 cameraRight = safeNormalize(
-        cross(cameraForward, vec3(0.0, 1.0, 0.0)),
-        vec3(1.0, 0.0, 0.0));
-    vec3 viewDirection = safeNormalize(
-        worldView.cameraPosition.xyz - worldPosition,
-        -cameraForward);
-    vec3 lightPosition = worldView.cameraPosition.xyz +
-        cameraRight * 0.5 - cameraForward * 0.8660254;
-    vec3 lightDirection = safeNormalize(
-        lightPosition - worldView.cameraTarget.xyz,
-        vec3(0.45, 0.86, 0.24));
-    float lightFacing = clamp(dot(normal, lightDirection), -1.0, 1.0);
-    float viewFacing = clamp(dot(normal, viewDirection), -1.0, 1.0);
-    // Z-A IkCharacter: HalfLambertBias=.1, ShadowStrength=.7,
-    // RimLightOffset=.2, RimLightContrast=2, RimLightIntensity=.8,
-    // BackRimLightIntensity=.01.
-    float edge = clamp(1.0 - max(viewFacing, 0.0), 0.0, 1.0);
-    float rimDomain = clamp((edge - 0.2) / 0.8, 0.0, 1.0);
-    float rim;
-    float backRim;
-    vec3 diffuseColor;
-    if (useAuthoredShadowColor) {
-        float wrappedLambert = clamp(lightFacing * 0.5 + 0.5, 0.0, 1.0);
-        float biasedLambert = wrappedLambert * wrappedLambert;
-        const float shadowBandLow = 0.3465;
-        const float shadowBandHigh = 0.3535;
-        float shadowAmount = clamp(
-            1.0 - (biasedLambert - shadowBandLow) /
-                (shadowBandHigh - shadowBandLow),
-            0.0,
-            1.0);
-        diffuseColor = color * mix(
-            vec3(1.0),
-            authoredResponse.rgb,
-            shadowAmount);
-        float rimSmooth = rimDomain * rimDomain * (3.0 - 2.0 * rimDomain);
-        float rimShape = clamp(rimSmooth * 5.0 - 2.0, 0.0, 1.0);
-        const float zaIkRimPresentationScale = 0.25;
-        rim = rimShape * authoredResponse.a * zaIkRimPresentationScale;
-        float rimMask = clamp(authoredResponse.a / 0.8, 0.0, 1.0);
-        backRim = clamp(-viewFacing, 0.0, 1.0) * 0.01 * rimMask *
-            zaIkRimPresentationScale;
-    } else {
-        float halfLambert = clamp(lightFacing * 0.5 + 0.6, 0.0, 1.0);
-        float diffuse = mix(1.0, halfLambert, 0.7);
-        diffuseColor = color * diffuse;
-        rim = rimDomain * rimDomain * 0.8;
-        backRim = clamp(-viewFacing, 0.0, 1.0) * 0.01;
-    }
-    return max(diffuseColor + color * (rim + backRim), vec3(0.0));
-}
+
 
 void main() {
+#ifdef PHLOSION_PROJECT_MATERIAL
+#include "project_world_indirect_evaluation.glsl"
+#else
+
     WorldIndirectDrawState drawState = worldIndirectDraws.states[drawStateIndex];
     sceneColorPostEnabled = drawState.shadingParams.w > 0.5;
     uint materialIndex = drawState.drawParams.x;
     float alphaMode = drawState.materialParams.x;
     float alphaCutoff = drawState.materialParams.y;
     float materialMode = drawState.materialParams.w;
-    TailFireMaterialState tailFireMaterial = TailFireMaterialState(
-        drawState.specializedTimingFlagsAtlas,
-        drawState.specializedRect0,
-        drawState.specializedRect1,
-        drawState.specializedFlipbook0,
-        drawState.specializedFlipbook1);
 
     if (materialMode > 2.5 && materialMode < 3.5) {
         if (gl_FrontFacing) discard;
         writeWorldColor(vec4(0.0, 0.0, 0.0, 1.0));
         return;
     }
-    if (materialMode > 0.5 && materialMode < 1.5) {
-        writeWorldColor(evaluateTailFire(
-            baseColorTextures[nonuniformEXT(materialIndex)],
-            tailFireMaterial));
-        return;
-    }
-    if (materialMode > 26.5 && materialMode < 27.5) {
-        vec4 surface = evaluateNativeLayeredUnlitDisplaced(
-            baseColorTextures[nonuniformEXT(materialIndex)],
-            metallicRoughnessTextures[nonuniformEXT(materialIndex)],
-            tailFireMaterial);
-        if (drawState.specializedTimingFlagsAtlas.y > 2.5 &&
-            drawState.specializedTimingFlagsAtlas.y < 3.5) {
-            bool useAuthoredShadowColor =
-                drawState.specializedTimingFlagsAtlas.y > 3.3;
-            vec4 authoredResponse = useAuthoredShadowColor
-                ? texture(
-                    emissiveTextures[nonuniformEXT(materialIndex)],
-                    nativeLayeredMaterialUv(tailFireMaterial))
-                : vec4(surface.rgb, 0.0);
-            surface.rgb = applyNativeGastlySmokeLighting(
-                surface.rgb,
-                authoredResponse,
-                useAuthoredShadowColor);
-        }
-        const float nativeToneMappingExposure = 1.15;
-        vec3 nativeMapped = clamp(
-            max(surface.rgb, vec3(0.0)) * nativeToneMappingExposure,
-            vec3(0.0),
-            vec3(1.0));
-        vec3 nativeResolved = sceneColorPostEnabled
-            ? nativeMapped
-            : linearToSrgb(nativeMapped);
-        writeWorldColor(vec4(nativeResolved, surface.a));
-        return;
-    }
-#ifdef PHLOSION_PROJECT_MATERIAL
-#include "project_world_indirect_evaluation.glsl"
-#endif
-
-    bool animatedEyeMaterial =
-        materialMode > 28.5 && materialMode < 30.5;
-    vec2 materialUv = animatedEyeMaterial
-        ? vec2(
-              vertexUv.x *
-                      drawState.specializedLightProjectionUvRowU.x +
-                  drawState.specializedLightProjectionUvRowU.z,
-              vertexUv.y *
-                      drawState.specializedLightProjectionUvRowU.y +
-                  drawState.specializedLightProjectionUvRowU.w)
-        : vertexUv;
-    float textureDetailLodBias =
-        ((materialMode >= 1.5 && materialMode < 2.5) ||
-         (materialMode > 27.5 && materialMode < 30.5) ||
-         (materialMode > 31.5 && materialMode < 35.5))
-            ? drawState.specializedFlipbook1.z
-            : 0.0;
+    vec2 materialUv = vertexUv;
+    float textureDetailLodBias = materialMode >= 1.5 ? drawState.specializedFlipbook1.z : 0.0;
     vec4 sampled = sampleWorldMaterialTexture(
         baseColorTextures[nonuniformEXT(materialIndex)],
         materialUv,
@@ -257,12 +143,7 @@ void main() {
             debugColor = clamp(sampled.rgb, 0.0, 1.0);
         } else if (pbrDebugView < 2.5) {
             // 2: Authored tint-resolved albedo without lighting.
-            debugColor = (materialMode > 33.5 && materialMode < 34.5)
-                ? nativeFresnelEffectBase(
-                      linearColor,
-                      drawState.specializedRect0,
-                      drawState.specializedFlipbook1)
-                : clamp(linearColor, 0.0, 1.0);
+            debugColor = clamp(linearColor, 0.0, 1.0);
         } else if (pbrDebugView < 3.5) {
             // 3: Normal map sample.
             debugColor = (materialDebugFlags & (1 << 0)) != 0
@@ -316,204 +197,12 @@ void main() {
         return;
     }
 
-    // See the direct world path: the exact 384x128 probe carrier is a
-    // stable, profile-private Vulkan marker when editor view-state coalescing
-    // removes the redundant camera-vector length lane.
-    ivec2 zaUiDiffuseProbeSize = textureSize(
-        lightProjectionTextures[nonuniformEXT(materialIndex)], 0);
-    bool zaSourceStageCarrier =
-        zaUiDiffuseProbeSize.x == 384 && zaUiDiffuseProbeSize.y == 128;
-    vec3 reviewCameraForward = zaSourceStageCarrier
-        ? safeNormalize(
-              worldView.cameraForward.xyz,
-              vec3(0.0, -0.6139406, -0.7893522)) * 5.0
-        : worldView.cameraForward.xyz;
-    if ((materialMode >= 1.5 && materialMode < 2.5) ||
-        (materialMode > 27.5 && materialMode < 35.5)) {
-        bool nativeEyeClearCoat =
-            (materialMode > 27.5 && materialMode < 28.5) ||
-            (materialMode > 29.5 && materialMode < 30.5);
-        bool nativePlainEye =
-            nativeEyeClearCoat && drawState.specializedRect1.w < -0.5;
-        bool nativeSeparateEyeCoat =
-            nativeEyeClearCoat && !nativePlainEye;
-        bool nativeGastlyFace =
-            materialMode > 30.5 &&
-            drawState.specializedTimingFlagsAtlas.y > 3.5 &&
-            drawState.specializedTimingFlagsAtlas.y < 4.5;
-        bool nativeIkCharacter =
-            materialMode > 31.5 && materialMode < 32.5;
-        bool nativeSss =
-            materialMode > 32.5 && materialMode < 33.5;
-        bool nativeFresnelEffect =
-            materialMode > 33.5 && materialMode < 34.5;
-        bool nativeIkCharacterEye =
-            materialMode > 34.5 && materialMode < 35.5;
-        if (nativeFresnelEffect) {
-            reviewAlbedo = nativeFresnelEffectBase(
-                linearColor,
-                drawState.specializedRect0,
-                drawState.specializedFlipbook1);
-        }
-        if (nativeSss) {
-            linearColor = evaluateNativeSssSurface(
-                linearColor,
-                materialUv,
-                worldPosition,
-                vertexNormal,
-                vertexTangent,
-                worldView.cameraPosition.xyz,
-                reviewCameraForward,
-                normalTextures[nonuniformEXT(materialIndex)],
-                metallicRoughnessTextures[nonuniformEXT(materialIndex)],
-                occlusionTextures[nonuniformEXT(materialIndex)],
-                emissiveTextures[nonuniformEXT(materialIndex)],
-                environmentTextures[nonuniformEXT(materialIndex)],
-                textureDetailLodBias,
-                drawState.specializedTimingFlagsAtlas.y,
-                drawState.pbrFactors,
-                drawState.emissiveAndCamera.rgb);
-        } else if (nativeIkCharacter || nativeIkCharacterEye) {
-            linearColor = evaluateNativeIkCharacter(
-                linearColor,
-                vertexColor.rgb,
-                materialUv,
-                worldPosition,
-                vertexNormal,
-                vertexTangent,
-                worldView.cameraPosition.xyz,
-                reviewCameraForward,
-                worldView.cameraTarget.xyz,
-                baseColorTextures[nonuniformEXT(materialIndex)],
-                normalTextures[nonuniformEXT(materialIndex)],
-                metallicRoughnessTextures[nonuniformEXT(materialIndex)],
-                occlusionTextures[nonuniformEXT(materialIndex)],
-                emissiveTextures[nonuniformEXT(materialIndex)],
-                environmentTextures[nonuniformEXT(materialIndex)],
-                lightProjectionTextures[nonuniformEXT(materialIndex)],
-                textureDetailLodBias,
-                drawState.pbrFactors,
-                drawState.emissiveAndCamera.rgb,
-                drawState.specializedRect0,
-                drawState.specializedRect1,
-                drawState.specializedFlipbook0,
-                drawState.specializedFlipbook1,
-                drawState.specializedLightProjectionUvRowV.w,
-                nativeIkCharacterEye);
-        } else if (nativeGastlyFace) {
-            linearColor = evaluateNativeGastlyFace(
-                linearColor,
-                materialUv,
-                worldPosition,
-                vertexNormal,
-                vertexTangent,
-                worldView.cameraPosition.xyz,
-                worldView.cameraForward.xyz,
-                worldView.cameraTarget.xyz,
-                normalTextures[nonuniformEXT(materialIndex)],
-                metallicRoughnessTextures[nonuniformEXT(materialIndex)],
-                occlusionTextures[nonuniformEXT(materialIndex)],
-                emissiveTextures[nonuniformEXT(materialIndex)],
-                textureDetailLodBias,
-                drawState.pbrFactors.x,
-                drawState.pbrFactors.w,
-                drawState.specializedRect0.w > 0.5);
-        } else if (nativeFresnelEffect) {
-            vec3 primaryColor = nativeFresnelEffectBase(
-                linearColor,
-                drawState.specializedRect0,
-                drawState.specializedFlipbook1);
-            linearColor = evaluateWorldMaterial(
-                primaryColor,
-                materialUv,
-                worldPosition,
-                vertexNormal,
-                vertexTangent,
-                worldView.cameraPosition.xyz,
-                worldView.cameraForward.xyz,
-                worldView.cameraTarget.xyz,
-                normalTextures[nonuniformEXT(materialIndex)],
-                metallicRoughnessTextures[nonuniformEXT(materialIndex)],
-                occlusionTextures[nonuniformEXT(materialIndex)],
-                emissiveTextures[nonuniformEXT(materialIndex)],
-                environmentTextures[nonuniformEXT(materialIndex)],
-                textureDetailLodBias,
-                drawState.pbrFactors,
-                vec3(0.0),
-                -1.0,
-                1.0,
-                false);
-            linearColor = evaluateNativeFresnelEffectLayer(
-                linearColor,
-                primaryColor,
-                materialUv,
-                worldPosition,
-                vertexNormal,
-                vertexTangent,
-                worldView.cameraPosition.xyz,
-                worldView.cameraForward.xyz,
-                metallicRoughnessTextures[nonuniformEXT(materialIndex)],
-                occlusionTextures[nonuniformEXT(materialIndex)],
-                emissiveTextures[nonuniformEXT(materialIndex)],
-                environmentTextures[nonuniformEXT(materialIndex)],
-                textureDetailLodBias,
-                drawState.pbrFactors,
-                drawState.specializedRect1,
-                drawState.specializedFlipbook0,
-                drawState.specializedFlipbook1);
-        } else {
-            linearColor = evaluateWorldMaterial(
-                  linearColor,
-                  materialUv,
-                  worldPosition,
-                  vertexNormal,
-                  vertexTangent,
-                  worldView.cameraPosition.xyz,
-                  worldView.cameraForward.xyz,
-                  worldView.cameraTarget.xyz,
-                  normalTextures[nonuniformEXT(materialIndex)],
-                  metallicRoughnessTextures[nonuniformEXT(materialIndex)],
-                  occlusionTextures[nonuniformEXT(materialIndex)],
-                  emissiveTextures[nonuniformEXT(materialIndex)],
-                  environmentTextures[nonuniformEXT(materialIndex)],
-                  textureDetailLodBias,
-                  nativeSeparateEyeCoat
-                      ? vec4(0.0, drawState.pbrFactors.yzw)
-                      : nativePlainEye
-                          ? vec4(
-                                drawState.pbrFactors.x * 0.8,
-                                drawState.pbrFactors.yzw)
-                          : drawState.pbrFactors,
-                  drawState.emissiveAndCamera.rgb,
-                  nativeSeparateEyeCoat
-                      ? 0.0
-                      : nativePlainEye
-                          ? -2.0
-                      : (materialMode > 1.5 && materialMode < 2.5 &&
-                         drawState.specializedTimingFlagsAtlas.y > 4.5 &&
-                         drawState.specializedTimingFlagsAtlas.y < 5.5)
-                            ? clamp(drawState.specializedRect0.x, 0.0, 1.0)
-                            : -1.0,
-                  nativeSeparateEyeCoat ? 0.0 : 1.0,
-                  true);
-        }
-        if (nativeEyeClearCoat) {
-            linearColor = evaluateNativeEyeClearCoat(
-                linearColor,
-                materialUv,
-                worldPosition,
-                vertexNormal,
-                vertexTangent,
-                worldView.cameraPosition.xyz,
-                worldView.cameraForward.xyz,
-                worldView.cameraTarget.xyz,
-                normalTextures[nonuniformEXT(materialIndex)],
-                environmentTextures[nonuniformEXT(materialIndex)],
-                0.0,
-                tailFireMaterial.rect0,
-                tailFireMaterial.rect1,
-                tailFireMaterial.flipbook0.xyz);
-        }
+    vec3 reviewCameraForward = worldView.cameraForward.xyz;
+    if (materialMode >= 1.5) {
+        linearColor = evaluateWorldMaterial(linearColor, materialUv, worldPosition, vertexNormal, vertexTangent,
+            worldView.cameraPosition.xyz, worldView.cameraForward.xyz, worldView.cameraTarget.xyz,
+            normalTextures[nonuniformEXT(drawState.drawParams.x)], metallicRoughnessTextures[nonuniformEXT(drawState.drawParams.x)], occlusionTextures[nonuniformEXT(drawState.drawParams.x)], emissiveTextures[nonuniformEXT(drawState.drawParams.x)], environmentTextures[nonuniformEXT(drawState.drawParams.x)], textureDetailLodBias,
+            drawState.pbrFactors, drawState.emissiveAndCamera.rgb, -1.0, 1.0, true);
     }
     if (materialMode >= 1.5) {
         linearColor = applyReviewLightingProfile(
@@ -528,4 +217,6 @@ void main() {
         ? mapped
         : linearToSrgb(mapped);
     writeWorldColor(vec4(resolvedColor, alpha));
+
+#endif
 }

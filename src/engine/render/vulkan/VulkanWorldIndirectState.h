@@ -39,10 +39,10 @@ static_assert(std::is_standard_layout_v<WorldIndirectPushConstants>);
 static_assert(sizeof(WorldIndirectPushConstants) == 80u);
 
 inline WorldIndirectDrawState makeWorldIndirectDrawState(
-    const backend::WorldTextureData* texture,
+    const backend::WorldTextureData *texture,
     std::uint32_t materialIndex,
-    std::uint32_t instanceBaseWordIndex) {
-    const WorldPushConstants material = makeWorldPushConstants(texture);
+    std::uint32_t instanceBaseWordIndex, const WorldMaterialProfile *profile = nullptr) {
+    const WorldPushConstants material = makeWorldPushConstants(texture, profile);
     WorldIndirectDrawState out;
     out.specializedMaterial = makeWorldSpecializedMaterialState(texture);
     out.materialParams = {

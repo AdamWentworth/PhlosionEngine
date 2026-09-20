@@ -1172,9 +1172,10 @@ void VulkanRenderBackendImpl::createFramebuffers() {
 }
 
 VkShaderModule VulkanRenderBackendImpl::loadShaderModule(const char* fileName) const {
-    constexpr std::array<std::string_view, 4> profileFiles{
+    constexpr std::array<std::string_view, 6> profileFiles{
         "world.frag.spv", "world_dual_source.frag.spv",
-        "world_indirect.frag.spv", "world_indirect_dual_source.frag.spv"};
+        "world_indirect.frag.spv", "world_indirect_dual_source.frag.spv",
+        "world.vert.spv", "world_indirect.vert.spv"};
     const auto found = std::find(profileFiles.begin(), profileFiles.end(), fileName);
     if (!worldMaterialProfile.empty() && found != profileFiles.end()) {
         const auto &words = worldMaterialProfile.vulkan[static_cast<std::size_t>(found - profileFiles.begin())];

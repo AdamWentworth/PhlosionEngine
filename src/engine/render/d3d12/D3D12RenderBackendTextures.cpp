@@ -32,20 +32,14 @@ using namespace engine::render::d3d12_internal;
 
 namespace {
 
-engine::log::Sink& tailFireTextureUploadLog() {
-    static engine::log::Sink log("TailFireD3D12", &std::cout, &std::cerr);
+engine::log::Sink &worldTextureUploadLog() {
+    static engine::log::Sink log("WorldTextureD3D12", &std::cout, &std::cerr);
     return log;
 }
 
-bool isTailFireWorldTextureKey(const char* key) {
-    if (!key || key[0] == '\0') return false;
-    std::string lower(key);
-    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
-    return lower.find("__tailfire_") != std::string::npos ||
-           lower.find("fire_uv_flipbook") != std::string::npos ||
-           lower.find("fireuvflipbook") != std::string::npos;
+bool traceWorldTextureUpload(const char *key) {
+    static const std::string filter = engine::env::get("PHLOSION_TRACE_WORLD_TEXTURE_UPLOADS").value_or("");
+    return key && !filter.empty() && (filter == "*" || std::string_view(key).find(filter) != std::string_view::npos);
 }
 
 bool worldTextureMipChainEnabled() {
@@ -825,9 +819,9 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTextureRaw(con
     SpriteTexture texture;
     texture.descriptorIndex = nextSrvDescriptorIndex_;
     const bool generateMipChain = worldTextureMipChainEnabled();
-    const bool tailFireTexture = isTailFireWorldTextureKey(key);
-    const auto uploadStart = tailFireTexture ? std::chrono::steady_clock::now()
-                                             : std::chrono::steady_clock::time_point{};
+    const bool traceUpload = traceWorldTextureUpload(key);
+    const auto uploadStart = traceUpload ? std::chrono::steady_clock::now()
+                                         : std::chrono::steady_clock::time_point{};
     const bool ok = engine::render::d3d12::createTextureResourceFromRgba(device_.Get(),
                                                                           commandQueue_.Get(),
                                                                           fence_.Get(),
@@ -846,10 +840,10 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTextureRaw(con
                                                                           texture.resource,
                                                                           authoredMipLevels,
                                                                           authoredMipLevelCount);
-    if (tailFireTexture) {
+    if (traceUpload) {
         const auto uploadEnd = std::chrono::steady_clock::now();
         std::ostringstream msg;
-        msg << "[TailFire][D3D12][Upload] key="
+        msg << "[WorldTexture][D3D12][Upload] key="
             << key
             << " size="
             << width
@@ -866,7 +860,7 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTextureRaw(con
             << " result="
             << (ok ? "ok" : "failed")
             << " note=includes_upload_and_fence_wait";
-        tailFireTextureUploadLog().info(msg.str());
+        worldTextureUploadLog().info(msg.str());
     }
     if (!ok) return nullptr;
 

@@ -13,7 +13,7 @@ set(_violations "")
 foreach(_file IN LISTS _engine_boundary_files)
     file(READ "${_file}" _content)
     string(TOLOWER "${_content}" _lower)
-    if (_lower MATCHES "pokemon|autochess|gamefreak|lgpe|route[ _-]*1|pac_|evaluatefieldgroundsurface|evaluatefieldcliffsurface|fieldtreeshader|fieldgrassshader|fieldgroundshader|fieldcliffshader")
+    if (_lower MATCHES "pokemon|autochess|gamefreak|lgpe|route[ _-]*1|pac_|evaluatefieldgroundsurface|evaluatefieldcliffsurface|fieldtreeshader|fieldgrassshader|fieldgroundshader|fieldcliffshader|gastly|charmander|tailfire|ikcharacter|nativesss|nativefresneleffect|nativeeyeclearcoat|zaui|zaik|zasourcestage|svlocalprobe|svlocalspecularprobe|zalocalreflectionprobe|z-a")
         list(APPEND _violations "${_file}")
     endif()
     if (_lower MATCHES "(^|[^a-z0-9_])(boardrenderer|battlefeed|healthbarrenderer|healthbardata|growlvfx|scratchvfx|combatdecision|shopms|roundms|combatms|movementluams|sessionbackdroptilesenabled)([^a-z0-9_]|$)"

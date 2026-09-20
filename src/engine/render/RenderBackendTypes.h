@@ -11,24 +11,6 @@
 
 namespace engine::render::backend {
 
-// Opt-in marker for ordinary PBR materials whose metallic/roughness alpha
-// stores a source-authored dielectric specular mask. materialRect0U carries
-// that source shader's scalar specular intensity.
-inline constexpr float kNativeSpecularStrengthMaterialFlag = 5.0f;
-inline constexpr std::uint8_t kNativeIkCharacterMaterialMode = 32u;
-inline constexpr std::uint8_t kNativeSssMaterialMode = 33u;
-inline constexpr float kNativeSssSurfaceDefault = 0.0f;
-inline constexpr float kNativeSssSurfaceFibre = 1.0f;
-// Scarlet/Violet's FresnelEffect combines ordinary lit base color with an
-// additive, view-angle-gated second color layer and a local reflection probe.
-// Keep it out of generic PBR so the authored fifth-power Fresnel response and
-// the second map's linear sampling contract survive every backend.
-inline constexpr std::uint8_t kNativeFresnelEffectMaterialMode = 34u;
-// Z-A's IkCharacter eye variant keeps live iris parallax/refraction,
-// eyelid-shadow, highlight, and local-reflection inputs alongside the body
-// program's color process.
-inline constexpr std::uint8_t kNativeIkCharacterEyeMaterialMode = 35u;
-
 struct BackendFrameTimings {
     float presentWaitMs = 0.0f;
     float gpuFrameMs = 0.0f;

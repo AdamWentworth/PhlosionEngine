@@ -100,7 +100,6 @@ foreach(_shader IN LISTS PHLOSION_VULKAN_SHADER_SOURCES)
     if (_shader STREQUAL "world.frag")
         list(APPEND _shader_dependencies
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_material.glsl"
-            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_tail_fire.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
     elseif (_shader STREQUAL "world_indirect.vert")
         list(APPEND _shader_dependencies
@@ -109,7 +108,6 @@ foreach(_shader IN LISTS PHLOSION_VULKAN_SHADER_SOURCES)
         list(APPEND _shader_dependencies
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_indirect_state.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_material.glsl"
-            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_tail_fire.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
     endif()
     add_custom_command(
@@ -133,7 +131,6 @@ foreach(_shader IN ITEMS world world_indirect)
     set(_shader_dependencies
         "${_source}"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_material.glsl"
-        "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_tail_fire.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
     if (_shader STREQUAL "world_indirect")
         list(APPEND _shader_dependencies
@@ -490,46 +487,6 @@ if (PHLOSION_BUILD_TESTS)
         COMMAND ${CMAKE_COMMAND}
             -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckPackedNormalContract.cmake)
-    add_test(
-        NAME PhlosionSvLocalSpecularProbeContract
-        COMMAND ${CMAKE_COMMAND}
-            -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckSvLocalSpecularProbeContract.cmake)
-    add_test(
-        NAME PhlosionZaLocalReflectionProbeContract
-        COMMAND ${CMAKE_COMMAND}
-            -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckZaLocalReflectionProbeContract.cmake)
-    add_test(
-        NAME PhlosionZaEyeParallaxContract
-        COMMAND ${CMAKE_COMMAND}
-            -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckZaEyeParallaxContract.cmake)
-    add_test(
-        NAME PhlosionPlaEyeSpecularContract
-        COMMAND ${CMAKE_COMMAND}
-            -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckPlaEyeSpecularContract.cmake)
-    add_test(
-        NAME PhlosionZaSceneLightContract
-        COMMAND ${CMAKE_COMMAND}
-            -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckZaSceneLightContract.cmake)
-    add_test(
-        NAME PhlosionZaIkCharacterShadingContract
-        COMMAND ${CMAKE_COMMAND}
-            -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckZaIkCharacterShadingContract.cmake)
-    add_test(
-        NAME PhlosionNativeFresnelEffectContract
-        COMMAND ${CMAKE_COMMAND}
-            -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckNativeFresnelEffectContract.cmake)
-    add_test(
-        NAME PhlosionSvNativeSssEnvironmentContract
-        COMMAND ${CMAKE_COMMAND}
-            -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckSvNativeSssEnvironmentContract.cmake)
     add_test(
         NAME PhlosionMaterialDebugViewContract
         COMMAND ${CMAKE_COMMAND}

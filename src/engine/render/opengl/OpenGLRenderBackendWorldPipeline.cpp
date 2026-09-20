@@ -219,16 +219,14 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         worldDualSourceBlendEnabledLoc_ >= 0 &&
         worldAlphaModeLoc_ >= 0 && worldAlphaCutoffLoc_ >= 0 &&
         worldCameraPosLoc_ >= 0 && worldCameraForwardLoc_ >= 0 &&
-        worldMaterialModeLoc_ >= 0 && worldMaterialTimeLoc_ >= 0 && worldMaterialFlagsLoc_ >= 0 &&
-        worldMaterialAtlasSizeLoc_ >= 0 && worldMaterialRect0Loc_ >= 0 && worldMaterialRect1Loc_ >= 0 &&
-        worldMaterialFlipbook0Loc_ >= 0 && worldMaterialFlipbook1Loc_ >= 0 &&
+        worldMaterialModeLoc_ >= 0 && worldMaterialFlipbook1Loc_ >= 0 &&
         worldSceneColorPostEnabledLoc_ >= 0 &&
         worldSkinningEnabledLoc_ >= 0 && worldSkinningModeLoc_ >= 0 && worldSkinMatrixCountLoc_ >= 0) {
         return;
     }
     if (!GLAD_GL_VERSION_3_3) return;
 
-    static constexpr const char* kVs = R"GLSL(
+    static const std::string kVertexTemplate = R"GLSL(
         #version 330 core
         layout (location = 0) in vec3 aPos;
         layout (location = 1) in vec2 aUv;
@@ -383,6 +381,8 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             }
             return vec4(normalize(blended), localTangent.w);
         }
+
+__PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
         void main() {
             vec3 localPos = aPos;
             vec3 localNormal = aNormal;
@@ -392,36 +392,9 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 normalLengthSquared > 1e-10) {
                 localPos += localNormal * inversesqrt(normalLengthSquared) * 0.001;
             }
-            // Scarlet's always-on loop01 channel animates UVScaleOffset3 for
-            // the displacement sample independently of the selected skeleton
-            // clip. Preserve that source material clock instead of freezing
-            // the noise on the authored flame mesh.
-            if (uMaterialMode > 26.5 && uMaterialMode < 27.5 &&
-                dot(localNormal, localNormal) > 1e-10) {
-                bool exactSourceTrack = uMaterialFlags > 1.5;
-                float displacementScrollHz = max(uMaterialRect0.w, 0.0);
-                float displacementScroll =
-                    !exactSourceTrack && displacementScrollHz > 0.0
-                        ? fract(uMaterialTimeSec * displacementScrollHz)
-                        : 0.0;
-                vec2 displacementOffset = exactSourceTrack
-                    ? uMaterialRect1.zw
-                    : uMaterialRect1.zw + vec2(displacementScroll);
-                vec2 displacementUv = vec2(
-                    (aUv.x - displacementOffset.x) * uMaterialRect1.x,
-                    1.0 - ((1.0 - aUv.y) - displacementOffset.y) * uMaterialRect1.y);
-                // The animated Scarlet fire maps are periodic on the axes
-                // driven by UVScaleOffset3.  The extracted sampler metadata
-                // reports clamp, but clamping turns each sawtooth reset into
-                // a visible hitch.  Wrap the authored coordinates explicitly
-                // so the nearly identical texture borders meet at the loop.
-                displacementUv = fract(displacementUv);
-                float displacement = sin(
-                    textureLod(uNormalTexture, displacementUv, 0.0).r);
-                localPos += normalize(localNormal) *
-                    clamp(aColor.r, 0.0, 1.0) *
-                    max(uMaterialRect0.x, 0.0) * displacement;
-            }
+
+__PHLOSION_PROJECT_MATERIAL_EVALUATION__
+
             if (uSkinningEnabled > 0.5) {
                 localPos = applySkinningPos(localPos);
                 localNormal = applySkinningNormal(localNormal);
@@ -457,8 +430,8 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             vWorldTangent = vec4(worldTangent, localTangent.w);
         }
     )GLSL";
-
-    const std::string kFs = R"GLSL(
+    const std::string kVs = engine::render::injectWorldMaterialProfile(kVertexTemplate, worldMaterialProfile_.openglVertex);
+    static const std::string kFs = R"GLSL(
         #version 330 core
         in vec2 vUv;
         in vec4 vColor;
@@ -517,7 +490,15 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
         out vec4 FragColor;
         out vec4 FragBlendAlpha;
 
-        float applyWrap(float coord, float mode) {
+
+__PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
+        void main() {
+__PHLOSION_PROJECT_MATERIAL_EVALUATION__
+}
+
+    )GLSL";
+    static const engine::render::WorldMaterialShaderSource kDefaultMaterial{
+        R"GLSL(        float applyWrap(float coord, float mode) {
             if (abs(mode - 33071.0) < 0.5) return clamp(coord, 0.0, 1.0);
             if (abs(mode - 33648.0) < 0.5) {
                 float i = floor(coord);
@@ -527,23 +508,20 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
             }
             return fract(coord);
         }
+
         vec2 clampWrappedUvToTexelCenter(vec2 uv) {
             vec2 texSize = max(vec2(textureSize(uTexture, 0)), vec2(1.0));
             vec2 halfTexel = vec2(0.5) / texSize;
             return clamp(uv, halfTexel, vec2(1.0) - halfTexel);
         }
-        float litTextureDetailLodBias() {
-            bool qualityControlled =
-                (uMaterialMode > 1.5 && uMaterialMode < 2.5) ||
-                (uMaterialMode > 27.5 && uMaterialMode < 30.5) ||
-                (uMaterialMode > 31.5 && uMaterialMode < 35.5);
-            if (!qualityControlled) return 0.0;
-            return clamp(uMaterialFlipbook1.z, -0.75, 1.25);
-        }
+
+float litTextureDetailLodBias() { return clamp(uMaterialFlipbook1.z, -0.75, 1.25); }
+
         vec4 sampleTextureWithWrap(sampler2D tex, vec2 uv, vec2 uvDx, vec2 uvDy) {
             float lodScale = exp2(litTextureDetailLodBias());
             return textureGrad(tex, uv, uvDx * lodScale, uvDy * lodScale);
         }
+
         vec3 rgbToHsv(vec3 color) {
             vec4 k = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
             vec4 p = mix(
@@ -571,522 +549,6 @@ void OpenGLRenderBackend::ensureWorldPipeline() {
                 mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), hsv.y);
         }
 
-__PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
-        float hash11(float x) { return fract(sin(x * 12.9898) * 43758.5453); }
-        float hash21(vec2 p) {
-            float n = dot(p, vec2(127.1, 311.7));
-            return fract(sin(n) * 43758.5453);
-        }
-        float valueNoise2D(vec2 p) {
-            vec2 i = floor(p);
-            vec2 f = fract(p);
-            vec2 u = f * f * (3.0 - 2.0 * f);
-            float a = hash21(i);
-            float b = hash21(i + vec2(1.0, 0.0));
-            float c = hash21(i + vec2(0.0, 1.0));
-            float d = hash21(i + vec2(1.0, 1.0));
-            return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-        }
-        float smoothFlicker(float t, float seed) {
-            float x = t * 9.0 + seed * 97.0;
-            float i = floor(x);
-            float f = fract(x);
-            f = f * f * (3.0 - 2.0 * f);
-            return mix(hash11(i), hash11(i + 1.0), f);
-        }
-        float fbm2D(vec2 p) {
-            float v = 0.0;
-            float a = 0.5;
-            for (int k = 0; k < 5; ++k) {
-                v += a * valueNoise2D(p);
-                p *= 2.02;
-                a *= 0.5;
-            }
-            return v;
-        }
-        vec2 fbmGrad(vec2 p) {
-            float e = 0.03;
-            float nx = fbm2D(p + vec2(e, 0.0)) - fbm2D(p - vec2(e, 0.0));
-            float ny = fbm2D(p + vec2(0.0, e)) - fbm2D(p - vec2(0.0, e));
-            return vec2(nx, ny) / (2.0 * e);
-        }
-        vec2 curl2D(vec2 p) {
-            vec2 g = fbmGrad(p);
-            return vec2(g.y, -g.x);
-        }
-        vec2 advect(vec2 p, float flowY, float amount) {
-            vec2 c1 = curl2D(p * 1.30 + vec2(0.0, -flowY * 0.10));
-            vec2 c2 = curl2D(p * 2.70 + vec2(3.1, -flowY * 0.18));
-            return p + (c1 * 0.65 + c2 * 0.35) * amount;
-        }
-        vec3 tonemapSoftLocal(vec3 c) {
-            return c / (vec3(1.0) + c);
-        }
-        vec2 clampUvToRegionPixels(vec2 localUV01, vec4 rectUv) {
-            vec2 atlasSize = max(uMaterialAtlasSize, vec2(1.0));
-            vec2 rectPx = max(rectUv.zw * atlasSize, vec2(1.0));
-            vec2 minPx = vec2(0.5) / atlasSize;
-            vec2 maxPx = (rectPx - vec2(0.5)) / atlasSize;
-            vec2 uv = clamp(localUV01, vec2(0.0), vec2(1.0));
-            vec2 regionUv = rectUv.xy + uv * rectUv.zw;
-            return rectUv.xy + clamp(regionUv - rectUv.xy, minPx, maxPx);
-        }
-        vec4 sampleAtlasCombined(vec4 rectUv, vec2 grid, float frames, float fps, vec2 localUV01, float seed, float t, bool coherent) {
-            float speed = coherent ? 1.0 : mix(0.85, 1.10, hash11(seed * 31.7 + 2.3));
-            float phase = coherent ? 0.0 : (seed * frames);
-            float f = floor(t * fps * speed + phase);
-            float frame = mod(f, max(1.0, frames));
-            float cols = max(1.0, grid.x);
-            float rows = max(1.0, grid.y);
-            float col = mod(frame, cols);
-            float rowFromTop = floor(frame / cols);
-            float row = (rows - 1.0) - rowFromTop;
-            vec2 cellUVLocal = (vec2(col, row) + localUV01) / vec2(cols, rows);
-            vec2 cellUv = clampUvToRegionPixels(cellUVLocal, rectUv);
-            return texture(uTexture, cellUv);
-        }
-        vec4 sampleFireDirect0(vec2 uvLocal, float seed, float t) {
-            return sampleAtlasCombined(
-                uMaterialRect0,
-                uMaterialFlipbook0.xy,
-                uMaterialFlipbook0.z,
-                uMaterialFlipbook0.w,
-                uvLocal,
-                seed,
-                t,
-                true);
-        }
-        vec4 sampleAtlasCombinedTopLeft(vec4 rectUv, vec2 grid, float frames, float fps, vec2 localUV01, float t) {
-            float f = floor(t * fps);
-            float frame = mod(f, max(1.0, frames));
-            float cols = max(1.0, grid.x);
-            float rows = max(1.0, grid.y);
-            float col = mod(frame, cols);
-            float row = floor(frame / cols);
-            vec2 cellUVLocal = (vec2(col, row) + localUV01) / vec2(cols, rows);
-            vec2 cellUv = clampUvToRegionPixels(cellUVLocal, rectUv);
-            return texture(uTexture, cellUv);
-        }
-    )GLSL"
-                            R"GLSL(
-        float hash41(vec4 p) {
-            return fract(sin(dot(p, vec4(127.1, 311.7, 74.7, 269.5))) * 43758.5453123);
-        }
-        float valueNoise4D(vec4 p) {
-            vec4 i = floor(p);
-            vec4 f = fract(p);
-            vec4 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-            float accum = 0.0;
-            for (int dw = 0; dw < 2; ++dw) {
-                for (int dz = 0; dz < 2; ++dz) {
-                    for (int dy = 0; dy < 2; ++dy) {
-                        for (int dx = 0; dx < 2; ++dx) {
-                            vec4 corner = vec4(float(dx), float(dy), float(dz), float(dw));
-                            float wx = mix(1.0 - u.x, u.x, corner.x);
-                            float wy = mix(1.0 - u.y, u.y, corner.y);
-                            float wz = mix(1.0 - u.z, u.z, corner.z);
-                            float ww = mix(1.0 - u.w, u.w, corner.w);
-                            accum += hash41(i + corner) * wx * wy * wz * ww;
-                        }
-                    }
-                }
-            }
-            return accum;
-        }
-        float authoredFireNoise(vec4 p) {
-            float value = 0.0;
-            float amplitude = 1.0;
-            float amplitudeSum = 0.0;
-            for (int octave = 0; octave < 2; ++octave) {
-                value += amplitude * valueNoise4D(p);
-                amplitudeSum += amplitude;
-                p *= 2.0;
-                amplitude *= 0.5;
-            }
-            return value / max(amplitudeSum, 1e-5);
-        }
-        vec2 nativeLayeredMaterialUv() {
-            bool exactSourceTrack = uMaterialFlags > 1.5;
-            float baseScrollHz = max(uMaterialRect0.z, 0.0);
-            vec2 baseOffset = exactSourceTrack
-                ? uMaterialRect0.zw
-                : vec2(
-                    baseScrollHz > 0.0
-                        ? 1.0 - fract(uMaterialTimeSec * baseScrollHz)
-                        : 0.0,
-                    0.0);
-            vec2 baseScale = exactSourceTrack
-                ? vec2(uMaterialFlipbook0.w, uMaterialFlipbook1.w)
-                : vec2(1.0);
-            vec2 baseUv = vec2(
-                (vUv.x - baseOffset.x) * baseScale.x,
-                1.0 - ((1.0 - vUv.y) - baseOffset.y) * baseScale.y);
-            // UVScaleOffset animates U across a horizontally seamless mask.
-            // Explicit wrapping avoids a clamp-to-edge jump at each reset.
-            baseUv.x = fract(baseUv.x);
-            return baseUv;
-        }
-
-        vec4 evalNativeLayeredUnlitDisplaced() {
-            float emissionIntensity = max(uMaterialRect0.y, 0.0);
-            vec2 baseUv = nativeLayeredMaterialUv();
-            vec4 base = texture(uTexture, baseUv);
-            vec4 weights = clamp(
-                texture(uMetallicRoughnessTexture, baseUv),
-                vec4(0.0),
-                vec4(1.0));
-            float coverage = clamp(1.0 - dot(weights, vec4(1.0)), 0.0, 1.0);
-            bool zaIkCharacterComposite = uMaterialFlags > 3.3;
-            vec3 color = zaIkCharacterComposite
-                ? base.rgb
-                : base.rgb * coverage;
-            vec3 layer1 = uMaterialFlipbook0.xyz;
-            vec3 layer2 = uMaterialFlipbook1.xyz;
-            // Scarlet Unlit variation 48 multiplies every layer color by the
-            // shared base map before successive alpha-over compositing.
-            if (!zaIkCharacterComposite) {
-                color = mix(color, base.rgb * layer1, weights.r);
-                coverage += weights.r * (1.0 - coverage);
-                color = mix(color, base.rgb * layer2, weights.g);
-                coverage += weights.g * (1.0 - coverage);
-                color = mix(color, base.rgb, weights.b);
-                coverage += weights.b * (1.0 - coverage);
-                color = mix(color, base.rgb, weights.a);
-                coverage += weights.a * (1.0 - coverage);
-            } else {
-                coverage = 1.0;
-            }
-            vec4 surface = vec4(
-                color / max(coverage, 1e-6) * emissionIntensity,
-                1.0);
-            // SSSEffect subtype 3 uses complete dynamic alpha. Gastly's 3.25
-            // and 3.375 subtypes remain opaque because both source meshes
-            // author zero vertex alpha. Cached world-scene draws carry alpha
-            // in vColor; direct indexed draws
-            // carry it in uVertexColorMul. Ignoring either path leaves hidden
-            // smoke puffs visible on one of the submission routes.
-            surface.a = uMaterialFlags > 2.5 && uMaterialFlags < 3.125
-                ? clamp(vColor.a * uVertexColorMul.a, 0.0, 1.0)
-                : 1.0;
-            return surface;
-        }
-
-        vec3 applyNativeGastlySmokeLighting(
-            vec3 color,
-            vec4 authoredResponse,
-            bool useAuthoredShadowColor) {
-            vec3 normal = normalize(vWorldNormal);
-            float cameraForwardLengthSquared = dot(
-                uCameraForward,
-                uCameraForward);
-            vec3 cameraForward = cameraForwardLengthSquared > 1e-10
-                ? uCameraForward * inversesqrt(cameraForwardLengthSquared)
-                : vec3(0.0, -0.6139406, -0.7893522);
-            vec3 cameraRightPacked = cross(
-                cameraForward,
-                vec3(0.0, 1.0, 0.0));
-            float cameraRightLengthSquared = dot(
-                cameraRightPacked,
-                cameraRightPacked);
-            vec3 cameraRight = cameraRightLengthSquared > 1e-10
-                ? cameraRightPacked * inversesqrt(cameraRightLengthSquared)
-                : vec3(1.0, 0.0, 0.0);
-            vec3 toCamera = uCameraPos - vWorldPos;
-            float toCameraLengthSquared = dot(toCamera, toCamera);
-            vec3 viewDirection = toCameraLengthSquared > 1e-10
-                ? toCamera * inversesqrt(toCameraLengthSquared)
-                : -cameraForward;
-            vec3 lightPosition = uCameraPos +
-                cameraRight * 0.5 - cameraForward * 0.8660254;
-            vec3 lightVector = lightPosition - uCameraTarget;
-            float lightVectorLengthSquared = dot(lightVector, lightVector);
-            vec3 lightDirection = lightVectorLengthSquared > 1e-10
-                ? lightVector * inversesqrt(lightVectorLengthSquared)
-                : vec3(0.45, 0.86, 0.24);
-            float lightFacing = clamp(
-                dot(normal, lightDirection),
-                -1.0,
-                1.0);
-            float viewFacing = clamp(
-                dot(normal, viewDirection),
-                -1.0,
-                1.0);
-            // Z-A IkCharacter: HalfLambertBias=.1, ShadowStrength=.7,
-            // RimLightOffset=.2, RimLightContrast=2,
-            // RimLightIntensity=.8, BackRimLightIntensity=.01.
-            float edge = clamp(
-                1.0 - max(viewFacing, 0.0),
-                0.0,
-                1.0);
-            float rimDomain = clamp((edge - 0.2) / 0.8, 0.0, 1.0);
-            float rim;
-            float backRim;
-            vec3 diffuseColor;
-            if (useAuthoredShadowColor) {
-                float wrappedLambert = clamp(
-                    lightFacing * 0.5 + 0.5,
-                    0.0,
-                    1.0);
-                float biasedLambert = wrappedLambert * wrappedLambert;
-                const float shadowBandLow = 0.3465;
-                const float shadowBandHigh = 0.3535;
-                float shadowAmount = clamp(
-                    1.0 - (biasedLambert - shadowBandLow) /
-                        (shadowBandHigh - shadowBandLow),
-                    0.0,
-                    1.0);
-                diffuseColor = color * mix(
-                    vec3(1.0),
-                    authoredResponse.rgb,
-                    shadowAmount);
-                float rimSmooth = rimDomain * rimDomain *
-                    (3.0 - 2.0 * rimDomain);
-                float rimShape = clamp(
-                    rimSmooth * 5.0 - 2.0,
-                    0.0,
-                    1.0);
-                const float zaIkRimPresentationScale = 0.25;
-                rim = rimShape * authoredResponse.a *
-                    zaIkRimPresentationScale;
-                float rimMask = clamp(
-                    authoredResponse.a / 0.8,
-                    0.0,
-                    1.0);
-                backRim = clamp(-viewFacing, 0.0, 1.0) * 0.01 *
-                    rimMask * zaIkRimPresentationScale;
-            } else {
-                float halfLambert = clamp(
-                    lightFacing * 0.5 + 0.6,
-                    0.0,
-                    1.0);
-                float diffuse = mix(1.0, halfLambert, 0.7);
-                diffuseColor = color * diffuse;
-                rim = rimDomain * rimDomain * 0.8;
-                backRim = clamp(-viewFacing, 0.0, 1.0) * 0.01;
-            }
-            return max(
-                diffuseColor + color * (rim + backRim),
-                vec3(0.0));
-        }
-
-        vec4 evalAuthoredFireMesh() {
-            vec2 uv = clamp(
-                vUv + vec2(uMaterialFlipbook1.x, uMaterialFlipbook1.y),
-                vec2(0.0),
-                vec2(1.0));
-            vec4 baked = sampleAtlasCombinedTopLeft(
-                uMaterialRect0,
-                uMaterialFlipbook0.xy,
-                uMaterialFlipbook0.z,
-                uMaterialFlipbook0.w,
-                uv,
-                uMaterialTimeSec);
-            float rgbCoverage = smoothstep(
-                0.03,
-                0.20,
-                max(baked.r, max(baked.g, baked.b)));
-            baked.a = max(baked.a, rgbCoverage);
-            float baseEngulf = 1.0 - smoothstep(0.0, 0.28, clamp(vGenerated.y, 0.0, 1.0));
-            vec2 centerXZ = vGenerated.xz - vec2(0.5, 0.5);
-            float centerDist = length(centerXZ * vec2(1.2, 1.0));
-            float coreMask = 1.0 - smoothstep(0.0, 0.23, centerDist);
-            float tipHideMask = baseEngulf * coreMask;
-            float warmMask =
-                smoothstep(0.68, 0.98, baked.r) *
-                smoothstep(0.56, 0.90, baked.g) *
-                (1.0 - smoothstep(0.22, 0.58, baked.b));
-            baked.rgb = mix(baked.rgb, vec3(1.0, 0.68, 0.16), warmMask * 0.44);
-            baked.rgb = mix(baked.rgb, vec3(1.0, 0.82, 0.30), tipHideMask * 0.55);
-            baked.a = max(baked.a, baseEngulf * 0.95);
-            baked.a = max(baked.a, tipHideMask);
-            if (baked.a <= 0.08) discard;
-            baked.a = 1.0;
-            return baked;
-        }
-        float lickBlobs(float x, float y, vec2 advP, float flowY, float seed) {
-            float k = y * 6.6 + flowY * 0.55;
-            float seg = floor(k);
-            float f = fract(k);
-            float cx1 = (hash11(seg + seed * 31.0) - 0.5) * 0.95 * (1.0 - y);
-            float cx2 = (hash11(seg + seed * 73.0) - 0.5) * 0.95 * (1.0 - y);
-            float w = mix(0.34, 0.085, y);
-            vec2 q1 = vec2((x - cx1) / w,        (f - 0.30) / 0.70);
-            vec2 q2 = vec2((x - cx2) / (w*0.85), (f - 0.45) / 0.65);
-            float m1 = 1.0 - smoothstep(0.60, 1.00, length(q1 * vec2(1.0, 1.45)));
-            float m2 = 1.0 - smoothstep(0.60, 1.00, length(q2 * vec2(1.0, 1.60)));
-            float br = fbm2D(advP * vec2(7.0, 12.0) + seed * 17.0);
-            float broken = smoothstep(0.25, 0.88, br);
-            float gate = smoothstep(0.05, 0.22, y) * (1.0 - smoothstep(0.86, 1.0, y));
-            float m = (m1 + 0.85 * m2) * broken * gate;
-            return clamp(m, 0.0, 1.0);
-        }
-
-        vec4 evalFireTailExact() {
-            float age = clamp(vColor.r, 0.0, 1.0);
-            float vSeed = clamp(vColor.g, 0.0, 1.0);
-            float t = uMaterialTimeSec;
-
-            // Legacy fire_tail.frag flips gl_PointCoord.y; shared quads already provide the legacy-facing orientation.
-            vec2 uv = vUv;
-
-            vec2 cc = (uv - 0.5) * 2.0;
-            float x = cc.x;
-            float y = clamp(uv.y, 0.0, 1.0);
-            float bottomFade = smoothstep(0.00, 0.11, y);
-
-            float baseT = smoothstep(0.00, 0.22, y);
-            float xScaleBase = mix(2.55, 1.90, baseT);
-            float yScaleBase = mix(1.05, 0.75, baseT);
-            float reBase = length(vec2(cc.x * xScaleBase, cc.y * yScaleBase));
-            float radialMaskBase = 1.0 - smoothstep(0.98, 1.10, reBase);
-            float tightMask      = 1.0 - smoothstep(0.62, 0.88, reBase);
-
-            float reLoose = length(cc * vec2(0.55, 0.85));
-            float radialMaskLoose = 1.0 - smoothstep(0.98, 1.20, reLoose);
-
-            float fade = (1.0 - age);
-            fade = pow(mix(fade, 1.0, 0.25), 0.75);
-
-            vec2 wobble = vec2(
-                smoothFlicker(t * 0.9, vSeed + 0.17),
-                smoothFlicker(t * 1.1, vSeed + 0.73)
-            ) - 0.5;
-            vec4 fb1 = vec4(1.0);
-            vec4 fb2 = vec4(1.0);
-            int fireFlags = int(uMaterialFlags + 0.5);
-            int has1 = ((fireFlags & 1) != 0) ? 1 : 0;
-            int has2 = ((fireFlags & 2) != 0) ? 1 : 0;
-            int authoredFireMesh = ((fireFlags & 8) != 0) ? 1 : 0;
-            if (authoredFireMesh == 1) {
-                return evalAuthoredFireMesh();
-            }
-            float wobbleScale1 = (has2 == 1) ? 0.010 : 0.0009;
-            float wobbleScale2 = (has2 == 1) ? 0.002 : 0.0002;
-            vec2 local1 = uv + wobble * wobbleScale1;
-            vec2 local2 = uv + wobble * wobbleScale2;
-            if (has1 == 1) {
-                fb1 = sampleAtlasCombined(uMaterialRect0, uMaterialFlipbook0.xy, uMaterialFlipbook0.z, uMaterialFlipbook0.w, local1, vSeed, t, has2 != 1);
-                if (has2 == 1) {
-                    fb2 = sampleAtlasCombined(uMaterialRect1, uMaterialFlipbook1.xy, uMaterialFlipbook1.z, uMaterialFlipbook1.w, local2, vSeed, t, false);
-                } else {
-                    fb2 = fb1;
-                }
-            }
-
-            if (has1 == 1 && has2 == 0) {
-                vec2 directUv = vec2(uv.x, 1.0 - uv.y);
-                vec4 fbDirect = sampleFireDirect0(directUv, vSeed, t);
-                float alpha = clamp(fbDirect.a, 0.0, 1.0);
-                vec3 rgb = clamp(fbDirect.rgb * 1.15, 0.0, 1.0);
-                alpha *= bottomFade;
-                alpha *= fade;
-                alpha = clamp(alpha, 0.0, 0.985);
-                if (alpha < 0.003) discard;
-                rgb *= alpha;
-                return vec4(rgb, alpha);
-            }
-
-            float fb1A   = clamp(fb1.a, 0.0, 1.0);
-            float fb1Lum = clamp(dot(fb1.rgb, vec3(0.3333)), 0.0, 1.0);
-
-            float speed = (has2 == 1) ? mix(0.95, 1.10, hash11(vSeed * 19.31)) : 1.0;
-            float flow  = t * 1.55 * speed;
-            float flowY = flow * mix(0.75, 1.55, y * y);
-            float width = mix(0.30, 0.055, pow(y, 2.35));
-            float fb1Thicken = 2.80;
-            float widthHybrid = width * fb1Thicken;
-            float yy = (y * 2.0 - 1.0);
-            yy = yy * 1.45 + 0.38;
-            yy /= 1.12;
-            vec2 p = vec2(x / widthHybrid, yy);
-            p *= 1.22;
-            float sway = fbm2D(vec2(x * 1.7, y * 3.8) + vec2(0.0, -flowY * 0.65) + vSeed * 7.0);
-            p.x += (sway - 0.5) * ((has2 == 1) ? 0.015 : 0.004) * (1.0 - y);
-            float d0 = length(p);
-            vec2 advP = advect(p * vec2(1.20, 1.0) + vSeed * 6.0, flowY, 0.25);
-            float n = fbm2D(advP * vec2(2.7, 4.5) + vSeed * 11.0);
-            float d = d0 + (n - 0.5) * 0.18 * (1.0 - y);
-            float core  = clamp(1.0 - smoothstep(0.00, 0.88, d), 0.0, 1.0);
-            float outer = clamp(1.0 - smoothstep(0.30, 1.05, d), 0.0, 1.0);
-            float blobs = lickBlobs(x, y, advP, flowY, vSeed);
-            float body  = clamp(smoothstep(0.92, 0.12, d), 0.0, 1.0);
-
-            float procAlpha = body * (0.60 + 0.55 * blobs);
-            float calmFlicker = smoothFlicker(t * 1.2, vSeed);
-            procAlpha *= (has2 == 1) ? (0.92 + 0.15 * calmFlicker) : (0.985 + 0.03 * calmFlicker);
-            procAlpha *= bottomFade;
-            procAlpha *= fade;
-            procAlpha = 1.0 - exp(-procAlpha * 1.85);
-            procAlpha = clamp(procAlpha, 0.0, 0.96);
-
-            vec3 yellow = vec3(1.70, 1.20, 0.28);
-            vec3 red    = vec3(1.45, 0.18, 0.06);
-            vec3 orange = vec3(1.60, 0.55, 0.12);
-            float wave = 0.5 + 0.5 * sin((x * 1.8 + y * 8.5 - flowY * 4.9) + vSeed * 7.0);
-            float baseBoundary = 0.34;
-            float segCount = 6.0;
-            float kk = y * segCount - flowY * 0.55;
-            float seg = floor(kk);
-            float segRand  = hash11(seg + vSeed * 71.3);
-            float segRand2 = hash11(seg + vSeed * 19.7 + 5.0);
-            float tri1 = abs(fract((x * 0.85 + y * 1.05 - flowY * 0.18) * 2.8 + vSeed * 7.0) - 0.5) * 2.0;
-            float tri2 = abs(fract((x * 1.10 - y * 0.60 - flowY * 0.14) * 3.8 + vSeed * 3.0) - 0.5) * 2.0;
-            float zig = mix(tri1, tri2, 0.50 + 0.50 * (segRand - 0.5));
-            zig = smoothstep(0.15, 0.85, zig);
-            float warp = fbm2D(advect(vec2(x * 0.85, y * 1.2) + vSeed * 6.0, flowY, 0.22) * vec2(4.5, 7.5)) - 0.5;
-            float jag = 0.0;
-            jag += (segRand  - 0.5) * 0.10;
-            jag += (segRand2 - 0.5) * 0.05;
-            jag += (zig      - 0.5) * 0.14;
-            jag += warp * 0.06;
-            jag *= (1.0 - 0.55 * smoothstep(0.65, 1.0, y));
-            float boundary = clamp(baseBoundary + jag, 0.14, 0.62);
-            float splitWidth = 0.11;
-            float redMask = smoothstep(boundary, boundary + splitWidth, y);
-            vec3 procRgb = mix(yellow, red, redMask);
-            float band = smoothstep(boundary - 0.02, boundary + 0.02, y) *
-                         (1.0 - smoothstep(boundary + 0.02, boundary + 0.10, y));
-            procRgb = mix(procRgb, orange, 0.55 * band);
-            float climb = core * (1.0 - smoothstep(0.55, 0.95, y)) * (0.35 + 0.65 * wave);
-            procRgb = mix(procRgb, yellow, 0.18 * climb);
-            procRgb *= (1.18 + 0.35 * outer);
-
-            vec3 hybridRgb = procRgb;
-            float hybridAlpha = procAlpha;
-            if (has1 == 1) {
-                float aMod = mix(0.55, 1.65, fb1A);
-                float lMod = mix(0.85, 1.25, fb1Lum);
-                hybridAlpha = clamp(hybridAlpha * aMod, 0.0, 0.96);
-                hybridRgb *= lMod;
-                hybridRgb *= mix(vec3(1.0), fb1.rgb * 1.35, 0.30);
-            }
-
-            vec3 fb2Rgb = fb2.rgb;
-            float fb2Alpha = pow(clamp(fb2.a, 0.0, 1.0), 0.66);
-            float hot = smoothstep(0.10, 0.55, 1.0 - y);
-            vec3 tint = mix(red, yellow, hot);
-            fb2Rgb *= tint * 1.30;
-            fb2Alpha *= tightMask;
-            fb2Alpha *= bottomFade;
-
-            float hybridMaskedA = hybridAlpha * radialMaskLoose * bottomFade;
-            float fb2MaskedA    = fb2Alpha    * radialMaskBase;
-            float mixW = 0.50;
-            vec3 rgb = mix(hybridRgb, fb2Rgb, mixW);
-            float alpha = mix(hybridMaskedA, fb2MaskedA, mixW);
-            alpha *= fade;
-            alpha = clamp(alpha + 0.10 * outer * fade, 0.0, 0.985);
-            float exposure = 2.60;
-            rgb *= exposure;
-            float emissive = (0.85 * outer + 0.45 * core) * fade;
-            rgb *= (1.0 + 2.10 * emissive);
-            rgb = tonemapSoftLocal(rgb);
-            if (alpha < 0.003) discard;
-            rgb *= alpha;
-            return vec4(rgb, alpha);
-        }
-    )GLSL"
-                            R"GLSL(
         vec3 srgbToLinear(vec3 c) {
             c = clamp(c, 0.0, 1.0);
             vec3 lo = c / 12.92;
@@ -1102,8 +564,7 @@ __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
         }
 
         vec3 encodeWorldSurfaceColor(vec3 linearColor) {
-            // The source writes linear color to UNORM before its dedicated
-            // gamma_correction shader applies the standard sRGB transfer.
+            // Encode linear world color for an sRGB display.
             return linearToSrgb(clamp(linearColor, 0.0, 1.0));
         }
 
@@ -1185,8 +646,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float scale = (det <= 1e-10) ? 0.0 : faceDirection * inversesqrt(det);
             return normalize(T * (mapN.x * scale) + B * (mapN.y * scale) + N * mapN.z);
         }
-    )GLSL"
-                            R"GLSL(
+
         vec3 computeMappedNormalFromTexture(
             sampler2D normalTexture,
             vec2 sampleUv,
@@ -1267,15 +727,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
         }
 
         vec3 applyWorldLitModel(vec3 linearColor, vec3 n, vec2 sampleUv, vec2 uvDx, vec2 uvDy) {
-            bool nativeFresnelEffect =
-                uMaterialMode > 33.5 && uMaterialMode < 34.5;
-            vec4 orm = nativeFresnelEffect
-                ? vec4(1.0)
-                : sampleTextureWithWrap(
-                      uMetallicRoughnessTexture,
-                      sampleUv,
-                      uvDx,
-                      uvDy);
+            vec4 orm = sampleTextureWithWrap(uMetallicRoughnessTexture, sampleUv, uvDx, uvDy);
             float roughness = clamp(orm.g * clamp(uRoughnessFactor, 0.0, 1.0), 0.16, 1.0);
             float metallic = clamp(orm.b * clamp(uMetallicFactor, 0.0, 1.0), 0.0, 1.0);
             float occTex = sampleTextureWithWrap(
@@ -1286,22 +738,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float ao = mix(1.0, occTex, clamp(uOcclusionStrength, 0.0, 1.0));
 
             vec3 albedo = clamp(linearColor, 0.0, 1.0);
-            bool nativeEyeClearCoat =
-                (uMaterialMode > 27.5 && uMaterialMode < 28.5) ||
-                (uMaterialMode > 29.5 && uMaterialMode < 30.5);
-            bool nativePlainEye =
-                nativeEyeClearCoat && uMaterialRect1.w < -0.5;
-            bool nativeSeparateEyeCoat =
-                nativeEyeClearCoat && !nativePlainEye;
-            bool useSpecularStrengthTexture =
-                uMaterialMode > 1.5 && uMaterialMode < 2.5 &&
-                uMaterialFlags > 4.5 && uMaterialFlags < 5.5;
-            float dielectricSpecular = nativeSeparateEyeCoat
-                ? 0.0
-                : useSpecularStrengthTexture
-                    ? clamp(uMaterialRect0.x, 0.0, 1.0) *
-                        clamp(orm.a, 0.0, 1.0)
-                    : 0.04;
+            float dielectricSpecular = 0.04;
             vec3 F0 = mix(vec3(dielectricSpecular), albedo, metallic);
             vec3 diffuseColor = albedo * (1.0 - metallic);
             const float specularF90 = 1.0;
@@ -1323,7 +760,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 lightPos = uCameraPos + camRight * 0.5 + camUp * 0.0 - camForward * 0.8660254;
             vec3 l0 = safeNormalize(lightPos - uCameraTarget, vec3(0.45, 0.86, 0.24));
             vec3 direct = evalDirectPbr(
-                n, v, l0, directColor * directIntensity, albedo, F0, roughness, metallic);
+)GLSL"
+        R"GLSL(                n, v, l0, directColor * directIntensity, albedo, F0, roughness, metallic);
 
             float NdotV = max(dot(n, v), 0.0);
             vec3 F = fresnelSchlickRoughness(NdotV, F0, roughness);
@@ -1343,13 +781,6 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 specularIBL = envRadiance * singleScattering + multiScattering * cosineWeightedIrradiance;
             diffuseIBL *= __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
             specularIBL *= __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-            // Scarlet's EyeClearCoat reserves its outer specular response for
-            // the dedicated coat pass. PLA's plain Eye family has no separate
-            // coat, so it must retain this ordinary dielectric/environment
-            // lobe instead of becoming completely matte.
-            if (nativeSeparateEyeCoat) {
-                specularIBL = vec3(0.0);
-            }
             diffuseIBL *= ao;
             float specularOcclusion = computeSpecularOcclusion(NdotV, ao, roughness);
             specularIBL *= specularOcclusion;
@@ -1367,1127 +798,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 0.0,
                 1.0);
             vec3 emissive = emissiveTex * max(uEmissiveFactor, vec3(0.0));
-            // PLA's plain Eye shader can carry a sparse layer-5 catchlight in
-            // the emissive texture while the rest of the eye still needs its
-            // softer native diffuse response. A material-wide emissive guard
-            // incorrectly disabled that response for Geodude's entire eye.
-            // Gate the fill per pixel instead: authored emissive regions stay
-            // exact, while non-emissive sclera/iris pixels retain their baked
-            // layer color. The proportional blend still preserves pupils.
-            if (nativePlainEye) {
-                float emissiveCoverage = clamp(
-                    max(emissive.r, max(emissive.g, emissive.b)),
-                    0.0,
-                    1.0);
-                shaded = mix(
-                    shaded,
-                    albedo,
-                    0.25 * (1.0 - emissiveCoverage));
-            }
+
             return max(shaded + emissive, vec3(0.0));
-        }
-
-        vec3 sampleZaLocalReflectionProbe(
-            sampler2D probeTexture,
-            vec3 direction,
-            float sourceLod,
-            float fallbackRoughness);
-        vec3 sampleSvLocalSpecularProbe(
-            sampler2D probeTexture,
-            vec3 direction,
-            float roughness);
-
-        vec2 resolveZaIkEyeParallaxUv(
-            vec2 uv,
-            vec2 uvDx,
-            vec2 uvDy) {
-            float parallaxHeight = max(uMaterialRect0.y, 0.0);
-            if (parallaxHeight <= 1e-5 ||
-                uUseEmissiveTexture < 0.5) {
-                return uv;
-            }
-            vec3 geometricNormal = safeNormalize(
-                vWorldNormal,
-                vec3(0.0, 1.0, 0.0));
-            vec3 tangent = safeNormalize(
-                vWorldTangent.xyz,
-                vec3(1.0, 0.0, 0.0));
-            vec3 bitangent =
-                cross(geometricNormal, tangent) * vWorldTangent.w;
-            vec3 viewWorld = safeNormalize(
-                uCameraPos - vWorldPos,
-                geometricNormal);
-            vec3 viewTangent = vec3(
-                dot(viewWorld, tangent),
-                dot(viewWorld, bitangent),
-                dot(viewWorld, geometricNormal));
-            float eta = 1.0 / max(uMaterialRect0.z, 1.0);
-            float refractionK = 1.0 - eta * eta *
-                (1.0 - viewTangent.z * viewTangent.z);
-            if (refractionK < 0.0) return uv;
-            vec3 refracted = vec3(
-                -eta * viewTangent.x,
-                -eta * viewTangent.y,
-                -sqrt(refractionK));
-            float refractedLengthSquared = dot(refracted, refracted);
-            if (refractedLengthSquared <= 1e-8 ||
-                abs(refracted.z) <= 1e-6) {
-                return uv;
-            }
-            refracted *= inversesqrt(refractedLengthSquared);
-
-            // Z-A variations 682 and 1214 normalize the summed UV
-            // derivatives before applying the refracted texture offset.
-            vec2 footprint = abs(uvDx + uvDy);
-            float footprintLengthSquared = dot(footprint, footprint);
-            footprint = footprintLengthSquared > 1e-8
-                ? footprint * inversesqrt(footprintLengthSquared)
-                : vec2(0.70710678);
-
-            float normalDotView = clamp(abs(viewTangent.z), 0.0, 1.0);
-            float layerScale = 12.0 - 10.0 * normalDotView;
-            int sampleCount = int(floor(layerScale) + 2.0);
-            float depthStep = 1.0 / layerScale;
-            float grazingFade = 1.0 - pow(1.0 - normalDotView, 5.0);
-            vec2 offsetStep = vec2(-footprint.x, footprint.y) *
-                (refracted.xy / refracted.z) *
-                (parallaxHeight / layerScale) * grazingFade;
-
-            vec2 currentOffset = vec2(0.0);
-            float currentDepth = 1.0;
-            float previousDepth = 1.1;
-            float previousHeight = 1.0;
-            for (int layer = 0; layer < 14; ++layer) {
-                if (layer >= sampleCount) break;
-                float sampledHeight = sampleTextureWithWrap(
-                    uEmissiveTexture,
-                    uv + currentOffset,
-                    uvDx,
-                    uvDy).a;
-                if (sampledHeight >= currentDepth) {
-                    float currentDelta = sampledHeight - currentDepth;
-                    float previousDelta = previousHeight - previousDepth;
-                    float denominator = currentDelta - previousDelta;
-                    if (abs(denominator) > 1e-6) {
-                        currentOffset -= offsetStep *
-                            (currentDelta / denominator);
-                    }
-                    break;
-                }
-                previousDepth = currentDepth;
-                previousHeight = sampledHeight;
-                currentDepth -= depthStep;
-                currentOffset += offsetStep;
-            }
-            return uv + currentOffset;
-        }
-
-        vec3 zaIkLocalReflectionDirection(
-            vec3 viewDirection,
-            vec3 mappedNormal) {
-            // The compiled source max-abs normalizes this vector before its
-            // cube lookup. Positive direction scaling is homogeneous for a
-            // cubemap, so preserve the exact reflect(-view, normal) ray. The
-            // separate diffuse-irradiance cube flips Z; this local probe does
-            // not.
-            return reflect(-viewDirection, mappedNormal);
-        }
-
-        vec3 zaIkEmissionColor(float packedColor) {
-            float encoded = floor(max(packedColor, 0.0) + 0.5);
-            float red = floor(encoded / 65536.0);
-            float remainder = encoded - red * 65536.0;
-            float green = floor(remainder / 256.0);
-            float blue = remainder - green * 256.0;
-            vec3 color = vec3(red, green, blue) / 255.0;
-            float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-            return luminance > 1e-6
-                ? color / luminance
-                : vec3(1.0);
-        }
-
-        int zaUiLightingCategory(float packedCategoryAndFlags) {
-            float category;
-            if (packedCategoryAndFlags >= 8.0) {
-                category = packedCategoryAndFlags - 8.0;
-            } else if (packedCategoryAndFlags < 0.5) {
-                category = 6.0;
-            } else if (fract(packedCategoryAndFlags) > 0.001) {
-                category = fract(packedCategoryAndFlags) * 16.0;
-            } else {
-                category = packedCategoryAndFlags;
-            }
-            return clamp(int(round(category)), 0, 7);
-        }
-
-        float zaUiDirectIntensity(int category) {
-            if (category == 2) return 0.08;
-            if (category == 5) return 4.14;
-            if (category == 6) return 4.20;
-            return 3.14;
-        }
-
-        float zaUiGiIntensity(int category) {
-            return category == 2 ? 0.07 : 1.0;
-        }
-
-        vec3 zaUiRimColor(int category) {
-            if (category == 0) return vec3(1.0);
-            if (category == 1) {
-                return vec3(0.7254902, 0.9843137, 0.5333334);
-            }
-            return vec3(0.0);
-        }
-
-        vec3 applyNativeIkCharacter(
-            vec3 linearColor,
-            vec3 inputNormal,
-            vec2 inputSampleUv,
-            vec2 uvDx,
-            vec2 uvDy,
-            bool nativeEye) {
-            vec2 sampleUv = nativeEye
-                ? resolveZaIkEyeParallaxUv(inputSampleUv, uvDx, uvDy)
-                : inputSampleUv;
-            vec3 n = inputNormal;
-            vec3 resolvedLinearColor = linearColor;
-            if (nativeEye) {
-                resolvedLinearColor = clamp(
-                    sampleTextureWithWrap(
-                        uTexture,
-                        sampleUv,
-                        uvDx,
-                        uvDy).rgb * vColor.rgb,
-                    0.0,
-                    1.0);
-                n = computeMappedNormal(sampleUv, uvDx, uvDy, 0.8);
-            }
-            vec3 cameraForward = safeNormalize(
-                uCameraForward,
-                normalize(vec3(0.0, -0.6139406, -0.7893522)));
-            vec3 cameraRight = cross(cameraForward, vec3(0.0, 1.0, 0.0));
-            if (dot(cameraRight, cameraRight) < 1e-6) {
-                cameraRight = cross(cameraForward, vec3(0.0, 0.0, 1.0));
-            }
-            cameraRight = safeNormalize(cameraRight, vec3(1.0, 0.0, 0.0));
-            vec3 viewDirection = safeNormalize(
-                uCameraPos - vWorldPos,
-                -cameraForward);
-            bool zaSourceStage =
-                decodeReviewLightingProfile(uCameraForward) == 4;
-            int zaLightCategory = zaUiLightingCategory(
-                uLightProjectionUvRowV.w);
-            vec3 lightPosition =
-                uCameraPos + cameraRight * 0.5 - cameraForward * 0.8660254;
-            // The retained stage record and imported model shading basis use
-            // opposite Z handedness. Convert at that boundary so the
-            // off-screen stage keys the character front instead of
-            // backlighting it.
-            vec3 lightDirection = zaSourceStage
-                ? vec3(-0.44695543, 0.64944804, -0.61518134)
-                : safeNormalize(
-                      lightPosition - uCameraTarget,
-                      vec3(0.45, 0.86, 0.24));
-            float sourceDirectScale = zaSourceStage
-                ? zaUiDirectIntensity(zaLightCategory) *
-                      (1.0 / 3.14159265)
-                : 1.0;
-            vec4 shadowSpec = uUseMetallicRoughnessTexture > 0.5
-                ? sampleTextureWithWrap(
-                      uMetallicRoughnessTexture,
-                      sampleUv,
-                      uvDx,
-                      uvDy)
-                : vec4(1.0, 1.0, 1.0, 0.0);
-            vec4 surfaceControl = uUseOcclusionTexture > 0.5
-                ? sampleTextureWithWrap(
-                      uOcclusionTexture,
-                      sampleUv,
-                      uvDx,
-                      uvDy)
-                : vec4(1.0, 0.0, 1.0 / 3.0, 0.0);
-            // Forge has already evaluated the selected fragment's literal AO
-            // use: OcclusionMap * OcclusionStrength blends ShadowingColorMap
-            // from the base ShadowingColor before ordered layers. Do not apply
-            // the retained raw AO lane a second time.
-            float metallic = clamp(surfaceControl.g, 0.0, 1.0);
-            float specularOffset = surfaceControl.b * 1.5 - 0.5;
-            float specularContrast = surfaceControl.a * 5.0;
-            float reflectionBlur = max(uMaterialRect0.x, 0.0);
-            float shadowingGiGain = clamp(uMaterialRect0.w, 0.0, 1.0);
-            float diffusionLevels = nativeEye
-                ? 0.0
-                : clamp(uMaterialRect0.y, 0.0, 1.0);
-            float normalDotLightSigned = dot(n, lightDirection);
-            float lambert = max(normalDotLightSigned, 0.0);
-            float wrappedLambert = clamp(
-                normalDotLightSigned * 0.5 + 0.5,
-                0.0,
-                1.0);
-            bool hasAuthoredColorProcess = uMaterialRect1.w > 0.05;
-            float authoredShadowBias = hasAuthoredColorProcess
-                ? uMaterialRect1.x
-                : 1.0;
-            // All selected Z-A IkCharacter variants use x + bias * (x^2 - x)
-            // on wrapped N.L. ShadowingBias is not a power curve.
-            float biasedLambert = clamp(
-                wrappedLambert + authoredShadowBias *
-                    (wrappedLambert * wrappedLambert - wrappedLambert),
-                0.0,
-                1.0);
-            float authoredShadowShift = hasAuthoredColorProcess
-                ? uMaterialRect1.y
-                : -0.5;
-            float authoredShadowContrast = hasAuthoredColorProcess
-                ? uMaterialRect1.z
-                : 0.0;
-            float halfLambertBiasSquared =
-                uMetallicFactor * uMetallicFactor;
-            float shadowBandLow =
-                (0.5 - 0.5 * halfLambertBiasSquared) *
-                uRoughnessFactor;
-            float shadowBandHigh =
-                (0.5 + 0.5 * halfLambertBiasSquared) *
-                uRoughnessFactor;
-            float shadowBandWidth = max(
-                shadowBandHigh - shadowBandLow,
-                1e-5);
-            float shadowAmount = clamp(
-                1.0 - (biasedLambert - shadowBandLow) /
-                    shadowBandWidth,
-                0.0,
-                1.0);
-            // Selected Z-A IkCharacter programs combine a projected 2D mask
-            // with a 16-tap cascaded shadow-array result, then multiply that
-            // visibility into wrapped N.L before ShadowingShift. The loose
-            // model archive contains neither bound scene texture, so keep the
-            // scene boundary explicitly neutral. Do not substitute a project-specific
-            // projected-shadow format: its sampling contract is unrelated.
-            const float sourceSceneShadowVisibility = 1.0;
-            const float sourceSceneShadowBypass = 0.0;
-            float effectiveDirectShadowVisibility = clamp(
-                sourceSceneShadowVisibility +
-                    sourceSceneShadowBypass * sourceSceneShadowBypass,
-                0.0,
-                1.0);
-            float shadowedWrappedLambert =
-                wrappedLambert * sourceSceneShadowVisibility;
-            vec3 albedo = clamp(resolvedLinearColor, 0.0, 1.0);
-            // ShadowingGIGain scales the source shader's RGB difference from
-            // the unshadowed diffuse color to the AO-resolved absolute shadow
-            // color. The packed shadowSpec RGB is not a multiplicative
-            // tint. Multiplying albedo by it darkens the same color twice and
-            // creates false eye-socket and contour bands on pale bodies.
-            float combinedShadowAmount =
-                shadowAmount * shadowingGiGain;
-            vec3 shaded = mix(
-                albedo,
-                shadowSpec.rgb,
-                combinedShadowAmount) *
-                (zaSourceStage
-                     ? biasedLambert * effectiveDirectShadowVisibility *
-                           sourceDirectScale
-                     : 1.0);
-            if (hasAuthoredColorProcess) {
-                // Source middle/dark processing consumes max(directDiffuse
-                // RGB) after inverse-pi scene light and shadow composition.
-                // With unavailable scene RGB normalized to unit white, this
-                // is its literal scalar counterpart.
-                float colorProcessLight = clamp(
-                    biasedLambert * effectiveDirectShadowVisibility *
-                        (zaSourceStage ? sourceDirectScale : 1.0),
-                    0.0,
-                    1.0);
-                float midDomain = clamp(
-                    1.0 - colorProcessLight + uMaterialFlipbook0.x,
-                    0.0,
-                    1.0);
-                float midSmooth = midDomain * midDomain *
-                    (3.0 - 2.0 * midDomain);
-                float midArea = clamp(
-                    midSmooth *
-                            (1.0 + 2.0 * uMaterialFlipbook0.y) -
-                        uMaterialFlipbook0.y,
-                    0.0,
-                    1.0);
-                float darkDomain = clamp(
-                    1.0 - colorProcessLight + uMaterialFlipbook0.w,
-                    0.0,
-                    1.0);
-                float darkSmooth = darkDomain * darkDomain *
-                    (3.0 - 2.0 * darkDomain);
-                float darkArea = clamp(
-                    darkSmooth *
-                            (1.0 + 2.0 * uMaterialFlipbook1.x) -
-                        uMaterialFlipbook1.x,
-                    0.0,
-                    1.0);
-                float shadowProcessDomain = clamp(
-                    shadowedWrappedLambert - authoredShadowShift,
-                    0.0,
-                    1.0);
-                float shadowProcessSmooth = shadowProcessDomain *
-                    shadowProcessDomain *
-                    (3.0 - 2.0 * shadowProcessDomain);
-                float shadowProcessArea = clamp(
-                    shadowProcessSmooth *
-                            (1.0 + 2.0 * authoredShadowContrast) -
-                        authoredShadowContrast,
-                    0.0,
-                    1.0);
-                vec3 darkHsv = rgbToHsv(
-                    max(shaded, vec3(0.0)));
-                darkHsv.x = fract(darkHsv.x + uMaterialFlipbook1.y);
-                vec3 midHsv = rgbToHsv(
-                    max(shaded, vec3(0.0)));
-                midHsv.x = fract(midHsv.x + uMaterialFlipbook0.z);
-                vec3 darkHueColor = hsvToRgb(darkHsv);
-                vec3 midHueColor = hsvToRgb(midHsv);
-                vec3 baseToMidHue = mix(shaded, midHueColor, midArea);
-                vec3 darkToBaseMid = mix(
-                    darkHueColor,
-                    baseToMidHue,
-                    darkArea);
-                vec3 baseMidToDark = mix(
-                    baseToMidHue,
-                    darkHueColor,
-                    darkArea);
-                float hueAreaScale = 1.0 - 0.5 * midArea *
-                    uMaterialFlipbook1.w;
-                shaded = mix(
-                    darkToBaseMid,
-                    baseMidToDark,
-                    shadowProcessArea) * hueAreaScale;
-                shaded *= 1.0 + 2.0 * diffusionLevels *
-                    (1.0 - colorProcessLight);
-            }
-            vec4 rimResponse = !nativeEye && uUseEmissiveTexture > 0.5
-                ? sampleTextureWithWrap(
-                      uEmissiveTexture,
-                      sampleUv,
-                      uvDx,
-                      uvDy)
-                : vec4(0.0, 0.0, 0.0, 1.0);
-            float facing = dot(n, viewDirection);
-            float edge = clamp(1.0 - max(facing, 0.0), 0.0, 1.0);
-            float rimOffset = clamp(uEmissiveFactor.r, 0.0, 0.99);
-            float rimDomain = clamp(
-                (edge - rimOffset) / max(1.0 - rimOffset, 1e-4),
-                0.0,
-                1.0);
-            // Selected Z-A IkCharacter 514/594 applies cubic smoothstep then
-            // clamp(x * (1 + 2c) - c); contrast is not a power exponent.
-            float rimSmooth = rimDomain * rimDomain *
-                (3.0 - 2.0 * rimDomain);
-            float rimContrast = uEmissiveFactor.g;
-            float rimShape = clamp(
-                rimSmooth * (1.0 + 2.0 * rimContrast) - rimContrast,
-                0.0,
-                1.0);
-            // The packed map carries the raw pre-composite Z-A rim scalars.
-            // Source scene exposure remains unavailable, so keep Phlosion's
-            // bounded review calibration explicit in presentation code rather
-            // than baking it irreversibly into imported asset data.
-            const float zaIkRimPresentationScale = 0.25;
-            float rim = nativeEye
-                ? 0.0
-                : rimShape * rimResponse.r * zaIkRimPresentationScale;
-            float backRim = nativeEye
-                ? 0.0
-                : rimShape * smoothstep(
-                      0.0,
-                      1.0,
-                      clamp(
-                          (0.4 - normalDotLightSigned -
-                              clamp(facing, 0.0, 1.0)) * 2.5,
-                          0.0,
-                          1.0)) *
-                    rimResponse.g * zaIkRimPresentationScale;
-            vec3 sceneRimColor = zaSourceStage
-                ? zaUiRimColor(zaLightCategory)
-                : vec3(1.0);
-            float specularStrength = clamp(shadowSpec.a, 0.0, 1.0);
-            // All selected Kanto Z-A materials disable EnableHairSpecular.
-            // Their visible fur/feather relief therefore remains in the real
-            // base, normal, shadow, specular, and rim paths above; do not add
-            // a species-classified sheen: that would execute a source-disabled
-            // branch.
-            // The selected Z-A IkCharacter fragments add scene diffuse
-            // irradiance at LOD 0 using vec3(n.x, n.y, -n.z). The source cube
-            // and exposure are scene-owned and absent from loose assets, so
-            // bridge that proven branch through the strongly filtered end of
-            // the authored local environment carrier. Its mip-5 mean is
-            // 0.00627 linear luminance, so the explicit 32x exposure bridge
-            // restores a neutral 0.20 diffuse fill. Its sampler falls back to
-            // the neutral room when the packed probe is unavailable.
-            vec3 diffuseProbeDirection = safeNormalize(
-                vec3(n.x, n.y, -n.z),
-                n);
-            vec3 neutralDiffuseIrradiance = zaSourceStage
-                ? sampleSvLocalSpecularProbe(
-                      uLightProjectionTexture,
-                      diffuseProbeDirection,
-                      1.0)
-                : sampleZaLocalReflectionProbe(
-                      uEnvTexture,
-                      diffuseProbeDirection,
-                      5.0,
-                      1.0);
-            if (zaSourceStage) {
-                neutralDiffuseIrradiance = clamp(
-                    neutralDiffuseIrradiance,
-                    vec3(0.0),
-                    vec3(0.006));
-            }
-            // The retained cube is exact, but the source framebuffer exposure
-            // is not present in the loose UI-light package. A 96x review
-            // exposure keeps broad airborne silhouettes readable from above
-            // and behind without rotating the recovered key light or baking a
-            // fill into the imported material.
-            float zaIkDiffuseEnvironmentExposureBridge = zaSourceStage
-                ? 96.0 * 3.14159265
-                : 32.0;
-            vec3 environmentDiffuse = neutralDiffuseIrradiance * albedo *
-                (1.0 - metallic) *
-                zaIkDiffuseEnvironmentExposureBridge *
-                (zaSourceStage
-                     ? zaUiGiIntensity(zaLightCategory) *
-                           (1.0 / 3.14159265)
-                     : 1.0);
-            vec3 nativeBase = shaded + environmentDiffuse +
-                albedo * sceneRimColor * (rim + backRim);
-
-            // The decompiled Z-A IkCharacter body program carries no generic
-            // roughness/PBR coat. Preserve its layer-resolved specular shape,
-            // metal response, reflection blur and diffusion controls.
-            vec3 halfDirection = safeNormalize(
-                lightDirection + viewDirection,
-                n);
-            float normalDotHalf = max(dot(n, halfDirection), 0.0);
-            float normalDotView = max(dot(n, viewDirection), 0.0);
-            float normalDotLight = lambert;
-            // Selected 514/594 subtracts the authored offset, smoothsteps the
-            // domain, then applies clamp(x * (1 + 2c) - c) for contrast.
-            float specularDomain = clamp(
-                normalDotHalf - specularOffset,
-                0.0,
-                1.0);
-            float specularSmooth = specularDomain * specularDomain *
-                (3.0 - 2.0 * specularDomain);
-            float specularLobe = clamp(
-                specularSmooth * (1.0 + 2.0 * specularContrast) -
-                    specularContrast,
-                0.0,
-                1.0);
-            // Compiled IkCharacter applies layer-resolved intensity once;
-            // the old square was a viewer gloss workaround, not source math.
-            float dielectricSpecular = specularStrength;
-            // Eye 682/1214 retains the direct-specular/reflection split.
-            float surfaceSpecular = dielectricSpecular;
-            vec3 specularColor = vec3(1.0);
-            vec3 directSpecular = specularColor * surfaceSpecular *
-                specularLobe * normalDotLight *
-                (zaSourceStage ? sourceDirectScale : 0.72);
-            vec3 reflection = zaIkLocalReflectionDirection(
-                viewDirection,
-                n);
-            float reflectionRoughness = clamp(
-                reflectionBlur * 0.16,
-                0.04,
-                0.92);
-            vec3 environmentRadiance = sampleZaLocalReflectionProbe(
-                uEnvTexture,
-                reflection,
-                reflectionBlur + max(litTextureDetailLodBias(), 0.0),
-                reflectionRoughness);
-            float grazingResponse = mix(
-                1.0,
-                1.35,
-                pow(1.0 - normalDotView, 5.0));
-            float environmentOcclusion = computeSpecularOcclusion(
-                normalDotView,
-                1.0,
-                reflectionRoughness);
-            vec3 environmentSpecular =
-                environmentRadiance * albedo * metallic *
-                grazingResponse * environmentOcclusion *
-                __PHLOSION_PBR_SPECULAR_IBL_SCALE__ *
-                (zaSourceStage ? 32.0 : 1.0);
-            vec3 diffuse = nativeBase * (1.0 - metallic * 0.85);
-            // Mode 32's packed rim texture reserves blue for source emission
-            // luminance; params0.z carries its material-constant 24-bit RGB.
-            // This reconstructs both Staryu's white emission and Mega
-            // Raichu's chromatic layer without growing the six-texture ABI.
-            // Mode 35's highlight is already in its source-proven pre-lighting
-            // base and shadow colors.
-            vec3 bodyEmission = !nativeEye && uUseEmissiveTexture > 0.5
-                ? rimResponse.b * zaIkEmissionColor(uMaterialRect0.z)
-                : vec3(0.0);
-            return max(
-                diffuse + directSpecular + environmentSpecular + bodyEmission,
-                vec3(0.0));
-        }
-
-        vec3 applyNativeSssSurface(
-            vec3 linearColor,
-            vec3 n,
-            vec2 sampleUv,
-            vec2 uvDx,
-            vec2 uvDy,
-            float surfaceProfile) {
-            vec3 cameraForward = safeNormalize(
-                uCameraForward,
-                normalize(vec3(0.0, -0.6139406, -0.7893522)));
-            vec3 cameraRight = cross(cameraForward, vec3(0.0, 1.0, 0.0));
-            if (dot(cameraRight, cameraRight) < 1e-6) {
-                cameraRight = cross(cameraForward, vec3(0.0, 0.0, 1.0));
-            }
-            cameraRight = safeNormalize(cameraRight, vec3(1.0, 0.0, 0.0));
-            vec3 cameraUp = safeNormalize(
-                cross(cameraRight, cameraForward),
-                vec3(0.0, 1.0, 0.0));
-            vec3 viewDirection = safeNormalize(
-                uCameraPos - vWorldPos,
-                -cameraForward);
-            vec3 lightDirection = safeNormalize(
-                cameraRight * 0.45 + cameraUp * 0.86 - cameraForward * 0.24,
-                vec3(0.45, 0.86, 0.24));
-            vec3 halfDirection = safeNormalize(
-                lightDirection + viewDirection,
-                n);
-
-            float roughness = uUseMetallicRoughnessTexture > 0.5
-                ? clamp(
-                      sampleTextureWithWrap(
-                          uMetallicRoughnessTexture,
-                          sampleUv,
-                          uvDx,
-                          uvDy).g * clamp(uRoughnessFactor, 0.0, 1.0),
-                      0.04,
-                      1.0)
-                : 1.0;
-            bool fibreSurface = abs(surfaceProfile - 1.0) < 0.25;
-            float coarseRoughness =
-                fibreSurface && uUseMetallicRoughnessTexture > 0.5
-                ? clamp(
-                      sampleTextureWithWrap(
-                          uMetallicRoughnessTexture,
-                          sampleUv,
-                          uvDx * 4.0,
-                          uvDy * 4.0).g * clamp(uRoughnessFactor, 0.0, 1.0),
-                      0.04,
-                      1.0)
-                : roughness;
-            float ao = uUseOcclusionTexture > 0.5
-                ? mix(
-                      1.0,
-                      sampleTextureWithWrap(
-                          uOcclusionTexture,
-                          sampleUv,
-                          uvDx,
-                          uvDy).r,
-                      clamp(uOcclusionStrength, 0.0, 1.0))
-                : 1.0;
-            float sssMask = uUseEmissiveTexture > 0.5
-                ? sampleTextureWithWrap(
-                      uEmissiveTexture,
-                      sampleUv,
-                      uvDx,
-                      uvDy).r
-                : 0.0;
-            vec3 albedo = clamp(linearColor, 0.0, 1.0);
-            vec3 subsurfaceTint = mix(
-                albedo,
-                max(uEmissiveFactor, vec3(0.0)),
-                0.35);
-            float wrappedNdotL = clamp(
-                (dot(n, lightDirection) + 0.5) / 1.5,
-                0.0,
-                1.0);
-            float subsurfaceFill = clamp(sssMask, 0.0, 1.0) *
-                (1.0 - max(dot(n, lightDirection), 0.0)) * 0.10;
-            float specularPower = mix(16.0, 96.0, 1.0 - roughness);
-            float sourceSpecular = pow(
-                max(dot(n, halfDirection), 0.0),
-                specularPower) * 0.04 * 0.45;
-            float nDotV = clamp(dot(n, viewDirection), 0.0, 1.0);
-            vec3 environmentFresnel = fresnelSchlickRoughness(
-                nDotV,
-                vec3(0.04),
-                roughness);
-            // Exact SV SSS variation 56 samples diffuse irradiance at the
-            // mapped normal (tcb_34, LOD 0) and specular radiance at the
-            // reflected view vector (tcb_36, roughness-selected LOD). The
-            // source scene cubes are runtime state, so use Phlosion's shared
-            // neutral environment while preserving those proven roles.
-            vec3 environmentDiffuse = sampleNeutralEnvironment(n, 1.0) *
-                albedo * (vec3(1.0) - environmentFresnel) * ao *
-                __PHLOSION_PBR_DIFFUSE_IBL_SCALE__ * 1.18;
-            vec3 reflection = reflect(-viewDirection, n);
-            vec3 environmentSpecular = sampleNeutralEnvironment(
-                reflection,
-                roughness) * environmentFresnel *
-                computeSpecularOcclusion(nDotV, ao, roughness) *
-                __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-            vec3 directDiffuse = albedo * 0.90 * wrappedNdotL * ao;
-            // The exact SV scene cubes remain unavailable offline. Preserve
-            // useful neutral-rig exposure while retaining authored AO.
-            vec3 neutralFill = albedo *
-                mix(0.08, 0.12, clamp(sssMask, 0.0, 1.0)) *
-                mix(1.0, ao, 0.5);
-            // The optional fibre profile is a Phlosion reconstruction over
-            // source-proven scalar roughness. Smooth SSS surfaces skip it.
-            float qualityDetail = clamp(
-                (0.90 - litTextureDetailLodBias()) / 1.30,
-                0.0,
-                1.0);
-            float fibreRelief = clamp(
-                (coarseRoughness - roughness) * 3.25,
-                0.0,
-                1.0);
-            float velvet = pow(1.0 - nDotV, 2.5);
-            float fibreSheen = fibreSurface
-                ? qualityDetail * wrappedNdotL *
-                      (fibreRelief * (0.18 + 0.14 * velvet) + velvet * 0.08)
-                : 0.0;
-            return max(
-                environmentDiffuse + directDiffuse + neutralFill +
-                    environmentSpecular +
-                    subsurfaceTint * subsurfaceFill +
-                    vec3(sourceSpecular) + albedo * fibreSheen,
-                vec3(0.0));
-        }
-
-        float decodeSvLocalProbeHalf(uint bits) {
-            uint exponentBits = (bits >> 10u) & 31u;
-            uint mantissaBits = bits & 1023u;
-            float signValue = (bits & 32768u) != 0u ? -1.0 : 1.0;
-            if (exponentBits == 0u) {
-                return signValue * float(mantissaBits) * exp2(-24.0);
-            }
-            if (exponentBits == 31u) return 0.0;
-            return signValue *
-                (1.0 + float(mantissaBits) * (1.0 / 1024.0)) *
-                exp2(float(exponentBits) - 15.0);
-        }
-
-        vec3 decodeSvLocalProbeTexel(sampler2D probeTexture, ivec2 texel) {
-            vec4 packedRg = texelFetch(probeTexture, texel, 0);
-            vec4 packedBa = texelFetch(probeTexture, texel + ivec2(1, 0), 0);
-            uvec4 rg = uvec4(round(clamp(packedRg, 0.0, 1.0) * 255.0));
-            uvec4 ba = uvec4(round(clamp(packedBa, 0.0, 1.0) * 255.0));
-            return vec3(
-                decodeSvLocalProbeHalf(rg.r | (rg.g << 8u)),
-                decodeSvLocalProbeHalf(rg.b | (rg.a << 8u)),
-                decodeSvLocalProbeHalf(ba.r | (ba.g << 8u)));
-        }
-
-        vec3 sampleSvLocalSpecularProbe(
-            sampler2D probeTexture,
-            vec3 direction,
-            float roughness) {
-            ivec2 atlasSize = textureSize(probeTexture, 0);
-            if (atlasSize.x != atlasSize.y * 3 ||
-                atlasSize.y < 2 || (atlasSize.y & 1) != 0) {
-                return sampleNeutralEnvironment(direction, roughness);
-            }
-            int faceSize = atlasSize.y / 2;
-            vec3 d = safeNormalize(direction, vec3(0.0, 0.0, 1.0));
-            vec3 a = abs(d);
-            int face;
-            vec2 faceUv;
-            if (a.x >= a.y && a.x >= a.z) {
-                if (d.x >= 0.0) {
-                    face = 0;
-                    faceUv = vec2(-d.z, -d.y) / a.x;
-                } else {
-                    face = 1;
-                    faceUv = vec2(d.z, -d.y) / a.x;
-                }
-            } else if (a.y >= a.z) {
-                if (d.y >= 0.0) {
-                    face = 2;
-                    faceUv = vec2(d.x, d.z) / a.y;
-                } else {
-                    face = 3;
-                    faceUv = vec2(d.x, -d.z) / a.y;
-                }
-            } else if (d.z >= 0.0) {
-                face = 4;
-                faceUv = vec2(d.x, -d.y) / a.z;
-            } else {
-                face = 5;
-                faceUv = vec2(-d.x, -d.y) / a.z;
-            }
-            vec2 p = clamp(faceUv * 0.5 + 0.5, 0.0, 1.0) *
-                float(faceSize) - 0.5;
-            ivec2 lo = clamp(
-                ivec2(floor(p)), ivec2(0), ivec2(faceSize - 1));
-            ivec2 hi = min(lo + ivec2(1), ivec2(faceSize - 1));
-            vec2 blend = fract(p);
-            ivec2 origin = ivec2(
-                (face % 3) * faceSize * 2,
-                (face / 3) * faceSize);
-            vec3 c00 = decodeSvLocalProbeTexel(
-                probeTexture, origin + ivec2(lo.x * 2, lo.y));
-            vec3 c10 = decodeSvLocalProbeTexel(
-                probeTexture, origin + ivec2(hi.x * 2, lo.y));
-            vec3 c01 = decodeSvLocalProbeTexel(
-                probeTexture, origin + ivec2(lo.x * 2, hi.y));
-            vec3 c11 = decodeSvLocalProbeTexel(
-                probeTexture, origin + ivec2(hi.x * 2, hi.y));
-            return mix(
-                mix(c00, c10, blend.x),
-                mix(c01, c11, blend.x),
-                blend.y);
-        }
-
-        vec3 sampleZaLocalReflectionProbeMip(
-            sampler2D probeTexture,
-            vec3 direction,
-            int baseFaceSize,
-            int mipLevel) {
-            int mipSize = max(baseFaceSize >> mipLevel, 1);
-            vec3 d = safeNormalize(direction, vec3(0.0, 0.0, 1.0));
-            vec3 a = abs(d);
-            int face;
-            vec2 faceUv;
-            if (a.x >= a.y && a.x >= a.z) {
-                if (d.x >= 0.0) {
-                    face = 0;
-                    faceUv = vec2(-d.z, -d.y) / a.x;
-                } else {
-                    face = 1;
-                    faceUv = vec2(d.z, -d.y) / a.x;
-                }
-            } else if (a.y >= a.z) {
-                if (d.y >= 0.0) {
-                    face = 2;
-                    faceUv = vec2(d.x, d.z) / a.y;
-                } else {
-                    face = 3;
-                    faceUv = vec2(d.x, -d.z) / a.y;
-                }
-            } else if (d.z >= 0.0) {
-                face = 4;
-                faceUv = vec2(d.x, -d.y) / a.z;
-            } else {
-                face = 5;
-                faceUv = vec2(-d.x, -d.y) / a.z;
-            }
-            vec2 p = clamp(faceUv * 0.5 + 0.5, 0.0, 1.0) *
-                float(mipSize) - 0.5;
-            ivec2 lo = clamp(
-                ivec2(floor(p)), ivec2(0), ivec2(mipSize - 1));
-            ivec2 hi = min(lo + ivec2(1), ivec2(mipSize - 1));
-            vec2 blend = fract(p);
-            int mipStripY = baseFaceSize * 4 - mipSize * 4;
-            ivec2 origin = ivec2(
-                (face % 3) * mipSize * 2,
-                mipStripY + (face / 3) * mipSize);
-            vec3 c00 = decodeSvLocalProbeTexel(
-                probeTexture, origin + ivec2(lo.x * 2, lo.y));
-            vec3 c10 = decodeSvLocalProbeTexel(
-                probeTexture, origin + ivec2(hi.x * 2, lo.y));
-            vec3 c01 = decodeSvLocalProbeTexel(
-                probeTexture, origin + ivec2(lo.x * 2, hi.y));
-            vec3 c11 = decodeSvLocalProbeTexel(
-                probeTexture, origin + ivec2(hi.x * 2, hi.y));
-            return mix(
-                mix(c00, c10, blend.x),
-                mix(c01, c11, blend.x),
-                blend.y);
-        }
-
-        vec3 sampleZaLocalReflectionProbe(
-            sampler2D probeTexture,
-            vec3 direction,
-            float sourceLod,
-            float fallbackRoughness) {
-            ivec2 atlasSize = textureSize(probeTexture, 0);
-            if (atlasSize.x < 6 || atlasSize.x % 6 != 0) {
-                return sampleNeutralEnvironment(direction, fallbackRoughness);
-            }
-            int faceSize = atlasSize.x / 6;
-            if (atlasSize.y != faceSize * 4 - 2 ||
-                (faceSize & (faceSize - 1)) != 0) {
-                return sampleNeutralEnvironment(direction, fallbackRoughness);
-            }
-            int maxMip = int(round(log2(float(faceSize))));
-            float lod = clamp(sourceLod, 0.0, float(maxMip));
-            int lo = int(floor(lod));
-            int hi = min(lo + 1, maxMip);
-            return mix(
-                sampleZaLocalReflectionProbeMip(
-                    probeTexture, direction, faceSize, lo),
-                sampleZaLocalReflectionProbeMip(
-                    probeTexture, direction, faceSize, hi),
-                fract(lod));
-        }
-
-        vec3 nativeFresnelEffectBase(vec3 baseMap) {
-            vec3 tinted = max(baseMap, vec3(0.0)) *
-                max(uMaterialRect0.rgb, vec3(0.0));
-            float luminance = dot(tinted, vec3(0.299, 0.587, 0.114));
-            return max(mix(
-                vec3(luminance),
-                tinted,
-                max(uMaterialFlipbook1.x, 0.0)), vec3(0.0));
-        }
-
-        vec3 applyNativeFresnelEffectLayer(
-            vec3 litBase,
-            vec3 primaryColor,
-            vec3 normal,
-            vec2 sampleUv,
-            vec2 uvDx,
-            vec2 uvDy) {
-            vec3 layerNormal = uUseMetallicRoughnessTexture > 0.5
-                ? computeMappedNormalFromTexture(
-                      uMetallicRoughnessTexture,
-                      sampleUv,
-                      uvDx,
-                      uvDy,
-                      uMaterialFlipbook1.w)
-                : normal;
-            vec3 viewDirection = safeNormalize(
-                uCameraPos - vWorldPos,
-                -safeNormalize(uCameraForward, vec3(0.0, 0.0, -1.0)));
-            float nDotV = clamp(dot(
-                layerNormal,
-                viewDirection),
-                0.0,
-                1.0);
-            float angleTerm = 1.0 - max(
-                nDotV - clamp(uMaterialFlipbook0.w, 0.0, 1.0),
-                0.0);
-            float fresnelAlpha = mix(
-                clamp(uMaterialFlipbook0.y, 0.0, 1.0),
-                clamp(uMaterialFlipbook0.z, 0.0, 1.0),
-                pow(clamp(angleTerm, 0.0, 1.0), 5.0));
-            vec3 layerMap = uUseEmissiveTexture > 0.5
-                ? sampleTextureWithWrap(
-                      uEmissiveTexture,
-                      sampleUv,
-                      uvDx,
-                      uvDy).rgb
-                : vec3(0.0);
-            float ao = uUseOcclusionTexture > 0.5
-                ? mix(
-                      1.0,
-                      sampleTextureWithWrap(
-                          uOcclusionTexture,
-                          sampleUv,
-                          uvDx,
-                          uvDy).r,
-                      clamp(uOcclusionStrength, 0.0, 1.0))
-                : 1.0;
-            vec3 layerColor = layerMap *
-                max(uMaterialRect1.rgb, vec3(0.0)) *
-                ao * max(uMaterialFlipbook1.y, 0.0) *
-                (1.0 - fresnelAlpha);
-
-            vec3 reflection = reflect(
-                -viewDirection,
-                layerNormal);
-            vec3 environmentRadiance = sampleSvLocalSpecularProbe(
-                uEnvTexture,
-                reflection,
-                clamp(uRoughnessFactor, 0.04, 1.0));
-            vec3 f0 = mix(
-                vec3(0.04),
-                clamp(primaryColor, 0.0, 1.0),
-                clamp(uMetallicFactor, 0.0, 1.0));
-            vec3 localProbe = environmentRadiance *
-                fresnelSchlick(nDotV, f0) *
-                max(uMaterialFlipbook0.x, 0.0) * ao *
-                __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-            return max(litBase + layerColor + localProbe, vec3(0.0));
-        }
-
-        vec3 applyNativeGastlyFace(
-            vec3 albedo,
-            vec3 normal,
-            vec2 sampleUv,
-            vec2 uvDx,
-            vec2 uvDy) {
-            vec3 cameraForward = safeNormalize(
-                uCameraForward,
-                normalize(vec3(0.0, -0.6139406, -0.7893522)));
-            vec3 cameraRight = cross(cameraForward, vec3(0.0, 1.0, 0.0));
-            if (dot(cameraRight, cameraRight) < 1e-6) {
-                cameraRight = cross(cameraForward, vec3(0.0, 0.0, 1.0));
-            }
-            cameraRight = safeNormalize(cameraRight, vec3(1.0, 0.0, 0.0));
-            vec3 cameraUp = safeNormalize(
-                cross(cameraRight, cameraForward),
-                vec3(0.0, 1.0, 0.0));
-            vec3 view = safeNormalize(uCameraPos - vWorldPos, -cameraForward);
-            vec3 light = safeNormalize(
-                cameraRight * 0.45 + cameraUp * 0.86 - cameraForward * 0.24,
-                vec3(0.45, 0.86, 0.24));
-            vec4 shadowSpec = uUseMetallicRoughnessTexture > 0.5
-                ? sampleTextureWithWrap(
-                      uMetallicRoughnessTexture,
-                      sampleUv,
-                      uvDx,
-                      uvDy)
-                : vec4(0.0);
-            // Z-A Gastly's authored face specular is at most 0.05. Forge
-            // reserves values above 0.0625 for tongue coverage; this guard
-            // band keeps filtered tongue edges distinct from face specular.
-            float tongueMask = smoothstep(0.07, 0.50, shadowSpec.a);
-            if (uMaterialRect0.w > 0.5 && shadowSpec.a > 0.07) {
-                discard;
-            }
-            float occlusion = uUseOcclusionTexture > 0.5
-                ? mix(
-                      1.0,
-                      sampleTextureWithWrap(
-                          uOcclusionTexture,
-                          sampleUv,
-                          uvDx,
-                          uvDy).r,
-                      clamp(uOcclusionStrength, 0.0, 1.0))
-                : 1.0;
-            float halfLambert = clamp(
-                dot(normal, light) * 0.5 + 0.6,
-                0.0,
-                1.0);
-            float shadowAmount = (1.0 - halfLambert) * 0.7;
-            vec3 shaded = mix(albedo, shadowSpec.rgb, shadowAmount) * occlusion;
-            vec3 halfVector = safeNormalize(view + light, normal);
-            float sourceSpecularMask = max(
-                shadowSpec.a - 0.5 * tongueMask,
-                0.0);
-            float specular = pow(
-                max(dot(normal, halfVector), 0.0),
-                32.0) * sourceSpecularMask;
-            float tongueDiffuse = mix(
-                0.82,
-                1.06,
-                smoothstep(0.0, 1.0, halfLambert));
-            vec3 tongueShaded = albedo * tongueDiffuse *
-                mix(1.0, occlusion, 0.25);
-            float ndh = max(dot(normal, halfVector), 0.0);
-            float tongueSpecular = pow(ndh, 12.0) * 0.105 +
-                pow(ndh, 48.0) * 0.04;
-            shaded = mix(shaded, tongueShaded, tongueMask);
-            specular = mix(specular, tongueSpecular, tongueMask);
-            float edge = clamp(
-                1.0 - max(dot(normal, view), 0.0),
-                0.0,
-                1.0);
-            float rimDomain = clamp((edge - 0.4) / 0.6, 0.0, 1.0);
-            float rimMask = uUseEmissiveTexture > 0.5
-                ? sampleTextureWithWrap(
-                      uEmissiveTexture,
-                      sampleUv,
-                      uvDx,
-                      uvDy).r
-                : 1.0;
-            float rim = pow(rimDomain, 5.0) * 0.8 * rimMask;
-            float backRim = clamp(-dot(normal, view), 0.0, 1.0) *
-                0.08 * rimMask;
-            rim *= mix(1.0, 0.18, tongueMask);
-            backRim *= mix(1.0, 0.18, tongueMask);
-            return max(
-                shaded + vec3(specular) + albedo * (rim + backRim),
-                vec3(0.0));
-        }
-
-        vec3 applyNativeEyeClearCoat(vec3 linearColor, vec3 n) {
-            vec3 camForward = safeNormalize(
-                uCameraForward,
-                normalize(vec3(0.0, -0.6139406, -0.7893522)));
-            vec3 camRight = cross(camForward, vec3(0.0, 1.0, 0.0));
-            if (dot(camRight, camRight) < 1e-6) {
-                camRight = cross(camForward, vec3(0.0, 0.0, 1.0));
-            }
-            camRight = safeNormalize(camRight, vec3(1.0, 0.0, 0.0));
-            vec3 v = safeNormalize(uCameraPos - vWorldPos, -camForward);
-            vec3 lightPos = uCameraPos + camRight * 0.5 - camForward * 0.8660254;
-            vec3 l = safeNormalize(lightPos - uCameraTarget, vec3(0.45, 0.86, 0.24));
-            vec3 h = safeNormalize(v + l, n);
-            float ndv = max(dot(n, v), 0.0);
-            float ndl = max(dot(n, l), 0.0);
-            float ndh = max(dot(n, h), 0.0);
-            float vdh = max(dot(v, h), 0.0);
-            float clearCoatMetallic = uMaterialRect1.w;
-            if (clearCoatMetallic < -0.5) return linearColor;
-            float roughness = clamp(uMaterialRect0.x, 0.04, 1.0);
-            vec3 clearCoatBaseColor = max(uMaterialRect1.xyz, vec3(0.0));
-            vec3 clearCoatF0 = mix(
-                vec3(0.04),
-                clearCoatBaseColor,
-                clamp(clearCoatMetallic, 0.0, 1.0));
-            float distribution = distributionGGX(ndh, roughness);
-            float geometry = geometrySchlickGGX(ndv, roughness) *
-                geometrySchlickGGX(ndl, roughness);
-            vec3 fresnel = fresnelSchlick(vdh, clearCoatF0);
-            vec3 direct = distribution * geometry * fresnel /
-                max(4.0 * ndv * ndl, 1e-4) *
-                (__PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265) * ndl;
-            vec3 reflection = reflect(-v, n);
-            vec3 environment = sampleNeutralEnvironment(reflection, roughness) *
-                fresnelSchlickRoughness(ndv, clearCoatF0, roughness) *
-                __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-            vec3 coatLighting = direct + environment;
-            float coatPeak = max(
-                coatLighting.x,
-                max(coatLighting.y, coatLighting.z));
-            vec3 boundedCoat = coatLighting / (1.0 + coatPeak);
-            const float sceneCoatBridge = 0.20;
-            vec3 result = linearColor *
-                (vec3(1.0) - fresnel * 0.18) +
-                boundedCoat * sceneCoatBridge;
-
-            // Source material fields are exact, and fp_c8[96] is proven as an
-            // optional point-light position/enable field. Its bound source
-            // value and light energy are unavailable, so keep that uncertainty
-            // isolated in a bounded viewer-light bridge instead of treating
-            // layer-5 emission as a material-wide glow.
-            vec3 highlightEmission = max(uMaterialFlipbook0.xyz, vec3(0.0));
-            float highlightEnergy = max(
-                highlightEmission.x,
-                max(highlightEmission.y, highlightEmission.z));
-            float highlightEnabled = clamp(uMaterialRect0.w, 0.0, 1.0);
-            if (highlightEnabled > 0.0 && highlightEnergy > 1e-5) {
-                float highlightRoughness = clamp(
-                    uMaterialRect0.y,
-                    0.04,
-                    1.0);
-                float highlightMetallic = clamp(
-                    uMaterialRect0.z,
-                    0.0,
-                    1.0);
-                vec3 highlightTint = highlightEmission / highlightEnergy;
-                vec3 highlightF0 = mix(
-                    vec3(0.04),
-                    highlightTint,
-                    highlightMetallic);
-                float highlightDistribution = distributionGGX(
-                    ndh,
-                    highlightRoughness);
-                float highlightGeometry =
-                    geometrySchlickGGX(ndv, highlightRoughness) *
-                    geometrySchlickGGX(ndl, highlightRoughness);
-                vec3 highlightFresnel = fresnelSchlick(vdh, highlightF0);
-                vec3 highlightDirect =
-                    highlightDistribution * highlightGeometry *
-                    highlightFresnel / max(4.0 * ndv * ndl, 1e-4) *
-                    (__PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265) * ndl;
-                float highlightPeak = max(
-                    highlightDirect.x,
-                    max(highlightDirect.y, highlightDirect.z));
-                vec3 boundedHighlight = highlightDirect /
-                    (1.0 + highlightPeak);
-                const float sceneHighlightBridge = 0.12;
-                result += boundedHighlight *
-                    (sceneHighlightBridge * highlightEnabled *
-                     (1.0 - exp(-highlightEnergy)));
-            }
-            return max(result, vec3(0.0));
         }
 
         vec3 applyCharacterInking(vec3 linearColor, vec3 n) {
@@ -2512,58 +824,17 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             const float inkStrength = 1.0;
             return mix(linearColor, inkColor, outline * inkStrength);
         }
-    )GLSL"
-                            R"GLSL(
-        void main() {
+)GLSL",
+        R"GLSL(
             FragBlendAlpha = vec4(0.0);
             if (uMaterialMode > 2.5 && uMaterialMode < 3.5) {
                 if (gl_FrontFacing) discard;
                 FragColor = vec4(0.0, 0.0, 0.0, 1.0);
                 return;
             }
-            if (uMaterialMode > 0.5 && uMaterialMode < 1.5) {
-                FragColor = evalFireTailExact();
-                return;
-            }
-            if (uMaterialMode > 26.5 && uMaterialMode < 27.5) {
-                vec4 surface = evalNativeLayeredUnlitDisplaced();
-                if (uMaterialFlags > 2.5 && uMaterialFlags < 3.5) {
-                    bool useAuthoredShadowColor = uMaterialFlags > 3.3;
-                    vec2 smokeUv = nativeLayeredMaterialUv();
-                    vec4 authoredResponse = useAuthoredShadowColor
-                        ? sampleTextureWithWrap(
-                            uEmissiveTexture,
-                            smokeUv,
-                            dFdx(smokeUv),
-                            dFdy(smokeUv))
-                        : vec4(surface.rgb, 0.0);
-                    surface.rgb = applyNativeGastlySmokeLighting(
-                        surface.rgb,
-                        authoredResponse,
-                        useAuthoredShadowColor);
-                }
-                const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
-                // Preserve the hue separation in Scarlet's authored HDR
-                // flame layers; the generic viewer ACES fit washes both into
-                // nearly the same pale yellow.
-                vec3 mapped = linearToneMapping(
-                    max(surface.rgb, vec3(0.0)),
-                    toneMappingExposure);
-                FragColor = vec4(resolveWorldSceneColor(mapped), surface.a);
-                return;
-            }
-__PHLOSION_PROJECT_MATERIAL_EVALUATION__
             vec4 tex = vec4(1.0);
             vec3 outLinear = clamp(vColor.rgb * uVertexColorMul.rgb, 0.0, 1.0);
-            bool animatedEyeMaterial =
-                (uMaterialMode > 28.5 && uMaterialMode < 30.5);
-            vec2 rawUv = animatedEyeMaterial
-                ? vec2(
-                      vUv.x * uLightProjectionUvRowU.x +
-                          uLightProjectionUvRowU.z,
-                      vUv.y * uLightProjectionUvRowU.y +
-                          uLightProjectionUvRowU.w)
-                : vUv;
+            vec2 rawUv = vUv;
             vec2 wrappedUv = vec2(applyWrap(rawUv.x, uWrapS), applyWrap(rawUv.y, uWrapT));
             bool clampS = abs(uWrapS - 33071.0) < 0.5;
             bool clampT = abs(uWrapT - 33071.0) < 0.5;
@@ -2577,7 +848,7 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
                 uMaterialFlipbook1.w < -100.5;
             float pbrDebugView = explicitMaterialDebug
                 ? -uMaterialFlipbook1.w - 100.0
-                : (animatedEyeMaterial ? 0.0 : uMaterialFlipbook1.w);
+                : uMaterialFlipbook1.w;
             if (uUseTexture > 0.5) {
                 tex = sampleTextureWithWrap(uTexture, wrappedUv, uvDx, uvDy);
                 outLinear = clamp(tex.rgb, 0.0, 1.0) * outLinear;
@@ -2602,9 +873,7 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
                     dbg = clamp(tex.rgb, 0.0, 1.0);
                 } else if (pbrDebugView < 2.5) {
                     // 2: Authored tint-resolved albedo without lighting.
-                    dbg = (uMaterialMode > 33.5 && uMaterialMode < 34.5)
-                        ? nativeFresnelEffectBase(outLinear)
-                        : clamp(outLinear, 0.0, 1.0);
+                    dbg = clamp(outLinear, 0.0, 1.0);
                 } else if (pbrDebugView < 3.5) {
                     // 3: Normal map sample.
                     dbg = uUseNormalTexture > 0.5
@@ -2649,98 +918,8 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
                 return;
             }
             if (uMaterialMode >= 1.5) {
-                bool nativeEyeClearCoat =
-                    (uMaterialMode > 27.5 && uMaterialMode < 28.5) ||
-                    (uMaterialMode > 29.5 && uMaterialMode < 30.5);
-                bool nativePlainEye =
-                    nativeEyeClearCoat && uMaterialRect1.w < -0.5;
-                bool nativeSeparateEyeCoat =
-                    nativeEyeClearCoat && !nativePlainEye;
-                bool nativeGastlyFace =
-                    uMaterialMode > 30.5 &&
-                    uMaterialFlags > 3.5 &&
-                    uMaterialFlags < 4.5;
-                bool nativeIkCharacter =
-                    uMaterialMode > 31.5 && uMaterialMode < 32.5;
-                bool nativeSss =
-                    uMaterialMode > 32.5 && uMaterialMode < 33.5;
-                bool nativeFresnelEffect =
-                    uMaterialMode > 33.5 && uMaterialMode < 34.5;
-                bool nativeIkCharacterEye =
-                    uMaterialMode > 34.5 && uMaterialMode < 35.5;
-                if (nativeFresnelEffect) {
-                    reviewAlbedo = nativeFresnelEffectBase(outLinear);
-                }
-                // The generic PBR path deliberately boosts normal XY by
-                // 1.25. Z-A IkCharacter's NormalHeight is already authored
-                // at final strength, so cancel only that path's boost.
-                vec3 n = computeMappedNormal(
-                    wrappedUv,
-                    uvDx,
-                    uvDy,
-                    (nativeIkCharacter || nativeIkCharacterEye ||
-                     nativePlainEye) ? 0.8 : 1.0);
-                // NormalMap1 is the source EyeClearCoat highlight-normal
-                // input, not a replacement for the eye shell's base surface
-                // normal. Applying it to generic PBR turns its small authored
-                // highlight sphere into full-eye white striping. The cook
-                // already resolves that footprint into EyeFinal; retain a
-                // stable shell normal until the projected/shadow/environment
-                // scene resources can reproduce the source combination.
-                vec3 eyeSurfaceNormal = safeNormalize(
-                    vWorldNormal,
-                    vec3(0.0, 1.0, 0.0));
-                if (nativeSss) {
-                    outLinear = applyNativeSssSurface(
-                        outLinear,
-                        n,
-                        wrappedUv,
-                        uvDx,
-                        uvDy,
-                        uMaterialFlags);
-                } else if (nativeIkCharacter || nativeIkCharacterEye) {
-                    outLinear = applyNativeIkCharacter(
-                        outLinear,
-                        n,
-                        wrappedUv,
-                        uvDx,
-                        uvDy,
-                        nativeIkCharacterEye);
-                } else if (nativeGastlyFace) {
-                    outLinear = applyNativeGastlyFace(
-                        outLinear,
-                        n,
-                        wrappedUv,
-                        uvDx,
-                        uvDy);
-                } else if (nativeFresnelEffect) {
-                    vec3 primaryColor = nativeFresnelEffectBase(outLinear);
-                    outLinear = applyWorldLitModel(
-                        primaryColor,
-                        n,
-                        wrappedUv,
-                        uvDx,
-                        uvDy);
-                    outLinear = applyNativeFresnelEffectLayer(
-                        outLinear,
-                        primaryColor,
-                        n,
-                        wrappedUv,
-                        uvDx,
-                        uvDy);
-                } else {
-                    outLinear = applyWorldLitModel(
-                        outLinear,
-                        nativeSeparateEyeCoat ? eyeSurfaceNormal : n,
-                        wrappedUv,
-                        uvDx,
-                        uvDy);
-                }
-                if (nativeEyeClearCoat) {
-                    outLinear = applyNativeEyeClearCoat(
-                        outLinear,
-                        eyeSurfaceNormal);
-                }
+                vec3 n = computeMappedNormal(wrappedUv, uvDx, uvDy, 1.0);
+                outLinear = applyWorldLitModel(outLinear, n, wrappedUv, uvDx, uvDy);
             }
             if (uMaterialMode >= 1.5) {
                 outLinear = applyReviewLightingProfile(
@@ -2761,16 +940,15 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
             FragBlendAlpha = (uDualSourceBlendEnabled > 0.5)
                 ? vec4(0.0, 0.0, 0.0, clamp(outA, 0.0, 1.0))
                 : vec4(0.0);
-        }
-    )GLSL";
+        )GLSL"};
 
     const std::string fsSource =
         engine::render::world_pbr_shader_shared::injectSharedWorldPbr(
-            engine::render::injectWorldMaterialProfile(kFs, worldMaterialProfile_.opengl),
+            engine::render::injectWorldMaterialProfile(kFs, worldMaterialProfile_.empty() ? kDefaultMaterial : worldMaterialProfile_.opengl),
             engine::render::world_pbr_shader_shared::ShaderLanguage::Glsl);
-    worldProgram_ = tryLoadWorldProgramBinaryCache(kVs, fsSource);
+    worldProgram_ = tryLoadWorldProgramBinaryCache(kVs.c_str(), fsSource);
     if (worldProgram_ == 0u) {
-        const unsigned int vs = opengl_backend_shader_utils::compileShader(GL_VERTEX_SHADER, kVs);
+        const unsigned int vs = opengl_backend_shader_utils::compileShader(GL_VERTEX_SHADER, kVs.c_str());
         const unsigned int fs =
             opengl_backend_shader_utils::compileShader(GL_FRAGMENT_SHADER, fsSource.c_str());
         if (vs == 0 || fs == 0) {
@@ -2779,7 +957,7 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
             return;
         }
 
-        worldProgram_ = linkWorldProgramWithCache(vs, fs, kVs, fsSource);
+        worldProgram_ = linkWorldProgramWithCache(vs, fs, kVs.c_str(), fsSource);
         glDeleteShader(vs);
         glDeleteShader(fs);
         if (worldProgram_ == 0) return;
@@ -2854,9 +1032,7 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
         worldAlphaModeLoc_ < 0 || worldAlphaCutoffLoc_ < 0 ||
         worldAlphaWindowMinLoc_ < 0 || worldAlphaWindowMaxLoc_ < 0 ||
         worldCameraPosLoc_ < 0 || worldCameraForwardLoc_ < 0 ||
-        worldMaterialModeLoc_ < 0 || worldMaterialTimeLoc_ < 0 || worldMaterialFlagsLoc_ < 0 ||
-        worldMaterialAtlasSizeLoc_ < 0 || worldMaterialRect0Loc_ < 0 || worldMaterialRect1Loc_ < 0 ||
-        worldMaterialFlipbook0Loc_ < 0 || worldMaterialFlipbook1Loc_ < 0 ||
+        worldMaterialModeLoc_ < 0 || worldMaterialFlipbook1Loc_ < 0 ||
         worldSceneColorPostEnabledLoc_ < 0 ||
         worldSkinningEnabledLoc_ < 0 || worldSkinningModeLoc_ < 0 || worldSkinMatrixCountLoc_ < 0 ||
         worldSkinBlockIndex == GL_INVALID_INDEX) {
@@ -3045,6 +1221,3 @@ void OpenGLRenderBackend::destroyCachedWorldMeshes() {
     }
     cachedWorldMeshes_.clear();
 }
-
-
-

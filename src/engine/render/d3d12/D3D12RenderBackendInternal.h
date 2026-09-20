@@ -266,32 +266,8 @@ inline WorldPsConstants makeWorldPsConstants(
         textureData->lightProjectionUvRowU;
     constants.lightProjectionUvRowV =
         textureData->lightProjectionUvRowV;
-    if (textureData->materialMode == 27u) {
-        // Mode 27 needs all four specialized material vectors for animated
-        // displacement and layered color, so it cannot reuse those lanes for
-        // the review camera. Its projected-shadow rows are otherwise unused;
-        // carry camera position/forward/target there so D3D12 evaluates the
-        // same Z-A light and rim domains as OpenGL and Vulkan.
-        constants.projectedShadowRowX = {
-            textureData->cameraPosX,
-            textureData->cameraPosY,
-            textureData->cameraPosZ,
-            0.0f};
-        constants.projectedShadowRowY = {
-            textureData->cameraForwardX,
-            textureData->cameraForwardY,
-            textureData->cameraForwardZ,
-            0.0f};
-        constants.projectedShadowRowZ = {
-            textureData->cameraTargetX,
-            textureData->cameraTargetY,
-            textureData->cameraTargetZ,
-            0.0f};
-    }
-    // D3D12 root signature is constrained to 64 DWORD. For lit model mode (materialMode >= 2),
-    // repurpose fire-tail payload slots to carry PBR/camera data needed for three-gltf-viewer parity.
     if (textureData->materialMode >= 2u &&
-        textureData->materialMode != 27u) {
+        (!profile || profile->modes[textureData->materialMode].pbrPacking)) {
         const bool hasNormal =
             textureData->normalRgba && textureData->normalWidth > 0 && textureData->normalHeight > 0;
         const bool hasMetallicRoughness =
@@ -308,28 +284,14 @@ inline WorldPsConstants makeWorldPsConstants(
         if (hasMetallicRoughness) pbrFlags |= 1u << 1;  // useMetallicRoughnessTexture
         if (hasOcclusion) pbrFlags |= 1u << 2;          // useOcclusionTexture
         if (hasEmissive) pbrFlags |= 1u << 3;           // useEmissiveTexture
-        const bool hasNativeSpecularStrength =
-            textureData->materialMode == 2u &&
-            textureData->materialFlags >
-                backend::kNativeSpecularStrengthMaterialFlag - 0.5f &&
-            textureData->materialFlags <
-                backend::kNativeSpecularStrengthMaterialFlag + 0.5f;
-        if (hasNativeSpecularStrength) {
-            pbrFlags |= 1u << 4; // use metallic/roughness alpha as specular mask
-        }
         constants.materialFlags = static_cast<float>(pbrFlags);
 
         // PBR factor packing.
         constants.materialAtlasWidth = (std::max)(0.0f, textureData->normalScale);
         constants.materialAtlasHeight = std::clamp(textureData->metallicFactor, 0.0f, 1.0f);
         constants.materialRect0U = std::clamp(textureData->roughnessFactor, 0.0f, 1.0f);
-        constants.materialRect0V =
-            textureData->materialMode ==
-                    backend::kNativeIkCharacterMaterialMode ||
-                    textureData->materialMode ==
-                        backend::kNativeIkCharacterEyeMaterialMode
-            ? (std::max)(textureData->occlusionStrength, 0.0f)
-            : std::clamp(textureData->occlusionStrength, 0.0f, 1.0f);
+        constants.materialRect0V = std::clamp(textureData->occlusionStrength, 0.0f,
+                                              profile ? profile->modes[textureData->materialMode].occlusionMaximum : 1.0f);
         constants.materialRect0W = (std::max)(0.0f, textureData->emissiveFactorR);
         constants.materialRect0H = (std::max)(0.0f, textureData->emissiveFactorG);
         constants.materialRect1U = (std::max)(0.0f, textureData->emissiveFactorB);
@@ -344,158 +306,8 @@ inline WorldPsConstants makeWorldPsConstants(
         constants.materialFlipbook0Fps = textureData->cameraTargetX;
         constants.materialFlipbook1Cols = textureData->cameraTargetY;
         constants.materialFlipbook1Rows = textureData->cameraTargetZ;
-        if (hasNativeSpecularStrength) {
-            // Generic mode 2 leaves this PS-only slot free. Preserve the
-            // source IkCharacter SpecularIntensity without growing the fixed
-            // 64-DWORD D3D12 root signature.
-            constants.materialFlipbook1Frames =
-                std::clamp(textureData->materialRect0U, 0.0f, 1.0f);
-        }
-        if (textureData->materialMode == 31u) {
-            // Generic PBR uses materialFlags for texture-presence bits on
-            // D3D12. Preserve the source-qualified facial-overlay subtype in
-            // a camera-packing slot that mode 31 otherwise leaves unused, and
-            // carry its per-pose tongue concealment guard in the unused
-            // material clock slot.
-            constants.materialFlipbook1Fps = textureData->materialFlags;
-            constants.materialTimeSec = textureData->materialRect0H;
-        }
-        if (textureData->materialMode ==
-                backend::kNativeIkCharacterMaterialMode ||
-            textureData->materialMode ==
-                backend::kNativeIkCharacterEyeMaterialMode) {
-            // Generic PBR packing consumes rect0.xyz for roughness,
-            // occlusion, and rim color. Native IkCharacter needs its three
-            // independent source controls as well: reflection blur,
-            // diffusion, the packed body-emission color, and ShadowingGIGain.
-            // Carry
-            // them in PS-only slots mode 32 otherwise leaves unused. D3D12's
-            // HLSL quality function can recover the tier from the unmodified
-            // CPU texture data only if it is packed alongside those values.
-            // Each component therefore occupies a fixed decimal field. Two
-            // LOD decimal places are required because Medium uses 0.45:
-            // (lod + 1) * 100 + diffusion. The packed emission color travels
-            // losslessly in the otherwise-unused light-projection row below.
-            constants.materialTimeSec = textureData->materialRect0U;
-            constants.materialFlipbook1Frames =
-                std::clamp(textureData->materialRect0H, 0.0f, 1.0f);
-            if (textureData->materialMode ==
-                backend::kNativeIkCharacterEyeMaterialMode) {
-                // Mode 35 uses rect0.yz for ParallaxHeight and IOR. A
-                // thousandth-quantized IOR in the integer portion and height
-                // in the fractional portion retain both in one otherwise-free
-                // scalar. The quality LOD remains lossless in rowZ.z below.
-                constants.materialFlipbook1Fps =
-                    std::round(std::max(textureData->materialRect0W, 1.0f) *
-                               1000.0f) +
-                    std::clamp(textureData->materialRect0V, 0.0f, 0.999f);
-            } else {
-                constants.materialFlipbook1Fps =
-                    (std::clamp(
-                         textureData->materialFlipbook1Frames,
-                         -1.0f,
-                         2.0f) +
-                     1.0f) * 100.0f +
-                    std::clamp(textureData->materialRect0V, 0.0f, 1.0f);
-            }
-            // Mode 32 does not sample the projected-ground-shadow path,
-            // so its three matrix rows are available as PS-only source
-            // material transport. Keep the signed color-process block at
-            // full precision without expanding the fixed 64-DWORD root
-            // signature or colliding with camera/quality packing.
-            constants.projectedShadowRowX = {
-                textureData->materialRect1U,
-                textureData->materialRect1V,
-                textureData->materialRect1W,
-                textureData->materialRect1H};
-            constants.projectedShadowRowY = {
-                textureData->materialFlipbook0Cols,
-                textureData->materialFlipbook0Rows,
-                textureData->materialFlipbook0Frames,
-                textureData->materialFlipbook0Fps};
-            constants.projectedShadowRowZ = {
-                textureData->materialFlipbook1Cols,
-                textureData->materialFlipbook1Rows,
-                textureData->materialFlipbook1Frames,
-                textureData->materialFlipbook1Fps};
-            if (textureData->materialMode ==
-                backend::kNativeIkCharacterMaterialMode) {
-                constants.lightProjectionUvRowU[0] =
-                    textureData->materialRect0W;
-            }
-        }
-        if (textureData->materialMode ==
-            backend::kNativeSssMaterialMode) {
-            // Generic PBR packing replaces materialFlags with texture-
-            // presence bits. Native SSS uses materialTimeSec as an otherwise
-            // free PS-only lane for its explicit surface qualifier so smooth
-            // SSS materials never inherit the optional fibre reconstruction.
-            constants.materialTimeSec = textureData->materialFlags;
-        }
-        if (textureData->materialMode ==
-            backend::kNativeFresnelEffectMaterialMode) {
-            // FresnelEffect uses four source parameter vectors in addition to
-            // ordinary PBR factors and camera data. It never evaluates the
-            // projected-shadow or light-projection paths, so those PS-only
-            // rows provide lossless transport inside the fixed root signature.
-            constants.projectedShadowRowX = {
-                textureData->materialRect0U,
-                textureData->materialRect0V,
-                textureData->materialRect0W,
-                textureData->materialRect0H};
-            constants.projectedShadowRowY = {
-                textureData->materialRect1U,
-                textureData->materialRect1V,
-                textureData->materialRect1W,
-                textureData->materialRect1H};
-            constants.projectedShadowRowZ = {
-                textureData->materialFlipbook0Cols,
-                textureData->materialFlipbook0Rows,
-                textureData->materialFlipbook0Frames,
-                textureData->materialFlipbook0Fps};
-            constants.lightProjectionUvRowU = {
-                textureData->materialFlipbook1Cols,
-                textureData->materialFlipbook1Rows,
-                textureData->materialFlipbook1Frames,
-                textureData->materialFlipbook1Fps};
-        }
-
-        // Native character eye materials retain two full material vectors and
-        // a premultiplied layer-5 highlight color in addition to generic PBR
-        // factors and camera payload. Mode 28/30 never evaluates projected
-        // ground shadows, so those PS-only rows provide lossless transport
-        // without expanding the fixed 64-DWORD root signature.
-        if (textureData->materialMode == 28u ||
-            textureData->materialMode == 30u) {
-            constants.projectedShadowRowX = {
-                textureData->materialRect0U,
-                textureData->materialRect0V,
-                textureData->materialRect0W,
-                textureData->materialRect0H};
-            constants.projectedShadowRowY = {
-                textureData->materialRect1U,
-                textureData->materialRect1V,
-                textureData->materialRect1W,
-                textureData->materialRect1H};
-            constants.projectedShadowRowZ = {
-                textureData->materialFlipbook0Cols,
-                textureData->materialFlipbook0Rows,
-                textureData->materialFlipbook0Frames,
-                0.0f};
-        }
-
-        if (profile) {
-            for (const auto &mapping : profile->d3d12Constants[textureData->materialMode]) {
-                float value = mapping.value;
-                if (mapping.fromTexture) {
-                    std::memcpy(&value, reinterpret_cast<const unsigned char *>(textureData) + mapping.sourceOffset, sizeof(value));
-                }
-                std::memcpy(reinterpret_cast<unsigned char *>(&constants) +
-                                mapping.destinationOffset,
-                            &value, sizeof(value));
-            }
-        }
     }
+    if (profile) applyWorldMaterialConstantOverrides(*profile, textureData->materialMode, textureData, &constants);
 
     return constants;
 }

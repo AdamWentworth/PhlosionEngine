@@ -40,6 +40,14 @@ bool test_world_material_profile_contract(std::string &outFail) {
     binary.close();
     nlohmann::json json{
         {"version", kWorldMaterialProfileVersion}, {"id", "test.surface"}, {"opengl", {{"declarations", "declarations.glsl"}, {"evaluation", "evaluation.glsl"}}}, {"d3d12", {{"declarations", "declarations.glsl"}, {"evaluation", "evaluation.glsl"}}}, {"vulkan", {{"direct", "fragment.spv"}, {"direct_dual_source", "fragment.spv"}, {"indirect", "fragment.spv"}, {"indirect_dual_source", "fragment.spv"}}}, {"d3d12_constant_overrides", {{"128", {{"materialTimeSec", "cameraPosX"}, {"materialFlags", 0.75f}}}}}};
+    json["opengl_vertex"] = json["opengl"];
+    json["d3d12_vertex"] = json["d3d12"];
+    json["vulkan"]["direct_vertex"] = "fragment.spv";
+    json["vulkan"]["indirect_vertex"] = "fragment.spv";
+    json["modes"]["129"] = {{"pbr_packing", false}, {"opengl_debug_parameter", false}, {"d3d12_debug_parameter", false}, {"occlusion_maximum", 2.0f}};
+    json["d3d12_constant_overrides"]["129"]["projectedShadowRowX.0"] = {
+        {"terms", {{{"source", "cameraPosX"}, {"minimum", 0.0f}, {"maximum", 3.0f}, {"bias", 1.0f}, {"scale", 10.0f}, {"round", true}}, {{"constant", "materialFlags"}}, 0.25f}},
+        {"when", {{"source", "materialFlags"}, {"greater_than", 4.5f}, {"less_than", 5.5f}}}};
     const auto write = [&] { std::ofstream(root / "profile.json") << json.dump(); };
     write();
     const auto profile = loadWorldMaterialProfile(root, "profile.json");
@@ -61,6 +69,19 @@ bool test_world_material_profile_contract(std::string &outFail) {
     if (selected.materialTimeSec != 2.25f || selected.materialFlags != 0.75f ||
         changed.materialTimeSec != 3.5f || before.materialTimeSec != after.materialTimeSec) {
         outFail = "Project mappings must use current draw data without changing engine defaults.";
+        return false;
+    }
+    texture.materialMode = 129;
+    texture.materialFlags = 5.0f;
+    texture.cameraPosX = 9.0f;
+    const auto packed = d3d12_internal::makeWorldPsConstants(&texture, 1.0f, false, &profile);
+    texture.materialFlags = 4.5f;
+    const auto unselected = d3d12_internal::makeWorldPsConstants(&texture, 1.0f, false, &profile);
+    if (packed.projectedShadowRowX[0] != 45.25f || unselected.projectedShadowRowX[0] == 45.25f ||
+        profile.modes[129].pbrPacking || profile.modes[129].openglDebugParameter ||
+        profile.modes[129].d3d12DebugParameter || profile.modes[129].occlusionMaximum != 2.0f ||
+        profile.modes[128] != WorldMaterialModeOptions{}) {
+        outFail = "Conditional scalar packing or isolated per-mode settings failed.";
         return false;
     }
     auto incomplete = profile;

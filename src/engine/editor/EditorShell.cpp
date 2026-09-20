@@ -3607,12 +3607,12 @@ EditorShellActions EditorShell::drawWorkspace(
                         "quality policy used by the game. Lighting is "
                         "controlled separately below.");
                 }
-                constexpr const char* lightingProfileNames[] = {
+                constexpr const char *lightingProfileNames[] = {
                     "Source Bridge",
                     "Neutral Studio",
                     "Albedo-biased",
                     "Grazing Check",
-                    "Z-A Source Stage"};
+                    "Authored Stage"};
                 ImGui::TextUnformatted("Review Lighting");
                 ImGui::SetNextItemWidth(-1.0f);
                 if (ImGui::Combo(
@@ -3634,10 +3634,8 @@ EditorShellActions EditorShell::drawWorkspace(
                         "general review; Source Bridge preserves the current "
                         "recovered renderer path; Albedo-biased prioritizes "
                         "authored color; Grazing Check emphasizes surface "
-                        "breakup; Z-A Source Stage uses the retained source "
-                        "off-screen character light and HDR probes for Z-A "
-                        "assets. These are review rigs, not captured SV "
-                        "environment lighting.");
+                        "breakup; Authored Stage uses the project's character "
+                        "lighting and reflection probes when supplied.");
                 }
                 constexpr const char* materialViewNames[] = {
                     "Composite",

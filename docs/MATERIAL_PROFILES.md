@@ -1,50 +1,64 @@
 # World material profiles
 
-A world material profile supplies project-owned fragment-shader behavior without
-rebuilding or specializing the engine library. `WorldMaterialProfile.h` owns the
-versioned interface. Version 1 uses the existing world vertex inputs, textures,
-material parameters and fragment outputs; changes to those bindings must update
-the version and rebuild project Vulkan variants.
+A world material profile supplies project-owned vertex and fragment programs.
+`WorldMaterialProfile.h` owns the versioned interface. Version 2 preserves world
+vertex inputs, textures, scalar parameters and fragment outputs, and adds vertex
+snippets, per-mode packing settings and scalar expressions. Binding changes
+require a version bump and rebuilt project artifacts.
 
-`loadWorldMaterialProfile(projectRoot, manifestPath)` reads a manifest whose file
-paths are relative to the project root. The manifest declares `version`, `id`,
-`opengl` and `d3d12` source files (`declarations` and `evaluation`), and four
-`vulkan` SPIR-V files (`direct`, `direct_dual_source`, `indirect`, and
-`indirect_dual_source`). A selected profile must provide every backend variant.
+`loadWorldMaterialProfile(projectRoot, manifestPath)` reads paths relative to the
+project root. The manifest declares `version`, `id`, and four source pairs:
+`opengl`, `d3d12`, `opengl_vertex`, `d3d12_vertex`, each with `declarations` and
+`evaluation`. Its `vulkan` object contains six SPIR-V files: `direct`,
+`direct_dual_source`, `indirect`, `indirect_dual_source`, `direct_vertex`, and
+`indirect_vertex`. Every variant is required for a selected profile.
 
-For OpenGL and D3D12, declarations replace the world shader's
-`__PHLOSION_PROJECT_MATERIAL_DECLARATIONS__` marker and evaluation replaces
-`__PHLOSION_PROJECT_MATERIAL_EVALUATION__` inside the fragment entry point.
-Evaluation branches return after handling their own material modes. Unhandled
-modes continue through the standard shader. The shader compiler caches use the
+OpenGL and D3D12 insert those pairs at
+`__PHLOSION_PROJECT_MATERIAL_DECLARATIONS__` and
+`__PHLOSION_PROJECT_MATERIAL_EVALUATION__`. Fragment evaluation supplies the
+complete material implementation, including ordinary surfaces. Vertex evaluation
+runs before skinning and model transforms. Empty profiles select the engine's
+standard PBR implementation and undeformed vertices. Shader caches use the
 complete composed source, including project code.
 
-Vulkan project builds compile `world.frag` and `world_indirect.frag` with
-`PHLOSION_PROJECT_MATERIAL=1`, supplying `project_world_declarations.glsl`,
-`project_world_evaluation.glsl` and their `project_world_indirect_*` counterparts
-through a project-only include directory. Compile both again with
-`PHLOSION_VULKAN_DUAL_SOURCE_BLEND=1`. The default engine build omits the project
-define and has no dependency on those files. Preserve the engine's descriptor
-bindings, vertex interface, and world-color output conventions.
+Vulkan projects compile `world.frag`, `world_indirect.frag`, `world.vert` and
+`world_indirect.vert` with `PHLOSION_PROJECT_MATERIAL=1`. Supply
+`project_world_declarations.glsl`, `project_world_evaluation.glsl`,
+`project_world_vertex_evaluation.glsl` and corresponding `project_world_indirect_*`
+files through a project include directory. Compile both fragments again with
+`PHLOSION_VULKAN_DUAL_SOURCE_BLEND=1`. The independent engine build omits these
+defines and has no dependency on project includes. Preserve descriptor bindings,
+vertex interfaces and world-color output conventions.
 
-Optional `d3d12_constant_overrides` maps decimal material-mode keys to objects
-whose keys are named scalar `WorldPsConstants` fields. String values name scalar
-`WorldTextureData` fields to copy; numeric values provide literal floats. The
-loader resolves names to validated member offsets. Mappings use current draw
-data, so camera-dependent values are not frozen when the profile loads.
+Optional `modes` entries use decimal byte-sized mode keys. Each can set
+`pbr_packing`, `opengl_debug_parameter`, `d3d12_debug_parameter` (default true),
+and `occlusion_maximum` (default 1). The engine has no project-specific material
+IDs or packing exceptions.
 
-Pass the loaded profile to a native backend constructor before pipeline creation.
-`setWorldMaterialProfile` replaces pipelines between frames; passing `{}` restores
-engine defaults. Profiles are copied by the renderer, have no plugin callbacks,
-and do not depend on a plugin DLL remaining loaded. The editor's optional
-`world_material_profile` descriptor entry selects the profile for that project;
-absence selects the defaults. Closing a project restores those defaults too.
-A failed candidate project restores the previous
-profile. Reload a project to pick up edited profile files after rebuilding its
-Vulkan artifacts.
+Optional `d3d12_constant_overrides` maps mode keys to named scalar
+`WorldPsConstants` destinations, including vector components such as
+`projectedShadowRowX.0`. Numeric values are literals; strings copy a scalar
+`WorldTextureData` member. An object term selects `source`, `constant`, or
+`value`, then optionally applies `minimum`/`maximum`, `bias`, `scale` and `round`
+in that order. A `terms` array sums multiple terms. `constant` reads the current
+packed constant, so mappings should not depend on the order of other overrides.
+An optional `when` object names a texture-data `source` and exclusive
+`greater_than`/`less_than` bounds. The loader validates member offsets and finite
+parameters. Evaluation uses current draw data, including the current camera.
 
-Missing files, malformed/incomplete profiles, unknown mapping names, invalid
-SPIR-V headers, shader compilation errors, or incompatible interface versions
-are errors. They do not silently fall back to another API or another profile.
-Backend parity and material appearance remain the consuming project's
-verification responsibility.
+Pass the loaded profile to a backend before pipeline creation.
+`setWorldMaterialProfile` replaces pipelines between frames; `{}` restores the
+defaults. Profiles are owned copies, contain no plugin callbacks, and remain
+valid after a plugin DLL unloads. The editor's `world_material_profile` descriptor
+selects the project profile. Closing a project restores defaults; failed project
+activation restores the previous profile. Reopen after rebuilding edited shader
+artifacts. Editor and plugin must share ABI 34.
+
+The editor labels lighting preset 4 `Authored Stage`; its interpretation belongs
+to the profile. The CLI accepts `authored-stage` and retains older spelling aliases
+for capture-script compatibility. Other review presets remain generic diagnostics.
+
+Missing files, invalid mappings, malformed or incomplete SPIR-V, shader compiler
+errors and incompatible interface versions fail explicitly. They never silently
+select another renderer or profile. Material appearance and native backend parity
+remain the consuming project's verification responsibility.

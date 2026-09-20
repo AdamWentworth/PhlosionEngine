@@ -35,12 +35,7 @@ MaterialRenderInfo resolveMaterialRenderInfo(const fastgltf::Asset& asset,
     // Apply emissive strength ONCE.
     info.emissiveFactor *= static_cast<float>(mat.emissiveStrength);
 
-    // Boost ONLY the tail fire, without affecting the rest of the model.
     const std::string matName(mat.name.begin(), mat.name.end());
-    if (matName == "fire") {
-        constexpr float kTailFireBoost = 1.35f;
-        info.emissiveFactor *= kTailFireBoost;
-    }
 
     switch (mat.alphaMode) {
         case fastgltf::AlphaMode::Mask:

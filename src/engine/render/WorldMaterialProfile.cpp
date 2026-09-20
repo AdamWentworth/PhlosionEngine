@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <iterator>
 #include <stdexcept>
@@ -66,44 +67,58 @@ const MemberOffsets &sourceMembers() {
 }
 
 const MemberOffsets &destinationMembers() {
-    static const MemberOffsets members{
-        {"useTexture", offsetof(d3d12_internal::WorldPsConstants, useTexture)},
-        {"wrapS", offsetof(d3d12_internal::WorldPsConstants, wrapS)},
-        {"wrapT", offsetof(d3d12_internal::WorldPsConstants, wrapT)},
-        {"alphaMode", offsetof(d3d12_internal::WorldPsConstants, alphaMode)},
-        {"alphaCutoff", offsetof(d3d12_internal::WorldPsConstants, alphaCutoff)},
-        {"alphaWindowMin", offsetof(d3d12_internal::WorldPsConstants, alphaWindowMin)},
-        {"alphaWindowMax", offsetof(d3d12_internal::WorldPsConstants, alphaWindowMax)},
-        {"vertexColorMulR", offsetof(d3d12_internal::WorldPsConstants, vertexColorMulR)},
-        {"vertexColorMulG", offsetof(d3d12_internal::WorldPsConstants, vertexColorMulG)},
-        {"vertexColorMulB", offsetof(d3d12_internal::WorldPsConstants, vertexColorMulB)},
-        {"vertexColorMulA", offsetof(d3d12_internal::WorldPsConstants, vertexColorMulA)},
-        {"materialMode", offsetof(d3d12_internal::WorldPsConstants, materialMode)},
-        {"materialTimeSec", offsetof(d3d12_internal::WorldPsConstants, materialTimeSec)},
-        {"materialFlags", offsetof(d3d12_internal::WorldPsConstants, materialFlags)},
-        {"materialAtlasWidth", offsetof(d3d12_internal::WorldPsConstants, materialAtlasWidth)},
-        {"materialAtlasHeight", offsetof(d3d12_internal::WorldPsConstants, materialAtlasHeight)},
-        {"materialRect0U", offsetof(d3d12_internal::WorldPsConstants, materialRect0U)},
-        {"materialRect0V", offsetof(d3d12_internal::WorldPsConstants, materialRect0V)},
-        {"materialRect0W", offsetof(d3d12_internal::WorldPsConstants, materialRect0W)},
-        {"materialRect0H", offsetof(d3d12_internal::WorldPsConstants, materialRect0H)},
-        {"materialRect1U", offsetof(d3d12_internal::WorldPsConstants, materialRect1U)},
-        {"materialRect1V", offsetof(d3d12_internal::WorldPsConstants, materialRect1V)},
-        {"materialRect1W", offsetof(d3d12_internal::WorldPsConstants, materialRect1W)},
-        {"materialRect1H", offsetof(d3d12_internal::WorldPsConstants, materialRect1H)},
-        {"materialFlipbook0Cols", offsetof(d3d12_internal::WorldPsConstants, materialFlipbook0Cols)},
-        {"materialFlipbook0Rows", offsetof(d3d12_internal::WorldPsConstants, materialFlipbook0Rows)},
-        {"materialFlipbook0Frames", offsetof(d3d12_internal::WorldPsConstants, materialFlipbook0Frames)},
-        {"materialFlipbook0Fps", offsetof(d3d12_internal::WorldPsConstants, materialFlipbook0Fps)},
-        {"materialFlipbook1Cols", offsetof(d3d12_internal::WorldPsConstants, materialFlipbook1Cols)},
-        {"materialFlipbook1Rows", offsetof(d3d12_internal::WorldPsConstants, materialFlipbook1Rows)},
-        {"materialFlipbook1Frames", offsetof(d3d12_internal::WorldPsConstants, materialFlipbook1Frames)},
-        {"materialFlipbook1Fps", offsetof(d3d12_internal::WorldPsConstants, materialFlipbook1Fps)},
-        {"sceneColorPostEnabled", offsetof(d3d12_internal::WorldPsConstants, sceneColorPostEnabled)},
-        {"projectedShadowEnabled", offsetof(d3d12_internal::WorldPsConstants, projectedShadowEnabled)},
-        {"projectedShadowSamplingScale", offsetof(d3d12_internal::WorldPsConstants, projectedShadowSamplingScale)},
-        {"projectedShadowBias", offsetof(d3d12_internal::WorldPsConstants, projectedShadowBias)},
-    };
+    static const MemberOffsets members = [] {
+        MemberOffsets result{
+            {"useTexture", offsetof(d3d12_internal::WorldPsConstants, useTexture)},
+            {"wrapS", offsetof(d3d12_internal::WorldPsConstants, wrapS)},
+            {"wrapT", offsetof(d3d12_internal::WorldPsConstants, wrapT)},
+            {"alphaMode", offsetof(d3d12_internal::WorldPsConstants, alphaMode)},
+            {"alphaCutoff", offsetof(d3d12_internal::WorldPsConstants, alphaCutoff)},
+            {"alphaWindowMin", offsetof(d3d12_internal::WorldPsConstants, alphaWindowMin)},
+            {"alphaWindowMax", offsetof(d3d12_internal::WorldPsConstants, alphaWindowMax)},
+            {"vertexColorMulR", offsetof(d3d12_internal::WorldPsConstants, vertexColorMulR)},
+            {"vertexColorMulG", offsetof(d3d12_internal::WorldPsConstants, vertexColorMulG)},
+            {"vertexColorMulB", offsetof(d3d12_internal::WorldPsConstants, vertexColorMulB)},
+            {"vertexColorMulA", offsetof(d3d12_internal::WorldPsConstants, vertexColorMulA)},
+            {"materialMode", offsetof(d3d12_internal::WorldPsConstants, materialMode)},
+            {"materialTimeSec", offsetof(d3d12_internal::WorldPsConstants, materialTimeSec)},
+            {"materialFlags", offsetof(d3d12_internal::WorldPsConstants, materialFlags)},
+            {"materialAtlasWidth", offsetof(d3d12_internal::WorldPsConstants, materialAtlasWidth)},
+            {"materialAtlasHeight", offsetof(d3d12_internal::WorldPsConstants, materialAtlasHeight)},
+            {"materialRect0U", offsetof(d3d12_internal::WorldPsConstants, materialRect0U)},
+            {"materialRect0V", offsetof(d3d12_internal::WorldPsConstants, materialRect0V)},
+            {"materialRect0W", offsetof(d3d12_internal::WorldPsConstants, materialRect0W)},
+            {"materialRect0H", offsetof(d3d12_internal::WorldPsConstants, materialRect0H)},
+            {"materialRect1U", offsetof(d3d12_internal::WorldPsConstants, materialRect1U)},
+            {"materialRect1V", offsetof(d3d12_internal::WorldPsConstants, materialRect1V)},
+            {"materialRect1W", offsetof(d3d12_internal::WorldPsConstants, materialRect1W)},
+            {"materialRect1H", offsetof(d3d12_internal::WorldPsConstants, materialRect1H)},
+            {"materialFlipbook0Cols", offsetof(d3d12_internal::WorldPsConstants, materialFlipbook0Cols)},
+            {"materialFlipbook0Rows", offsetof(d3d12_internal::WorldPsConstants, materialFlipbook0Rows)},
+            {"materialFlipbook0Frames", offsetof(d3d12_internal::WorldPsConstants, materialFlipbook0Frames)},
+            {"materialFlipbook0Fps", offsetof(d3d12_internal::WorldPsConstants, materialFlipbook0Fps)},
+            {"materialFlipbook1Cols", offsetof(d3d12_internal::WorldPsConstants, materialFlipbook1Cols)},
+            {"materialFlipbook1Rows", offsetof(d3d12_internal::WorldPsConstants, materialFlipbook1Rows)},
+            {"materialFlipbook1Frames", offsetof(d3d12_internal::WorldPsConstants, materialFlipbook1Frames)},
+            {"materialFlipbook1Fps", offsetof(d3d12_internal::WorldPsConstants, materialFlipbook1Fps)},
+            {"sceneColorPostEnabled", offsetof(d3d12_internal::WorldPsConstants, sceneColorPostEnabled)},
+            {"projectedShadowEnabled", offsetof(d3d12_internal::WorldPsConstants, projectedShadowEnabled)},
+            {"projectedShadowSamplingScale", offsetof(d3d12_internal::WorldPsConstants, projectedShadowSamplingScale)},
+            {"projectedShadowBias", offsetof(d3d12_internal::WorldPsConstants, projectedShadowBias)},
+        };
+        const auto addVector = [&](const char *name, std::size_t offset) {
+            for (std::size_t component = 0; component < 4; ++component) {
+                result.emplace(std::string(name) + "." + std::to_string(component),
+                               offset + component * sizeof(float));
+            }
+        };
+        addVector("projectedShadowRowX", offsetof(d3d12_internal::WorldPsConstants, projectedShadowRowX));
+        addVector("projectedShadowRowY", offsetof(d3d12_internal::WorldPsConstants, projectedShadowRowY));
+        addVector("projectedShadowRowZ", offsetof(d3d12_internal::WorldPsConstants, projectedShadowRowZ));
+        addVector("lightProjectionUvRowU", offsetof(d3d12_internal::WorldPsConstants, lightProjectionUvRowU));
+        addVector("lightProjectionUvRowV", offsetof(d3d12_internal::WorldPsConstants, lightProjectionUvRowV));
+        return result;
+    }();
     return members;
 }
 
@@ -131,34 +146,90 @@ std::string readText(const std::filesystem::path &path) {
     if (!stream) throw std::runtime_error("Unable to open material profile file: " + path.string());
     return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
 }
+
+std::size_t parseMode(const std::string &text) {
+    std::size_t used = 0;
+    const auto mode = std::stoul(text, &used);
+    if (used != text.size() || mode > 255) {
+        throw std::runtime_error("Material mode is outside the byte-sized material interface.");
+    }
+    return mode;
+}
+
+WorldMaterialConstantTerm parseTerm(const nlohmann::json &value) {
+    WorldMaterialConstantTerm term;
+    using Source = WorldMaterialConstantTerm::Source;
+    if (value.is_number()) term.value = value.get<float>();
+    else if (value.is_string()) {
+        term.source = Source::Texture;
+        term.sourceOffset = sourceMembers().at(value.get<std::string>());
+    } else {
+        if (value.contains("source")) {
+            term.source = Source::Texture;
+            term.sourceOffset = sourceMembers().at(value.at("source").get<std::string>());
+        } else if (value.contains("constant")) {
+            term.source = Source::Constant;
+            term.sourceOffset = destinationMembers().at(value.at("constant").get<std::string>());
+        } else {
+            term.value = value.at("value").get<float>();
+        }
+        term.minimum = value.value("minimum", term.minimum);
+        term.maximum = value.value("maximum", term.maximum);
+        term.bias = value.value("bias", 0.0f);
+        term.scale = value.value("scale", 1.0f);
+        term.round = value.value("round", false);
+    }
+    return term;
+}
 } // namespace
 
 void WorldMaterialProfile::validate() const {
     if (empty()) {
         if (!opengl.declarations.empty() || !opengl.evaluation.empty() ||
             !d3d12.declarations.empty() || !d3d12.evaluation.empty() ||
+            !openglVertex.declarations.empty() || !openglVertex.evaluation.empty() ||
+            !d3d12Vertex.declarations.empty() || !d3d12Vertex.evaluation.empty() ||
             std::any_of(vulkan.begin(), vulkan.end(), [](const auto &v) { return !v.empty(); }) ||
-            std::any_of(d3d12Constants.begin(), d3d12Constants.end(), [](const auto &v) { return !v.empty(); })) {
+            std::any_of(d3d12Constants.begin(), d3d12Constants.end(), [](const auto &v) { return !v.empty(); }) ||
+            std::any_of(modes.begin(), modes.end(), [](const auto &mode) { return mode != WorldMaterialModeOptions{}; })) {
             throw std::runtime_error("An unnamed material profile must be empty.");
         }
         return;
     }
     if (opengl.declarations.empty() || opengl.evaluation.empty() ||
-        d3d12.declarations.empty() || d3d12.evaluation.empty()) {
+        d3d12.declarations.empty() || d3d12.evaluation.empty() ||
+        openglVertex.declarations.empty() || openglVertex.evaluation.empty() ||
+        d3d12Vertex.declarations.empty() || d3d12Vertex.evaluation.empty()) {
         throw std::runtime_error("Material profile must provide OpenGL and D3D12 shader sources.");
     }
     for (const auto &words : vulkan) {
         if (words.size() < 5 || words.front() != 0x07230203u) {
-            throw std::runtime_error("Material profile must provide all four valid Vulkan shader variants.");
+            throw std::runtime_error("Material profile must provide all six valid Vulkan shader variants.");
         }
     }
     for (const auto &mode : d3d12Constants) {
         for (const auto &mapping : mode) {
-            if (!containsOffset(destinationMembers(), mapping.destinationOffset) ||
-                (mapping.fromTexture && !containsOffset(sourceMembers(), mapping.sourceOffset)) ||
-                !std::isfinite(mapping.value)) {
+            if (!containsOffset(destinationMembers(), mapping.destinationOffset) || mapping.terms.empty() ||
+                (mapping.conditional && (!containsOffset(sourceMembers(), mapping.conditionOffset) ||
+                                         !std::isfinite(mapping.greaterThan) || !std::isfinite(mapping.lessThan) ||
+                                         mapping.greaterThan >= mapping.lessThan))) {
                 throw std::runtime_error("Invalid material constant mapping.");
             }
+            for (const auto &term : mapping.terms) {
+                using Source = WorldMaterialConstantTerm::Source;
+                if ((term.source == Source::Texture && !containsOffset(sourceMembers(), term.sourceOffset)) ||
+                    (term.source == Source::Constant && !containsOffset(destinationMembers(), term.sourceOffset)) ||
+                    (term.source != Source::Literal && term.source != Source::Texture && term.source != Source::Constant) ||
+                    !std::isfinite(term.value) || !std::isfinite(term.minimum) || !std::isfinite(term.maximum) ||
+                    !std::isfinite(term.scale) || !std::isfinite(term.bias) || term.minimum > term.maximum) {
+                    throw std::runtime_error("Invalid material constant term.");
+                }
+            }
+        }
+    }
+    for (const auto &mode : modes) {
+        if (!std::isfinite(mode.occlusionMaximum) || mode.occlusionMaximum < 0) {
+            throw std::runtime_error("Invalid material parameter bound.");
         }
     }
 }
@@ -182,7 +253,9 @@ WorldMaterialProfile loadWorldMaterialProfile(
     };
     profile.opengl = source("opengl");
     profile.d3d12 = source("d3d12");
-    constexpr std::array keys{"direct", "direct_dual_source", "indirect", "indirect_dual_source"};
+    profile.openglVertex = source("opengl_vertex");
+    profile.d3d12Vertex = source("d3d12_vertex");
+    constexpr std::array keys{"direct", "direct_dual_source", "indirect", "indirect_dual_source", "direct_vertex", "indirect_vertex"};
     for (std::size_t index = 0; index < keys.size(); ++index) {
         const auto path = resolveFile(projectRoot, json.at("vulkan").at(keys[index]).get<std::string>());
         const auto bytes = readText(path);
@@ -195,23 +268,66 @@ WorldMaterialProfile loadWorldMaterialProfile(
     }
     if (json.contains("d3d12_constant_overrides")) {
         for (const auto &[modeText, overrides] : json.at("d3d12_constant_overrides").items()) {
-            std::size_t used = 0;
-            const auto mode = std::stoul(modeText, &used);
-            if (used != modeText.size() || mode >= profile.d3d12Constants.size()) {
-                throw std::runtime_error("Material mode is outside the byte-sized material interface.");
-            }
+            const auto mode = parseMode(modeText);
             for (const auto &[destination, value] : overrides.items()) {
                 WorldMaterialConstantOverride mapping;
                 mapping.destinationOffset = destinationMembers().at(destination);
-                mapping.fromTexture = value.is_string();
-                if (mapping.fromTexture) mapping.sourceOffset = sourceMembers().at(value.get<std::string>());
-                else mapping.value = value.get<float>();
+                if (value.is_object() && value.contains("terms")) {
+                    for (const auto &term : value.at("terms"))
+                        mapping.terms.push_back(parseTerm(term));
+                } else mapping.terms.push_back(parseTerm(value));
+                if (value.is_object() && value.contains("when")) {
+                    const auto &condition = value.at("when");
+                    mapping.conditional = true;
+                    mapping.conditionOffset = sourceMembers().at(condition.at("source").get<std::string>());
+                    mapping.greaterThan = condition.value("greater_than", mapping.greaterThan);
+                    mapping.lessThan = condition.value("less_than", mapping.lessThan);
+                }
                 profile.d3d12Constants[mode].push_back(mapping);
             }
         }
     }
+    if (json.contains("modes")) {
+        for (const auto &[modeText, values] : json.at("modes").items()) {
+            auto &mode = profile.modes[parseMode(modeText)];
+            mode.pbrPacking = values.value("pbr_packing", true);
+            mode.openglDebugParameter = values.value("opengl_debug_parameter", true);
+            mode.d3d12DebugParameter = values.value("d3d12_debug_parameter", true);
+            mode.occlusionMaximum = values.value("occlusion_maximum", 1.0f);
+        }
+    }
     profile.validate();
     return profile;
+}
+
+void applyWorldMaterialConstantOverrides(const WorldMaterialProfile &profile, std::uint8_t mode,
+                                         const void *textureData, void *constants) {
+    const auto read = [](const void *data, std::size_t offset) {
+        float value;
+        std::memcpy(&value, static_cast<const unsigned char *>(data) + offset, sizeof(value));
+        return value;
+    };
+    for (const auto &mapping : profile.d3d12Constants[mode]) {
+        if (mapping.conditional) {
+            const auto value = read(textureData, mapping.conditionOffset);
+            if (!(value > mapping.greaterThan && value < mapping.lessThan)) continue;
+        }
+        float result = 0;
+        bool first = true;
+        for (const auto &term : mapping.terms) {
+            using Source = WorldMaterialConstantTerm::Source;
+            float value = term.source == Source::Texture ? read(textureData, term.sourceOffset) : term.source == Source::Constant ? read(constants, term.sourceOffset)
+                                                                                                                                  : term.value;
+            value = std::clamp(value, term.minimum, term.maximum);
+            if (term.bias != 0) value += term.bias;
+            if (term.scale != 1) value *= term.scale;
+            if (term.round) value = std::round(value);
+            if (first) result = value;
+            else result += value;
+            first = false;
+        }
+        std::memcpy(static_cast<unsigned char *>(constants) + mapping.destinationOffset, &result, sizeof(result));
+    }
 }
 
 std::string injectWorldMaterialProfile(std::string_view shader, const WorldMaterialShaderSource &source) {

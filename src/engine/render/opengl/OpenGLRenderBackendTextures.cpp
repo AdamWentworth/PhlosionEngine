@@ -20,20 +20,14 @@
 
 namespace {
 
-engine::log::Sink& tailFireTextureUploadLog() {
-    static engine::log::Sink log("TailFireOpenGL", &std::cout, &std::cerr);
+engine::log::Sink &worldTextureUploadLog() {
+    static engine::log::Sink log("WorldTextureOpenGL", &std::cout, &std::cerr);
     return log;
 }
 
-bool isTailFireWorldTextureKey(const char* key) {
-    if (!key || key[0] == '\0') return false;
-    std::string lower(key);
-    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
-    return lower.find("__tailfire_") != std::string::npos ||
-           lower.find("fire_uv_flipbook") != std::string::npos ||
-           lower.find("fireuvflipbook") != std::string::npos;
+bool traceWorldTextureUpload(const char *key) {
+    static const std::string filter = engine::env::get("PHLOSION_TRACE_WORLD_TEXTURE_UPLOADS").value_or("");
+    return key && !filter.empty() && (filter == "*" || std::string_view(key).find(filter) != std::string_view::npos);
 }
 
 bool worldTextureMipChainEnabled() {
@@ -41,7 +35,7 @@ bool worldTextureMipChainEnabled() {
         const auto env = engine::env::get("PHLOSION_BACKEND_WORLD_TEXTURE_MIPS");
         // World materials use explicit quality-tier LOD bias. Without a mip
         // chain that control is a no-op and high-frequency authored surface
-        // maps (notably SV fur roughness) alias into grime. Mips are therefore
+        // maps (including roughness detail) alias into grime. Mips are therefore
         // the normal path; the environment switch remains an emergency opt-out.
         if (!env.has_value()) return true;
         const std::string raw = *env;
@@ -387,9 +381,9 @@ unsigned int OpenGLRenderBackend::ensureWorldTextureRaw(const char* keyCStr,
     glGenTextures(1, &textureId);
     if (textureId == 0) return 0;
 
-    const bool tailFireTexture = isTailFireWorldTextureKey(keyCStr);
-    const auto uploadStart = tailFireTexture ? std::chrono::steady_clock::now()
-                                             : std::chrono::steady_clock::time_point{};
+    const bool traceUpload = traceWorldTextureUpload(keyCStr);
+    const auto uploadStart = traceUpload ? std::chrono::steady_clock::now()
+                                         : std::chrono::steady_clock::time_point{};
     const GLint wrapS = sanitizeWrapMode(wrapSIn);
     const GLint wrapT = sanitizeWrapMode(wrapTIn);
     bool authoredMipChainValid =
@@ -482,10 +476,10 @@ unsigned int OpenGLRenderBackend::ensureWorldTextureRaw(const char* keyCStr,
     entry.wrapS = wrapSIn;
     entry.wrapT = wrapTIn;
     worldTextures_.emplace(cacheKey, entry);
-    if (tailFireTexture) {
+    if (traceUpload) {
         const auto uploadEnd = std::chrono::steady_clock::now();
         std::ostringstream msg;
-        msg << "[TailFire][OpenGL][Upload] key="
+        msg << "[WorldTexture][OpenGL][Upload] key="
             << keyCStr
             << " size="
             << width
@@ -500,7 +494,7 @@ unsigned int OpenGLRenderBackend::ensureWorldTextureRaw(const char* keyCStr,
             << " wall_ms="
             << std::chrono::duration<double, std::milli>(uploadEnd - uploadStart).count()
             << " result=ok";
-        tailFireTextureUploadLog().info(msg.str());
+        worldTextureUploadLog().info(msg.str());
     }
     return textureId;
 }

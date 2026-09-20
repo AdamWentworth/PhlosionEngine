@@ -165,7 +165,7 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
         drawStates.push_back(vulkan::makeWorldIndirectDrawState(
             &texture,
             worldMaterial->indexedTableSlot,
-            instanceBaseWordIndex));
+            instanceBaseWordIndex, &worldMaterialProfile));
         if (worldMaterialDebugView > 0 && texture.materialMode >= 2u) {
             drawStates.back().specializedMaterial.flipbook1[3] =
                 -100.0f - static_cast<float>(worldMaterialDebugView);
