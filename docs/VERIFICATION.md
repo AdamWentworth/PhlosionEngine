@@ -13,7 +13,7 @@ No test in the current engine CTest suite needs a graphics context.
 
 | CTest entry | Coverage |
 | --- | --- |
-| `PhlosionEngineContracts` | Fifteen C++ contracts: material profiles, containers, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, the public PHRC scene/prefab fixture, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
+| `PhlosionEngineContracts` | Sixteen C++ contracts: material profiles, containers, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, the public PHRC scene/prefab fixture, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
 | `PhlosionMaterialDebugViewContract` | Material debug-view source contract |
@@ -43,6 +43,13 @@ accounting limits are described in
 CPU only: it drives a synthetic in-memory provider, gated reads and public PHRC
 fixtures, and creates no graphics context.
 
+The staged scene/prefab activation session, its candidate lifecycle and its
+snapshot ownership rules are described in
+[ARCHIVE_ACTIVATION.md](ARCHIVE_ACTIVATION.md). That contract is CPU only as
+well: it composes the graph session with the existing typed archive stores,
+drives a synthetic in-memory provider with gated reads, and creates no graphics
+context. It makes no game, editor or renderer integration claim.
+
 ## Native rendering and editor changes
 
 OpenGL, Vulkan and Direct3D 12 are equal supported targets. Renderer or visual
@@ -67,6 +74,19 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-20, the M1-C staged archive activation iteration added
+`PhlosionArchiveSession` with candidate staging over the accepted graph loader,
+the existing typed archive decoders and explicit activation. The active
+snapshot is preserved on candidate graph/decode failure, cancellation and
+discard; `unload` clears the session's active reference,
+and snapshots already handed to callers stay readable afterwards, as does a
+retained snapshot after the provider itself is released. The existing
+`build-presentation` Debug tree (VS2026, editor/tests enabled, engine warnings
+treated as errors) rebuilt cleanly, and the full CTest set passed (5 of 5
+entries, including all sixteen C++ contracts). Logs are local under
+`artifacts/m1-c/`. This iteration is pure CPU and produces no rendering or
+visual-parity evidence.
 
 On 2026-09-20, the M1-B dependency-aware asset iteration added
 `PhlosionAssetGraphLoader` with its required-closure traversal, hash

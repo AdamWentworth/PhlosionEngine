@@ -34,14 +34,31 @@ dependency-only prefab -> scene -> raw fixture verifies the consumer boundary.
 The final engine/editor Debug build and all five CTest entries passed, including
 fifteen C++ contracts. See the
 [M1-B accepted checkpoint](agent-work/cyberpunk-m1-dependencies/CHECKPOINT.md).
-M1-B changes remain local and uncommitted at this checkpoint.
+M1-B was committed as `b2e03c4` before beginning M1-C.
 
-This is partial M1 completion. Production callers, typed-profile validation,
-rendered fixtures, private character qualification and GPU uploads remain.
+Also accepted on 2026-09-20: **M1-C: staged archive activation**, implemented by
+DeepSeek V4.1 Flash through `astra_flash_builder` and reviewed by Astra.
+[PhlosionArchiveSession](ARCHIVE_ACTIVATION.md) consumes the dependency graph
+and the existing typed scene/prefab decoders. A replacement becomes staged only
+after both validations pass; explicit activation switches the resource snapshot.
+Failed, cancelled or discarded candidates preserve the active archive, while
+caller-held snapshots remain readable across replacement, unload and provider
+destruction. Tests cover real scene/prefab content, a dependency-only prefab,
+invalid typed roots, missing/corrupt dependencies and gated replacement reads.
+The engine/editor Debug build and five CTest entries passed with sixteen C++
+contracts. See the [M1-C accepted checkpoint](agent-work/cyberpunk-m1-activation/CHECKPOINT.md).
+M1-C remains local and uncommitted at this checkpoint. This is an engine resource
+session; no game/editor application call site has been migrated.
+
+This is partial M1 completion. Production callers, mesh/animation/material and
+environment asset validation, rendered fixtures, private character qualification
+and GPU uploads remain.
 The budgets are not hard peak-memory limits and cancellation cannot interrupt
 an active synchronous provider read. Decoding still runs on the caller thread
 without a frame-time guarantee. No rendering behavior changed or new visual
-parity was established. The capability matrix below preserves the original
+parity was established. Active, staged and externally retained snapshots can
+coexist; their combined residency is not bounded by the per-candidate byte cap.
+The capability matrix below preserves the original
 audited commit's state; this progress record supersedes its byte-loading and
 dependency-resolution gaps and twelve-contract count for the local implementation.
 

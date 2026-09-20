@@ -188,6 +188,7 @@ add_library(engine_core STATIC
     src/engine/core/ecs/World.cpp
     src/engine/assets/AsyncAssetLoader.cpp
     src/engine/assets/phlosion/PhlosionAssetGraphLoader.cpp
+    src/engine/assets/phlosion/PhlosionArchiveSession.cpp
     src/engine/assets/phlosion/PhlosionAuthoredScene.cpp
     src/engine/assets/phlosion/PhlosionEnvironmentPatch.cpp
     src/engine/assets/phlosion/PhlosionResourceContainer.cpp
@@ -471,6 +472,7 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestPhlosionSceneArchive.cpp
         tests/TestAsyncAssetLoader.cpp
         tests/TestPhlosionAssetGraphLoader.cpp
+        tests/TestPhlosionArchiveSession.cpp
         tests/TestPublicAssetFixture.cpp
     )
     target_link_libraries(PhlosionEngineTests
