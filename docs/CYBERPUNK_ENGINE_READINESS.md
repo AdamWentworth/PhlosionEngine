@@ -61,26 +61,48 @@ The full Debug build and six CTest entries passed, including seventeen C++
 contracts and an adversarial capture-harness suite. Exact matrix coverage,
 requested/observed capture frames and binary provenance are checked. See the
 [accepted checkpoint](agent-work/cyberpunk-m1-fixture/CHECKPOINT.md).
-M1-D is accepted for the user's requested commit after a semantic folder review:
+M1-D was committed as `68aed76` after the user's requested semantic folder review:
 the sample stays in examples, verification utilities are in tools, and automated
 checks are in tests. Build, six CTest entries and all 24 captures passed again
 after relocation. GPU evidence is one Windows/GTX 1070 host;
-no production renderer/editor API changed. The exact commit is recorded as the
-next pass's baseline.
+no production renderer/editor API changed.
 
-This is partial M1 completion. Next: per-class mesh/skinned-mesh, animation,
-material and environment contracts and representative golden assets, followed by
-their affected native rendering checks. Production game adapters, private roster
+Also accepted on 2026-09-20: **M1-E: typed static mesh assets**, implemented by
+DeepSeek V4.1 Flash through `astra_flash_builder`, reviewed and corrected under
+Astra's acceptance gate. [Static `.phmesh` v1](MESH_ASSETS.md) now lives in
+engine_core, with indexed geometry, submeshes, material slot labels, bounds,
+portable component encoding and strict validation. The public fixture consumes
+six required PHMS resources through its staged dependency graph; it retains
+example-specific textures, materials and motion. Invalid mesh or slot-binding
+candidates preserve the active scene. CPU checks include a two-submesh/two-slot
+consumer, malformed UTF-8, fixed golden bytes and attribute preservation.
+
+The final warning-clean Debug build, six CTest entries (eighteen C++ contracts)
+and a Core-only link proof passed. All 24 native runtime/editor captures passed
+with unchanged guards and matched the accepted M1-D images pixel for pixel.
+See the [M1-E accepted checkpoint](agent-work/cyberpunk-m1-mesh/CHECKPOINT.md).
+M1-E is accepted for the user's requested commit; the next checkpoint records
+its exact revision. It adds a typed storage/validation format, not the engine's
+first mesh-rendering capability. Existing Model/glTF/cache, skeletal sampling,
+skinning and material-profile paths remain available and were not migrated.
+
+This is partial M1 completion. Next: public verification of the existing glTF
+skeleton/animation import path, followed by evidence-driven runtime gaps and
+representative material/environment qualification. Asset contracts can document
+and test an existing representation; they do not require a new file format.
+The full typed family remains optional, as the audit below states. Production game adapters, private roster
 qualification, richer GPU resource lifetimes and residency/load-time measurements
 remain. The public fixture's schema is deliberately example-specific.
 The budgets are not hard peak-memory limits and cancellation cannot interrupt
 an active synchronous provider read. Decoding still runs on the caller thread
-without a frame-time guarantee. The first three passes were CPU-only; M1-D adds
-the bounded visual evidence above. Active, staged and externally retained snapshots can
+without a frame-time guarantee. The first three passes were CPU-only; M1-D/E add
+the bounded visual evidence above. Static mesh v1 does not include skinning,
+LODs, compression, material payloads or an importer/cook CLI. Active, staged and externally retained snapshots can
 coexist; their combined residency is not bounded by the per-candidate byte cap.
 The capability matrix below preserves the original
 audited commit's state; this progress record supersedes its byte-loading and
-dependency-resolution/public-fixture gaps and twelve-contract count for the local implementation.
+dependency-resolution/public-fixture/typed-storage gaps and twelve-contract count
+for the local implementation.
 
 ## Read this first
 

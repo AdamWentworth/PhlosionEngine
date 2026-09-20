@@ -13,7 +13,7 @@ No test in the current engine CTest suite needs a graphics context.
 
 | CTest entry | Coverage |
 | --- | --- |
-| `PhlosionEngineContracts` | Seventeen C++ contracts: material profiles, containers, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
+| `PhlosionEngineContracts` | Eighteen C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
 | `PhlosionMaterialDebugViewContract` | Material debug-view source contract |
@@ -51,6 +51,13 @@ well: it composes the graph session with the existing typed archive stores,
 drives a synthetic in-memory provider with gated reads, and creates no graphics
 context. It makes no game, editor or renderer integration claim.
 
+The [static mesh contract](MESH_ASSETS.md) covers deterministic PHMS encoding,
+literal little-endian payload bytes, strict schema/UTF-8/geometry validation,
+limits, multi-submesh slot preservation and unchanged outputs on failure.
+Its fixture consumer also exercises two-slot activation and preservation of
+active A when candidate bindings or mesh semantics fail. These are CPU checks;
+the rendered matrix below uses the existing single-slot visual scene.
+
 ## Native rendering and editor changes
 
 OpenGL, Vulkan and Direct3D 12 are equal supported targets. Renderer or visual
@@ -75,6 +82,32 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-20, Astra accepted M1-E's [typed static mesh resource](MESH_ASSETS.md)
+after one consolidated review-fix cycle. The reusable contract lives in
+engine_core; the example consumes six required PHMS resources from its staged
+dependency graph. It preserves submesh ranges, slot bindings and tangents without
+changing renderer or editor-host APIs. Existing Model/glTF/cache paths remain
+compatible. Source baseline: `68aed76373c169494d9238d267cd0e50cd885ff2` plus
+the recorded M1-E working tree.
+
+The final VS2026 Debug build with warnings as errors and all six CTest entries
+passed (eighteen C++ contracts). A child project linking only Phlosion::Core
+encoded/decoded a mesh without graphics dependencies. Logs are in ignored
+`artifacts/m1-e/build-full-03.log`, `ctest-03.log` and
+`link-proof-{build,run}-02.log`. Regressions cover malformed UTF-8, fixed binary
+bytes, a valid two-slot consumer and missing/duplicate bindings; deliberate
+binding/tangent regressions failed their checks before being reverted.
+
+The final `artifacts/m1-e/m1e-run03/{manifest,matrix}.json` and `guard.log`
+record all 24 native runtime/editor cases, unchanged thresholds, zero matrix
+failures and matching final binary hashes. Every capture is pixel-identical to
+the accepted M1-D `reorg-run02` counterpart; comparisons are retained in
+`artifacts/m1-e/m1e-run03-vs-m1d/`. Worst cross-API normalized MAE/RMSE remain
+0.0000052/0.00024. Failed replacement preserves A30 exactly. This is one
+Windows/GTX 1070 Debug host, not qualification of private game assets, skeletal
+animation, production materials, other hardware or performance budgets. Tangent
+forwarding has CPU evidence; the fixture materials do not visibly consume it.
 
 On 2026-09-20, M1-D added the [public asset fixture](PUBLIC_ASSET_FIXTURE.md):
 shared archive-driven geometry/texture presentation through a standalone host and

@@ -2,11 +2,33 @@
 
 Status: Active
 Type: Architecture
-Last updated: 2026-07-30
+Last updated: 2026-09-20
 
 This document defines the long-term asset pipeline shared by Pokemon
 Autochess and future games built with Phlosion Engine. It replaces the idea
 of inventing a separate runtime format for each game or source ecosystem.
+
+## Implemented subset
+
+The format family and Forge/Vault pipeline below describe the target
+architecture, not a claim that every resource type ships today. PHRC and typed
+scene/prefab archives are implemented, with asynchronous byte loading, required
+dependency graphs and staged archive activation.
+
+Existing Model/glTF loading, model caches, skeletal pose sampling, GPU skinning,
+standard PBR and project material profiles already provide runtime capabilities.
+Implementing another typed storage format does not create those capabilities
+for the first time. The complete custom-format family is optional; individual
+migrations need a demonstrated consumer benefit and their own qualification.
+
+M1-E adds [static `.phmesh` v1](MESH_ASSETS.md) in engine_core: indexed triangles,
+position/normal/tangent/UV/color attributes, submesh ranges, material slot labels
+and exact bounds. Its first consumer is the public archive fixture, verified in
+runtime and editor on all three native graphics APIs. Static v1 has one geometry
+level and no skinning, LODs, compression, material payloads or dependencies.
+Slots are labels that consumers bind. Importers, a cook CLI, production
+Model/cache migration and the remaining typed formats are still separate work.
+See [verification](VERIFICATION.md) for evidence and coverage limits.
 
 ## Decision
 

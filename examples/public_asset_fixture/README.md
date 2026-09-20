@@ -6,7 +6,7 @@ runtime host and the Phlosion Editor project plugin:
 
 | File | Role |
 | --- | --- |
-| `FixtureData.h/.cpp` | Synthetic PHSC/PHRC archives, fixture schema and snapshot validation |
+| `FixtureData.h/.cpp` | Synthetic PHSC/PHRC archives, typed `PHMS` mesh resources, fixture schema and snapshot validation |
 | `FixtureSession.h/.cpp` | `PhlosionArchiveSession` activation and replacement lifecycle |
 | `FixturePresentation.h/.cpp` | Camera, rigid motion, cached indexed draws, role rectangles and handshake JSON |
 | `FixtureRuntimeMain.cpp` | Standalone `PublicAssetFixtureRuntime` host |

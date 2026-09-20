@@ -44,24 +44,6 @@ float motionProgress(const FixtureObject& object, int logicalFrame) {
         1.0f);
 }
 
-engine::render::backend::WorldMeshVertex toWorldVertex(
-    const FixtureVertex& vertex) {
-    engine::render::backend::WorldMeshVertex out;
-    out.x = vertex.x;
-    out.y = vertex.y;
-    out.z = vertex.z;
-    out.u = vertex.u;
-    out.v = vertex.v;
-    out.r = vertex.r;
-    out.g = vertex.g;
-    out.b = vertex.b;
-    out.a = vertex.a;
-    out.nx = vertex.nx;
-    out.ny = vertex.ny;
-    out.nz = vertex.nz;
-    return out;
-}
-
 std::array<float, 2> projectNormalized(
     const glm::mat4& viewProjection,
     const glm::vec3& position) {
@@ -75,6 +57,28 @@ std::array<float, 2> projectNormalized(
 }
 
 } // namespace
+
+engine::render::backend::WorldMeshVertex fixtureWorldVertex(
+    const engine::assets::phlosion::MeshVertex& vertex) {
+    engine::render::backend::WorldMeshVertex out;
+    out.x = vertex.position[0];
+    out.y = vertex.position[1];
+    out.z = vertex.position[2];
+    out.u = vertex.texcoord[0];
+    out.v = vertex.texcoord[1];
+    out.r = vertex.color[0];
+    out.g = vertex.color[1];
+    out.b = vertex.color[2];
+    out.a = vertex.color[3];
+    out.nx = vertex.normal[0];
+    out.ny = vertex.normal[1];
+    out.nz = vertex.normal[2];
+    out.tx = vertex.tangent[0];
+    out.ty = vertex.tangent[1];
+    out.tz = vertex.tangent[2];
+    out.tw = vertex.tangent[3];
+    return out;
+}
 
 std::array<float, 16> fixtureViewProjection(
     const FixtureCamera& camera,
@@ -123,7 +127,7 @@ std::map<std::string, FixtureRoleRect> computeFixtureRoleRects(
         fixtureViewProjection(content.camera, surfaceWidth, surfaceHeight).data());
     std::map<std::string, FixtureRoleRect> rects;
     for (const FixtureObject& object : content.objects) {
-        if (object.vertices.empty()) {
+        if (object.mesh.vertices.empty()) {
             continue;
         }
         const glm::mat4 model = glm::make_mat4(
@@ -132,9 +136,14 @@ std::map<std::string, FixtureRoleRect> computeFixtureRoleRects(
         float minimumY = 1.0f;
         float maximumX = 0.0f;
         float maximumY = 0.0f;
-        for (const FixtureVertex& vertex : object.vertices) {
+        for (const engine::assets::phlosion::MeshVertex& vertex :
+             object.mesh.vertices) {
             const glm::vec4 world =
-                model * glm::vec4(vertex.x, vertex.y, vertex.z, 1.0f);
+                model * glm::vec4(
+                    vertex.position[0],
+                    vertex.position[1],
+                    vertex.position[2],
+                    1.0f);
             const std::array<float, 2> projected = projectNormalized(
                 viewProjection,
                 glm::vec3(world));
@@ -177,50 +186,110 @@ bool renderFixture(
     const std::array<float, 16> viewProjection =
         fixtureViewProjection(content.camera, width, height);
 
-    std::vector<const FixtureObject*> ordered;
-    ordered.reserve(content.objects.size());
+    // Each typed mesh is consumed through its submesh ranges and material slot
+    // labels; the binding for a slot supplies that range's texture and material
+    // parameters.
+    struct FixtureDrawItem {
+        const FixtureObject* object = nullptr;
+        const FixtureMaterialBinding* binding = nullptr;
+        const engine::assets::phlosion::MeshSubmesh* submesh = nullptr;
+        std::size_t submeshIndex = 0u;
+    };
+    std::vector<FixtureDrawItem> items;
     for (const FixtureObject& object : content.objects) {
-        if (object.material.alphaMode != 2u) {
-            ordered.push_back(&object);
+        for (std::size_t index = 0u; index < object.mesh.submeshes.size();
+             ++index) {
+            const engine::assets::phlosion::MeshSubmesh& submesh =
+                object.mesh.submeshes[index];
+            if (submesh.materialSlot >= object.mesh.materialSlots.size()) {
+                return fail(
+                    outError,
+                    "fixture submesh references an unknown material slot for object '" +
+                        object.id + "'");
+            }
+            const std::string& slot =
+                object.mesh.materialSlots[submesh.materialSlot];
+            const FixtureMaterialBinding* binding =
+                object.findMaterialBinding(slot);
+            if (binding == nullptr) {
+                return fail(
+                    outError,
+                    "fixture object '" + object.id +
+                        "' has no material binding for mesh slot '" + slot +
+                        "'");
+            }
+            items.push_back(FixtureDrawItem{&object, binding, &submesh, index});
         }
     }
-    for (const FixtureObject& object : content.objects) {
-        if (object.material.alphaMode == 2u) {
-            ordered.push_back(&object);
+
+    std::vector<const FixtureDrawItem*> ordered;
+    ordered.reserve(items.size());
+    for (const FixtureDrawItem& item : items) {
+        if (item.binding->material.alphaMode != 2u) {
+            ordered.push_back(&item);
+        }
+    }
+    for (const FixtureDrawItem& item : items) {
+        if (item.binding->material.alphaMode == 2u) {
+            ordered.push_back(&item);
         }
     }
 
     FixtureDrawStats stats{};
-    for (const FixtureObject* object : ordered) {
-        if (!object || object->vertices.empty() || object->indices.size() < 3u) {
+    for (const FixtureDrawItem* item : ordered) {
+        const FixtureObject& object = *item->object;
+        const FixtureMaterialBinding& binding = *item->binding;
+        const engine::assets::phlosion::MeshSubmesh& submesh = *item->submesh;
+        if (object.mesh.vertices.empty() || object.mesh.indices.size() < 3u) {
             return fail(outError, "fixture object has no drawable geometry");
         }
-        if (object->textureRgba.size() !=
-            static_cast<std::size_t>(object->textureWidth) *
-                static_cast<std::size_t>(object->textureHeight) * 4u) {
+        const std::size_t submeshFirstIndex =
+            static_cast<std::size_t>(submesh.firstIndex);
+        const std::size_t submeshIndexCount =
+            static_cast<std::size_t>(submesh.indexCount);
+        // Subtraction form: the range check cannot wrap on a narrow host.
+        if (submeshIndexCount < 3u ||
+            submeshFirstIndex > object.mesh.indices.size() ||
+            submeshIndexCount >
+                object.mesh.indices.size() - submeshFirstIndex) {
             return fail(
                 outError,
-                "fixture object '" + object->id +
+                "fixture submesh range is outside the mesh index list for object '" +
+                    object.id + "'");
+        }
+        if (binding.textureRgba.size() !=
+            static_cast<std::size_t>(binding.textureWidth) *
+                static_cast<std::size_t>(binding.textureHeight) * 4u) {
+            return fail(
+                outError,
+                "fixture object '" + object.id +
                     "' has a texture size that does not match its pixels");
         }
         std::vector<engine::render::backend::WorldMeshVertex> vertices;
-        vertices.reserve(object->vertices.size());
-        for (const FixtureVertex& vertex : object->vertices) {
-            vertices.push_back(toWorldVertex(vertex));
+        vertices.reserve(object.mesh.vertices.size());
+        for (const engine::assets::phlosion::MeshVertex& vertex :
+             object.mesh.vertices) {
+            vertices.push_back(fixtureWorldVertex(vertex));
         }
+        const auto firstIndex =
+            object.mesh.indices.begin() +
+            static_cast<std::ptrdiff_t>(submeshFirstIndex);
+        const std::vector<std::uint32_t> range(
+            firstIndex,
+            firstIndex + static_cast<std::ptrdiff_t>(submeshIndexCount));
         engine::render::backend::WorldTextureData texture;
-        texture.key = object->textureKey.c_str();
-        texture.cacheKey = object->textureCacheKey.c_str();
-        texture.rgba = object->textureRgba.data();
-        texture.width = object->textureWidth;
-        texture.height = object->textureHeight;
+        texture.key = binding.textureKey.c_str();
+        texture.cacheKey = binding.textureCacheKey.c_str();
+        texture.rgba = binding.textureRgba.data();
+        texture.width = binding.textureWidth;
+        texture.height = binding.textureHeight;
         texture.textureSrgb = 1u;
-        texture.alphaMode = object->material.alphaMode;
-        texture.blendMode = object->material.blendMode;
-        texture.depthTestEnabled = object->material.depthTest;
-        texture.materialMode = object->material.materialMode;
-        texture.alphaCutoff = object->material.alphaCutoff;
-        texture.modelMatrix = fixtureModelMatrix(*object, logicalFrame);
+        texture.alphaMode = binding.material.alphaMode;
+        texture.blendMode = binding.material.blendMode;
+        texture.depthTestEnabled = binding.material.depthTest;
+        texture.materialMode = binding.material.materialMode;
+        texture.alphaCutoff = binding.material.alphaCutoff;
+        texture.modelMatrix = fixtureModelMatrix(object, logicalFrame);
         texture.materialTimeSec =
             static_cast<float>(logicalFrame) / 60.0f;
         texture.cameraPosX = content.camera.position[0];
@@ -238,21 +307,26 @@ bool renderFixture(
         texture.cameraForwardY = forward.y;
         texture.cameraForwardZ = forward.z;
 
+        const std::string cacheKey =
+            object.mesh.submeshes.size() > 1u
+            ? object.geometryCacheKey + "#sub" +
+                std::to_string(item->submeshIndex)
+            : object.geometryCacheKey;
         renderer.drawWorldIndexedMeshTexturedCached(
-            object->geometryCacheKey.c_str(),
+            cacheKey.c_str(),
             vertices.data(),
             vertices.size(),
-            object->indices.data(),
-            object->indices.size(),
+            range.data(),
+            range.size(),
             &texture,
             viewProjection.data(),
             width,
             height);
         ++stats.drawCalls;
-        if (object->material.alphaMode == 2u) {
+        if (binding.material.alphaMode == 2u) {
             ++stats.blendDraws;
         }
-        stats.triangles += static_cast<int>(object->triangleCount());
+        stats.triangles += static_cast<int>(submeshIndexCount / 3u);
     }
 
     if (outStats) {

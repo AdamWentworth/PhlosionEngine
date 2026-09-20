@@ -194,6 +194,7 @@ add_library(engine_core STATIC
     src/engine/assets/phlosion/PhlosionArchiveSession.cpp
     src/engine/assets/phlosion/PhlosionAuthoredScene.cpp
     src/engine/assets/phlosion/PhlosionEnvironmentPatch.cpp
+    src/engine/assets/phlosion/PhlosionMeshAsset.cpp
     src/engine/assets/phlosion/PhlosionResourceContainer.cpp
     src/engine/assets/phlosion/PhlosionSceneArchive.cpp
 )
@@ -543,6 +544,7 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestProjectDescriptor.cpp
         tests/TestPhlosionAuthoredScene.cpp
         tests/TestPhlosionEnvironmentPatch.cpp
+        tests/TestPhlosionMeshAsset.cpp
         tests/TestPhlosionResourceContainer.cpp
         tests/TestPhlosionSceneArchive.cpp
         tests/TestAsyncAssetLoader.cpp

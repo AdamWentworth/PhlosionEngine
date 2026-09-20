@@ -51,6 +51,12 @@ std::array<float, 16> fixtureModelMatrix(
     const FixtureObject& object,
     int logicalFrame);
 
+// Maps one typed static mesh vertex into the renderer's world vertex layout.
+// Exposed so CPU contracts can assert the adapter itself without a renderer
+// mock; production presentation uses it for every drawn vertex.
+engine::render::backend::WorldMeshVertex fixtureWorldVertex(
+    const engine::assets::phlosion::MeshVertex& vertex);
+
 std::map<std::string, FixtureRoleRect> computeFixtureRoleRects(
     const FixtureContent& content,
     int logicalFrame,

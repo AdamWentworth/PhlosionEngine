@@ -1384,7 +1384,7 @@ int runSynth(const std::vector<std::string>& arguments) {
         engine::fixture::fixtureCaseExpectedActiveRoot(*parsedCase);
     handshake.activeContentId = contentId;
     handshake.activeContentHash = "synthetic-" + contentId;
-    handshake.archiveFileCount = 13u;
+    handshake.archiveFileCount = 7u;
     handshake.activationCount =
         *parsedCase == FixtureCase::ValidReplacementB ? 2 : 1;
     handshake.triangleCount = 12u;

@@ -14,8 +14,10 @@ renderer draw APIs; no production renderer, editor or core API changes are
 involved.
 
 The fixture renders decoded archive content. It has no hardcoded scene
-fallback: geometry, materials and textures come from the activated snapshot,
-and a candidate is validated before activation.
+fallback: geometry comes from typed `.phmesh` resources that the scene requires
+as dependency edges, materials and textures come from the same activated
+snapshot, and a candidate is validated before activation. See
+[typed static mesh assets](MESH_ASSETS.md) for the engine contract.
 
 ## Build option
 
@@ -36,7 +38,7 @@ contracts link it.
 
 | Directory | Path | Role |
 | --- | --- | --- |
-| Example | `examples/public_asset_fixture/FixtureData.h/.cpp` | Deterministic PHSC/PHRC archive generation, the documented fixture schema, content validation and content hashes |
+| Example | `examples/public_asset_fixture/FixtureData.h/.cpp` | Deterministic PHSC/PHRC archive generation, typed `PHMS` mesh resources, the documented fixture schema, content validation and content hashes |
 | Example | `examples/public_asset_fixture/FixtureSession.h/.cpp` | `PhlosionArchiveSession` lifecycle: initial A activation, failed replacement, valid replacement, bounded preparation |
 | Example | `examples/public_asset_fixture/FixturePresentation.h/.cpp` | Camera, rigid motion, cached indexed draws, role rectangles and handshake JSON |
 | Example | `examples/public_asset_fixture/FixtureRuntimeMain.cpp` | Standalone hidden-window host (`PublicAssetFixtureRuntime`) |
@@ -51,34 +53,47 @@ contracts link it.
 
 ## Fixture schema
 
-Each scene archive embeds a versioned JSON document plus one geometry and one
-texture file per object. The document is
-`"schema": "phlosion.public-asset-fixture-scene"`, version `1`, with a logical
+Each scene archive embeds a versioned JSON document plus one texture file per
+material binding. The document is
+`"schema": "phlosion.public-asset-fixture-scene"`, version `2`, with a logical
 `scene_id` of `fixture/scene` and a `content_id` of `a` or `b`. Both content
-variants share the same logical scene and texture identities; their archive
-roots are `fixture/scene-a` and `fixture/scene-b`.
+variants share the same logical scene identity; their archive roots are
+`fixture/scene-a` and `fixture/scene-b`.
 
-Geometry files use a small fixture record (`PGEO`, version 1): vertex count,
-index count, then `FixtureVertex` records and `uint32` indices. Texture files
-use `PTEX`, version 1: width, height and RGBA8 pixels. The JSON records each
-file's FNV-1a hash and the overall `content_hash` computed over the geometry
-and texture bytes in object order.
+Geometry is not embedded as a private record. Every object references a typed
+`.phmesh` document through a required scene dependency edge that declares the
+expected PHRC content hash. Each mesh has a stable logical id
+(`fixture/mesh/<role>`) and a versioned registry id per content variant
+(`fixture/mesh/<role>-a`/`-b`), which the fixture resolver maps to
+`AssetKind::Phrc`. Texture files keep the small fixture record (`PTEX`, version
+1): width, height and RGBA8 pixels. The JSON records each object's mesh asset
+id, logical mesh id, expected mesh document hash and structural counts, the
+material binding for every mesh material slot label, each texture file's FNV-1a
+hash, and the overall `content_hash` computed over the mesh document bytes and
+texture bytes in object order. Every declared mesh slot must be bound exactly
+once; a missing or duplicated binding is rejected before activation.
 
 `validateFixtureSnapshot` runs before any activation and rejects a snapshot
-that has no typed scene archive, a missing or unreadable embedded file, a
-per-file or overall hash mismatch, invalid `PGEO`/`PTEX` headers, geometry
-indices outside the vertex range, a non-finite vertex value, invalid triangle
-counts, non-positive or document/decoded-mismatched texture dimensions,
-duplicate or empty object ids/roles, unsupported material values, a non-finite
-or out-of-range alpha cutoff, a non-finite or out-of-range camera (position,
-target, field of view, clip planes), non-finite or invalid rigid-motion
-metadata, or a missing required object role.
+that has no typed scene archive, an object whose mesh reference does not match
+its role, a mesh asset missing from the staged graph, a mesh resolved as
+something other than the expected PHRC resource, a declared mesh hash that does
+not match the loaded document, a mesh that the typed decoder rejects, a mesh id
+or structural count that disagrees with the document, a missing material
+binding for a declared slot, a duplicated binding for one slot, a missing or
+unreadable embedded texture, a
+per-file or overall hash mismatch, invalid `PTEX` headers, non-positive or
+document/decoded-mismatched texture dimensions, duplicate or empty object
+ids/roles, unsupported material values, a non-finite or out-of-range alpha
+cutoff, a non-finite or out-of-range camera (position, target, field of view,
+clip planes), non-finite or invalid rigid-motion metadata, or a missing required
+object role.
 
-Every archive also declares a required dependency edge
-(`fixture/leaf/core`) with an explicit expected content hash. The failed
-replacement archive (`fixture/scene-missing`) declares the required edge
-`fixture/leaf/missing`, which the store deliberately does not contain, so the
-dependency-aware graph fails before any replacement can activate.
+Every archive also declares the required dependency edge `fixture/leaf/core`
+and one required edge per typed mesh resource, each with an explicit expected
+content hash. The failed replacement archive (`fixture/scene-missing`) declares
+the required edge `fixture/leaf/missing`, which the store deliberately does not
+contain, so the dependency-aware graph fails before any replacement can
+activate.
 
 Object roles are fixed and guard-checked: `background`, `board`, `occluder`,
 `hidden`, `blend` and `marker`. The board uses an indexed textured quad with a
@@ -276,3 +291,34 @@ all six CTest entries passed again, and all 24 retained native captures passed
 the stricter guard. Final revalidation evidence is under
 `artifacts/m1-d/astra-{build,ctest,matrix}.log`, `astra-matrix.json` and
 `astra-manifest.json`; the original capture manifest remains intact.
+
+M1-E then replaced the fixture's embedded `PGEO` geometry with typed `.phmesh`
+dependency resources (scene schema version 2). The
+`build-presentation` Debug tree rebuilt warning-clean, all six CTest entries
+passed, and the same four cases were captured on native OpenGL, Vulkan and
+Direct3D 12 in both hosts (`artifacts/m1-e/m1e-run01/`, `failure_count = 0`).
+Pairwise API comparisons inside each host passed with a worst normalized MAE of
+0.0000052 and worst normalized RMSE of 0.00024 under the unchanged
+0.01/0.08/0.05 limits; A30 vs failed-A30 was pixel-identical; A0 vs A30 changed
+1.25-1.40% and A30 vs B30 changed 31-35%. Comparing every retained capture with
+the accepted `artifacts/m1-d/reorg-run02/` image at the same host/API/case gave
+a maximum channel difference of 0 on all 24 pairs, so the migration preserves
+appearance exactly. Logs, handshakes, editor metrics, `manifest.json`,
+`matrix.json`, the contact sheet and the cross-run comparison records are under
+`artifacts/m1-e/`.
+
+Astra's M1-E review then requested one correction cycle: strict UTF-8
+validation for mesh names, one mesh hash per object plus one binding per slot in
+the fixture consumer, forwarding the mesh tangent through the world-vertex
+adapter, and a literal golden payload in the mesh contract. The corrected tree
+rebuilt warning-clean, all six CTest entries passed again, and the complete
+24-case native matrix was recaptured as `artifacts/m1-e/m1e-run02/` and then,
+after two reverted test-sensitivity mutations and a clean rebuild, as the final
+set `artifacts/m1-e/m1e-run03/`; both runs report `failure_count = 0` under the
+same thresholds, and `m1e-run03` records fresh binary hashes that match the
+on-disk hosts. Those captures are pixel-identical to the accepted
+`artifacts/m1-d/reorg-run02/` images and to the initial
+`artifacts/m1-e/m1e-run01/` captures at every host/API/case
+(`artifacts/m1-e/m1e-run03-vs-m1d/`, `artifacts/m1-e/m1e-run03-vs-run02/`): the
+fixture's materials do not consume tangents, so forwarding them is a data-path
+correction rather than a visible change.

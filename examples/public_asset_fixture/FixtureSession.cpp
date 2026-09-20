@@ -71,6 +71,9 @@ bool FixtureSession::prepare(std::string* outError) {
           FixtureContentVariant::MissingDependency}) {
         FixtureBundle bundle = buildFixtureBundle(variant);
         store_->add(bundle.virtualPath, std::move(bundle.archiveBytes));
+        for (const FixtureMeshResource& mesh : bundle.meshes) {
+            store_->add(mesh.virtualPath, mesh.bytes);
+        }
     }
 
     session_ = std::make_unique<

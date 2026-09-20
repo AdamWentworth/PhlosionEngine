@@ -16,18 +16,9 @@
 namespace engine::fixture {
 namespace {
 
-constexpr std::uint32_t kGeometryMagic = 0x4f454750u; // "PGEO"
 constexpr std::uint32_t kTextureMagic = 0x58455450u;  // "PTEX"
 constexpr std::uint32_t kFileVersion = 1u;
-constexpr std::size_t kGeometryHeaderBytes = 16u;
 constexpr std::size_t kTextureHeaderBytes = 16u;
-
-struct GeometryHeader {
-    std::uint32_t magic = kGeometryMagic;
-    std::uint32_t version = kFileVersion;
-    std::uint32_t vertexCount = 0u;
-    std::uint32_t indexCount = 0u;
-};
 
 struct TextureHeader {
     std::uint32_t magic = kTextureMagic;
@@ -75,90 +66,20 @@ bool readValue(const std::vector<std::uint8_t>& bytes, std::size_t& offset, T& o
     return readValue(bytes, offset, &out, sizeof(T));
 }
 
-std::vector<std::uint8_t> encodeGeometry(const FixtureObject& object) {
-    const GeometryHeader header{
-        kGeometryMagic,
-        kFileVersion,
-        static_cast<std::uint32_t>(object.vertices.size()),
-        static_cast<std::uint32_t>(object.indices.size())};
-    std::vector<std::uint8_t> bytes;
-    bytes.reserve(
-        kGeometryHeaderBytes +
-        object.vertices.size() * sizeof(FixtureVertex) +
-        object.indices.size() * sizeof(std::uint32_t));
-    appendValue(bytes, header);
-    for (const FixtureVertex& vertex : object.vertices) {
-        appendValue(bytes, vertex);
-    }
-    for (const std::uint32_t index : object.indices) {
-        appendValue(bytes, index);
-    }
-    return bytes;
-}
-
-bool decodeGeometry(
-    const std::vector<std::uint8_t>& bytes,
-    std::vector<FixtureVertex>& outVertices,
-    std::vector<std::uint32_t>& outIndices,
-    std::string* outError) {
-    outVertices.clear();
-    outIndices.clear();
-    std::size_t offset = 0u;
-    GeometryHeader header;
-    if (!readValue(bytes, offset, header) ||
-        header.magic != kGeometryMagic ||
-        header.version != kFileVersion) {
-        return fail(outError, "fixture geometry header is invalid");
-    }
-    const std::size_t expected =
-        kGeometryHeaderBytes +
-        static_cast<std::size_t>(header.vertexCount) * sizeof(FixtureVertex) +
-        static_cast<std::size_t>(header.indexCount) * sizeof(std::uint32_t);
-    if (bytes.size() != expected) {
-        return fail(outError, "fixture geometry byte count does not match its header");
-    }
-    outVertices.resize(header.vertexCount);
-    for (FixtureVertex& vertex : outVertices) {
-        if (!readValue(bytes, offset, vertex)) {
-            return fail(outError, "fixture geometry vertex data is truncated");
-        }
-    }
-    outIndices.resize(header.indexCount);
-    for (std::uint32_t& index : outIndices) {
-        if (!readValue(bytes, offset, index)) {
-            return fail(outError, "fixture geometry index data is truncated");
-        }
-        if (index >= header.vertexCount) {
-            return fail(outError, "fixture geometry index is out of range");
-        }
-    }
-    const auto finite = [](float value) {
-        return std::isfinite(value);
-    };
-    for (const FixtureVertex& vertex : outVertices) {
-        if (!finite(vertex.x) || !finite(vertex.y) || !finite(vertex.z) ||
-            !finite(vertex.u) || !finite(vertex.v) ||
-            !finite(vertex.r) || !finite(vertex.g) || !finite(vertex.b) ||
-            !finite(vertex.a) || !finite(vertex.nx) || !finite(vertex.ny) ||
-            !finite(vertex.nz)) {
-            return fail(
-                outError,
-                "fixture geometry contains a non-finite vertex value");
-        }
-    }
-    return true;
-}
-
-std::vector<std::uint8_t> encodeTexture(const FixtureObject& object) {
+std::vector<std::uint8_t> encodeTexture(
+    const FixtureMaterialBinding& binding) {
     const TextureHeader header{
         kTextureMagic,
         kFileVersion,
-        static_cast<std::uint32_t>(object.textureWidth),
-        static_cast<std::uint32_t>(object.textureHeight)};
+        static_cast<std::uint32_t>(binding.textureWidth),
+        static_cast<std::uint32_t>(binding.textureHeight)};
     std::vector<std::uint8_t> bytes;
-    bytes.reserve(kTextureHeaderBytes + object.textureRgba.size());
+    bytes.reserve(kTextureHeaderBytes + binding.textureRgba.size());
     appendValue(bytes, header);
-    appendBytes(bytes, object.textureRgba.data(), object.textureRgba.size());
+    appendBytes(
+        bytes,
+        binding.textureRgba.data(),
+        binding.textureRgba.size());
     return bytes;
 }
 
@@ -194,29 +115,46 @@ bool decodeTexture(
     return true;
 }
 
-FixtureVertex makeVertex(
+engine::assets::phlosion::MeshVertex makeVertex(
     float x,
     float y,
     float z,
     float u,
     float v,
     const std::array<float, 4>& color) {
-    FixtureVertex vertex;
-    vertex.x = x;
-    vertex.y = y;
-    vertex.z = z;
-    vertex.u = u;
-    vertex.v = v;
-    vertex.r = color[0];
-    vertex.g = color[1];
-    vertex.b = color[2];
-    vertex.a = color[3];
-    vertex.nx = 0.0f;
-    vertex.ny = 0.0f;
-    vertex.nz = 1.0f;
+    using engine::assets::phlosion::MeshVertex;
+    MeshVertex vertex;
+    vertex.position = {x, y, z};
+    vertex.normal = {0.0f, 0.0f, 1.0f};
+    vertex.tangent = {1.0f, 0.0f, 0.0f, 1.0f};
+    vertex.texcoord = {u, v};
+    vertex.color = color;
     return vertex;
 }
 
+engine::assets::phlosion::MeshBounds computeMeshBounds(
+    const engine::assets::phlosion::MeshAsset& mesh) {
+    using engine::assets::phlosion::MeshBounds;
+    MeshBounds bounds;
+    if (mesh.vertices.empty()) {
+        return bounds;
+    }
+    bounds.min = mesh.vertices.front().position;
+    bounds.max = mesh.vertices.front().position;
+    for (const engine::assets::phlosion::MeshVertex& vertex : mesh.vertices) {
+        for (std::size_t channel = 0u; channel < 3u; ++channel) {
+            bounds.min[channel] =
+                std::min(bounds.min[channel], vertex.position[channel]);
+            bounds.max[channel] =
+                std::max(bounds.max[channel], vertex.position[channel]);
+        }
+    }
+    return bounds;
+}
+
+// One flat quad built as a typed static mesh with a single material slot. The
+// mesh id is the stable logical identity; the versioned registry id is applied
+// per content variant after the object list is built.
 FixtureObject makeQuad(
     std::string id,
     std::string role,
@@ -233,16 +171,29 @@ FixtureObject makeQuad(
     FixtureObject object;
     object.id = std::move(id);
     object.role = std::move(role);
-    object.vertices = {
+    object.mesh.meshId = fixtureMeshId(object.role);
+    object.mesh.vertices = {
         makeVertex(x0, y0, z, 0.0f, 0.0f, color),
         makeVertex(x1, y0, z, 1.0f, 0.0f, color),
         makeVertex(x1, y1, z, 1.0f, 1.0f, color),
         makeVertex(x0, y1, z, 0.0f, 1.0f, color)};
-    object.indices = {0u, 1u, 2u, 0u, 2u, 3u};
-    object.textureWidth = textureWidth;
-    object.textureHeight = textureHeight;
-    object.textureRgba = std::move(rgba);
-    object.material = material;
+    object.mesh.indices = {0u, 1u, 2u, 0u, 2u, 3u};
+    object.mesh.submeshes = {
+        engine::assets::phlosion::MeshSubmesh{
+            0u,
+            6u,
+            0u}};
+    object.mesh.materialSlots = {kFixtureMeshMaterialSlot};
+    object.mesh.bounds = computeMeshBounds(object.mesh);
+
+    FixtureMaterialBinding binding;
+    binding.slotLabel = kFixtureMeshMaterialSlot;
+    binding.textureKey = "fixture/tex/" + object.id;
+    binding.textureWidth = textureWidth;
+    binding.textureHeight = textureHeight;
+    binding.textureRgba = std::move(rgba);
+    binding.material = material;
+    object.materialBindings = {std::move(binding)};
     return object;
 }
 
@@ -504,26 +455,44 @@ FixtureObject makeMarkerObject(std::string_view contentId) {
 }
 
 std::vector<FixtureObject> makeFixtureObjects(std::string_view contentId) {
-    return {
+    std::vector<FixtureObject> objects = {
         makeBackgroundObject(),
         makeBoardObject(contentId),
         makeOccluderObject(contentId),
         makeHiddenObject(contentId),
         makeBlendObject(contentId),
         makeMarkerObject(contentId)};
+    for (FixtureObject& object : objects) {
+        object.meshAssetId = fixtureMeshAssetId(object.role, contentId);
+        object.meshVirtualPath = fixtureMeshVirtualPath(object.meshAssetId);
+    }
+    return objects;
 }
 
-std::string objectFileBase(const FixtureObject& object) {
-    return "objects/" + object.id;
+std::string textureFileOf(const FixtureObject& object) {
+    return "objects/" + object.id + ".tex.bin";
 }
 
-std::uint64_t contentHashOfObjects(const std::vector<FixtureObject>& objects) {
+std::uint64_t meshDocumentHash(const std::vector<std::uint8_t>& bytes) {
+    if (bytes.size() < engine::assets::phrc::kHeaderBytes) {
+        return 0u;
+    }
+    return engine::assets::phrc::contentHash64(
+        bytes.data() + engine::assets::phrc::kHeaderBytes,
+        bytes.size() - engine::assets::phrc::kHeaderBytes);
+}
+
+std::uint64_t contentHashOfObjects(
+    const std::vector<FixtureObject>& objects,
+    const std::vector<FixtureMeshResource>& meshes) {
     std::uint64_t hash = kFnvOffset;
-    for (const FixtureObject& object : objects) {
-        const std::vector<std::uint8_t> geometry = encodeGeometry(object);
-        hash = fnv1a64(geometry, hash);
-        const std::vector<std::uint8_t> texture = encodeTexture(object);
-        hash = fnv1a64(texture, hash);
+    for (std::size_t index = 0u; index < objects.size(); ++index) {
+        hash = fnv1a64(meshes[index].bytes, hash);
+        for (const FixtureMaterialBinding& binding :
+             objects[index].materialBindings) {
+            const std::vector<std::uint8_t> texture = encodeTexture(binding);
+            hash = fnv1a64(texture, hash);
+        }
     }
     return hash;
 }
@@ -531,6 +500,7 @@ std::uint64_t contentHashOfObjects(const std::vector<FixtureObject>& objects) {
 std::string buildSceneJson(
     std::string_view contentId,
     const std::vector<FixtureObject>& objects,
+    const std::vector<FixtureMeshResource>& meshes,
     std::uint64_t contentHash) {
     nlohmann::json root;
     root["schema"] = kFixtureSceneSchema;
@@ -545,25 +515,33 @@ std::string buildSceneJson(
         {"near", 0.1f},
         {"far", 100.0f}};
     nlohmann::json objectArray = nlohmann::json::array();
-    for (const FixtureObject& object : objects) {
-        const std::vector<std::uint8_t> geometry = encodeGeometry(object);
-        const std::vector<std::uint8_t> texture = encodeTexture(object);
+    for (std::size_t index = 0u; index < objects.size(); ++index) {
+        const FixtureObject& object = objects[index];
         nlohmann::json entry;
         entry["id"] = object.id;
         entry["role"] = object.role;
-        entry["geometry"] = objectFileBase(object) + ".geom.bin";
-        entry["geometry_hash"] = fnv1a64(geometry);
-        entry["geometry_vertices"] = object.vertices.size();
-        entry["geometry_indices"] = object.indices.size();
-        entry["texture"] = objectFileBase(object) + ".tex.bin";
-        entry["texture_hash"] = fnv1a64(texture);
-        entry["texture_width"] = object.textureWidth;
-        entry["texture_height"] = object.textureHeight;
-        entry["alpha_mode"] = object.material.alphaMode;
-        entry["blend_mode"] = object.material.blendMode;
-        entry["depth_test"] = object.material.depthTest;
-        entry["material_mode"] = object.material.materialMode;
-        entry["alpha_cutoff"] = object.material.alphaCutoff;
+        entry["mesh"] = object.meshAssetId;
+        entry["mesh_id"] = object.mesh.meshId;
+        entry["mesh_hash"] = hashHex(meshes[index].contentHash);
+        entry["mesh_submeshes"] = object.mesh.submeshes.size();
+        entry["mesh_material_slots"] = object.mesh.materialSlots.size();
+        nlohmann::json slots = nlohmann::json::array();
+        for (const FixtureMaterialBinding& binding :
+             object.materialBindings) {
+            const std::vector<std::uint8_t> texture = encodeTexture(binding);
+            slots.push_back(
+                {{"slot", binding.slotLabel},
+                 {"texture", textureFileOf(object)},
+                 {"texture_hash", fnv1a64(texture)},
+                 {"texture_width", binding.textureWidth},
+                 {"texture_height", binding.textureHeight},
+                 {"alpha_mode", binding.material.alphaMode},
+                 {"blend_mode", binding.material.blendMode},
+                 {"depth_test", binding.material.depthTest},
+                 {"material_mode", binding.material.materialMode},
+                 {"alpha_cutoff", binding.material.alphaCutoff}});
+        }
+        entry["material_slots"] = std::move(slots);
         if (object.motion.enabled) {
             entry["motion"] = {
                 {"enabled", true},
@@ -645,6 +623,57 @@ bool readVec3(
     return true;
 }
 
+bool readRequiredFloat(
+    const nlohmann::json& object,
+    const char* key,
+    float& out,
+    std::string* outError) {
+    if (!object.contains(key) || !object.at(key).is_number()) {
+        return fail(
+            outError,
+            std::string("fixture record is missing number field '") + key +
+                "'");
+    }
+    out = object.at(key).get<float>();
+    return true;
+}
+
+// Reads the 16 hex digits written by `hashHex`. A malformed or mistyped value
+// is rejected instead of silently comparing as zero.
+bool readHashHex(
+    const nlohmann::json& object,
+    const char* key,
+    std::uint64_t& out,
+    std::string* outError) {
+    std::string text;
+    if (!readRequired(object, key, text, outError)) {
+        return false;
+    }
+    if (text.size() != 16u) {
+        return fail(
+            outError,
+            std::string("fixture hash field '") + key +
+                "' must contain 16 hex digits");
+    }
+    std::uint64_t value = 0u;
+    for (const char digit : text) {
+        std::uint64_t nibble = 0u;
+        if (digit >= '0' && digit <= '9') {
+            nibble = static_cast<std::uint64_t>(digit - '0');
+        } else if (digit >= 'a' && digit <= 'f') {
+            nibble = static_cast<std::uint64_t>(digit - 'a') + 10u;
+        } else {
+            return fail(
+                outError,
+                std::string("fixture hash field '") + key +
+                    "' must contain 16 hex digits");
+        }
+        value = (value << 4u) | nibble;
+    }
+    out = value;
+    return true;
+}
+
 bool readArchiveFile(
     const engine::assets::phlosion::SceneArchiveStore& archive,
     const std::string& virtualPath,
@@ -674,6 +703,31 @@ std::size_t FixtureContent::triangleCount() const noexcept {
         triangles += object.triangleCount();
     }
     return triangles;
+}
+
+const FixtureMaterialBinding* FixtureObject::findMaterialBinding(
+    std::string_view slotLabel) const noexcept {
+    const auto found = std::find_if(
+        materialBindings.begin(),
+        materialBindings.end(),
+        [slotLabel](const FixtureMaterialBinding& binding) {
+            return binding.slotLabel == slotLabel;
+        });
+    return found == materialBindings.end() ? nullptr : &*found;
+}
+
+std::string fixtureMeshId(std::string_view role) {
+    return std::string(kFixtureMeshIdPrefix) + std::string(role);
+}
+
+std::string fixtureMeshAssetId(
+    std::string_view role,
+    std::string_view contentId) {
+    return fixtureMeshId(role) + "-" + std::string(contentId);
+}
+
+std::string fixtureMeshVirtualPath(const std::string& assetId) {
+    return assetId + ".phmesh";
 }
 
 void FixtureAssetStore::add(std::string virtualPath, std::vector<std::uint8_t> bytes) {
@@ -791,21 +845,41 @@ FixtureBundle buildFixtureBundle(FixtureContentVariant variant) {
     bundle.dependencyPresent = !missing;
 
     const std::vector<FixtureObject> objects = makeFixtureObjects(contentId);
-    const std::uint64_t contentHash = contentHashOfObjects(objects);
+    std::vector<FixtureMeshResource> meshes;
+    meshes.reserve(objects.size());
+    for (const FixtureObject& object : objects) {
+        FixtureMeshResource resource;
+        resource.assetId = object.meshAssetId;
+        resource.virtualPath = object.meshVirtualPath;
+        resource.meshId = object.mesh.meshId;
+        std::string meshError;
+        if (!engine::assets::phlosion::encodeMeshAsset(
+                object.mesh,
+                resource.bytes,
+                {},
+                &meshError)) {
+            throw std::runtime_error(
+                "fixture mesh encode failed for '" + object.meshAssetId +
+                "': " + meshError);
+        }
+        resource.contentHash = meshDocumentHash(resource.bytes);
+        meshes.push_back(std::move(resource));
+    }
+    const std::uint64_t contentHash = contentHashOfObjects(objects, meshes);
     const std::string sceneJson =
-        buildSceneJson(contentId, objects, contentHash);
+        buildSceneJson(contentId, objects, meshes, contentHash);
 
     std::vector<engine::assets::phlosion::SceneArchiveFile> files;
     files.push_back(engine::assets::phlosion::SceneArchiveFile{
         "fixture/scene.json",
         std::vector<std::uint8_t>(sceneJson.begin(), sceneJson.end())});
     for (const FixtureObject& object : objects) {
-        files.push_back(engine::assets::phlosion::SceneArchiveFile{
-            objectFileBase(object) + ".geom.bin",
-            encodeGeometry(object)});
-        files.push_back(engine::assets::phlosion::SceneArchiveFile{
-            objectFileBase(object) + ".tex.bin",
-            encodeTexture(object)});
+        for (const FixtureMaterialBinding& binding :
+             object.materialBindings) {
+            files.push_back(engine::assets::phlosion::SceneArchiveFile{
+                textureFileOf(object),
+                encodeTexture(binding)});
+        }
     }
 
     std::vector<std::uint8_t> encoded;
@@ -827,10 +901,19 @@ FixtureBundle buildFixtureBundle(FixtureContentVariant variant) {
     dependency.assetId = bundle.dependencyAssetId;
     dependency.expectedContentHash = bundle.dependencyHash;
     dependency.flags = engine::assets::phrc::kDependencyRequired;
-    document.dependencies = {dependency};
+    std::vector<engine::assets::phrc::Dependency> dependencies{dependency};
+    for (const FixtureMeshResource& mesh : meshes) {
+        engine::assets::phrc::Dependency meshDependency;
+        meshDependency.assetId = mesh.assetId;
+        meshDependency.expectedContentHash = mesh.contentHash;
+        meshDependency.flags = engine::assets::phrc::kDependencyRequired;
+        dependencies.push_back(std::move(meshDependency));
+    }
+    document.dependencies = std::move(dependencies);
     if (!engine::assets::phrc::encode(document, bundle.archiveBytes, &error)) {
         throw std::runtime_error("fixture dependency archive encode failed: " + error);
     }
+    bundle.meshes = std::move(meshes);
     return bundle;
 }
 
@@ -857,6 +940,12 @@ bool fixtureAssetResolver(
         outLocation = engine::assets::phlosion::AssetLocation{
             assetId + ".bin",
             AssetKind::Bytes};
+        return true;
+    }
+    if (assetId.rfind(kFixtureMeshIdPrefix, 0u) == 0u) {
+        outLocation = engine::assets::phlosion::AssetLocation{
+            fixtureMeshVirtualPath(assetId),
+            AssetKind::Phrc};
         return true;
     }
     if (outError) {
@@ -957,56 +1046,294 @@ bool validateFixtureSnapshot(
         std::uint64_t computedHash = kFnvOffset;
         for (const auto& entry : objectArray) {
             FixtureObject object;
-            int declaredTextureWidth = 0;
-            int declaredTextureHeight = 0;
-            std::uint64_t geometryHash = 0u;
-            std::uint64_t textureHash = 0u;
-            std::uint64_t geometryVertices = 0u;
-            std::uint64_t geometryIndices = 0u;
+            std::string declaredMeshId;
+            std::uint64_t declaredMeshHash = 0u;
+            std::uint64_t declaredSubmeshes = 0u;
+            std::uint64_t declaredMaterialSlots = 0u;
             if (!readRequired(entry, "id", object.id, outError) ||
                 !readRequired(entry, "role", object.role, outError) ||
-                !readRequired(entry, "geometry", object.geometryFile, outError) ||
-                !readRequired(entry, "texture", object.textureFile, outError) ||
-                !readRequired(entry, "geometry_hash", geometryHash, outError) ||
-                !readRequired(entry, "texture_hash", textureHash, outError) ||
-                !readRequired(entry, "geometry_vertices", geometryVertices, outError) ||
-                !readRequired(entry, "geometry_indices", geometryIndices, outError) ||
-                !readRequiredInt(entry, "texture_width", declaredTextureWidth, outError) ||
-                !readRequiredInt(entry, "texture_height", declaredTextureHeight, outError) ||
-                !readRequiredUint8(entry, "alpha_mode", object.material.alphaMode, outError) ||
-                !readRequiredUint8(entry, "blend_mode", object.material.blendMode, outError) ||
-                !readRequiredUint8(entry, "depth_test", object.material.depthTest, outError) ||
-                !readRequiredUint8(entry, "material_mode", object.material.materialMode, outError)) {
+                !readRequired(entry, "mesh", object.meshAssetId, outError) ||
+                !readRequired(entry, "mesh_id", declaredMeshId, outError) ||
+                !readHashHex(entry, "mesh_hash", declaredMeshHash, outError) ||
+                !readRequired(
+                    entry,
+                    "mesh_submeshes",
+                    declaredSubmeshes,
+                    outError) ||
+                !readRequired(
+                    entry,
+                    "mesh_material_slots",
+                    declaredMaterialSlots,
+                    outError)) {
                 return false;
             }
-            object.material.alphaCutoff = entry.at("alpha_cutoff").get<float>();
             if (object.id.empty() || object.role.empty()) {
                 return fail(
                     outError,
                     "fixture objects require a non-empty id and role");
             }
-            if (declaredTextureWidth <= 0 || declaredTextureHeight <= 0) {
+            const auto duplicateId = std::find_if(
+                content.objects.begin(),
+                content.objects.end(),
+                [&object](const FixtureObject& candidate) {
+                    return candidate.id == object.id;
+                });
+            if (duplicateId != content.objects.end()) {
                 return fail(
                     outError,
-                    "fixture texture dimensions must be positive for object '" +
+                    "fixture object id is duplicated: " + object.id);
+            }
+            const auto duplicateRole = std::find_if(
+                content.objects.begin(),
+                content.objects.end(),
+                [&object](const FixtureObject& candidate) {
+                    return candidate.role == object.role;
+                });
+            if (duplicateRole != content.objects.end()) {
+                return fail(
+                    outError,
+                    "fixture object role is duplicated: " + object.role);
+            }
+            if (!entry.contains("material_slots") ||
+                !entry.at("material_slots").is_array() ||
+                entry.at("material_slots").empty()) {
+                return fail(
+                    outError,
+                    "fixture objects require at least one material binding for object '" +
                         object.id + "'");
             }
-            if (object.material.alphaMode > 2u ||
-                object.material.blendMode > 2u ||
-                object.material.depthTest > 1u ||
-                object.material.materialMode > 7u) {
+            if (object.meshAssetId !=
+                fixtureMeshAssetId(object.role, content.contentId)) {
                 return fail(
                     outError,
-                    "fixture material values are unsupported for object '" +
+                    "fixture mesh reference does not match the object role for object '" +
                         object.id + "'");
             }
-            if (!std::isfinite(object.material.alphaCutoff) ||
-                object.material.alphaCutoff < 0.0f ||
-                object.material.alphaCutoff > 1.0f) {
+            object.meshVirtualPath =
+                fixtureMeshVirtualPath(object.meshAssetId);
+            object.meshDocumentHash = declaredMeshHash;
+
+            // Geometry comes from the staged snapshot graph only: no resolver,
+            // provider or fallback read happens after activation.
+            const auto meshAsset =
+                snapshot.graph.assets.find(object.meshAssetId);
+            if (meshAsset == snapshot.graph.assets.end()) {
                 return fail(
                     outError,
-                    "fixture alpha cutoff must be finite and inside [0, 1] for object '" +
+                    "fixture snapshot has no mesh asset '" +
+                        object.meshAssetId + "'");
+            }
+            if (meshAsset->second.kind != AssetKind::Phrc ||
+                meshAsset->second.virtualPath != object.meshVirtualPath) {
+                return fail(
+                    outError,
+                    "fixture mesh asset '" + object.meshAssetId +
+                        "' is not the expected PHRC resource");
+            }
+            if (meshAsset->second.contentHash != declaredMeshHash) {
+                return fail(
+                    outError,
+                    "fixture mesh hash does not match the document for object '" +
                         object.id + "'");
+            }
+            MeshAsset decodedMesh;
+            std::string meshError;
+            if (!decodeMeshAsset(
+                    meshAsset->second.bytes,
+                    decodedMesh,
+                    {},
+                    &meshError)) {
+                return fail(
+                    outError,
+                    "fixture mesh asset '" + object.meshAssetId +
+                        "' is invalid: " + meshError);
+            }
+            if (decodedMesh.meshId != declaredMeshId) {
+                return fail(
+                    outError,
+                    "fixture mesh id does not match the document for object '" +
+                        object.id + "'");
+            }
+            if (decodedMesh.submeshes.size() != declaredSubmeshes ||
+                decodedMesh.materialSlots.size() != declaredMaterialSlots) {
+                return fail(
+                    outError,
+                    "fixture mesh structure does not match the document for object '" +
+                        object.id + "'");
+            }
+            object.mesh = std::move(decodedMesh);
+            computedHash = fnv1a64(meshAsset->second.bytes, computedHash);
+
+            for (const auto& slotRecord : entry.at("material_slots")) {
+                FixtureMaterialBinding binding;
+                std::string texturePath;
+                std::uint64_t textureHash = 0u;
+                int declaredTextureWidth = 0;
+                int declaredTextureHeight = 0;
+                if (!readRequired(
+                        slotRecord,
+                        "slot",
+                        binding.slotLabel,
+                        outError) ||
+                    !readRequired(
+                        slotRecord,
+                        "texture",
+                        texturePath,
+                        outError) ||
+                    !readRequired(
+                        slotRecord,
+                        "texture_hash",
+                        textureHash,
+                        outError) ||
+                    !readRequiredInt(
+                        slotRecord,
+                        "texture_width",
+                        declaredTextureWidth,
+                        outError) ||
+                    !readRequiredInt(
+                        slotRecord,
+                        "texture_height",
+                        declaredTextureHeight,
+                        outError) ||
+                    !readRequiredUint8(
+                        slotRecord,
+                        "alpha_mode",
+                        binding.material.alphaMode,
+                        outError) ||
+                    !readRequiredUint8(
+                        slotRecord,
+                        "blend_mode",
+                        binding.material.blendMode,
+                        outError) ||
+                    !readRequiredUint8(
+                        slotRecord,
+                        "depth_test",
+                        binding.material.depthTest,
+                        outError) ||
+                    !readRequiredUint8(
+                        slotRecord,
+                        "material_mode",
+                        binding.material.materialMode,
+                        outError) ||
+                    !readRequiredFloat(
+                        slotRecord,
+                        "alpha_cutoff",
+                        binding.material.alphaCutoff,
+                        outError)) {
+                    return false;
+                }
+                if (binding.slotLabel.empty()) {
+                    return fail(
+                        outError,
+                        "fixture material bindings require a non-empty slot label for object '" +
+                            object.id + "'");
+                }
+                if (texturePath != textureFileOf(object)) {
+                    return fail(
+                        outError,
+                        "fixture texture path does not match the object for object '" +
+                            object.id + "'");
+                }
+                if (declaredTextureWidth <= 0 || declaredTextureHeight <= 0) {
+                    return fail(
+                        outError,
+                        "fixture texture dimensions must be positive for object '" +
+                            object.id + "'");
+                }
+                if (binding.material.alphaMode > 2u ||
+                    binding.material.blendMode > 2u ||
+                    binding.material.depthTest > 1u ||
+                    binding.material.materialMode > 7u) {
+                    return fail(
+                        outError,
+                        "fixture material values are unsupported for object '" +
+                            object.id + "'");
+                }
+                if (!std::isfinite(binding.material.alphaCutoff) ||
+                    binding.material.alphaCutoff < 0.0f ||
+                    binding.material.alphaCutoff > 1.0f) {
+                    return fail(
+                        outError,
+                        "fixture alpha cutoff must be finite and inside [0, 1] for object '" +
+                            object.id + "'");
+                }
+
+                std::vector<std::uint8_t> textureBytes;
+                if (!readArchiveFile(
+                        archive,
+                        texturePath,
+                        textureBytes,
+                        outError)) {
+                    return false;
+                }
+                if (fnv1a64(textureBytes) != textureHash) {
+                    return fail(
+                        outError,
+                        "fixture texture hash mismatch for object '" +
+                            object.id + "'");
+                }
+                int decodedTextureWidth = 0;
+                int decodedTextureHeight = 0;
+                if (!decodeTexture(
+                        textureBytes,
+                        decodedTextureWidth,
+                        decodedTextureHeight,
+                        binding.textureRgba,
+                        outError)) {
+                    return false;
+                }
+                if (decodedTextureWidth != declaredTextureWidth ||
+                    decodedTextureHeight != declaredTextureHeight) {
+                    return fail(
+                        outError,
+                        "fixture texture dimensions do not match the document for object '" +
+                            object.id + "'");
+                }
+                binding.textureWidth = decodedTextureWidth;
+                binding.textureHeight = decodedTextureHeight;
+                binding.textureKey = "fixture/tex/" + object.id;
+                binding.textureCacheKey =
+                    binding.textureKey + "#" + content.contentHash;
+                computedHash = fnv1a64(textureBytes, computedHash);
+                object.materialBindings.push_back(std::move(binding));
+            }
+
+            for (const std::string& slot : object.mesh.materialSlots) {
+                const std::size_t boundCount =
+                    static_cast<std::size_t>(std::count_if(
+                        object.materialBindings.begin(),
+                        object.materialBindings.end(),
+                        [&slot](const FixtureMaterialBinding& binding) {
+                            return binding.slotLabel == slot;
+                        }));
+                if (boundCount == 0u) {
+                    return fail(
+                        outError,
+                        "fixture object '" + object.id +
+                            "' has no material binding for mesh slot '" +
+                            slot + "'");
+                }
+                if (boundCount > 1u) {
+                    return fail(
+                        outError,
+                        "fixture object '" + object.id +
+                            "' must bind each mesh material slot exactly once; slot '" +
+                            slot + "' is duplicated");
+                }
+            }
+            for (const FixtureMaterialBinding& binding :
+                 object.materialBindings) {
+                if (std::find(
+                        object.mesh.materialSlots.begin(),
+                        object.mesh.materialSlots.end(),
+                        binding.slotLabel) ==
+                    object.mesh.materialSlots.end()) {
+                    return fail(
+                        outError,
+                        "fixture material binding slot '" + binding.slotLabel +
+                            "' is not declared by the mesh for object '" +
+                            object.id + "'");
+                }
             }
 
             const auto& motion = entry.at("motion");
@@ -1034,95 +1361,8 @@ bool validateFixtureSnapshot(
                 }
             }
 
-            std::vector<std::uint8_t> geometryBytes;
-            std::vector<std::uint8_t> textureBytes;
-            if (!readArchiveFile(archive, object.geometryFile, geometryBytes, outError) ||
-                !readArchiveFile(archive, object.textureFile, textureBytes, outError)) {
-                return false;
-            }
-            if (fnv1a64(geometryBytes) != geometryHash) {
-                return fail(
-                    outError,
-                    "fixture geometry hash mismatch for object '" + object.id + "'");
-            }
-            if (fnv1a64(textureBytes) != textureHash) {
-                return fail(
-                    outError,
-                    "fixture texture hash mismatch for object '" + object.id + "'");
-            }
-            int decodedTextureWidth = 0;
-            int decodedTextureHeight = 0;
-            if (!decodeGeometry(
-                    geometryBytes,
-                    object.vertices,
-                    object.indices,
-                    outError) ||
-                !decodeTexture(
-                    textureBytes,
-                    decodedTextureWidth,
-                    decodedTextureHeight,
-                    object.textureRgba,
-                    outError)) {
-                return false;
-            }
-            object.textureWidth = decodedTextureWidth;
-            object.textureHeight = decodedTextureHeight;
-            if (decodedTextureWidth != declaredTextureWidth ||
-                decodedTextureHeight != declaredTextureHeight) {
-                return fail(
-                    outError,
-                    "fixture texture dimensions do not match the document for object '" +
-                        object.id + "'");
-            }
-            if (object.vertices.size() < 3u) {
-                return fail(
-                    outError,
-                    "fixture geometry for object '" + object.id +
-                        "' requires at least three vertices");
-            }
-            if (object.vertices.size() != geometryVertices ||
-                object.indices.size() != geometryIndices) {
-                return fail(
-                    outError,
-                    "fixture geometry counts do not match the document for object '" +
-                        object.id + "'");
-            }
-            if (object.indices.size() < 3u || object.indices.size() % 3u != 0u) {
-                return fail(
-                    outError,
-                    "fixture geometry for object '" + object.id +
-                        "' does not form triangles");
-            }
-            computedHash = fnv1a64(geometryBytes, computedHash);
-            computedHash = fnv1a64(textureBytes, computedHash);
-
             object.geometryCacheKey =
                 "fixture/geom/" + object.id + "#" + content.contentHash;
-            object.textureKey = "fixture/tex/" + object.id;
-            object.textureCacheKey =
-                object.textureKey + "#" + content.contentHash;
-            const auto duplicateId = std::find_if(
-                content.objects.begin(),
-                content.objects.end(),
-                [&object](const FixtureObject& candidate) {
-                    return candidate.id == object.id;
-                });
-            if (duplicateId != content.objects.end()) {
-                return fail(
-                    outError,
-                    "fixture object id is duplicated: " + object.id);
-            }
-            const auto duplicateRole = std::find_if(
-                content.objects.begin(),
-                content.objects.end(),
-                [&object](const FixtureObject& candidate) {
-                    return candidate.role == object.role;
-                });
-            if (duplicateRole != content.objects.end()) {
-                return fail(
-                    outError,
-                    "fixture object role is duplicated: " + object.role);
-            }
             content.objects.push_back(std::move(object));
         }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/assets/phlosion/PhlosionArchiveSession.h"
+#include "engine/assets/phlosion/PhlosionMeshAsset.h"
 #include "engine/core/IAssetStore.h"
 
 #include <array>
@@ -17,12 +18,12 @@ inline constexpr std::uint64_t kFnvOffset = 14695981039346656037ull;
 inline constexpr std::uint64_t kFnvPrime = 1099511628211ull;
 
 // Synthetic fixture scene schema. One archive embeds a versioned JSON document
-// plus one geometry and one texture file per object. Files carry explicit
-// content hashes so the consumer can validate decoded content before it
-// activates a candidate.
+// plus one texture file per material binding. Geometry comes from typed
+// `.phmesh` resources that the archive requires as dependency edges, so the
+// staged snapshot graph is the only source of rendered geometry.
 inline constexpr char kFixtureSceneSchema[] =
     "phlosion.public-asset-fixture-scene";
-inline constexpr std::uint32_t kFixtureSceneSchemaVersion = 1u;
+inline constexpr std::uint32_t kFixtureSceneSchemaVersion = 2u;
 inline constexpr char kFixtureSceneId[] = "fixture/scene";
 inline constexpr char kFixtureRootA[] = "fixture/scene-a";
 inline constexpr char kFixtureRootB[] = "fixture/scene-b";
@@ -30,21 +31,10 @@ inline constexpr char kFixtureRootMissing[] = "fixture/scene-missing";
 inline constexpr char kFixtureDependencyId[] = "fixture/leaf/core";
 inline constexpr char kFixtureMissingDependencyId[] =
     "fixture/leaf/missing";
-
-struct FixtureVertex {
-    float x = 0.0f;
-    float y = 0.0f;
-    float z = 0.0f;
-    float u = 0.0f;
-    float v = 0.0f;
-    float r = 1.0f;
-    float g = 1.0f;
-    float b = 1.0f;
-    float a = 1.0f;
-    float nx = 0.0f;
-    float ny = 0.0f;
-    float nz = 1.0f;
-};
+// Versioned mesh registry IDs: "<prefix><role>-<content id>". The logical
+// `mesh_id` inside each document stays "<prefix><role>" for both variants.
+inline constexpr char kFixtureMeshIdPrefix[] = "fixture/mesh/";
+inline constexpr char kFixtureMeshMaterialSlot[] = "surface";
 
 struct FixtureMaterial {
     std::uint8_t alphaMode = 0u;
@@ -52,6 +42,19 @@ struct FixtureMaterial {
     std::uint8_t depthTest = 1u;
     std::uint8_t materialMode = 0u;
     float alphaCutoff = 0.5f;
+};
+
+// Consumer-side material binding for one mesh material slot label. Static mesh
+// v1 carries labels only, so the fixture keeps texture and material parameters
+// here, keyed by that label.
+struct FixtureMaterialBinding {
+    std::string slotLabel;
+    std::string textureKey;
+    std::string textureCacheKey;
+    std::vector<std::uint8_t> textureRgba;
+    int textureWidth = 0;
+    int textureHeight = 0;
+    FixtureMaterial material;
 };
 
 struct FixtureMotion {
@@ -65,22 +68,20 @@ struct FixtureMotion {
 struct FixtureObject {
     std::string id;
     std::string role;
-    std::vector<FixtureVertex> vertices;
-    std::vector<std::uint32_t> indices;
-    std::vector<std::uint8_t> textureRgba;
-    int textureWidth = 0;
-    int textureHeight = 0;
-    FixtureMaterial material;
+    engine::assets::phlosion::MeshAsset mesh;
+    std::string meshAssetId;
+    std::string meshVirtualPath;
+    std::uint64_t meshDocumentHash = 0u;
+    std::vector<FixtureMaterialBinding> materialBindings;
     FixtureMotion motion;
-    std::string geometryFile;
-    std::string textureFile;
     std::string geometryCacheKey;
-    std::string textureKey;
-    std::string textureCacheKey;
 
     std::size_t triangleCount() const noexcept {
-        return indices.size() / 3u;
+        return mesh.indices.size() / 3u;
     }
+
+    const FixtureMaterialBinding* findMaterialBinding(
+        std::string_view slotLabel) const noexcept;
 };
 
 struct FixtureCamera {
@@ -110,6 +111,15 @@ enum class FixtureContentVariant {
     MissingDependency,
 };
 
+// One typed `.phmesh` document in the fixture store.
+struct FixtureMeshResource {
+    std::string assetId;
+    std::string virtualPath;
+    std::string meshId;
+    std::uint64_t contentHash = 0u;
+    std::vector<std::uint8_t> bytes;
+};
+
 struct FixtureBundle {
     FixtureContentVariant variant = FixtureContentVariant::A;
     std::string rootAssetId;
@@ -120,6 +130,7 @@ struct FixtureBundle {
     std::string dependencyVirtualPath;
     std::uint64_t dependencyHash = 0u;
     bool dependencyPresent = true;
+    std::vector<FixtureMeshResource> meshes;
 };
 
 // Immutable in-memory provider shared by the runtime host, the editor plugin
@@ -159,6 +170,12 @@ std::uint64_t fnv1a64(
     const std::vector<std::uint8_t>& bytes,
     std::uint64_t seed) noexcept;
 std::string hashHex(std::uint64_t hash);
+
+std::string fixtureMeshAssetId(
+    std::string_view role,
+    std::string_view contentId);
+std::string fixtureMeshId(std::string_view role);
+std::string fixtureMeshVirtualPath(const std::string& assetId);
 
 std::vector<std::uint8_t> fixtureDependencyBytes();
 std::uint64_t fixtureDependencyHash();
