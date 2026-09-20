@@ -1,7 +1,7 @@
 # Engine Extraction Status
 
 Status: Active
-Last updated: 2026-09-19
+Last updated: 2026-09-20
 
 Phlosion Engine now has an independent repository and build graph. Its source
 history was retained from the `src/engine` subtree of Pokemon Autochess.
@@ -56,7 +56,7 @@ describes the enforced ownership contract.
 - The original project's game art is not a reusable engine asset bundle. The
   README screenshot is a labelled example of a separate consumer.
 - No new Cyberpunk feature milestone or general renderer redesign is scheduled
-  by this presentation cleanup. Original engine code is now [MIT licensed](../LICENSE);
+  by this presentation cleanup. Original engine code is now [Apache 2.0 licensed](../LICENSE);
   [the README](../README.md#licence) explains dependency and media exclusions.
 
 Renderer changes still require native OpenGL, Vulkan and Direct3D 12 parity

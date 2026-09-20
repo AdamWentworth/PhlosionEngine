@@ -31,7 +31,7 @@
 <p align="center">
   <a href="https://github.com/AdamWentworth/PhlosionEngine/actions/workflows/ci.yml"><img src="https://github.com/AdamWentworth/PhlosionEngine/actions/workflows/ci.yml/badge.svg?branch=main" alt="Engine CI"></a>
   <img src="https://img.shields.io/badge/Status-In_Development-C49A47" alt="In development">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-3DA639" alt="MIT licence for engine code"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-3DA639" alt="Apache 2.0 licence for engine code"></a>
 </p>
 
 <p align="center">
@@ -183,11 +183,11 @@ from longer-term architecture plans.
 ## Licence
 
 Original engine source, engine-owned shaders, tests, build scripts and text
-documentation are licensed under [MIT](LICENSE).
+documentation are licensed under the [Apache License 2.0](LICENSE).
 
-Third-party dependencies retain their own licences and notices. The MIT grant
-does not cover Phlosion branding or showcase images, including the Pokemon
-artwork shown in the editor screenshot, and does not grant trademark rights.
+Third-party dependencies retain their own licences and notices. The Apache 2.0
+grant does not cover Phlosion branding or showcase images, including the
+Pokemon artwork shown in the editor screenshot, and does not grant trademark rights.
 See [showcase media](docs/SHOWCASE_MEDIA.md) for image provenance. Dependency
 licence notices are supplied with their vcpkg packages under `share/<port>/copyright`;
 retain the applicable notices when distributing those dependencies.
