@@ -13,11 +13,12 @@ No test in the current engine CTest suite needs a graphics context.
 
 | CTest entry | Coverage |
 | --- | --- |
-| `PhlosionEngineContracts` | Sixteen C++ contracts: material profiles, containers, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, the public PHRC scene/prefab fixture, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
+| `PhlosionEngineContracts` | Seventeen C++ contracts: material profiles, containers, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
 | `PhlosionMaterialDebugViewContract` | Material debug-view source contract |
 | `PhlosionReviewLightingProfileContract` | Generic review-lighting source contract |
+| `PhlosionPublicAssetFixtureHarness` | CPU-only synthetic image/manifest negative tests, capture provenance and native process handling; enabled when fixture hosts and PowerShell are available |
 
 Local equivalent:
 
@@ -74,6 +75,38 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-20, M1-D added the [public asset fixture](PUBLIC_ASSET_FIXTURE.md):
+shared archive-driven geometry/texture presentation through a standalone host and
+the actual editor project-plugin ABI. Four activation/replacement cases passed
+on native OpenGL, Vulkan and Direct3D 12 in both hosts (24 captures). Expected
+content checks cover checker orientation, depth occlusion, blending, rigid marker
+position and changed GPU cache identities. Failed replacement is pixel-identical
+to A30; cross-API worst normalized MAE/RMSE are 0.0000052/0.00024 under unchanged
+0.01/0.08/0.05 parity limits and channel tolerance 8. Host frames 6/8 and logical
+frames 0/30 are recorded separately; backend/frame/log/metric checks reject
+fallbacks and incomplete or duplicated coverage.
+
+The final VS2026 Debug build with warnings as errors passed, as did six CTest
+entries (17 C++ contracts plus the CPU harness). Fixture hosts disabled with
+tests enabled also passed five CPU entries, and a child-project configure
+confirmed fixture hosts default off. Native captures and original binary
+provenance are in ignored `artifacts/m1-d/fix-run03/`. Astra restored the original
+board-coverage minimums (0.4 interior, 0.35 edge) during review, rebuilt and reran
+CTest, then revalidated all retained captures with that stricter guard:
+`artifacts/m1-d/astra-{build,ctest,matrix}.log`, `astra-matrix.json` and
+`astra-manifest.json`. No additional renderer run was needed for a guard-only
+change. Evidence is one Windows/NVIDIA GTX 1070 host; it does not qualify private
+game content, skeletal animation, production material pipelines or budgets.
+
+Before committing M1-D, the sample and its verification machinery were separated:
+examples/public_asset_fixture holds the runnable sample, tools/public_asset_fixture
+holds guards/capture tools, and tests/public_asset_fixture holds the PowerShell
+harness. Rebuild and six CTest entries passed after relocation. The moved runner
+captured all 24 native cases again with identical reported metrics and unchanged
+guards: `artifacts/m1-d/reorg-run02/`, `reorg-build-final.log` and
+`reorg-ctest-final.log`. Implementations were checked against pre-move hashes;
+the sample no longer links the verification library.
 
 On 2026-09-20, the M1-C staged archive activation iteration added
 `PhlosionArchiveSession` with candidate staging over the accepted graph loader,

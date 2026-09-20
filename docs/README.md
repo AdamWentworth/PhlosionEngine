@@ -22,6 +22,7 @@ game-specific authoring and visual qualification stay with the consuming project
 | [Asynchronous asset loading](ASYNC_ASSET_LOADING.md) | Background byte reads, request lifetime, cancellation and retained-payload limits |
 | [Asset dependency loading](ASSET_DEPENDENCY_LOADING.md) | Required asset graphs, PHRC integrity, dependency hashes and session ownership |
 | [Staged archive activation](ARCHIVE_ACTIVATION.md) | Scene/prefab candidate validation, explicit activation and retained snapshots |
+| [Public asset fixture](PUBLIC_ASSET_FIXTURE.md) | Synthetic archive rendering, scene replacement and native runtime/editor capture verification |
 | [Editor project extensions](EDITOR_PROJECT_EXTENSIONS.md) | Game-plugin ABI, capabilities and command routing |
 | [Optional editor packages](EDITOR_PACKAGES.md) | Explicit package declarations and extension points |
 | [Editor performance](EDITOR_PERFORMANCE.md) | Development builds, statistics, recording, caches and automation |
@@ -36,5 +37,6 @@ game-specific authoring and visual qualification stay with the consuming project
 | [Cyberpunk engine readiness](CYBERPUNK_ENGINE_READINESS.md) | Recovered game context, present engine capabilities and gaps, a dependency-ordered readiness roadmap and the migration return gate |
 
 These plans do not promise that every proposed editor or asset-pipeline feature
-ships today. The current maintenance pass improves presentation and independent
-verification; it does not start a new engine feature milestone.
+ships today. The readiness roadmap distinguishes accepted implementation passes
+from remaining work. Runnable samples live in examples; verification utilities
+and automated checks live in tools and tests respectively.

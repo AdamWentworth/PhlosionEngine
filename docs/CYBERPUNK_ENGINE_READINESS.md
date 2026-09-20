@@ -47,20 +47,40 @@ destruction. Tests cover real scene/prefab content, a dependency-only prefab,
 invalid typed roots, missing/corrupt dependencies and gated replacement reads.
 The engine/editor Debug build and five CTest entries passed with sixteen C++
 contracts. See the [M1-C accepted checkpoint](agent-work/cyberpunk-m1-activation/CHECKPOINT.md).
-M1-C remains local and uncommitted at this checkpoint. This is an engine resource
-session; no game/editor application call site has been migrated.
+M1-C was committed as `83e02ff` before beginning M1-D. This is an engine resource
+session; no production game application call site has been migrated.
 
-This is partial M1 completion. Production callers, mesh/animation/material and
-environment asset validation, rendered fixtures, private character qualification
-and GPU uploads remain.
+Also accepted on 2026-09-20: **M1-D: public archive-to-render fixture**, built by
+DeepSeek V4.1 Flash through `astra_flash_builder` and reviewed by Astra. The
+[public fixture](PUBLIC_ASSET_FIXTURE.md) loads synthetic geometry/textures
+through the archive session in a standalone host and a real editor scene plugin.
+Initial A at logical frames 0/30, failed replacement preserving A30 and valid B30
+replacement passed on native OpenGL, Vulkan and Direct3D 12: 24 captures with
+expected checker, depth, blending, rigid-marker and cache-replacement checks.
+The full Debug build and six CTest entries passed, including seventeen C++
+contracts and an adversarial capture-harness suite. Exact matrix coverage,
+requested/observed capture frames and binary provenance are checked. See the
+[accepted checkpoint](agent-work/cyberpunk-m1-fixture/CHECKPOINT.md).
+M1-D is accepted for the user's requested commit after a semantic folder review:
+the sample stays in examples, verification utilities are in tools, and automated
+checks are in tests. Build, six CTest entries and all 24 captures passed again
+after relocation. GPU evidence is one Windows/GTX 1070 host;
+no production renderer/editor API changed. The exact commit is recorded as the
+next pass's baseline.
+
+This is partial M1 completion. Next: per-class mesh/skinned-mesh, animation,
+material and environment contracts and representative golden assets, followed by
+their affected native rendering checks. Production game adapters, private roster
+qualification, richer GPU resource lifetimes and residency/load-time measurements
+remain. The public fixture's schema is deliberately example-specific.
 The budgets are not hard peak-memory limits and cancellation cannot interrupt
 an active synchronous provider read. Decoding still runs on the caller thread
-without a frame-time guarantee. No rendering behavior changed or new visual
-parity was established. Active, staged and externally retained snapshots can
+without a frame-time guarantee. The first three passes were CPU-only; M1-D adds
+the bounded visual evidence above. Active, staged and externally retained snapshots can
 coexist; their combined residency is not bounded by the per-candidate byte cap.
 The capability matrix below preserves the original
 audited commit's state; this progress record supersedes its byte-loading and
-dependency-resolution gaps and twelve-contract count for the local implementation.
+dependency-resolution/public-fixture gaps and twelve-contract count for the local implementation.
 
 ## Read this first
 

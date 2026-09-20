@@ -29,6 +29,9 @@ option(PHLOSION_BUILD_EDITOR "Build the native Phlosion Editor and UI framework"
 option(PHLOSION_ENABLE_WARNINGS "Enable compiler warnings for engine sources" ON)
 option(PHLOSION_WARNINGS_AS_ERRORS "Treat engine warnings as errors" ${_phlosion_werror_default})
 option(PHLOSION_VERBOSE_STARTUP "Enable verbose startup and model-load logging" OFF)
+option(PHLOSION_BUILD_PUBLIC_ASSET_FIXTURE
+    "Build the public asset fixture hosts, guard and editor plugin"
+    ${_phlosion_tests_default})
 option(PHLOSION_OPTIMIZE_RENDER_HOTPATHS_IN_DEBUG
     "Compile selected renderer hot paths with optimization in Debug"
     ON)
@@ -423,6 +426,78 @@ add_library(Phlosion::Runtime ALIAS engine_runtime)
 add_library(Phlosion::EditorCore ALIAS engine_editor_core)
 add_library(Phlosion::VfxPreview ALIAS engine_tools_vfx_preview)
 
+if (PHLOSION_BUILD_PUBLIC_ASSET_FIXTURE OR PHLOSION_BUILD_TESTS)
+    add_library(public_asset_fixture STATIC
+        examples/public_asset_fixture/FixtureData.cpp
+        examples/public_asset_fixture/FixtureSession.cpp
+        examples/public_asset_fixture/FixturePresentation.cpp
+    )
+    target_link_libraries(public_asset_fixture
+        PUBLIC
+            Engine
+    )
+    target_include_directories(public_asset_fixture
+        PUBLIC
+            "${CMAKE_CURRENT_SOURCE_DIR}/examples/public_asset_fixture"
+    )
+    phlosion_apply_settings(public_asset_fixture)
+
+    # Verification support owns image comparison, the guard CLI and the
+    # capture harness. The runnable example library never depends on it.
+    add_library(public_asset_fixture_verification STATIC
+        tools/public_asset_fixture/FixtureImageGuard.cpp
+    )
+    target_link_libraries(public_asset_fixture_verification
+        PUBLIC
+            public_asset_fixture
+    )
+    target_include_directories(public_asset_fixture_verification
+        PUBLIC
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/public_asset_fixture"
+    )
+    phlosion_apply_settings(public_asset_fixture_verification)
+endif()
+
+if (PHLOSION_BUILD_PUBLIC_ASSET_FIXTURE)
+    add_executable(PublicAssetFixtureRuntime
+        examples/public_asset_fixture/FixtureRuntimeMain.cpp
+    )
+    target_link_libraries(PublicAssetFixtureRuntime
+        PRIVATE
+            public_asset_fixture
+    )
+    phlosion_apply_settings(PublicAssetFixtureRuntime)
+
+    add_executable(PublicAssetFixtureGuard
+        tools/public_asset_fixture/FixtureGuardMain.cpp
+    )
+    target_link_libraries(PublicAssetFixtureGuard
+        PRIVATE
+            public_asset_fixture_verification
+    )
+    phlosion_apply_settings(PublicAssetFixtureGuard)
+
+    if (PHLOSION_BUILD_EDITOR)
+        add_library(PublicAssetFixtureEditorPlugin MODULE
+            examples/public_asset_fixture/FixtureEditorPlugin.cpp
+        )
+        target_link_libraries(PublicAssetFixtureEditorPlugin
+            PRIVATE
+                public_asset_fixture
+                engine_editor_core
+        )
+        target_compile_definitions(PublicAssetFixtureEditorPlugin
+            PRIVATE
+                PHLOSION_EDITOR_BUILD_CONFIGURATION="$<CONFIG>"
+        )
+        set_target_properties(PublicAssetFixtureEditorPlugin PROPERTIES
+            PREFIX ""
+            OUTPUT_NAME "PublicAssetFixtureEditorPlugin"
+        )
+        phlosion_apply_settings(PublicAssetFixtureEditorPlugin)
+    endif()
+endif()
+
 if (PHLOSION_OPTIMIZE_RENDER_HOTPATHS_IN_DEBUG)
     if (MSVC)
         string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
@@ -474,12 +549,15 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestPhlosionAssetGraphLoader.cpp
         tests/TestPhlosionArchiveSession.cpp
         tests/TestPublicAssetFixture.cpp
+        tests/TestPublicAssetFixtureRendering.cpp
     )
     target_link_libraries(PhlosionEngineTests
         PRIVATE
             Phlosion::Core
             Phlosion::EditorCore
             Phlosion::Render
+            public_asset_fixture
+            public_asset_fixture_verification
     )
     if (MSVC)
         target_compile_options(PhlosionEngineTests PRIVATE
@@ -507,4 +585,19 @@ if (PHLOSION_BUILD_TESTS)
         COMMAND ${CMAKE_COMMAND}
             -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckReviewLightingProfileContract.cmake)
+    if (PHLOSION_BUILD_PUBLIC_ASSET_FIXTURE)
+        find_program(PHLOSION_POWERSHELL NAMES powershell pwsh)
+        if (PHLOSION_POWERSHELL)
+            add_test(
+                NAME PhlosionPublicAssetFixtureHarness
+                COMMAND "${PHLOSION_POWERSHELL}" -NoProfile
+                    -ExecutionPolicy Bypass
+                    -File
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/public_asset_fixture/test_fixture_harness.ps1"
+                    -EngineRoot "${CMAKE_CURRENT_SOURCE_DIR}"
+                    -GuardExe "$<TARGET_FILE:PublicAssetFixtureGuard>")
+            set_tests_properties(
+                PhlosionPublicAssetFixtureHarness PROPERTIES TIMEOUT 240)
+        endif()
+    endif()
 endif()

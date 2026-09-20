@@ -9,6 +9,7 @@ bool test_async_asset_loader_contract(std::string& outFail);
 bool test_phlosion_asset_graph_loader_contract(std::string& outFail);
 bool test_phlosion_archive_session_contract(std::string& outFail);
 bool test_public_asset_fixture_contract(std::string& outFail);
+bool test_public_asset_fixture_rendering_contract(std::string& outFail);
 bool test_project_descriptor_contract(std::string& outFail);
 bool test_editor_renderer_preference_contract(std::string& outFail);
 bool test_camera_view_plane_pan_contract(std::string& outFail);
@@ -40,6 +41,8 @@ int main(int argc, char** argv) {
         {"phlosion_asset_graph_loader_contract", &test_phlosion_asset_graph_loader_contract},
         {"phlosion_archive_session_contract", &test_phlosion_archive_session_contract},
         {"public_asset_fixture_contract", &test_public_asset_fixture_contract},
+        {"public_asset_fixture_rendering_contract",
+         &test_public_asset_fixture_rendering_contract},
         {"project_descriptor_contract", &test_project_descriptor_contract},
         {"editor_renderer_preference_contract", &test_editor_renderer_preference_contract},
         {"camera_view_plane_pan_contract", &test_camera_view_plane_pan_contract},
