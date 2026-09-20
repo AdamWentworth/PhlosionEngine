@@ -36,7 +36,7 @@ jobs:
       - name: Bootstrap pinned vcpkg
         run: |
           $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
-          git clone --filter=blob:none https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
+          git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git -C "$env:VCPKG_ROOT" checkout --detach $baseline
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
