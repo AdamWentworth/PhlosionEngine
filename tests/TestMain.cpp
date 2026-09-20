@@ -6,6 +6,7 @@ bool test_phlosion_authored_scene_contract(std::string& outFail);
 bool test_phlosion_environment_patch_contract(std::string& outFail);
 bool test_phlosion_scene_archive_contract(std::string& outFail);
 bool test_async_asset_loader_contract(std::string& outFail);
+bool test_phlosion_asset_graph_loader_contract(std::string& outFail);
 bool test_public_asset_fixture_contract(std::string& outFail);
 bool test_project_descriptor_contract(std::string& outFail);
 bool test_editor_renderer_preference_contract(std::string& outFail);
@@ -35,6 +36,7 @@ int main(int argc, char** argv) {
         {"phlosion_environment_patch_contract", &test_phlosion_environment_patch_contract},
         {"phlosion_scene_archive_contract", &test_phlosion_scene_archive_contract},
         {"async_asset_loader_contract", &test_async_asset_loader_contract},
+        {"phlosion_asset_graph_loader_contract", &test_phlosion_asset_graph_loader_contract},
         {"public_asset_fixture_contract", &test_public_asset_fixture_contract},
         {"project_descriptor_contract", &test_project_descriptor_contract},
         {"editor_renderer_preference_contract", &test_editor_renderer_preference_contract},

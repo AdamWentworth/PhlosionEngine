@@ -13,8 +13,9 @@ starts no engine work and migrates nothing.
 ## Implementation progress after the audit
 
 On 2026-09-20, Astra accepted **M1-A: asynchronous asset bytes and a public CPU
-archive fixture**, implemented by `astra_flash_builder` in the local working
-tree. [AsyncAssetLoader](ASYNC_ASSET_LOADING.md) now provides one background
+archive fixture**, implemented by `astra_flash_builder` and committed with the
+roadmap as `e2ec926` before beginning M1-B.
+[AsyncAssetLoader](ASYNC_ASSET_LOADING.md) now provides one background
 reader over IAssetStore, bounded request slots, cancellation and explicit stop,
 safe result ownership, and a retained-payload byte budget. Synthetic scene and
 prefab archives exercise the existing PHRC encoders/readers through the loader.
@@ -22,13 +23,27 @@ The engine/editor Debug build passed and all five CTest entries passed,
 including fourteen C++ contracts. See the
 [accepted checkpoint](agent-work/cyberpunk-m1-assets/CHECKPOINT.md).
 
-This is partial M1 completion. Production callers, PHRC dependency resolution,
+On the same date, Astra accepted **M1-B: dependency-aware asset loading**,
+implemented by DeepSeek V4.1 Flash through `astra_flash_builder`.
+[PhlosionAssetGraphLoader](ASSET_DEPENDENCY_LOADING.md) resolves opaque asset IDs
+through a caller mapping, loads required transitive dependencies, deduplicates
+shared assets, validates PHRC/raw dependency hashes, rejects required cycles and
+reports skipped optional edges. Asset, edge and retained-byte limits apply to
+each session. Cancellation/reset suppress late results and allow reuse. A public
+dependency-only prefab -> scene -> raw fixture verifies the consumer boundary.
+The final engine/editor Debug build and all five CTest entries passed, including
+fifteen C++ contracts. See the
+[M1-B accepted checkpoint](agent-work/cyberpunk-m1-dependencies/CHECKPOINT.md).
+M1-B changes remain local and uncommitted at this checkpoint.
+
+This is partial M1 completion. Production callers, typed-profile validation,
 rendered fixtures, private character qualification and GPU uploads remain.
-The budget is not a hard peak-memory limit and stop cannot interrupt an active
-synchronous provider read. No rendering behavior changed or new visual parity
-was established. The capability matrix below preserves the original audited
-commit's state; this progress record supersedes its byte-loading absence and
-twelve-contract count for the current local implementation.
+The budgets are not hard peak-memory limits and cancellation cannot interrupt
+an active synchronous provider read. Decoding still runs on the caller thread
+without a frame-time guarantee. No rendering behavior changed or new visual
+parity was established. The capability matrix below preserves the original
+audited commit's state; this progress record supersedes its byte-loading and
+dependency-resolution gaps and twelve-contract count for the local implementation.
 
 ## Read this first
 

@@ -20,6 +20,7 @@ game-specific authoring and visual qualification stay with the consuming project
 | --- | --- |
 | [Material profiles](MATERIAL_PROFILES.md) | Versioned project shader programs and parameter packing |
 | [Asynchronous asset loading](ASYNC_ASSET_LOADING.md) | Background byte reads, request lifetime, cancellation and retained-payload limits |
+| [Asset dependency loading](ASSET_DEPENDENCY_LOADING.md) | Required asset graphs, PHRC integrity, dependency hashes and session ownership |
 | [Editor project extensions](EDITOR_PROJECT_EXTENSIONS.md) | Game-plugin ABI, capabilities and command routing |
 | [Optional editor packages](EDITOR_PACKAGES.md) | Explicit package declarations and extension points |
 | [Editor performance](EDITOR_PERFORMANCE.md) | Development builds, statistics, recording, caches and automation |

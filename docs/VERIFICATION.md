@@ -13,7 +13,7 @@ No test in the current engine CTest suite needs a graphics context.
 
 | CTest entry | Coverage |
 | --- | --- |
-| `PhlosionEngineContracts` | Fourteen C++ contracts: material profiles, containers, scenes, environment patches, asynchronous asset loading, the public PHRC scene/prefab fixture, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
+| `PhlosionEngineContracts` | Fifteen C++ contracts: material profiles, containers, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, the public PHRC scene/prefab fixture, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
 | `PhlosionMaterialDebugViewContract` | Material debug-view source contract |
@@ -36,6 +36,12 @@ are CPU only: they coordinate a synthetic provider with condition variables and
 never create a graphics context. `PhlosionEngineContracts` carries a 120 second
 CTest timeout as a regression backstop so a blocked loader cannot hang the suite
 unboundedly.
+
+The dependency-aware graph session, its required-closure and hash rules, and its
+accounting limits are described in
+[ASSET_DEPENDENCY_LOADING.md](ASSET_DEPENDENCY_LOADING.md). That contract is also
+CPU only: it drives a synthetic in-memory provider, gated reads and public PHRC
+fixtures, and creates no graphics context.
 
 ## Native rendering and editor changes
 
@@ -61,6 +67,16 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-20, the M1-B dependency-aware asset iteration added
+`PhlosionAssetGraphLoader` with its required-closure traversal, hash
+constraints, cycle checks, bounded asset/edge/byte limits, cancellation and
+reset lifecycle, and the dependency-only prefab CPU fixture. The existing
+`build-presentation` Debug tree (VS2026, editor/tests enabled, engine warnings
+treated as errors) rebuilt cleanly, and the full CTest set passed (5 of 5
+entries, including all fifteen C++ contracts). Logs are local under
+`artifacts/m1-b/`. This iteration is pure CPU and produces no rendering or
+visual-parity evidence.
 
 On 2026-09-20, the M1-A asynchronous asset iteration added
 `AsyncAssetLoader` with its explicit `requestStop()` lifecycle boundary, the two
