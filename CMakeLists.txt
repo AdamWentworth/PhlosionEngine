@@ -32,6 +32,9 @@ option(PHLOSION_VERBOSE_STARTUP "Enable verbose startup and model-load logging" 
 option(PHLOSION_BUILD_PUBLIC_ASSET_FIXTURE
     "Build the public asset fixture hosts, guard and editor plugin"
     ${_phlosion_tests_default})
+option(PHLOSION_BUILD_ANIMATION_FIXTURE
+    "Build the animation fixture hosts, guard and editor plugin"
+    ${_phlosion_tests_default})
 option(PHLOSION_OPTIMIZE_RENDER_HOTPATHS_IN_DEBUG
     "Compile selected renderer hot paths with optimization in Debug"
     ON)
@@ -267,6 +270,7 @@ add_library(engine_render STATIC
     src/engine/render/Camera3D.cpp
     src/engine/render/Model.cpp
     src/engine/render/ModelAnimation.cpp
+    src/engine/render/ModelPoseSampler.cpp
     src/engine/render/ModelCache.cpp
     src/engine/render/RendererParityContract.cpp
     src/engine/render/WorldPbrShaderShared.cpp
@@ -499,6 +503,78 @@ if (PHLOSION_BUILD_PUBLIC_ASSET_FIXTURE)
     endif()
 endif()
 
+if (PHLOSION_BUILD_ANIMATION_FIXTURE OR PHLOSION_BUILD_TESTS)
+    add_library(animation_fixture STATIC
+        examples/animation_fixture/AnimationFixtureCase.cpp
+        examples/animation_fixture/AnimationFixtureRig.cpp
+        examples/animation_fixture/AnimationFixturePresentation.cpp
+    )
+    target_link_libraries(animation_fixture
+        PUBLIC
+            Engine
+    )
+    target_include_directories(animation_fixture
+        PUBLIC
+            "${CMAKE_CURRENT_SOURCE_DIR}/examples/animation_fixture"
+    )
+    phlosion_apply_settings(animation_fixture)
+
+    # Verification support owns image comparison, the authored expectations and
+    # the guard CLI. The runnable example never depends on it.
+    add_library(animation_fixture_verification STATIC
+        tools/animation_fixture/AnimationFixtureGuard.cpp
+    )
+    target_link_libraries(animation_fixture_verification
+        PUBLIC
+            animation_fixture
+    )
+    target_include_directories(animation_fixture_verification
+        PUBLIC
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/animation_fixture"
+    )
+    phlosion_apply_settings(animation_fixture_verification)
+endif()
+
+if (PHLOSION_BUILD_ANIMATION_FIXTURE)
+    add_executable(AnimationFixtureGuard
+        tools/animation_fixture/AnimationFixtureGuardMain.cpp
+    )
+    target_link_libraries(AnimationFixtureGuard
+        PRIVATE
+            animation_fixture_verification
+    )
+    phlosion_apply_settings(AnimationFixtureGuard)
+
+    add_executable(AnimationFixtureRuntime
+        examples/animation_fixture/AnimationFixtureRuntimeMain.cpp
+    )
+    target_link_libraries(AnimationFixtureRuntime
+        PRIVATE
+            animation_fixture
+    )
+    phlosion_apply_settings(AnimationFixtureRuntime)
+
+    if (PHLOSION_BUILD_EDITOR)
+        add_library(AnimationFixtureEditorPlugin MODULE
+            examples/animation_fixture/AnimationFixtureEditorPlugin.cpp
+        )
+        target_link_libraries(AnimationFixtureEditorPlugin
+            PRIVATE
+                animation_fixture
+                engine_editor_core
+        )
+        target_compile_definitions(AnimationFixtureEditorPlugin
+            PRIVATE
+                PHLOSION_EDITOR_BUILD_CONFIGURATION="$<CONFIG>"
+        )
+        set_target_properties(AnimationFixtureEditorPlugin PROPERTIES
+            PREFIX ""
+            OUTPUT_NAME "AnimationFixtureEditorPlugin"
+        )
+        phlosion_apply_settings(AnimationFixtureEditorPlugin)
+    endif()
+endif()
+
 if (PHLOSION_OPTIMIZE_RENDER_HOTPATHS_IN_DEBUG)
     if (MSVC)
         string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
@@ -553,6 +629,8 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestGltfSceneImport.cpp
         tests/TestGltfMaterialImport.cpp
         tests/TestGltfImportFixture.cpp
+        tests/TestModelPoseSampler.cpp
+        tests/TestAnimationFixture.cpp
         tests/TestPublicAssetFixture.cpp
         tests/TestPublicAssetFixtureRendering.cpp
     )
@@ -563,6 +641,8 @@ if (PHLOSION_BUILD_TESTS)
             Phlosion::Render
             public_asset_fixture
             public_asset_fixture_verification
+            animation_fixture
+            animation_fixture_verification
     )
     if (MSVC)
         target_compile_options(PhlosionEngineTests PRIVATE
@@ -603,6 +683,21 @@ if (PHLOSION_BUILD_TESTS)
                     -GuardExe "$<TARGET_FILE:PublicAssetFixtureGuard>")
             set_tests_properties(
                 PhlosionPublicAssetFixtureHarness PROPERTIES TIMEOUT 240)
+        endif()
+    endif()
+    if (PHLOSION_BUILD_ANIMATION_FIXTURE)
+        find_program(PHLOSION_POWERSHELL NAMES powershell pwsh)
+        if (PHLOSION_POWERSHELL)
+            add_test(
+                NAME PhlosionAnimationFixtureHarness
+                COMMAND "${PHLOSION_POWERSHELL}" -NoProfile
+                    -ExecutionPolicy Bypass
+                    -File
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/animation_fixture/test_fixture_harness.ps1"
+                    -EngineRoot "${CMAKE_CURRENT_SOURCE_DIR}"
+                    -GuardExe "$<TARGET_FILE:AnimationFixtureGuard>")
+            set_tests_properties(
+                PhlosionAnimationFixtureHarness PROPERTIES TIMEOUT 240)
         endif()
     endif()
 endif()

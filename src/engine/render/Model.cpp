@@ -1,5 +1,6 @@
 // src/engine/render/Model.cpp
 #include "Model.h"
+#include "ModelPoseSampler.h"
 #include "ModelStartupLog.h"
 #include "engine/utils/ShaderCache.h"
 #include "engine/utils/Shader.h"
@@ -30,11 +31,8 @@ bool isMipmapMinFilter(GLint minF)
 
 glm::mat4 Model::trsToMat4(const NodeTRS& n)
 {
-    if (n.hasMatrix) return n.matrix;
-    glm::mat4 T = glm::translate(glm::mat4(1.0f), n.t);
-    glm::mat4 R = glm::toMat4(n.r);
-    glm::mat4 S = glm::scale(glm::mat4(1.0f), n.s);
-    return T * R * S;
+    // Single implementation shared with the CPU pose sampler.
+    return engine::render::animation::trsToMat4(n);
 }
 
 Model::Model(const std::string& filepath, ShaderCache* shaderCache)

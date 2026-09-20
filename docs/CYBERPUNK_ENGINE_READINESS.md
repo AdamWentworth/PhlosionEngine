@@ -95,17 +95,35 @@ test verifies temporary-fixture ownership. The warning-clean Debug build, six
 CTest entries and all twenty-one C++ contracts passed. Production sources are
 unchanged; this adds verification, not a replacement mesh/animation/material
 system. See the [M1-F accepted checkpoint](agent-work/cyberpunk-m1-gltf/CHECKPOINT.md).
-M1-F is accepted for the user's requested commit; the next checkpoint records
-its exact revision.
+M1-F was committed as `9c0d812` before beginning M1-G's pose-sampling and native
+skeletal-deformation verification.
 
 Import is distinct from playback: these tests do not sample poses, deform
 vertices or draw pixels. Inspected limitations include discarded CUBICSPLINE
 tangents and unsupported morph-weight channels; they remain recorded gaps,
 not behavior newly introduced by M1-F.
 
-This is partial M1 completion. Next: qualify existing pose sampling and skeletal
-deformation through representative native runtime/editor cases, then address
-evidenced runtime gaps and material/environment qualification. Asset contracts can document
+Also accepted on 2026-09-20: **M1-G: shared pose sampling and native skeletal
+verification**, implemented by DeepSeek V4.1 Flash through `astra_flash_builder`
+and reviewed by Astra after one consolidated correction. The existing evaluator
+is now available through a CPU interface, with Model delegating to the same
+implementation. [Animation verification](ANIMATION_VERIFICATION.md) covers
+LINEAR/STEP sampling, loop/root-motion policies, hierarchy/scale compensation,
+and a public weighted two-joint rig. Four poses passed on all three native APIs
+in the standalone runtime and actual editor plugin (24 captures), with expected
+deformation and stable palette-storage transition checks. The warning-clean
+build, seven CTest entries and 23 CPU contracts passed. The existing 24-case
+archive matrix also passed. See the
+[M1-G accepted checkpoint](agent-work/cyberpunk-m1-animation/CHECKPOINT.md).
+M1-G is accepted for the requested commit; the next checkpoint records its
+revision. This qualifies a bounded shared sampler/world-mesh
+path on one GTX 1070 Debug host; private characters, legacy Model drawing,
+instanced/indirect skinning and performance remain outside that evidence.
+
+This is partial M1 completion. Next: address evidenced animation fidelity gaps
+(including cubic-spline tangent preservation/interpolation), qualify the actual
+production character/content paths, and continue material/environment
+qualification. Asset contracts can document
 and test an existing representation; they do not require a new file format.
 The full typed family remains optional, as the audit below states. Production game adapters, private roster
 qualification, richer GPU resource lifetimes and residency/load-time measurements
@@ -118,7 +136,7 @@ LODs, compression, material payloads or an importer/cook CLI. Active, staged and
 coexist; their combined residency is not bounded by the per-candidate byte cap.
 The capability matrix below preserves the original
 audited commit's state; this progress record supersedes its byte-loading and
-dependency-resolution/public-fixture/typed-storage/import-verification gaps and twelve-contract count
+dependency-resolution/public-fixture/typed-storage/import/pose-verification gaps and twelve-contract count
 for the local implementation.
 
 ## Read this first

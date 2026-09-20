@@ -13,12 +13,13 @@ No test in the current engine CTest suite needs a graphics context.
 
 | CTest entry | Coverage |
 | --- | --- |
-| `PhlosionEngineContracts` | Twenty-one C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, temporary-fixture ownership, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
+| `PhlosionEngineContracts` | Twenty-three C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, temporary-fixture ownership, shared pose sampling, animation fixture/palette/image guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
 | `PhlosionMaterialDebugViewContract` | Material debug-view source contract |
 | `PhlosionReviewLightingProfileContract` | Generic review-lighting source contract |
 | `PhlosionPublicAssetFixtureHarness` | CPU-only synthetic image/manifest negative tests, capture provenance and native process handling; enabled when fixture hosts and PowerShell are available |
+| `PhlosionAnimationFixtureHarness` | CPU-only skeletal fixture image/provenance/transition rejection checks and process handling; enabled when animation fixture hosts and PowerShell are available |
 
 Local equivalent:
 
@@ -64,6 +65,12 @@ authored public fixtures. They verify imported values and fixture ownership;
 they do not sample poses, deform vertices, decode textures or qualify material
 appearance. Runtime animation and native rendering require separate evidence.
 
+The [animation contracts](ANIMATION_VERIFICATION.md) exercise the shared CPU
+pose evaluator, root-motion/loop policies, hierarchy transforms, scale
+compensation and the public rig's palette space. Synthetic image and manifest
+checks validate the native capture guards without a graphics context. The
+separate native matrix below supplies bounded GPU evidence.
+
 ## Native rendering and editor changes
 
 OpenGL, Vulkan and Direct3D 12 are equal supported targets. Renderer or visual
@@ -89,9 +96,42 @@ every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
 
+On 2026-09-20, Astra accepted M1-G's [pose-sampling and skeletal
+verification](ANIMATION_VERIFICATION.md), based on `9c0d812` plus the M1-G
+working tree. Model delegates to its existing CPU evaluator through
+ModelPoseSampler; the extraction preserves the inspected algorithm and public
+behavior. No backend, shader, cache schema or editor-host code changed.
+
+The final warning-clean VS2026 Debug build, seven CTest entries and all 23 C++
+contracts passed: ignored `artifacts/m1-g/build-full-05.log`, `ctest-05.log` and
+`tests-fix-03.log`. The new harness rejects 24 negative evidence/content cases
+(`harness-fix-02.log`). Child-project checks confirm fixture hosts default off
+and the shared sampler works without a graphics context. The retained extraction
+comparison checks 183 normalized statements; Astra also reviewed the delegated
+helpers and source-array wiring.
+
+The final `artifacts/m1-g/m1g-run04/` records all 24 native animation captures:
+four poses on OpenGL/Vulkan/Direct3D 12 in the standalone host and actual editor
+plugin. Expected pixel content checks cover the anchored base, moved tip and
+blended middle, independently of sampled pose results. Both hosts update one
+palette allocation across the bind-to-posed transition; all recorded addresses
+and changed-content checks agree. Worst cross-API normalized MAE/RMSE are
+0.0000038/0.00029 under unchanged 0.01/0.08/0.05 limits and channel tolerance 8.
+Final images match the previous corrected run pixel for pixel. Astra inspected
+the native images and rechecked all four final binary hashes.
+
+The archive regression captured 24 passing cases under
+`artifacts/m1-g/archive-regression/m1g-archive-02/`; its binaries stayed unchanged
+during review corrections, so the retained matrix was revalidated rather than
+recaptured (`archive-revalidation.log`). That rigid fixture does not test poses.
+Animation evidence is one public two-joint rig on Windows/GTX 1070 Debug, through
+the world-mesh-textured path. It excludes private characters, the legacy
+OpenGL-only Model draw path, instanced/indirect skinning, cubic interpolation,
+morphs, production materials and performance budgets.
+
 On 2026-09-20, Astra accepted M1-F's [existing glTF import
-verification](GLTF_IMPORT_VERIFICATION.md), based on `9d094c9` plus the M1-F
-working tree. Three new CPU contracts exercise real file loading and imported
+verification](GLTF_IMPORT_VERIFICATION.md), committed as `9c0d812` from baseline
+`9d094c9`. Three new CPU contracts exercise real file loading and imported
 scene/skeleton/clip values, material metadata and temporary-fixture ownership.
 Production sources are unchanged. Review corrections made the synthetic rig
 structurally coherent and isolated every test-owned temporary directory.
