@@ -1,7 +1,13 @@
 # Phlosion Editor Architecture
 
 Status: Active
-Last updated: 2026-08-02
+Last updated: 2026-09-19
+
+This document combines the implemented host with longer-term milestones.
+The current maintenance scope is presentation and independent verification;
+M2-M6 below are future plans, not delivered features or a new implementation
+commitment. See [extraction status](EXTRACTION_STATUS.md) and
+[verification](VERIFICATION.md) for the current repository checkpoint.
 
 ## Decision
 

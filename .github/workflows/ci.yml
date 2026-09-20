@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: engine-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  windows:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 45
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+      VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}\vcpkg_cache,readwrite
+      VCPKG_DISABLE_METRICS: 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Cache vcpkg binaries
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}\vcpkg_cache
+          key: engine-vcpkg-${{ runner.os }}-vs2026-${{ hashFiles('vcpkg.json') }}
+      - name: Bootstrap pinned vcpkg
+        run: |
+          $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          git clone --filter=blob:none https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C "$env:VCPKG_ROOT" checkout --detach $baseline
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Configure engine and editor
+        run: cmake --preset vs2026 -DPHLOSION_BUILD_EDITOR=ON -DPHLOSION_BUILD_TESTS=ON -DPHLOSION_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build --preset debug --parallel 4
+      - name: Engine contracts
+        run: ctest --preset debug

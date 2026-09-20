@@ -5,6 +5,11 @@ the universal Engine shell and too general for one game. First-party packages
 share the sibling `PhlosionPackages` monorepo; a package is not a nested Git
 repository.
 
+These are optional extension contracts, not prerequisites for the public engine
+build. The first-party Tile Tools implementation is currently shelved in a
+private repository and is not mounted by the current Autochess Blender workflow.
+The declaration below documents the ABI usage; it is not a setup requirement.
+
 `phlosion.project.json` opts in explicitly:
 
 ```json
