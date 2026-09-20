@@ -31,6 +31,7 @@
 <p align="center">
   <a href="https://github.com/AdamWentworth/PhlosionEngine/actions/workflows/ci.yml"><img src="https://github.com/AdamWentworth/PhlosionEngine/actions/workflows/ci.yml/badge.svg?branch=main" alt="Engine CI"></a>
   <img src="https://img.shields.io/badge/Status-In_Development-C49A47" alt="In development">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-3DA639" alt="MIT licence for engine code"></a>
 </p>
 
 <p align="center">
@@ -177,4 +178,16 @@ Start a code review with [engine boundaries](docs/ENGINE_BOUNDARIES.md),
 [editor extensions](docs/EDITOR_PROJECT_EXTENSIONS.md) and
 [the test entry point](tests/TestMain.cpp).
 The [documentation index](docs/README.md) distinguishes implemented contracts
-from longer-term architecture plans. No repository code licence has been selected yet.
+from longer-term architecture plans.
+
+## Licence
+
+Original engine source, engine-owned shaders, tests, build scripts and text
+documentation are licensed under [MIT](LICENSE).
+
+Third-party dependencies retain their own licences and notices. The MIT grant
+does not cover Phlosion branding or showcase images, including the Pokemon
+artwork shown in the editor screenshot, and does not grant trademark rights.
+See [showcase media](docs/SHOWCASE_MEDIA.md) for image provenance. Dependency
+licence notices are supplied with their vcpkg packages under `share/<port>/copyright`;
+retain the applicable notices when distributing those dependencies.

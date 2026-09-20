@@ -36,5 +36,11 @@ over UI, invent engine features in a mockup or include private asset payloads.
 The README explicitly credits the game for the artwork, gameplay and project
 adapters. The screenshot is documentation media, not a bundled playable scene.
 
-Badges describe actual dependencies and the engine's own CI workflow. They do
-not imply a stable release, selected code licence or hosted GPU qualification.
+Badges describe actual dependencies, the engine's own CI workflow and its
+[MIT code licence](../LICENSE). They do not imply a stable release or hosted
+GPU qualification.
+
+The code licence does not cover the Phlosion brand images or the editor
+screenshot. Phlosion branding and third-party artwork/trademarks retain their
+respective owners' rights; the screenshot does not grant rights to the depicted
+Pokemon assets. See [the licence scope](../README.md#licence).
