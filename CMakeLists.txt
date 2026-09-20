@@ -46,6 +46,7 @@ find_package(sol2 CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(fastgltf CONFIG REQUIRED)
 find_package(Vulkan REQUIRED)
+find_package(Threads REQUIRED)
 if (PHLOSION_BUILD_EDITOR)
     find_package(imgui CONFIG REQUIRED)
 endif()
@@ -185,6 +186,7 @@ add_library(engine_core STATIC
     src/engine/core/StdoutLogger.cpp
     src/engine/core/EventBus.cpp
     src/engine/core/ecs/World.cpp
+    src/engine/assets/AsyncAssetLoader.cpp
     src/engine/assets/phlosion/PhlosionAuthoredScene.cpp
     src/engine/assets/phlosion/PhlosionEnvironmentPatch.cpp
     src/engine/assets/phlosion/PhlosionResourceContainer.cpp
@@ -194,6 +196,7 @@ target_link_libraries(engine_core
     PUBLIC
         glm::glm
         nlohmann_json::nlohmann_json
+        Threads::Threads
 )
 phlosion_apply_settings(engine_core)
 
@@ -465,6 +468,8 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestPhlosionEnvironmentPatch.cpp
         tests/TestPhlosionResourceContainer.cpp
         tests/TestPhlosionSceneArchive.cpp
+        tests/TestAsyncAssetLoader.cpp
+        tests/TestPublicAssetFixture.cpp
     )
     target_link_libraries(PhlosionEngineTests
         PRIVATE
@@ -477,6 +482,7 @@ if (PHLOSION_BUILD_TESTS)
             /permissive- /Zc:__cplusplus /FS /MP)
     endif()
     add_test(NAME PhlosionEngineContracts COMMAND PhlosionEngineTests)
+    set_tests_properties(PhlosionEngineContracts PROPERTIES TIMEOUT 120)
     add_test(
         NAME PhlosionEngineSemanticBoundary
         COMMAND ${CMAKE_COMMAND}

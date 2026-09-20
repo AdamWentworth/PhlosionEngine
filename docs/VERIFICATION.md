@@ -13,7 +13,7 @@ No test in the current engine CTest suite needs a graphics context.
 
 | CTest entry | Coverage |
 | --- | --- |
-| `PhlosionEngineContracts` | Twelve C++ contracts: material profiles, containers, scenes, environment patches, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
+| `PhlosionEngineContracts` | Fourteen C++ contracts: material profiles, containers, scenes, environment patches, asynchronous asset loading, the public PHRC scene/prefab fixture, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
 | `PhlosionMaterialDebugViewContract` | Material debug-view source contract |
@@ -29,6 +29,13 @@ ctest --preset debug
 
 Tests enforce particular contracts, not a blanket claim of correctness. Review
 the changed implementation and relevant consumer behavior as well.
+
+The asynchronous loading contract and its retained-byte-budget limits are
+described in [ASYNC_ASSET_LOADING.md](ASYNC_ASSET_LOADING.md). The loader tests
+are CPU only: they coordinate a synthetic provider with condition variables and
+never create a graphics context. `PhlosionEngineContracts` carries a 120 second
+CTest timeout as a regression backstop so a blocked loader cannot hang the suite
+unboundedly.
 
 ## Native rendering and editor changes
 
@@ -54,6 +61,15 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-20, the M1-A asynchronous asset iteration added
+`AsyncAssetLoader` with its explicit `requestStop()` lifecycle boundary, the two
+CPU contracts above and their documentation. The existing `build-presentation`
+Debug tree (VS2026, editor/tests enabled, engine warnings treated as errors) rebuilt cleanly
+with the new `engine_core` source and standard thread linkage, and the full CTest
+set passed (5 of 5 entries, including all fourteen C++ contracts). Logs are local
+under `artifacts/m1-a/`. This iteration is pure CPU and produces no rendering or
+visual-parity evidence.
 
 On 2026-09-19, the presentation review built a separate `build-presentation`
 Debug tree with MSVC, editor/tests enabled and warnings treated as errors.
