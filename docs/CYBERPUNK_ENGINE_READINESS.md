@@ -81,14 +81,31 @@ The final warning-clean Debug build, six CTest entries (eighteen C++ contracts)
 and a Core-only link proof passed. All 24 native runtime/editor captures passed
 with unchanged guards and matched the accepted M1-D images pixel for pixel.
 See the [M1-E accepted checkpoint](agent-work/cyberpunk-m1-mesh/CHECKPOINT.md).
-M1-E is accepted for the user's requested commit; the next checkpoint records
-its exact revision. It adds a typed storage/validation format, not the engine's
+M1-E was committed as `9d094c9` before beginning M1-F.
+It adds a typed storage/validation format, not the engine's
 first mesh-rendering capability. Existing Model/glTF/cache, skeletal sampling,
 skinning and material-profile paths remain available and were not migrated.
 
-This is partial M1 completion. Next: public verification of the existing glTF
-skeleton/animation import path, followed by evidence-driven runtime gaps and
-representative material/environment qualification. Asset contracts can document
+Also accepted on 2026-09-20: **M1-F: existing glTF character-import verification**,
+implemented by DeepSeek V4.1 Flash through `astra_flash_builder` and reviewed by
+Astra. The [CPU contracts](GLTF_IMPORT_VERIFICATION.md) exercise the existing
+file loader, scene hierarchy, skeleton/inverse binds, LINEAR/STEP clip import
+and material metadata resolver using tiny authored public fixtures. A separate
+test verifies temporary-fixture ownership. The warning-clean Debug build, six
+CTest entries and all twenty-one C++ contracts passed. Production sources are
+unchanged; this adds verification, not a replacement mesh/animation/material
+system. See the [M1-F accepted checkpoint](agent-work/cyberpunk-m1-gltf/CHECKPOINT.md).
+M1-F is accepted for the user's requested commit; the next checkpoint records
+its exact revision.
+
+Import is distinct from playback: these tests do not sample poses, deform
+vertices or draw pixels. Inspected limitations include discarded CUBICSPLINE
+tangents and unsupported morph-weight channels; they remain recorded gaps,
+not behavior newly introduced by M1-F.
+
+This is partial M1 completion. Next: qualify existing pose sampling and skeletal
+deformation through representative native runtime/editor cases, then address
+evidenced runtime gaps and material/environment qualification. Asset contracts can document
 and test an existing representation; they do not require a new file format.
 The full typed family remains optional, as the audit below states. Production game adapters, private roster
 qualification, richer GPU resource lifetimes and residency/load-time measurements
@@ -101,7 +118,7 @@ LODs, compression, material payloads or an importer/cook CLI. Active, staged and
 coexist; their combined residency is not bounded by the per-candidate byte cap.
 The capability matrix below preserves the original
 audited commit's state; this progress record supersedes its byte-loading and
-dependency-resolution/public-fixture/typed-storage gaps and twelve-contract count
+dependency-resolution/public-fixture/typed-storage/import-verification gaps and twelve-contract count
 for the local implementation.
 
 ## Read this first

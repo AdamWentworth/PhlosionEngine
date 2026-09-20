@@ -550,6 +550,9 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestAsyncAssetLoader.cpp
         tests/TestPhlosionAssetGraphLoader.cpp
         tests/TestPhlosionArchiveSession.cpp
+        tests/TestGltfSceneImport.cpp
+        tests/TestGltfMaterialImport.cpp
+        tests/TestGltfImportFixture.cpp
         tests/TestPublicAssetFixture.cpp
         tests/TestPublicAssetFixtureRendering.cpp
     )

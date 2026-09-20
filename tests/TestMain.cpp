@@ -19,6 +19,9 @@ bool test_editor_game_preview_routing_contract(std::string& outFail);
 bool test_editor_gameplay_reload(std::string& outFail);
 bool test_editor_performance_contract(std::string& outFail);
 bool test_world_material_profile_contract(std::string &outFail);
+bool test_gltf_scene_import_contract(std::string& outFail);
+bool test_gltf_material_import_contract(std::string& outFail);
+bool test_gltf_import_fixture_contract(std::string& outFail);
 
 int main(int argc, char** argv) {
     // A real child process for reload launcher tests; avoids shell-specific
@@ -52,6 +55,9 @@ int main(int argc, char** argv) {
         {"editor_game_preview_routing_contract", &test_editor_game_preview_routing_contract},
         {"editor_gameplay_reload", &test_editor_gameplay_reload},
         {"editor_performance_contract", &test_editor_performance_contract},
+        {"gltf_scene_import_contract", &test_gltf_scene_import_contract},
+        {"gltf_material_import_contract", &test_gltf_material_import_contract},
+        {"gltf_import_fixture_contract", &test_gltf_import_fixture_contract},
     };
 
     bool passed = true;

@@ -10,6 +10,7 @@ game-specific authoring and visual qualification stay with the consuming project
 | --- | --- |
 | [Development](DEVELOPMENT.md) | Prerequisites, build configurations, editor startup and consumer targets |
 | [Verification](VERIFICATION.md) | CI scope, local checks, visual requirements and dated evidence |
+| [glTF import verification](GLTF_IMPORT_VERIFICATION.md) | CPU evidence for the existing character/animation importer and material metadata, with runtime coverage limits |
 | [Engine boundaries](ENGINE_BOUNDARIES.md) | What belongs to the engine, a game or an optional feature package |
 | [Extraction status](EXTRACTION_STATUS.md) | Completed separation work and remaining delivery limits |
 | [Showcase media](SHOWCASE_MEDIA.md) | Branding and editor screenshot provenance |

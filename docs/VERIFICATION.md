@@ -13,7 +13,7 @@ No test in the current engine CTest suite needs a graphics context.
 
 | CTest entry | Coverage |
 | --- | --- |
-| `PhlosionEngineContracts` | Eighteen C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
+| `PhlosionEngineContracts` | Twenty-one C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, temporary-fixture ownership, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
 | `PhlosionMaterialDebugViewContract` | Material debug-view source contract |
@@ -58,6 +58,12 @@ Its fixture consumer also exercises two-slot activation and preservation of
 active A when candidate bindings or mesh semantics fail. These are CPU checks;
 the rendered matrix below uses the existing single-slot visual scene.
 
+The [glTF import contracts](GLTF_IMPORT_VERIFICATION.md) exercise the existing
+file loader, scene/skeleton/clip importer and CPU material resolver using tiny
+authored public fixtures. They verify imported values and fixture ownership;
+they do not sample poses, deform vertices, decode textures or qualify material
+appearance. Runtime animation and native rendering require separate evidence.
+
 ## Native rendering and editor changes
 
 OpenGL, Vulkan and Direct3D 12 are equal supported targets. Renderer or visual
@@ -83,13 +89,31 @@ every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
 
+On 2026-09-20, Astra accepted M1-F's [existing glTF import
+verification](GLTF_IMPORT_VERIFICATION.md), based on `9d094c9` plus the M1-F
+working tree. Three new CPU contracts exercise real file loading and imported
+scene/skeleton/clip values, material metadata and temporary-fixture ownership.
+Production sources are unchanged. Review corrections made the synthetic rig
+structurally coherent and isolated every test-owned temporary directory.
+
+The final VS2026 Debug build with warnings as errors, all six CTest entries and
+all twenty-one C++ contracts passed. Evidence is retained locally in ignored
+`artifacts/m1-f/build-full-08.log`, `ctest-all-04.log` and
+`tests-from-ctest-dir-04.log`. The helper-only two-process probe also passed
+(`helper-probe-concurrent-02.log`); deliberate regressions failed before being
+reverted (`regression-probe-0{1..5}.log`). No GPU run was needed for this
+tests/documentation-only pass, and none is claimed. Pose sampling, skeletal
+deformation, texture decoding and material appearance remain outside these
+contracts. CUBICSPLINE tangent loss and absent morph-weight channels are
+documented limitations rather than newly accepted runtime behavior.
+
 On 2026-09-20, Astra accepted M1-E's [typed static mesh resource](MESH_ASSETS.md)
 after one consolidated review-fix cycle. The reusable contract lives in
 engine_core; the example consumes six required PHMS resources from its staged
 dependency graph. It preserves submesh ranges, slot bindings and tangents without
 changing renderer or editor-host APIs. Existing Model/glTF/cache paths remain
-compatible. Source baseline: `68aed76373c169494d9238d267cd0e50cd885ff2` plus
-the recorded M1-E working tree.
+compatible. M1-E was committed as `9d094c9`, based on
+`68aed76373c169494d9238d267cd0e50cd885ff2`.
 
 The final VS2026 Debug build with warnings as errors and all six CTest entries
 passed (eighteen C++ contracts). A child project linking only Phlosion::Core
