@@ -1,6 +1,6 @@
 # M1-H checkpoint
 
-Status: accepted by Astra; user authorized committing M1-H and proceeding.
+Status: accepted by Astra and committed as 4ab3ac7e06e912cc3668fa0f69655f5dc4b24f84.
 
 - M1-G committed as afaeb1ec470434fe3da10f7c5f3c8238b2fc5068; tree was clean.
 - User request: commit accepted work and proceed to the next pass.
@@ -10,7 +10,8 @@ Status: accepted by Astra; user authorized committing M1-H and proceeding.
   hash 237343dd9547ecc87450fada2a20e801718b62afe11628a371d707320f7d1a26.
   Reuse M1-D host/router runtime evidence; static doctor is not a new live test.
 - Root owns plan/checkpoint and shared integration docs. No staging, commits or
-  pushes by worker. M1-H will remain uncommitted after acceptance.
+  pushes by worker. Astra committed accepted M1-H under the user's instruction;
+  the tree was clean after commit and nothing was pushed.
 - Worker: /root/cyberpunk_m1_cubic, native astra_flash_builder. Both handoffs
   completed and child interrupted after each; no active writer remains.
 - Initial evidence: full build, 7/7 CTest, 24 CPU contracts, 36 native animation
@@ -58,7 +59,7 @@ cases rely on CPU contracts. Full Model cache integration, legacy Model GPU
 drawing, private characters, morphs, blending, events, managed attachments,
 instanced/indirect skinning and performance remain unqualified or future work.
 
-The user has now authorized the next commit/proceed instruction. Commit accepted
-M1-H, then define a bounded M1 material/texture or production-character
-qualification pass from current source evidence. Do not recreate capabilities
-already present or conflate optional typed formats with required game readiness.
+The user's commit/proceed instruction is fulfilled by commit `4ab3ac7` and the
+subsequent [M1-I texture-decoding verification](../cyberpunk-m1-textures/CHECKPOINT.md).
+Do not recreate capabilities already present or conflate optional typed formats
+with required game readiness.

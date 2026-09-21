@@ -13,7 +13,7 @@ No test in the current engine CTest suite needs a graphics context.
 
 | CTest entry | Coverage |
 | --- | --- |
-| `PhlosionEngineContracts` | Twenty-four C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, model-cache sampler codec/version identity, animation fixture/palette/image guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
+| `PhlosionEngineContracts` | Twenty-five C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, real PNG/JPEG texture decoding, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, model-cache sampler codec/version identity, animation fixture/palette/image guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
 | `PhlosionMaterialDebugViewContract` | Material debug-view source contract |
@@ -62,8 +62,11 @@ the rendered matrix below uses the existing single-slot visual scene.
 The [glTF import contracts](GLTF_IMPORT_VERIFICATION.md) exercise the existing
 file loader, scene/skeleton/clip importer and CPU material resolver using tiny
 authored public fixtures. They verify imported values and fixture ownership;
-M1-H also samples imported cubic translation/rotation/scale curves. These CPU
-checks do not deform GPU vertices, decode textures or qualify material
+M1-H also samples imported cubic translation/rotation/scale curves. The separate
+[texture contract](GLTF_TEXTURE_VERIFICATION.md) added in M1-I decodes actual
+PNG/JPEG data through the existing five CPU helpers, checks sampler metadata,
+and feeds real decoded alpha into the material resolver. These CPU checks do
+not deform GPU vertices or qualify GPU sampling, UV binding or material
 appearance. Native rendering requires separate evidence.
 
 The [animation contracts](ANIMATION_VERIFICATION.md) exercise the shared CPU
@@ -97,6 +100,35 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-20, Astra accepted M1-I's [glTF texture decoding
+verification](GLTF_TEXTURE_VERIFICATION.md), based on committed M1-H `4ab3ac7`
+plus tests and documentation. The production loader feeds real encoded PNG/JPEG
+fixtures to the five existing CPU decode helpers. Exact PNG pixels, orientation
+and alpha are checked across external/data URI and padded bufferView routes,
+including GLB; JPEG uses a flat patch with a per-channel tolerance of 3 out of 255
+and exact opaque alpha. Coverage includes role selection, wrapping/filter enums,
+defaults and factors, real alpha-mode integration, corrupt images, bounded
+invalid selections and independent retained outputs.
+
+The final full Debug build with warnings as errors, 25 CPU contracts and all
+seven CTest entries passed (`artifacts/m1-i/final-build.log`, `final-tests.log`,
+`final-ctest.log`; CTest 86.70 seconds). Astra reviewed the tracked/new source
+and one consolidated correction: corrupt payloads are bound to all five roles
+and asserted before decoding; the retention case uses the same source image;
+empty-byte defect assertions live only in an artifact probe; debug environment
+flags are scoped off. Four deliberate mutations fail on pixel, sampler or
+corrupt-image binding errors and are reverted. An ambient-debug probe produces
+zero contract texture dumps with the guard and 32 with a temporary inverse
+mutation. The retained empty-byte patch applies cleanly to the final source.
+
+This is CPU evidence only, with no production or shader changes and no new
+native captures. Remaining gaps include encoded-byte base-factor application,
+source-derived factor-only emissive loss on the legacy OpenGL Model path,
+inconsistent empty-byte placeholders, absent runtime calls to three decode
+helpers, per-role UV binding and compressed image formats. World-backend
+material behavior requires separate tracing and native qualification; these
+tests do not certify five-map rendering or cross-API material parity.
 
 On 2026-09-20, Astra accepted M1-H's [cubic animation
 fidelity](ANIMATION_VERIFICATION.md), based on committed M1-G `afaeb1e` plus the
@@ -134,7 +166,7 @@ This qualifies one public two-joint rig on Windows/GTX 1070 Debug. Native cubic
 coverage is one two-key Z-rotation curve sampled twice; broader T/R/S cases rely
 on CPU contracts. Full Model cache integration, legacy Model GPU drawing,
 private characters, morphs, blending, instanced/indirect skinning, materials and
-performance remain outside this evidence. M1-H is accepted for the requested commit.
+performance remain outside this evidence. M1-H was committed as `4ab3ac7`.
 
 On 2026-09-20, Astra accepted M1-G's [pose-sampling and skeletal
 verification](ANIMATION_VERIFICATION.md), based on `9c0d812` plus the M1-G

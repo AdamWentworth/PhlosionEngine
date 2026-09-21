@@ -629,6 +629,7 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestPhlosionArchiveSession.cpp
         tests/TestGltfSceneImport.cpp
         tests/TestGltfMaterialImport.cpp
+        tests/TestGltfTextureImport.cpp
         tests/TestGltfImportFixture.cpp
         tests/TestModelPoseSampler.cpp
         tests/TestModelCacheAnimation.cpp

@@ -135,9 +135,32 @@ including two cubic rotation poses with guards that reject linearized playback.
 The original 24 animation images remain pixel-identical to M1-G. The archive
 fixture also passed 24 final-build captures. See the
 [M1-H accepted checkpoint](agent-work/cyberpunk-m1-cubic/CHECKPOINT.md) and
-[animation verification](ANIMATION_VERIFICATION.md). M1-H is accepted for the
-requested commit; the next checkpoint records its revision. This is bounded public-rig evidence, not private-character or full
-Model cache/draw qualification.
+[animation verification](ANIMATION_VERIFICATION.md). M1-H was committed as
+`4ab3ac7` before beginning M1-I. This is bounded public-rig evidence, not
+private-character or full Model cache/draw qualification.
+
+Also accepted on 2026-09-20: **M1-I: existing glTF texture decoding
+verification**, implemented by DeepSeek V4.1 Flash through `astra_flash_builder`
+and reviewed by Astra after one consolidated correction. The
+[CPU contract](GLTF_TEXTURE_VERIFICATION.md) loads real public PNG/JPEG payloads
+through the engine's file loader and existing five texture decode helpers.
+It checks external/data URI and bufferView/GLB routes, literal pixels and alpha,
+role selection, sampler metadata, material-alpha integration, corrupt payloads
+bound to every role and retained results after later decodes. Tests and docs
+changed; production behavior is unchanged. The warning-clean Debug build,
+seven CTest entries and 25 CPU contracts passed. See the
+[M1-I accepted checkpoint](agent-work/cyberpunk-m1-textures/CHECKPOINT.md).
+
+The distinction matters for the remaining material work: the decoder currently
+bakes base-color factors into encoded bytes, factor-only emission is lost on
+the legacy OpenGL Model path according to its source, and empty image bytes
+produce inconsistent placeholders (retained as an artifact probe). Model's
+runtime loader calls only the base-color and emissive decode helpers; passing
+normal/metallic-roughness/occlusion CPU tests does not qualify those maps in a
+rendered character. Independent per-role UVs/transforms, compressed texture
+decoding and native material appearance remain unverified. A following material
+pass must establish the intended shared runtime path and qualify any rendering
+changes on all three APIs, including the editor preview.
 
 This is partial M1 completion. Next: qualify the actual production
 character/content paths and continue material/texture/environment qualification.
@@ -154,7 +177,7 @@ LODs, compression, material payloads or an importer/cook CLI. Active, staged and
 coexist; their combined residency is not bounded by the per-candidate byte cap.
 The capability matrix below preserves the original
 audited commit's state; this progress record supersedes its byte-loading and
-dependency-resolution/public-fixture/typed-storage/import/pose-verification gaps and twelve-contract count
+dependency-resolution/public-fixture/typed-storage/import/pose/texture-verification gaps and twelve-contract count
 for the local implementation.
 
 ## Read this first
