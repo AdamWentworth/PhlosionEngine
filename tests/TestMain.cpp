@@ -23,10 +23,13 @@ bool test_gltf_scene_import_contract(std::string& outFail);
 bool test_gltf_material_import_contract(std::string& outFail);
 bool test_gltf_texture_import_contract(std::string& outFail);
 bool test_gltf_import_fixture_contract(std::string& outFail);
+bool test_gltf_scene_asset_contract(std::string& outFail);
+bool test_gltf_scene_renderer_contract(std::string& outFail);
 bool test_model_pose_sampler_contract(std::string& outFail);
 bool test_model_cache_animation_contract(std::string& outFail);
 bool test_animation_fixture_contract(std::string& outFail);
 bool test_material_fixture_contract(std::string& outFail);
+bool test_scene_fixture_contract(std::string& outFail);
 
 int main(int argc, char** argv) {
     // A real child process for reload launcher tests; avoids shell-specific
@@ -64,10 +67,13 @@ int main(int argc, char** argv) {
         {"gltf_material_import_contract", &test_gltf_material_import_contract},
         {"gltf_texture_import_contract", &test_gltf_texture_import_contract},
         {"gltf_import_fixture_contract", &test_gltf_import_fixture_contract},
+        {"gltf_scene_asset_contract", &test_gltf_scene_asset_contract},
+        {"gltf_scene_renderer_contract", &test_gltf_scene_renderer_contract},
         {"model_pose_sampler_contract", &test_model_pose_sampler_contract},
         {"model_cache_animation_contract", &test_model_cache_animation_contract},
         {"animation_fixture_contract", &test_animation_fixture_contract},
         {"material_fixture_contract", &test_material_fixture_contract},
+        {"scene_fixture_contract", &test_scene_fixture_contract},
     };
 
     bool passed = true;

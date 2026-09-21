@@ -80,9 +80,21 @@ The user authorized committing M1-J. The commit is titled
 accepted verification are unchanged, with only commit-status documentation
 updated before staging. Nothing is pushed.
 
-The user also asked when visible lighting features can begin. Astra recommends
-scoping an early dynamic-lighting slice next: colored point lights and a small
-public alley/room scene in runtime and editor on all three APIs. Full district
-lighting/weather/performance qualification remains M5; it need not prevent an
-earlier bounded lighting feature. This is a proposed next scope, not an approved
-implementation brief. Do not infer that all M1 or game readiness is done.
+M1-J was committed as `cc600e1f9722b7da7c198102a26763a469e8ee4c`; the tree was
+clean after the commit. The user then asked Astra to choose the responsible next
+step rather than prioritize lighting simply because it is visually appealing.
+
+The earlier point-light proposal is superseded as the immediate next step.
+Astra recommends bounded engine-facing M1 closure: establish and qualify the
+supported consumer asset-to-scene path with a public animated character and
+small environment, correct required material semantics on that path, and verify
+loading/replacement/unload ownership and native runtime/editor parity. See the
+[roadmap's next-work checklist](../../CYBERPUNK_ENGINE_READINESS.md#recommended-next-work-after-m1-k).
+Then prioritize M2's walkable scene; a lighting feature may follow before M5's
+full district qualification. Private game-content qualification stays separate.
+That integration objective is now implemented and accepted as
+[M1-K](../cyberpunk-m1-integration/ACCEPTANCE.md), included in the commit
+`Integrate owned glTF scenes with shared rendering`. It qualifies
+the synchronous CPU scene/shared renderer path; asynchronous activation and
+GPU lifetime/residency remain. M1 is still partial. See the
+[current checkpoint](../cyberpunk-m1-integration/CHECKPOINT.md).

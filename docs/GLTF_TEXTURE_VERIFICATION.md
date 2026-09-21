@@ -103,6 +103,18 @@ application. Emissive, normal, metallic-roughness and occlusion bytes stay raw;
 their scalar factors are reported separately through `MaterialRenderInfo` and
 must not be baked twice.
 
+Additive base-color decode policy (M1-K). The same function takes an optional
+`BaseColorDecodePolicy`. The default, `LegacyBakeFactor`, is the behavior
+described above, so every existing caller, Model cache entry and assertion is
+unchanged. The new `PreserveSource` policy returns the decoded source pixels
+unchanged and resolves an absent base map to opaque white, leaving
+`baseColorFactor` separate for a consumer that applies it once in a linear
+shader field. Only the CPU-owned glTF scene path uses it
+([`GltfSceneAsset.cpp`](../src/engine/render/gltf/GltfSceneAsset.cpp)); see
+[glTF scene assets](GLTF_SCENE_ASSETS.md). The emissive decoder is unchanged:
+for a genuinely absent emissive map the scene path binds implicit white itself,
+while a present but corrupt emissive map keeps the black decode fallback.
+
 Fallback families. Two role-fallback families exist, and the contract pins both.
 Before M1-J, empty encoded bytes took a third, inconsistent path that returned
 opaque white for base color and opaque black for every other role; that path is

@@ -38,6 +38,9 @@ option(PHLOSION_BUILD_ANIMATION_FIXTURE
 option(PHLOSION_BUILD_MATERIAL_FIXTURE
     "Build the material fixture hosts, guard and editor plugin"
     ${_phlosion_tests_default})
+option(PHLOSION_BUILD_SCENE_FIXTURE
+    "Build the glTF scene fixture hosts, guard and editor plugin"
+    ${_phlosion_tests_default})
 option(PHLOSION_OPTIMIZE_RENDER_HOTPATHS_IN_DEBUG
     "Compile selected renderer hot paths with optimization in Debug"
     ON)
@@ -285,6 +288,8 @@ add_library(engine_render STATIC
     src/engine/render/gltf/ModelFastGltfMaterial.cpp
     src/engine/render/gltf/ModelFastGltfSceneData.cpp
     src/engine/render/gltf/ModelFastGltfTextures.cpp
+    src/engine/render/gltf/GltfSceneAsset.cpp
+    src/engine/render/gltf/GltfSceneRenderer.cpp
     src/engine/ui/UIManager.cpp
     src/engine/ui/TextRenderer.cpp
     src/engine/ui/BootLoadingView.cpp
@@ -435,7 +440,7 @@ add_library(Phlosion::Runtime ALIAS engine_runtime)
 add_library(Phlosion::EditorCore ALIAS engine_editor_core)
 add_library(Phlosion::VfxPreview ALIAS engine_tools_vfx_preview)
 
-if (PHLOSION_BUILD_PUBLIC_ASSET_FIXTURE OR PHLOSION_BUILD_TESTS)
+if (PHLOSION_BUILD_PUBLIC_ASSET_FIXTURE OR PHLOSION_BUILD_SCENE_FIXTURE OR PHLOSION_BUILD_TESTS)
     add_library(public_asset_fixture STATIC
         examples/public_asset_fixture/FixtureData.cpp
         examples/public_asset_fixture/FixtureSession.cpp
@@ -651,6 +656,79 @@ if (PHLOSION_BUILD_MATERIAL_FIXTURE)
     endif()
 endif()
 
+if (PHLOSION_BUILD_SCENE_FIXTURE OR PHLOSION_BUILD_TESTS)
+    add_library(scene_fixture STATIC
+        examples/scene_fixture/SceneFixtureCase.cpp
+        examples/scene_fixture/SceneFixtureAssets.cpp
+        examples/scene_fixture/SceneFixturePresentation.cpp
+    )
+    target_link_libraries(scene_fixture
+        PUBLIC
+            Engine
+    )
+    target_include_directories(scene_fixture
+        PUBLIC
+            "${CMAKE_CURRENT_SOURCE_DIR}/examples/scene_fixture"
+    )
+    phlosion_apply_settings(scene_fixture)
+
+    # Verification support owns the expected-content oracle and the guard CLI.
+    # The runnable example library never depends on it.
+    add_library(scene_fixture_verification STATIC
+        tools/scene_fixture/SceneFixtureGuard.cpp
+    )
+    target_link_libraries(scene_fixture_verification
+        PUBLIC
+            scene_fixture
+            public_asset_fixture_verification
+    )
+    target_include_directories(scene_fixture_verification
+        PUBLIC
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/scene_fixture"
+    )
+    phlosion_apply_settings(scene_fixture_verification)
+endif()
+
+if (PHLOSION_BUILD_SCENE_FIXTURE)
+    add_executable(SceneFixtureGuard
+        tools/scene_fixture/SceneFixtureGuardMain.cpp
+    )
+    target_link_libraries(SceneFixtureGuard
+        PRIVATE
+            scene_fixture_verification
+    )
+    phlosion_apply_settings(SceneFixtureGuard)
+
+    add_executable(SceneFixtureRuntime
+        examples/scene_fixture/SceneFixtureRuntimeMain.cpp
+    )
+    target_link_libraries(SceneFixtureRuntime
+        PRIVATE
+            scene_fixture
+    )
+    phlosion_apply_settings(SceneFixtureRuntime)
+
+    if (PHLOSION_BUILD_EDITOR)
+        add_library(SceneFixtureEditorPlugin MODULE
+            examples/scene_fixture/SceneFixtureEditorPlugin.cpp
+        )
+        target_link_libraries(SceneFixtureEditorPlugin
+            PRIVATE
+                scene_fixture
+                engine_editor_core
+        )
+        target_compile_definitions(SceneFixtureEditorPlugin
+            PRIVATE
+                PHLOSION_EDITOR_BUILD_CONFIGURATION="$<CONFIG>"
+        )
+        set_target_properties(SceneFixtureEditorPlugin PROPERTIES
+            PREFIX ""
+            OUTPUT_NAME "SceneFixtureEditorPlugin"
+        )
+        phlosion_apply_settings(SceneFixtureEditorPlugin)
+    endif()
+endif()
+
 if (PHLOSION_OPTIMIZE_RENDER_HOTPATHS_IN_DEBUG)
     if (MSVC)
         string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
@@ -706,10 +784,13 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestGltfMaterialImport.cpp
         tests/TestGltfTextureImport.cpp
         tests/TestGltfImportFixture.cpp
+        tests/TestGltfSceneAsset.cpp
+        tests/TestGltfSceneAssetRenderer.cpp
         tests/TestModelPoseSampler.cpp
         tests/TestModelCacheAnimation.cpp
         tests/TestAnimationFixture.cpp
         tests/TestMaterialFixture.cpp
+        tests/TestSceneFixture.cpp
         tests/TestPublicAssetFixture.cpp
         tests/TestPublicAssetFixtureRendering.cpp
     )
@@ -724,6 +805,8 @@ if (PHLOSION_BUILD_TESTS)
             animation_fixture_verification
             material_fixture
             material_fixture_verification
+            scene_fixture
+            scene_fixture_verification
     )
     if (MSVC)
         target_compile_options(PhlosionEngineTests PRIVATE
@@ -794,6 +877,21 @@ if (PHLOSION_BUILD_TESTS)
                     -GuardExe "$<TARGET_FILE:MaterialFixtureGuard>")
             set_tests_properties(
                 PhlosionMaterialFixtureHarness PROPERTIES TIMEOUT 300)
+        endif()
+    endif()
+    if (PHLOSION_BUILD_SCENE_FIXTURE)
+        find_program(PHLOSION_POWERSHELL NAMES powershell pwsh)
+        if (PHLOSION_POWERSHELL)
+            add_test(
+                NAME PhlosionSceneFixtureHarness
+                COMMAND "${PHLOSION_POWERSHELL}" -NoProfile
+                    -ExecutionPolicy Bypass
+                    -File
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/scene_fixture/test_fixture_harness.ps1"
+                    -EngineRoot "${CMAKE_CURRENT_SOURCE_DIR}"
+                    -GuardExe "$<TARGET_FILE:SceneFixtureGuard>")
+            set_tests_properties(
+                PhlosionSceneFixtureHarness PROPERTIES TIMEOUT 300)
         endif()
     endif()
 endif()

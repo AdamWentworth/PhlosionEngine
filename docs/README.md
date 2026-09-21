@@ -13,6 +13,7 @@ game-specific authoring and visual qualification stay with the consuming project
 | [glTF import verification](GLTF_IMPORT_VERIFICATION.md) | CPU evidence for the existing character/animation importer and material metadata, with runtime coverage limits |
 | [glTF texture decoding verification](GLTF_TEXTURE_VERIFICATION.md) | Real PNG/JPEG loader-to-decoder evidence for five material roles, sampler metadata, alpha integration and remaining rendering gaps |
 | [Material verification](MATERIAL_VERIFICATION.md) | Five decoded material maps and corrected empty-image fallbacks in native runtime/editor previews on all three APIs, with content and parity guards |
+| [Integrated scene verification](SCENE_FIXTURE.md) | Imported animated character/environment, replacement, unload and independent color-factor checks in both hosts on all three APIs |
 | [Animation verification](ANIMATION_VERIFICATION.md) | LINEAR/STEP/CUBICSPLINE pose sampling, cache fidelity and public weighted skeletal deformation in native runtime/editor previews on all three APIs |
 | [Engine boundaries](ENGINE_BOUNDARIES.md) | What belongs to the engine, a game or an optional feature package |
 | [Extraction status](EXTRACTION_STATUS.md) | Completed separation work and remaining delivery limits |
@@ -27,6 +28,7 @@ game-specific authoring and visual qualification stay with the consuming project
 | [Asset dependency loading](ASSET_DEPENDENCY_LOADING.md) | Required asset graphs, PHRC integrity, dependency hashes and session ownership |
 | [Staged archive activation](ARCHIVE_ACTIVATION.md) | Scene/prefab candidate validation, explicit activation and retained snapshots |
 | [Typed static mesh assets](MESH_ASSETS.md) | Portable PHMS geometry, submeshes, material slot labels, bounds and strict CPU validation |
+| [glTF scene assets](GLTF_SCENE_ASSETS.md) | Owned CPU scene snapshots, validated import, pose sampling and a reusable world-renderer adapter |
 | [Public asset fixture](PUBLIC_ASSET_FIXTURE.md) | Synthetic archive rendering, scene replacement and native runtime/editor capture verification |
 | [Editor project extensions](EDITOR_PROJECT_EXTENSIONS.md) | Game-plugin ABI, capabilities and command routing |
 | [Optional editor packages](EDITOR_PACKAGES.md) | Explicit package declarations and extension points |

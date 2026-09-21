@@ -199,6 +199,79 @@ audited commit's state; this progress record supersedes its byte-loading and
 dependency-resolution/public-fixture/typed-storage/import/pose/texture/material-verification gaps and twelve-contract count
 for the local implementation.
 
+Accepted on 2026-09-20: **M1-K: integrated CPU glTF scene and shared renderer
+adapter**, based on `cc600e1` plus the accepted changes included in the commit
+`Integrate owned glTF scenes with shared rendering`.
+The reusable engine path loads owned geometry, decoded textures, nodes, skins
+and clips; samples poses; and presents the selected scene through the existing
+world renderer. A public character/environment example exercises these together.
+Loading and draw binding live under `src/engine/render/gltf`, while authored
+sample content and test transitions belong in `examples/scene_fixture`.
+
+The selected path preserves raw base-color pixels and applies the linear factor
+once on the GPU. It supports factor-only emission without changing the legacy
+Model behavior described above. Candidate loading and pose rejection preserve
+previous output; retained snapshots remain usable after replacement/source
+removal. Unsupported material/sampler options and invalid references are
+rejected before unsafe helper access or any partial draw submission.
+
+Verification passed 29 CPU contracts, nine CTest entries, and 36 integrated
+captures across native OpenGL/Vulkan/D3D12 in both runtime and real editor
+preview. The archive, animation and material regression matrices passed another
+78 captures. Tests cover bind-to-pose, failed replacement, replacement,
+emission-off and unload, with independent expected-content and color-factor
+checks. Evidence is scoped to Windows/GTX 1070 Debug and the documented subset.
+See [the supported scene path](GLTF_SCENE_ASSETS.md),
+[the fixture guide](SCENE_FIXTURE.md), and
+[Astra's acceptance](agent-work/cyberpunk-m1-integration/ACCEPTANCE.md).
+
+This pass remains synchronous. CPU snapshot release does not evict renderer GPU
+caches, and retained geometry/pixel byte counts are not peak-memory budgets.
+Asynchronous archive-to-scene integration and explicit GPU lifetime/residency
+qualification remain before the engine-facing M1 gate can be called complete.
+
+### Recommended next work after M1-K
+
+After discussing an early lighting feature, the user asked Astra to prioritize
+the responsible development sequence. Recommendation: finish a bounded
+engine-facing M1 before starting dynamic lighting. Separate passing samples are
+useful evidence, but the remaining integration risk is whether the interfaces
+a game will consume work together for a complete character and environment.
+
+M1-K establishes that bounded asset-to-scene path. The next brief should connect
+it to the existing asynchronous loading/archive activation facilities, with
+explicit cancellation, failed-replacement and retained-snapshot behavior.
+Then qualify GPU resource release/residency during repeated replacement and
+unload, recording CPU/GPU ownership and loading measurements without implying
+hard frame-time or peak-memory guarantees. Keep project import/cook policy and
+game-specific adapters with the consumer; no new format is required merely to
+connect these interfaces.
+
+Engine-facing M1 exit checklist:
+
+- [x] Document the supported path and asset subset, then demonstrate geometry,
+  animation and materials together through interfaces available to a consumer.
+- [x] Correct and qualify the selected path's required material behavior, including
+  tint/color-factor and emission semantics; verify GPU scalar behavior where used.
+- [ ] Demonstrate load, replacement, failed replacement and unload with explicit
+  resource ownership, and record loading/residency measurements for the scene.
+  M1-K qualifies synchronous CPU ownership and records CPU payload/timing data;
+  asynchronous activation and GPU residency/release remain.
+- [x] Pass expected-content and parity checks for the integrated scene in native
+  OpenGL, Vulkan and Direct3D 12, including the real editor preview.
+
+This does not require every optional format, an entire typed asset family or
+general PBR conformance. Private roster/district qualification remains the
+separate game-facing M1 track. Full streaming, performance budgets and district
+scale remain later gates; this checklist does not declare them completed.
+
+After this engine-facing gate, prioritize M2's small walkable scene: collision,
+movement, camera and input. That gives subsequent lighting a useful scene and
+interactive context. A bounded lighting feature can then precede M5's full
+environment qualification. This records direction and acceptance goals, not a
+ready-to-dispatch implementation contract for the remaining work or a claim
+that M1 is complete.
+
 ## Read this first
 
 **Design provenance.** The product direction below comes from a user-supplied

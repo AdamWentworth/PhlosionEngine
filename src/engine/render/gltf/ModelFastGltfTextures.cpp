@@ -295,7 +295,9 @@ CPUTexture decodeTextureFast(const fastgltf::Asset& asset,
                              TextureKind kind,
                              bool dbg,
                              const std::string& modelPath,
-                             int* outTexCoordIndex) {
+                             int* outTexCoordIndex,
+                             BaseColorDecodePolicy basePolicy =
+                                 BaseColorDecodePolicy::LegacyBakeFactor) {
     if (outTexCoordIndex) *outTexCoordIndex = 0;
     const bool forceDbg = dbg || envTruthy("PHLOSION_GLTF_DEBUG_ALL");
     const std::string prefix = "[gltf][TEX] ";
@@ -383,6 +385,11 @@ CPUTexture decodeTextureFast(const fastgltf::Asset& asset,
     if (outTexCoordIndex) *outTexCoordIndex = texCoord;
     if (!hasTexture) {
         if (kind == TextureKind::BaseColor) {
+            if (basePolicy == BaseColorDecodePolicy::PreserveSource) {
+                // The new scene path keeps the factor separate, so an absent
+                // base map is implicit white rather than a factor image.
+                return white;
+            }
             CPUTexture t;
             t.width = 1;
             t.height = 1;
@@ -509,7 +516,8 @@ CPUTexture decodeTextureFast(const fastgltf::Asset& asset,
     const size_t pxCount = static_cast<size_t>(w) * static_cast<size_t>(h);
     out.rgba.resize(pxCount * 4);
     std::memcpy(out.rgba.data(), decoded, pxCount * 4);
-    if (kind == TextureKind::BaseColor) {
+    if (kind == TextureKind::BaseColor &&
+        basePolicy == BaseColorDecodePolicy::LegacyBakeFactor) {
         const auto f = mat.pbrData.baseColorFactor;
         const float fr = f[0];
         const float fg = f[1];
@@ -553,8 +561,16 @@ CPUTexture decodeBaseColorTextureFast(const fastgltf::Asset& asset,
                                       int materialIndex,
                                       bool dbg,
                                       const std::string& modelPath,
-                                      int* outTexCoordIndex) {
-    return decodeTextureFast(asset, baseDir, materialIndex, TextureKind::BaseColor, dbg, modelPath, outTexCoordIndex);
+                                      int* outTexCoordIndex,
+                                      BaseColorDecodePolicy policy) {
+    return decodeTextureFast(asset,
+                             baseDir,
+                             materialIndex,
+                             TextureKind::BaseColor,
+                             dbg,
+                             modelPath,
+                             outTexCoordIndex,
+                             policy);
 }
 CPUTexture decodeEmissiveTextureFast(const fastgltf::Asset& asset,
                                      const std::filesystem::path& baseDir,

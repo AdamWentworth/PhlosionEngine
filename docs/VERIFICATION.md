@@ -13,7 +13,7 @@ No test in the current engine CTest suite needs a graphics context.
 
 | CTest entry | Coverage |
 | --- | --- |
-| `PhlosionEngineContracts` | Twenty-six C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, real PNG/JPEG texture decoding and role fallbacks, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, model-cache sampler codec/version identity, animation fixture/palette/image guards, material fixture/content/evidence guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
+| `PhlosionEngineContracts` | Twenty-nine C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, real PNG/JPEG texture decoding and role fallbacks, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, model-cache sampler codec/version identity, owned CPU glTF scene validation/retention and renderer preflight, animation/material/integrated-scene content and evidence guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
 | `PhlosionMaterialDebugViewContract` | Material debug-view source contract |
@@ -21,6 +21,7 @@ No test in the current engine CTest suite needs a graphics context.
 | `PhlosionPublicAssetFixtureHarness` | CPU-only synthetic image/manifest negative tests, capture provenance and native process handling; enabled when fixture hosts and PowerShell are available |
 | `PhlosionAnimationFixtureHarness` | CPU-only skeletal fixture image/provenance/transition rejection checks and process handling; enabled when animation fixture hosts and PowerShell are available |
 | `PhlosionMaterialFixtureHarness` | CPU-only five-map content, fallback, evidence, numeric-boundary and run-path rejection checks; enabled when material fixture hosts and PowerShell are available |
+| `PhlosionSceneFixtureHarness` | CPU-only integrated scene evidence/content rejection checks, including 29 mutations and pristine recovery; enabled when scene fixture hosts and PowerShell are available |
 
 Local equivalent:
 
@@ -108,6 +109,39 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-20, Astra accepted M1-K's [owned CPU glTF scene and renderer
+adapter](GLTF_SCENE_ASSETS.md), based on M1-J `cc600e1` plus the accepted working
+tree. The full Debug build with warnings as errors passed, as did 29 CPU
+contracts and all nine CTest entries (284.37 seconds). A separate configuration
+built the scene guard/runtime with tests, editor and other fixture options off.
+Logs are under `artifacts/m1-k/`: `astra-build-final.log`,
+`astra-ctest-accepted.log` and `astra-scene-only-final.log`.
+
+The accepted [integrated scene matrix](SCENE_FIXTURE.md) is
+`artifacts/m1-k/matrix/m1-k-accepted-scene/`: 36 captures at frame 6, covering
+six lifecycle/content cases across three native APIs and runtime/editor.
+The guard checks expected geometry, deformation, replacement preservation,
+factor-only emission and background-only unload per API/host. All 60 interior
+color-factor patches matched all 25 expected pixels at channel tolerance 3.
+The standard parity limits remain MAE .01, RMSE .08, changed ratio .05 and
+channel tolerance 8. Astra also inspected the final contact sheet.
+
+Regression runs `regression/archive/m1-k-accepted-archive` (24 captures),
+`regression/animation/m1-k-accepted-animation` (36) and
+`regression/material/m1-k-accepted-material` (18), relative to
+`artifacts/m1-k/`, all passed. `astra-final-audit.json` rehashes and checks sizes
+for all 16 recorded binary identities across the four accepted runs, totaling
+114 native captures. Earlier runs are historical; these final runs include
+the material-reference overflow correction.
+
+The [acceptance record](agent-work/cyberpunk-m1-integration/ACCEPTANCE.md)
+documents Astra's review and the user-authorized handoff after Flash's provider
+balance error. This qualifies the documented synchronous subset on one
+Windows/GTX 1070 host in Debug. It does not qualify asynchronous scene activation,
+GPU cache release/residency, general glTF/PBR conformance, production game
+adapters or private assets. M1 remains partial; these changes are included in
+the commit `Integrate owned glTF scenes with shared rendering`.
 
 On 2026-09-20, Astra accepted M1-J's [five-map material
 verification](MATERIAL_VERIFICATION.md), based on committed M1-I `a037f88` plus
