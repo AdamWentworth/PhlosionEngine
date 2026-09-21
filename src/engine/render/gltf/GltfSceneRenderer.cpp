@@ -236,6 +236,16 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
         }
     }
 
+    IWorldResourceScope* scopeApi = nullptr;
+    if (options.resourceScope != 0u) {
+        scopeApi = dynamic_cast<IWorldResourceScope*>(&renderer);
+        if (!scopeApi || !scopeApi->beginWorldResourceScope(options.resourceScope))
+            return fail("renderer rejected the glTF scene resource scope");
+    }
+    struct EndScope {
+        IWorldResourceScope* api;
+        ~EndScope() { if (api) api->endWorldResourceScope(); }
+    } endScope{scopeApi};
     GltfSceneDrawStats collected;
     for (std::size_t index = 0u; index < asset.primitives.size(); ++index) {
         const GltfScenePrimitive& primitive = asset.primitives[index];
@@ -282,6 +292,12 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
         collected.textureRoles += 5u;
     }
 
+    if (scopeApi) {
+        engine::render::WorldResourceScopeStats scope;
+        if (!scopeApi->getWorldResourceScopeStats(options.resourceScope, scope) ||
+            scope.status != engine::render::WorldResourceScopeStatus::Ready)
+            return fail("glTF scene GPU allocation failed: " + scope.error);
+    }
     stats = collected;
     if (error != nullptr) {
         error->clear();

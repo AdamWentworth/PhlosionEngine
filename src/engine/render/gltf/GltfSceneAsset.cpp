@@ -11,6 +11,7 @@
 #include "ModelFastGltfSceneData.h"
 #include "ModelFastGltfTextures.h"
 #include "engine/render/ModelPoseSampler.h"
+#include "engine/core/IAssetStore.h"
 
 #include <algorithm>
 #include <atomic>
@@ -2162,7 +2163,72 @@ bool gltfScenePoseMatchesAsset(const GltfSceneAsset& asset,
            pose.assetIdentity == asset.sourceIdentity;
 }
 
-bool loadGltfSceneAsset(const std::string& path,
+namespace {
+
+bool virtualScenePath(const std::string& base, const std::string& path,
+                      std::string& out) {
+    if (path.empty() || path.front() == '/' ||
+        path.find_first_of("\\:%?#") != std::string::npos ||
+        std::any_of(path.begin(), path.end(), [](unsigned char c) { return c < 32u; }))
+        return false;
+    std::vector<std::string> parts;
+    const std::string combined = base + path;
+    std::size_t begin = 0u;
+    while (begin <= combined.size()) {
+        const auto end = combined.find('/', begin);
+        const auto part = combined.substr(begin, end == std::string::npos
+            ? std::string::npos : end - begin);
+        if (part == "..") {
+            if (parts.empty()) return false;
+            parts.pop_back();
+        } else if (!part.empty() && part != ".") {
+            parts.push_back(part);
+        }
+        if (end == std::string::npos) break;
+        begin = end + 1u;
+    }
+    if (parts.empty()) return false;
+    out.clear();
+    for (const auto& part : parts) {
+        if (!out.empty()) out += '/';
+        out += part;
+    }
+    return true;
+}
+
+bool resolveStoreSources(fastgltf::Asset& asset, const engine::IAssetStore& store,
+                         const std::string& path, std::string& error) {
+    const auto slash = path.rfind('/');
+    const auto base = slash == std::string::npos ? std::string{} : path.substr(0, slash + 1u);
+    const auto resolve = [&](fastgltf::DataSource& source) {
+        const auto* uri = std::get_if<fastgltf::sources::URI>(&source);
+        if (!uri) return true;
+        // Embedded data URIs are handled by the parser/shared image decoder.
+        if (uri->uri.isDataUri()) return true;
+        std::string resolved;
+        if (uri->fileByteOffset != 0u ||
+            !virtualScenePath(base, std::string(uri->uri.string()), resolved)) {
+            error = "unsupported or escaping glTF store resource path";
+            return false;
+        }
+        std::vector<std::uint8_t> bytes;
+        if (!store.readBytes(resolved, bytes, &error)) {
+            error = "could not read glTF store resource '" + resolved + "': " + error;
+            return false;
+        }
+        fastgltf::sources::Vector owned;
+        owned.mimeType = uri->mimeType;
+        owned.bytes.resize(bytes.size());
+        if (!bytes.empty()) std::memcpy(owned.bytes.data(), bytes.data(), bytes.size());
+        source = std::move(owned);
+        return true;
+    };
+    for (auto& buffer : asset.buffers) if (!resolve(buffer.data)) return false;
+    for (auto& image : asset.images) if (!resolve(image.data)) return false;
+    return true;
+}
+
+bool loadSceneImpl(const engine::IAssetStore* store, const std::string& path,
                         std::shared_ptr<const GltfSceneAsset>& out,
                         std::string* error,
                         const GltfSceneLoadOptions& options) {
@@ -2179,12 +2245,19 @@ bool loadGltfSceneAsset(const std::string& path,
     const auto started = std::chrono::steady_clock::now();
     const std::filesystem::path requested(path);
     std::error_code pathError;
-    const std::filesystem::path absolute =
+    const std::filesystem::path absolute = store ? requested :
         std::filesystem::absolute(requested, pathError);
-    const std::filesystem::path usePath = pathError ? requested : absolute;
+    const std::filesystem::path usePath = store ? requested : (pathError ? requested : absolute);
 
     std::vector<std::uint8_t> fileBytes;
-    {
+    if (store) {
+        std::string virtualPath;
+        if (!virtualScenePath({}, path, virtualPath)) return fail("invalid glTF virtual document path");
+        std::string readError;
+        if (!store->readBytes(virtualPath, fileBytes, &readError))
+            return fail("could not read glTF store document: " + readError);
+        if (fileBytes.empty()) return fail("glTF store document is empty");
+    } else {
         std::ifstream input(usePath, std::ios::binary);
         if (!input) {
             return fail("could not open glTF scene source: " +
@@ -2202,7 +2275,8 @@ bool loadGltfSceneAsset(const std::string& path,
         }
     }
 
-    auto data = fastgltf::GltfDataBuffer::FromPath(usePath);
+    auto data = fastgltf::GltfDataBuffer::FromBytes(
+        reinterpret_cast<const std::byte*>(fileBytes.data()), fileBytes.size());
     if (data.error() != fastgltf::Error::None) {
         return fail("could not read the glTF container (" +
                     std::string(engine::render::gltf::loader::errorName(
@@ -2210,13 +2284,12 @@ bool loadGltfSceneAsset(const std::string& path,
                     "): " + usePath.string());
     }
 
-    constexpr fastgltf::Options kParseOptions =
-        fastgltf::Options::LoadExternalBuffers |
-        fastgltf::Options::LoadExternalImages |
-        fastgltf::Options::None;
+    const fastgltf::Options parseOptions = store ? fastgltf::Options::None :
+        (fastgltf::Options::LoadExternalBuffers | fastgltf::Options::LoadExternalImages);
     fastgltf::Parser parser(engine::render::gltf::loader::kSupportedExtensionsMask);
     auto parsed = parser.loadGltf(
-        data.get(), usePath.parent_path(), kParseOptions, fastgltf::Category::All);
+        data.get(), store ? std::filesystem::path{} : usePath.parent_path(),
+        parseOptions, fastgltf::Category::All);
     if (parsed.error() != fastgltf::Error::None) {
         return fail("glTF parse failed (" +
                     std::string(engine::render::gltf::loader::errorName(
@@ -2225,6 +2298,12 @@ bool loadGltfSceneAsset(const std::string& path,
     }
 
     fastgltf::Asset& asset = parsed.get();
+    if (store) {
+        std::string normalized, resolutionError;
+        if (!virtualScenePath({}, path, normalized) ||
+            !resolveStoreSources(asset, *store, normalized, resolutionError))
+            return fail(resolutionError);
+    }
     fastgltf::DefaultBufferDataAdapter adapter{};
     static std::atomic<std::uint64_t> generationCounter{0u};
 
@@ -2274,6 +2353,25 @@ bool loadGltfSceneAsset(const std::string& path,
         error->clear();
     }
     return true;
+}
+
+} // namespace
+
+bool loadGltfSceneAsset(const std::string& path,
+                        std::shared_ptr<const GltfSceneAsset>& out,
+                        std::string* error, const GltfSceneLoadOptions& options) {
+    return loadSceneImpl(nullptr, path, out, error, options);
+}
+
+bool loadGltfSceneAsset(const engine::IAssetStore& store, const std::string& path,
+                        std::shared_ptr<const GltfSceneAsset>& out,
+                        std::string* error, const GltfSceneLoadOptions& options) {
+    try {
+        return loadSceneImpl(&store, path, out, error, options);
+    } catch (const std::exception& exception) {
+        if (error) *error = std::string("glTF store import failed: ") + exception.what();
+        return false;
+    }
 }
 
 bool sampleGltfScenePose(const std::shared_ptr<const GltfSceneAsset>& asset,

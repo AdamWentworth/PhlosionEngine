@@ -375,7 +375,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedPreparedInstanced(
     const bool hadCachedMesh =
         perfLog &&
         geometryKey && geometryKey[0] != '\0' &&
-        cachedWorldMeshes_.find(geometryKey) != cachedWorldMeshes_.end();
+        cachedWorldMeshes_.find(worldScopes_.key(geometryKey)) != cachedWorldMeshes_.end();
     float meshPrepareMs = 0.0f;
     float instancePrepMs = 0.0f;
     float internalDrawMs = 0.0f;
@@ -434,6 +434,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedPreparedInstanced(
         ensureCachedWorldMesh(geometryKey, vertices, vertexCount, indices, indexCount);
     if (perfLog) meshPrepareMs = toMs(meshPrepareStart, Clock::now());
     if (!cached || !cached->valid) {
+        if (worldScopes_.active()) return;
         maybeLog("fallback", "mesh_cache_prepare_failed");
         IRenderBackend::drawWorldIndexedMeshTexturedCachedInstanced(
             geometryKey,

@@ -13,7 +13,7 @@ No test in the current engine CTest suite needs a graphics context.
 
 | CTest entry | Coverage |
 | --- | --- |
-| `PhlosionEngineContracts` | Twenty-nine C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, real PNG/JPEG texture decoding and role fallbacks, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, model-cache sampler codec/version identity, owned CPU glTF scene validation/retention and renderer preflight, animation/material/integrated-scene content and evidence guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
+| `PhlosionEngineContracts` | Thirty-two C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, real PNG/JPEG texture decoding and role fallbacks, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, model-cache sampler codec/version identity, owned CPU glTF scene validation/retention and renderer preflight, archive-backed glTF worker sessions, GPU resource-scope state/accounting, animation/material/integrated-scene content and lifecycle evidence guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
 | `PhlosionMaterialDebugViewContract` | Material debug-view source contract |
@@ -53,6 +53,15 @@ snapshot ownership rules are described in
 well: it composes the graph session with the existing typed archive stores,
 drives a synthetic in-memory provider with gated reads, and creates no graphics
 context. It makes no game, editor or renderer integration claim.
+
+The [archive-backed glTF session](GLTF_SCENE_SESSIONS.md) builds on that contract:
+provider reads and glTF/image decoding run on owned workers, with atomic scene
+activation, stale-result suppression, retained snapshots and accepted-output
+byte limits. CPU gates establish thread identity and cancellation/destruction
+behavior. [World resource scopes](WORLD_RESOURCE_SCOPES.md) have separate CPU
+state/accounting tests and native lifecycle qualification. The 20 adversarial
+lifecycle evidence mutations reject leaks, wrong identities, stale release
+observations and malformed numbers; they do not substitute for native runs.
 
 The [static mesh contract](MESH_ASSETS.md) covers deterministic PHMS encoding,
 literal little-endian payload bytes, strict schema/UTF-8/geometry validation,
@@ -109,6 +118,33 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-20, Astra accepted the [engine-facing M1 closure](agent-work/cyberpunk-m1-closure/ACCEPTANCE.md)
+from `56cdf24`: archive-backed worker glTF sessions, atomic activation and
+explicit native resource ownership/reclamation. The full `/WX` Debug build and
+nine CTest entries passed (32 CPU contracts, 296.29 seconds). After correcting
+the scene guard's mode-specific capture frame, its two affected CTest entries
+passed again (88.79 seconds). Logs are in `artifacts/m1-closure/`:
+`build-final.log`, `build-guard-final.log`, `ctest-final.log` and
+`ctest-guard-final.log`.
+
+The accepted `lifecycle/lifecycle-final` matrix contains 36 native runtime/editor
+captures across OpenGL, Vulkan and D3D12, each preceded by 12 unique
+load/cancel/retained-draw/release cycles while an independent GPU scope remains
+live. At frame 42, unload cases have zero managed objects/bytes/scopes before
+host shutdown. Every capture passes the existing expected-content and parity
+guards plus strict native lifecycle accounting. All 36 PNGs exactly match the
+legacy scene captures, themselves identical to accepted M1-K. The final contact
+sheet was reviewed.
+
+Another 114 native captures passed in `regression/scene/scene-01` (36),
+`regression/archive/archive-01` (24), `regression/animation/animation-01` (36)
+and `regression/material/material-01` (18). `final-audit.json` rehashes all 20
+binary identities for these five runs and checks their sizes and 150-capture
+total. The acceptance record includes measured bytes/timings and limits:
+one Windows/GTX 1070 Debug host, explicit managed cached-resource ownership,
+no peak/process-memory or nonblocking streaming claim. Private game assets
+remain separate.
 
 On 2026-09-20, Astra accepted M1-K's [owned CPU glTF scene and renderer
 adapter](GLTF_SCENE_ASSETS.md), based on M1-J `cc600e1` plus the accepted working

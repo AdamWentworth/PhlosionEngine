@@ -70,7 +70,7 @@ std::filesystem::path stageScene(const FixtureDirectory& directory,
 
 // Records every submission the adapter makes through the shared cached
 // textured world-mesh entry point.
-class RecordingBackend final : public IRenderBackend {
+class RecordingBackend : public IRenderBackend {
 public:
     struct Submission {
         std::string geometryKey;
@@ -122,6 +122,31 @@ public:
         }
         submissions.push_back(std::move(submission));
     }
+};
+
+class ScopedRecordingBackend final : public RecordingBackend, public IWorldResourceScope {
+public:
+    bool active = false;
+    bool reportFailure = false;
+    int ended = 0;
+    engine::render::WorldResourceScopeId createWorldResourceScope(std::uint64_t) override { return 1; }
+    bool beginWorldResourceScope(engine::render::WorldResourceScopeId id) override {
+        if (id != 1u || active) return false;
+        active = true;
+        return true;
+    }
+    bool endWorldResourceScope() override { active = false; ++ended; return true; }
+    bool requestWorldResourceScopeRelease(engine::render::WorldResourceScopeId) override { return true; }
+    bool getWorldResourceScopeStats(engine::render::WorldResourceScopeId id,
+        engine::render::WorldResourceScopeStats& out) const override {
+        if (id != 1u) return false;
+        out.id = id;
+        out.status = reportFailure ? engine::render::WorldResourceScopeStatus::AllocationFailed
+                                   : engine::render::WorldResourceScopeStatus::Ready;
+        out.error = reportFailure ? "authored allocation failure" : "";
+        return true;
+    }
+    engine::render::WorldResourceStats getWorldResourceStats() const override { return {}; }
 };
 
 }  // namespace
@@ -432,6 +457,32 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
         return false;
     }
 
+    {
+        ScopedRecordingBackend scoped;
+        GltfSceneDrawOptions managedOptions = options;
+        managedOptions.resourceScope = 1u;
+        GltfSceneDrawStats managedStats;
+        if (!check(engine::render::gltf::scene::drawGltfSceneAsset(
+                scoped, *asset, pose, managedOptions, managedStats, &error) &&
+                !scoped.active && scoped.ended == 1 && scoped.submissions.size() == 2u,
+                "managed draw did not close its native scope")) return false;
+        const auto priorDraws = managedStats.drawCalls;
+        scoped.reportFailure = true;
+        if (!check(!engine::render::gltf::scene::drawGltfSceneAsset(
+                scoped, *asset, pose, managedOptions, managedStats, &error) &&
+                !scoped.active && scoped.ended == 2 && managedStats.drawCalls == priorDraws &&
+                error.find("authored allocation failure") != std::string::npos,
+                "native allocation failure was hidden or scope remained active")) return false;
+        managedOptions.resourceScope = 2u;
+        scoped.submissions.clear();
+        if (!check(!engine::render::gltf::scene::drawGltfSceneAsset(
+                scoped, *asset, pose, managedOptions, managedStats, &error) && scoped.submissions.empty(),
+                "foreign resource scope submitted draws")) return false;
+        RecordingBackend unsupported;
+        if (!check(!engine::render::gltf::scene::drawGltfSceneAsset(
+                unsupported, *asset, pose, managedOptions, managedStats, &error) && unsupported.submissions.empty(),
+                "unsupported resource ownership silently fell back")) return false;
+    }
     outFail.clear();
     return true;
 }

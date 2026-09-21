@@ -1204,7 +1204,16 @@ void OpenGLRenderBackend::destroyWorldPipeline() {
 }
 
 void OpenGLRenderBackend::destroyCachedWorldMeshes() {
+    worldIndexedBatchSubmissionState_ = {};
     for (auto& [_, mesh] : cachedWorldMeshes_) {
+        if (mesh.scope != 0 && mesh.valid) {
+            engine::render::WorldResourceCounts counts;
+            counts.geometryBuffers = 2;
+            counts.payloadBytes = mesh.vertexBytes + mesh.indexBytes;
+            counts.apiAllocationBytes = counts.payloadBytes;
+            counts.apiAllocationBytesEstimated = true;
+            worldScopes_.reclaim(mesh.scope, counts);
+        }
         if (mesh.indexBuffer != 0u) {
             glDeleteBuffers(1, &mesh.indexBuffer);
             mesh.indexBuffer = 0u;

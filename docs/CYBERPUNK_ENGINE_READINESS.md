@@ -1,14 +1,14 @@
 # Cyberpunk engine readiness audit
 
-Status: Reviewed roadmap; runtime readiness remains unverified
+Status: Engine-facing M1 complete for the documented subset; game-scale readiness remains unverified
 Date: 2026-09-20
 Owner: Astra (scope, architecture, acceptance)
 Audited engine baseline: `c17d2122bd36b3c3bb49c4e703900f40cccfbd76` (`main`)
 
-Documentation-only audit of Phlosion Engine against the recovered Pokemon
-Cyberpunk direction. It records what the engine source and tests contain today,
-what is missing, a dependency-ordered roadmap, and a migration boundary. It
-starts no engine work and migrates nothing.
+The original documentation-only audit records Phlosion Engine against the
+recovered Pokemon Cyberpunk direction: missing capabilities, a dependency-ordered
+roadmap and a migration boundary. The dated progress record below supersedes
+the original baseline where implementation and verification have since landed.
 
 ## Implementation progress after the audit
 
@@ -181,8 +181,8 @@ factor application and general PBR fidelity remain unqualified. M1-J uses one
 shared UV set, identity transforms, baseColorFactor 1 and default wrap on one
 local Windows/GTX 1070 host.
 
-This is partial M1 completion. Next: qualify the actual production
-character/content paths and continue material/texture/environment qualification.
+At M1-J this was partial M1 completion. The next gaps were the actual production
+character/content paths and further material/texture/environment qualification.
 Blending, events and managed attachments remain M3 work. Asset contracts can document
 and test an existing representation; they do not require a new file format.
 The full typed family remains optional, as the audit below states. Production game adapters, private roster
@@ -225,27 +225,39 @@ See [the supported scene path](GLTF_SCENE_ASSETS.md),
 [the fixture guide](SCENE_FIXTURE.md), and
 [Astra's acceptance](agent-work/cyberpunk-m1-integration/ACCEPTANCE.md).
 
-This pass remains synchronous. CPU snapshot release does not evict renderer GPU
-caches, and retained geometry/pixel byte counts are not peak-memory budgets.
-Asynchronous archive-to-scene integration and explicit GPU lifetime/residency
-qualification remain before the engine-facing M1 gate can be called complete.
+M1-K itself was synchronous and CPU snapshot release did not evict renderer GPU
+caches. The closure pass below supplies asynchronous archive integration and
+explicit GPU reclamation. Retained byte counts remain distinct from peak memory.
 
-### Recommended next work after M1-K
+### M1-L/M closure and next milestone
 
-After discussing an early lighting feature, the user asked Astra to prioritize
-the responsible development sequence. Recommendation: finish a bounded
-engine-facing M1 before starting dynamic lighting. Separate passing samples are
-useful evidence, but the remaining integration risk is whether the interfaces
-a game will consume work together for a complete character and environment.
+Accepted on 2026-09-20 from baseline `56cdf24`: **M1-L/M, archive-backed glTF
+sessions and native GPU ownership**. Flash returned HTTP 402 before editing;
+the user authorized Astra fallback. Root Astra implemented the session/consumer
+integration, an explicitly selected Astra worker implemented the independent
+GPU foundation, and root reviewed and qualified the combined change.
 
-M1-K establishes that bounded asset-to-scene path. The next brief should connect
-it to the existing asynchronous loading/archive activation facilities, with
-explicit cancellation, failed-replacement and retained-snapshot behavior.
-Then qualify GPU resource release/residency during repeated replacement and
-unload, recording CPU/GPU ownership and loading measurements without implying
-hard frame-time or peak-memory guarantees. Keep project import/cook policy and
-game-specific adapters with the consumer; no new format is required merely to
-connect these interfaces.
+[Scene sessions](GLTF_SCENE_SESSIONS.md) load Scene/Prefab archives, decode glTF
+on a worker and publish a matching archive/scene pair. Failed/cancelled candidates
+preserve active; late results cannot replace a newer request; retained snapshots
+survive unload. The active plus accepted candidate logical geometry/pixel budget
+is explicit. Existing graph/PHRC interpretation can still run in `pump()`.
+
+[World resource scopes](WORLD_RESOURCE_SCOPES.md) now own cached geometry,
+textures and material descriptors on OpenGL, Vulkan and D3D12. Release closes
+admission and collects after GPU completion at the next frame boundary. Vulkan
+uses dedicated managed geometry; D3D12 descriptor capacity is recycled; live
+independent scopes are preserved. Shared fallbacks/environment and transient
+resources remain outside the managed accounting. Maintenance may block.
+
+The [native lifecycle matrix](SCENE_FIXTURE.md) runs 12 unique reload, pending
+replacement, cancellation, retained-draw and release cycles before each of six
+final content cases. All 36 runtime/editor captures passed on the three APIs,
+including live-host unload to zero managed resources. Another 114 regression
+captures passed. All 32 CPU contracts, nine CTest entries and the warning-clean
+Debug build passed. The 36 lifecycle images exactly match the legacy scene
+captures, which exactly match accepted M1-K images. See
+[Astra's acceptance and measurements](agent-work/cyberpunk-m1-closure/ACCEPTANCE.md).
 
 Engine-facing M1 exit checklist:
 
@@ -253,24 +265,26 @@ Engine-facing M1 exit checklist:
   animation and materials together through interfaces available to a consumer.
 - [x] Correct and qualify the selected path's required material behavior, including
   tint/color-factor and emission semantics; verify GPU scalar behavior where used.
-- [ ] Demonstrate load, replacement, failed replacement and unload with explicit
+- [x] Demonstrate load, replacement, failed replacement and unload with explicit
   resource ownership, and record loading/residency measurements for the scene.
-  M1-K qualifies synchronous CPU ownership and records CPU payload/timing data;
-  asynchronous activation and GPU residency/release remain.
+  M1-L/M qualify asynchronous activation, cancellation/retention, scoped GPU
+  release and repeated native resource stability with measured bytes/timings.
 - [x] Pass expected-content and parity checks for the integrated scene in native
   OpenGL, Vulkan and Direct3D 12, including the real editor preview.
 
 This does not require every optional format, an entire typed asset family or
 general PBR conformance. Private roster/district qualification remains the
-separate game-facing M1 track. Full streaming, performance budgets and district
-scale remain later gates; this checklist does not declare them completed.
+separate game-facing M1 track. **The agreed engine-facing checklist is complete
+(4/4 gates); the whole game's M1 is not declared complete.** Full streaming,
+performance budgets and district scale remain later gates. Evidence is limited
+to the documented glTF subset on one Windows/GTX 1070 Debug host; the byte caps
+do not bound total process, driver or peak decode memory.
 
 After this engine-facing gate, prioritize M2's small walkable scene: collision,
 movement, camera and input. That gives subsequent lighting a useful scene and
 interactive context. A bounded lighting feature can then precede M5's full
-environment qualification. This records direction and acceptance goals, not a
-ready-to-dispatch implementation contract for the remaining work or a claim
-that M1 is complete.
+environment qualification. M2 needs its own bounded implementation brief; this
+closure pass does not start it.
 
 ## Read this first
 

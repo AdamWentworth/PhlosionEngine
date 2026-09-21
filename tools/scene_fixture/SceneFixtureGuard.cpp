@@ -1,6 +1,8 @@
 #include "SceneFixtureGuard.h"
 
 #include "SceneFixtureCase.h"
+#include "SceneFixtureLifecycle.h"
+#include "SceneLifecycleGuard.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -1074,7 +1076,8 @@ struct MatrixRow {
 
 bool evidenceNumbersValid(const nlohmann::json& value, const std::string& key) {
     const bool wide = key == "bytes" || key == "png_bytes" || key == "generation" ||
-        key == "generation_before_transition" || key == "retained_texture_bytes";
+        key == "generation_before_transition" || key.ends_with("_bytes") ||
+        key == "asset_scope" || key == "probe_scope" || key == "scope";
     const bool integer = wide || key == "width" || key == "height" ||
         key == "viewport_width" || key == "viewport_height" || key == "logical_frame" ||
         key == "requested_capture_frame" || key == "render_frame" || key == "transition_frame" ||
@@ -1459,6 +1462,7 @@ bool validateMatrix(const std::string& manifestPath,
         }
     }
 
+    const bool lifecycle = manifest.value("lifecycle", false);
     std::vector<MatrixRow> rows;
     std::map<std::string, std::size_t> rowIndex;
     std::int64_t editorFrames = 0;
@@ -1473,8 +1477,9 @@ bool validateMatrix(const std::string& manifestPath,
         result.failures.push_back(
             error.empty() ? "manifest capture frames are missing" : error);
     }
-    if (runtimeCaptureFrame != 6 || editorCaptureFrame != 6 || editorFrames < 6) {
-        result.failures.push_back("capture must observe authored final state at frame 6");
+    const int finalFrame = 6 + (lifecycle ? kLifecycleWarmupFrames : 0);
+    if (runtimeCaptureFrame != finalFrame || editorCaptureFrame != finalFrame || editorFrames <= finalFrame) {
+        result.failures.push_back("capture must observe authored final state at frame " + std::to_string(finalFrame));
     }
     if (!manifest.contains("captures") || !manifest["captures"].is_array()) {
         result.failures.push_back("manifest records no captures");
@@ -1644,7 +1649,17 @@ bool validateMatrix(const std::string& manifestPath,
                          row.handshake.value("logical_frame", -1),
                          fixtureCaseLogicalFrame(*parsedCase));
             requireEqual("render frame", row.handshake.value("render_frame", -1), requestedFrame);
-            requireEqual("transition frame", row.handshake.value("transition_frame", -1), fixtureTransitionFrame());
+            requireEqual("transition frame", row.handshake.value("transition_frame", -1),
+                         fixtureTransitionFrame() + (lifecycle ? kLifecycleWarmupFrames : 0));
+            if (lifecycle) {
+                if (requestedFrame != kLifecycleWarmupFrames + 6 ||
+                    !row.handshake.contains("lifecycle") ||
+                    !validateSceneLifecycle(row.handshake.at("lifecycle"),
+                        row.fixtureCase == FixtureCase::Unloaded, error))
+                    result.failures.push_back("invalid managed lifecycle: " + key + ": " + error);
+            } else if (row.handshake.contains("lifecycle")) {
+                result.failures.push_back("lifecycle capture was not declared by its manifest: " + key);
+            }
             requireEqual("variant",
                          row.handshake.value("variant", std::string{}),
                          std::string(sceneVariantName(expectation.variant)));

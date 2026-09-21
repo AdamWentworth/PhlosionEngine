@@ -19,6 +19,8 @@
 
 namespace engine::scene_fixture {
 
+struct FixtureLifecycleState;
+
 // Normalized x/y/width/height inside the host's render surface, top-left origin.
 using FixtureRegionRect = std::array<float, 4>;
 
@@ -64,6 +66,9 @@ struct FixtureSession {
     bool replacementSucceeded = false;
     std::string replacementDiagnostic;
     bool unloaded = false;
+    std::shared_ptr<FixtureLifecycleState> lifecycle;
+    engine::render::WorldResourceScopeId assetScope = 0u;
+    engine::render::WorldResourceScopeId probeScope = 0u;
 };
 
 // The frame at which each case applies its authored transition. The capture
@@ -101,6 +106,7 @@ std::map<std::string, FixtureRegionRect> computeFixtureRegionRects(
     int surfaceHeight);
 
 struct FixtureHandshake {
+    std::string lifecycleEvidence;
     int renderFrame = 0;
     int transitionFrame = 0;
     std::string schema;

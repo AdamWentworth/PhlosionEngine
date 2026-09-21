@@ -325,6 +325,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     static const unsigned char kFallbackWhiteRgba[4] = {255u, 255u, 255u, 255u};
     static const unsigned char kFallbackFlatNormalRgba[4] = {128u, 128u, 255u, 255u};
     if (worldFallbackTexture_ == 0u) {
+        engine::render::WorldResourceScopeState::SharedResources shared(worldScopes_);
         worldFallbackTexture_ = ensureWorldTextureRaw(
             "__world_fallback_white_srgb_1x1__",
             kFallbackWhiteRgba,
@@ -335,6 +336,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             /*srgb=*/true);
     }
     if (worldFallbackLinearTexture_ == 0u) {
+        engine::render::WorldResourceScopeState::SharedResources shared(worldScopes_);
         worldFallbackLinearTexture_ = ensureWorldTextureRaw(
             "__world_fallback_white_linear_1x1__",
             kFallbackWhiteRgba,
@@ -345,6 +347,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             /*srgb=*/false);
     }
     if (worldFallbackFlatNormalTexture_ == 0u) {
+        engine::render::WorldResourceScopeState::SharedResources shared(worldScopes_);
         worldFallbackFlatNormalTexture_ = ensureWorldTextureRaw(
             "__world_fallback_flat_normal_1x1__",
             kFallbackFlatNormalRgba,
@@ -422,6 +425,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     const GLuint boundEmissiveTexture = hasEmissiveTexture ? emissiveTexture : fallbackWhiteSrgbTexture;
     const auto& neutralPmremAtlas = engine::render::neutral_pmrem::getNeutralRoomPmremAtlas();
     if (worldNeutralPmremTexture_ == 0u) {
+        engine::render::WorldResourceScopeState::SharedResources shared(worldScopes_);
         worldNeutralPmremTexture_ = !neutralPmremAtlas.rgba16f.empty()
             ? ensureWorldTextureRawHalfFloat(
                 "__neutral_room_pmrem_rgba16f_v2__",
@@ -440,7 +444,9 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
                 /*srgb=*/false);
     }
     const GLuint neutralPmremTexture = worldNeutralPmremTexture_;
-    const GLuint authoredEnvironmentTexture = texture
+    const GLuint authoredEnvironmentTexture = [&]() {
+        engine::render::WorldResourceScopeState::SharedResources shared(worldScopes_);
+        return texture
         ? ensureWorldTextureRaw(
             texture->environmentKey,
             texture->environmentCacheKey,
@@ -453,6 +459,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             texture->environmentMipLevels,
             texture->environmentMipLevelCount)
         : 0u;
+    }();
     const GLuint boundEnvTexture = authoredEnvironmentTexture != 0u
         ? authoredEnvironmentTexture
         : ((neutralPmremTexture != 0u)
@@ -502,6 +509,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
         hasOcclusionTexture,
         hasEmissiveTexture);
 
+    if (!worldScopes_.admitted()) return;
     const bool preserveState = !worldIndexedBatchSubmissionState_.active;
     auto* batchState = preserveState ? nullptr : &worldIndexedBatchSubmissionState_;
     const auto bindProgram = [&](GLuint program) {

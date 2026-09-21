@@ -282,6 +282,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCached(const char* geometry
     CachedWorldMesh* cached =
         ensureCachedWorldMesh(geometryKey, vertices, vertexCount, indices, indexCount);
     if (!cached || !cached->valid) {
+        if (worldScopes_.active()) return;
         drawWorldIndexedMeshTextured(
             vertices,
             vertexCount,

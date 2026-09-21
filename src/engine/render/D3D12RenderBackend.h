@@ -6,6 +6,7 @@
 #include <unordered_map>
 
 #include "engine/render/IRenderBackend.h"
+#include "engine/render/WorldResourceScopeState.h"
 
 struct SDL_Window;
 
@@ -31,8 +32,16 @@ struct ID3D12Resource;
 struct ID3D12RootSignature;
 #endif
 
-class D3D12RenderBackend final : public IRenderBackend {
+class D3D12RenderBackend final : public IRenderBackend, public IWorldResourceScope {
 public:
+
+  engine::render::WorldResourceScopeId createWorldResourceScope(std::uint64_t payloadByteLimit) override;
+  bool beginWorldResourceScope(engine::render::WorldResourceScopeId id) override;
+  bool endWorldResourceScope() override;
+  bool requestWorldResourceScopeRelease(engine::render::WorldResourceScopeId id) override;
+  bool getWorldResourceScopeStats(engine::render::WorldResourceScopeId id,
+      engine::render::WorldResourceScopeStats& out) const override;
+  engine::render::WorldResourceStats getWorldResourceStats() const override;
   D3D12RenderBackend(SDL_Window *window,
                      int width,
                      int height,
@@ -182,6 +191,8 @@ public:
 #endif
 
 private:
+    engine::render::WorldResourceScopeState worldScopes_;
+    bool collectWorldResourceScopes();
     void configureScreenshotCapture();
 
     void initDeviceAndSwapchain(const std::string& preferredAdapterName);
@@ -251,9 +262,11 @@ private:
         std::uint32_t envTextureDescriptorIndex = 0u;
         std::uint32_t lightProjectionTextureDescriptorIndex = 0u;
         std::uint32_t projectedShadowTextureDescriptorIndex = 0u;
+        engine::render::WorldResourceScopeId scope = 0;
 
         bool operator==(const WorldMaterialDescriptorBlockKey& other) const {
-            return baseTextureDescriptorIndex == other.baseTextureDescriptorIndex &&
+            return scope == other.scope &&
+                   baseTextureDescriptorIndex == other.baseTextureDescriptorIndex &&
                    normalTextureDescriptorIndex == other.normalTextureDescriptorIndex &&
                    metallicRoughnessTextureDescriptorIndex ==
                        other.metallicRoughnessTextureDescriptorIndex &&
@@ -268,7 +281,8 @@ private:
     };
     struct WorldMaterialDescriptorBlockKeyHash {
         std::size_t operator()(const WorldMaterialDescriptorBlockKey& key) const noexcept {
-            std::size_t h = static_cast<std::size_t>(key.baseTextureDescriptorIndex);
+            std::size_t h = std::hash<engine::render::WorldResourceScopeId>{}(key.scope);
+            h ^= static_cast<std::size_t>(key.baseTextureDescriptorIndex);
             h ^= static_cast<std::size_t>(key.normalTextureDescriptorIndex) + 0x9e3779b9u +
                  (h << 6) + (h >> 2);
             h ^= static_cast<std::size_t>(key.metallicRoughnessTextureDescriptorIndex) +
@@ -296,6 +310,7 @@ private:
         bool valid = false;
     };
     struct CachedWorldMesh {
+        engine::render::WorldResourceScopeId scope = 0;
         Microsoft::WRL::ComPtr<ID3D12Resource> vertexBuffer;
         Microsoft::WRL::ComPtr<ID3D12Resource> indexBuffer;
         std::uint64_t vertexGpuAddress = 0;
@@ -532,6 +547,7 @@ private:
     std::uint32_t worldFallbackMaterialDescriptorBlockIndex_ = 0xffffffffu;
 
     struct SpriteTexture {
+        engine::render::WorldResourceScopeId scope = 0;
         Microsoft::WRL::ComPtr<ID3D12Resource> resource;
         std::uint32_t descriptorIndex = 0;
 #if defined(_WIN32)
@@ -543,6 +559,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvHeap_;
     std::uint32_t srvDescriptorSize_ = 0;
     std::uint32_t nextSrvDescriptorIndex_ = 0;
+    std::vector<std::uint32_t> freeWorldTextureDescriptors_;
+    std::vector<std::uint32_t> freeWorldMaterialBlocks_;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> spriteRootSignature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> spritePipelineState_;
     Microsoft::WRL::ComPtr<ID3D12Resource> spriteVertexBuffer_;

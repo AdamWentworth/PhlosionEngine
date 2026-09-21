@@ -351,32 +351,26 @@ unsigned int OpenGLRenderBackend::ensureWorldTextureRaw(const char* keyCStr,
         return 0;
     }
 
-    // Match D3D12 cache-key strictness to avoid accidental texture aliasing across
-    // reused key strings with different dimensions/wrap modes.
+    engine::render::WorldResourceScopeState::AllocationAttempt attempt(worldScopes_);
+    if (!worldScopes_.admitted()) return 0;
     std::string cacheKey;
     if (cacheKeyCStr && cacheKeyCStr[0] != '\0') {
-        auto existing = worldTextures_.find(cacheKeyCStr);
-        if (existing != worldTextures_.end()) {
-            return existing->second.textureId;
-        }
         cacheKey = cacheKeyCStr;
     } else {
-        cacheKey = keyCStr;
-        cacheKey += "|";
-        cacheKey += std::to_string(width);
-        cacheKey += "x";
-        cacheKey += std::to_string(height);
-        cacheKey += "|ws=";
-        cacheKey += std::to_string(wrapSIn);
-        cacheKey += "|wt=";
-        cacheKey += std::to_string(wrapTIn);
-        cacheKey += srgb ? "|srgb" : "|lin";
-        auto existing = worldTextures_.find(cacheKey);
-        if (existing != worldTextures_.end()) {
-            return existing->second.textureId;
-        }
+        cacheKey = std::string(keyCStr) + "|" + std::to_string(width) + "x" + std::to_string(height) +
+            "|ws=" + std::to_string(wrapSIn) + "|wt=" + std::to_string(wrapTIn) + (srgb ? "|srgb" : "|lin");
     }
-
+    cacheKey = worldScopes_.key(cacheKey);
+    const auto existing = worldTextures_.find(cacheKey);
+    if (existing != worldTextures_.end()) {
+        attempt.success();
+        return existing->second.textureId;
+    }
+    std::uint64_t payloadBytes = 0;
+    if (worldScopes_.active() &&
+        (!engine::render::worldTextureMipPayload(width, height, authoredMipLevels,
+            authoredMipLevelCount, worldTextureMipChainEnabled(), payloadBytes) ||
+         !worldScopes_.admit(payloadBytes))) return 0;
     unsigned int textureId = 0;
     glGenTextures(1, &textureId);
     if (textureId == 0) return 0;
@@ -469,13 +463,26 @@ unsigned int OpenGLRenderBackend::ensureWorldTextureRaw(const char* keyCStr,
     }
 #endif
 
+    if (worldScopes_.active() && glGetError() != GL_NO_ERROR) {
+        glDeleteTextures(1, &textureId);
+        return 0;
+    }
+    worldIndexedBatchSubmissionState_.currentTexture2DOnUnit.fill(-1);
     TextureCacheEntry entry;
+    entry.scope = worldScopes_.active();
     entry.textureId = textureId;
     entry.width = width;
     entry.height = height;
     entry.wrapS = wrapSIn;
     entry.wrapT = wrapTIn;
     worldTextures_.emplace(cacheKey, entry);
+    engine::render::WorldResourceCounts counts;
+    counts.textures = 1;
+    counts.payloadBytes = payloadBytes;
+    counts.apiAllocationBytes = payloadBytes;
+    counts.apiAllocationBytesEstimated = true;
+    worldScopes_.commit(counts);
+    attempt.success();
     if (traceUpload) {
         const auto uploadEnd = std::chrono::steady_clock::now();
         std::ostringstream msg;

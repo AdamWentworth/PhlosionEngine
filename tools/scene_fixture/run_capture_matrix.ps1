@@ -22,10 +22,16 @@ param(
     [int]$RuntimeWidth = 640,
     [int]$RuntimeHeight = 360,
     [int]$ProcessTimeoutSeconds = 180,
-    [string]$ExpectedBaseline = ''
+    [string]$ExpectedBaseline = '',
+    [switch]$Lifecycle
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Lifecycle) {
+    $RuntimeScreenshotFrame = 42
+    $EditorScreenshotFrame = 42
+    $EditorFrames = 48
+}
 if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
     $EngineRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 }
@@ -212,6 +218,7 @@ function Invoke-SceneFixtureCapture {
         PHLOSION_SCENE_FIXTURE_CASE = $caseName
         PHLOSION_SCENE_FIXTURE_LOGICAL_FRAME = "$caseFrame"
         PHLOSION_SCENE_FIXTURE_HANDSHAKE = $handshakePath
+        PHLOSION_SCENE_FIXTURE_LIFECYCLE = $(if ($Lifecycle) { '1' } else { '0' })
         PHLOSION_BACKEND_SCREENSHOT_PATH = $capturePath
         PHLOSION_BACKEND_SCREENSHOT_FRAME = "$screenshotFrame"
         PHLOSION_BACKEND_SCREENSHOT_DEFER = '0'
@@ -424,6 +431,7 @@ foreach ($api in $Apis) {
 $manifestPath = Join-Path $runDirectory 'manifest.json'
 $manifest = [ordered]@{
     schema = 'phlosion-scene-fixture-matrix-v1'
+    lifecycle = [bool]$Lifecycle
     run_id = $RunId
     engine_root = $engineRootPath
     build_directory = $BuildDirectory

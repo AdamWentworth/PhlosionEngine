@@ -314,6 +314,7 @@ void D3D12RenderBackend::createSpritePipeline() {
 }
 
 void D3D12RenderBackend::ensureWorldFallbackEnvTexture() {
+    engine::render::WorldResourceScopeState::SharedResources shared(worldScopes_);
 #if defined(_WIN32)
     if (worldFallbackEnvTextureReady_) return;
 

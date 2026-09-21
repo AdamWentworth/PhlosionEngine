@@ -30,6 +30,9 @@ bool test_model_cache_animation_contract(std::string& outFail);
 bool test_animation_fixture_contract(std::string& outFail);
 bool test_material_fixture_contract(std::string& outFail);
 bool test_scene_fixture_contract(std::string& outFail);
+bool test_gltf_scene_session_contract(std::string& outFail);
+bool test_world_resource_scope_contract(std::string& outFail);
+bool test_scene_lifecycle_contract(std::string& outFail);
 
 int main(int argc, char** argv) {
     // A real child process for reload launcher tests; avoids shell-specific
@@ -74,6 +77,9 @@ int main(int argc, char** argv) {
         {"animation_fixture_contract", &test_animation_fixture_contract},
         {"material_fixture_contract", &test_material_fixture_contract},
         {"scene_fixture_contract", &test_scene_fixture_contract},
+        {"gltf_scene_session_contract", &test_gltf_scene_session_contract},
+        {"world_resource_scope_contract", &test_world_resource_scope_contract},
+        {"scene_lifecycle_contract", &test_scene_lifecycle_contract},
     };
 
     bool passed = true;

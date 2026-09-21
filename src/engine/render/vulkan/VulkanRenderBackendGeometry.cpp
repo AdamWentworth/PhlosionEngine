@@ -31,6 +31,8 @@ VulkanRenderBackendImpl::CachedWorldMesh* VulkanRenderBackendImpl::ensureCachedW
     std::size_t vertexCount,
     const std::uint32_t* indices,
     std::size_t indexCount) {
+    engine::render::WorldResourceScopeState::AllocationAttempt attempt(worldScopes);
+    if (!worldScopes.admitted()) return nullptr;
     if (!geometryKey || geometryKey[0] == '\0' || !vertices || !indices ||
         vertexCount == 0u || indexCount < 3u || device == VK_NULL_HANDLE) {
         return nullptr;
@@ -43,13 +45,14 @@ VulkanRenderBackendImpl::CachedWorldMesh* VulkanRenderBackendImpl::ensureCachedW
         if (indices[i] >= safeVertexCount) return nullptr;
     }
 
-    const std::string key(geometryKey);
+    const std::string key = worldScopes.key(geometryKey);
     auto existing = cachedWorldMeshes.find(key);
     if (existing != cachedWorldMeshes.end()) {
         CachedWorldMesh& mesh = existing->second;
         if (mesh.geometryBuffer != VK_NULL_HANDLE &&
             mesh.vertexCount == safeVertexCount &&
             mesh.indexCount == safeIndexCount) {
+            attempt.success();
             return &mesh;
         }
         // Geometry keys are immutable contracts. Keep any in-flight resource alive
@@ -61,9 +64,11 @@ VulkanRenderBackendImpl::CachedWorldMesh* VulkanRenderBackendImpl::ensureCachedW
         static_cast<VkDeviceSize>(safeVertexCount) * sizeof(IRenderBackend::WorldMeshVertex);
     const VkDeviceSize indexBytes =
         static_cast<VkDeviceSize>(safeIndexCount) * sizeof(std::uint32_t);
+    if (!worldScopes.admit(vertexBytes + indexBytes)) return nullptr;
     Buffer vertexStaging;
     Buffer indexStaging;
     CachedWorldMesh mesh;
+    mesh.scope = worldScopes.active();
     try {
         vertexStaging = createBuffer(
             vertexBytes,
@@ -134,11 +139,20 @@ VulkanRenderBackendImpl::CachedWorldMesh* VulkanRenderBackendImpl::ensureCachedW
     } catch (...) {
         destroyBuffer(vertexStaging);
         destroyBuffer(indexStaging);
+        destroyBuffer(mesh.ownedGeometry);
+        if (worldScopes.active()) return nullptr;
         throw;
     }
     destroyBuffer(vertexStaging);
     destroyBuffer(indexStaging);
-    return &cachedWorldMeshes.emplace(key, std::move(mesh)).first->second;
+    auto& inserted = cachedWorldMeshes.emplace(key, std::move(mesh)).first->second;
+    engine::render::WorldResourceCounts counts;
+    counts.geometryBuffers = inserted.ownedGeometry.buffer != VK_NULL_HANDLE ? 1u : 0u;
+    counts.payloadBytes = vertexBytes + indexBytes;
+    counts.apiAllocationBytes = inserted.ownedGeometry.allocationBytes;
+    worldScopes.commit(counts);
+    attempt.success();
+    return &inserted;
 }
 
 void VulkanRenderBackendImpl::prewarmWorldIndexedMesh(
@@ -164,6 +178,7 @@ void VulkanRenderBackendImpl::drawWorldIndexedMeshCached(
     CachedWorldMesh* mesh = ensureCachedWorldMesh(
         geometryKey, vertices, vertexCount, indices, indexCount);
     if (!mesh) {
+        if (worldScopes.active()) return;
         drawWorldIndexedMesh(
             vertices,
             vertexCount,
@@ -222,6 +237,7 @@ void VulkanRenderBackendImpl::drawWorldIndexedMeshCachedInstanced(
     CachedWorldMesh* mesh = ensureCachedWorldMesh(
         geometryKey, vertices, vertexCount, indices, indexCount);
     if (!mesh) {
+        if (worldScopes.active()) return;
         drawWorldIndexedMeshInstanced(
             vertices,
             vertexCount,
@@ -269,6 +285,7 @@ void VulkanRenderBackendImpl::drawWorldIndexedMeshCachedPreparedInstanced(
     CachedWorldMesh* mesh = ensureCachedWorldMesh(
         geometryKey, vertices, vertexCount, indices, indexCount);
     if (!mesh) {
+        if (worldScopes.active()) return;
         drawWorldIndexedMeshInstanced(
             vertices,
             vertexCount,
@@ -301,6 +318,10 @@ void VulkanRenderBackendImpl::drawWorldIndexedMeshCachedPreparedInstanced(
 }
 
 void VulkanRenderBackendImpl::destroyCachedWorldMeshes() {
+    for (auto& [key, mesh] : cachedWorldMeshes) {
+        (void)key;
+        destroyBuffer(mesh.ownedGeometry);
+    }
     cachedWorldMeshes.clear();
     destroyWorldGeometryArena();
 }

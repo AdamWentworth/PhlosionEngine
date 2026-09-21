@@ -59,6 +59,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshCached(const char* geometryKey,
     }
     CachedWorldMesh* cached = ensureCachedWorldMesh(geometryKey, vertices, vertexCount, indices, indexCount);
     if (!cached || !cached->valid) {
+        if (worldScopes_.active()) return;
         drawWorldIndexedMesh(
             vertices,
             vertexCount,
@@ -124,12 +125,16 @@ D3D12RenderBackend::CachedWorldMesh* D3D12RenderBackend::ensureCachedWorldMesh(
     std::size_t vertexCount,
     const std::uint32_t* indices,
     std::size_t indexCount) {
+    engine::render::WorldResourceScopeState::AllocationAttempt attempt(worldScopes_);
+    if (!worldScopes_.admitted()) return nullptr;
     if (!geometryKey || geometryKey[0] == '\0' || !vertices || !indices || vertexCount == 0 || indexCount < 3u) {
         return nullptr;
     }
     if (!device_) return nullptr;
 
-    const std::string key(geometryKey);
+    std::uint64_t payloadBytes = 0;
+    if (!engine::render::worldGeometryPayload(vertexCount, sizeof(WorldVertex), indexCount, payloadBytes)) return nullptr;
+    const std::string key = worldScopes_.key(geometryKey);
     const std::size_t vertexBytes = vertexCount * sizeof(WorldVertex);
     const std::size_t indexBytes = indexCount * sizeof(std::uint32_t);
     if (vertexBytes == 0 || indexBytes == 0) return nullptr;
@@ -142,11 +147,14 @@ D3D12RenderBackend::CachedWorldMesh* D3D12RenderBackend::ensureCachedWorldMesh(
             mesh.indexCount == indexCount &&
             mesh.vertexBytes == vertexBytes &&
             mesh.indexBytes == indexBytes) {
+            attempt.success();
             return &mesh;
         }
+        if (worldScopes_.active()) return nullptr;
         cachedWorldMeshes_.erase(existing);
     }
 
+    if (!worldScopes_.admit(payloadBytes)) return nullptr;
     const auto createBuffer = [&](D3D12_HEAP_TYPE heapType,
                                   std::size_t sizeBytes,
                                   D3D12_RESOURCE_STATES initialState,
@@ -181,8 +189,9 @@ D3D12RenderBackend::CachedWorldMesh* D3D12RenderBackend::ensureCachedWorldMesh(
     };
 
     CachedWorldMesh mesh{};
+    mesh.scope = worldScopes_.active();
     const bool canUseDefaultHeapCache =
-        worldMeshCacheUseDefaultHeap() &&
+        worldScopes_.active() == 0 && worldMeshCacheUseDefaultHeap() &&
         device_ && commandQueue_ && fence_ && fenceEvent_;
 
     if (canUseDefaultHeapCache) {
@@ -319,6 +328,15 @@ D3D12RenderBackend::CachedWorldMesh* D3D12RenderBackend::ensureCachedWorldMesh(
     mesh.valid = true;
 
     auto [it, _] = cachedWorldMeshes_.emplace(key, std::move(mesh));
+    engine::render::WorldResourceCounts counts;
+    counts.geometryBuffers = 2;
+    counts.payloadBytes = payloadBytes;
+    const auto vertexDesc = it->second.vertexBuffer->GetDesc();
+    const auto indexDesc = it->second.indexBuffer->GetDesc();
+    counts.apiAllocationBytes = device_->GetResourceAllocationInfo(0, 1, &vertexDesc).SizeInBytes +
+        device_->GetResourceAllocationInfo(0, 1, &indexDesc).SizeInBytes;
+    worldScopes_.commit(counts);
+    attempt.success();
     return &it->second;
 }
 

@@ -106,5 +106,41 @@ was performed on Windows with a GTX 1070. Other platforms are unverified.
 ## Limits
 
 The sample is deliberately small and public. It is not private roster content,
-does not exercise asynchronous archive streaming or GPU residency management,
-and does not qualify general glTF or full PBR conformance.
+and does not qualify general glTF, full PBR conformance, district-scale streaming
+or a production performance budget.
+
+## Archive and GPU lifetime qualification
+
+Add `-Lifecycle` to the capture runner to exercise
+[archive-backed scene sessions](GLTF_SCENE_SESSIONS.md) and explicit
+[native resource scopes](WORLD_RESOURCE_SCOPES.md). It retains the same six
+visual cases and all existing expected-content/parity thresholds.
+
+Before those cases, 12 unique document generations each run through a three-frame
+load, pending replacement, cancellation and retained-draw cycle. The scene is
+drawn after the session releases its CPU reference, then its GPU scope is retired
+after submission. The next frame must observe actual scope collection. A second
+probe scope stays alive and continues drawing across all cycles. Final transitions
+occur at frame 39 and captures at frame 42; the editor continues through frame 48.
+The unload case must reach zero managed scopes/resources while the host remains
+open. Baseline mode retains its original frame 3 transition/frame 6 capture.
+
+The handshake records 42 native resource samples, allocation/reclamation totals,
+per-scope geometry/textures/descriptors and payload/API allocation bytes, plus
+encoded archive bytes, decoded CPU bytes and decode durations. Equal-sized
+cycles must have stable retained counts, preserve the independent probe and
+reclaim every retired scope. OpenGL allocation bytes are explicitly estimates;
+shared fallbacks/environment, heaps/pools and transient resources are excluded.
+
+`SceneLifecycleGuard` rejects missing/stale/invalid observations in addition to
+the existing binary, log, viewport, expected-content and parity guards.
+`TestSceneLifecycle.cpp` supplies 20 adversarial mutations of lifecycle evidence;
+these CPU checks are distinct from native rendering evidence. The sample waits
+at a bounded test barrier for deterministic captures; this does not establish
+nonblocking frame-time or peak-memory guarantees.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File `
+    tools/scene_fixture/run_capture_matrix.ps1 -EngineRoot . `
+    -ArtifactsRoot artifacts/m1-closure/lifecycle -RunId my-lifecycle-run -Lifecycle
+```

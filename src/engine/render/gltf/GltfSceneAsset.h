@@ -26,6 +26,8 @@
 #include "engine/render/ModelAnimationTypes.h"
 #include "engine/render/RenderBackendTypes.h"
 
+namespace engine { class IAssetStore; }
+
 namespace engine::render::gltf::scene {
 
 using engine::render::backend::WorldMeshVertex;
@@ -169,6 +171,16 @@ struct GltfScenePose {
 // snapshot. On failure `out` is left exactly as the caller passed it and
 // `error` describes the rejection.
 bool loadGltfSceneAsset(const std::string& path,
+                        std::shared_ptr<const GltfSceneAsset>& out,
+                        std::string* error = nullptr,
+                        const GltfSceneLoadOptions& options = {});
+
+// Store-only import: all document/buffer/image reads use this store. Relative
+// resource paths may traverse within its virtual root, never outside it.
+// Absolute paths, URI schemes, encoded path characters and query/fragment
+// components are outside this bounded subset. No filesystem fallback occurs.
+bool loadGltfSceneAsset(const engine::IAssetStore& store,
+                        const std::string& virtualPath,
                         std::shared_ptr<const GltfSceneAsset>& out,
                         std::string* error = nullptr,
                         const GltfSceneLoadOptions& options = {});

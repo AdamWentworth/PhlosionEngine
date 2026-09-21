@@ -9,11 +9,20 @@
 #include <unordered_map>
 
 #include "engine/render/IRenderBackend.h"
+#include "engine/render/WorldResourceScopeState.h"
 
 class Renderer;
 
-class OpenGLRenderBackend final : public IRenderBackend {
+class OpenGLRenderBackend final : public IRenderBackend, public IWorldResourceScope {
 public:
+
+  engine::render::WorldResourceScopeId createWorldResourceScope(std::uint64_t payloadByteLimit) override;
+  bool beginWorldResourceScope(engine::render::WorldResourceScopeId id) override;
+  bool endWorldResourceScope() override;
+  bool requestWorldResourceScopeRelease(engine::render::WorldResourceScopeId id) override;
+  bool getWorldResourceScopeStats(engine::render::WorldResourceScopeId id,
+      engine::render::WorldResourceScopeStats& out) const override;
+  engine::render::WorldResourceStats getWorldResourceStats() const override;
   explicit OpenGLRenderBackend(const engine::render::WorldMaterialProfile &profile = {});
   ~OpenGLRenderBackend() override;
   void setWorldMaterialProfile(const engine::render::WorldMaterialProfile &profile) override;
@@ -124,6 +133,8 @@ public:
   void shutdown() override;
 
 private:
+    engine::render::WorldResourceScopeState worldScopes_;
+    bool collectWorldResourceScopes();
     void configureScreenshotCapture();
     void captureScreenshotIfRequested();
 
@@ -299,6 +310,7 @@ private:
     };
 
     struct TextureCacheEntry {
+        engine::render::WorldResourceScopeId scope = 0;
         unsigned int textureId = 0;
         int width = 0;
         int height = 0;
@@ -350,6 +362,7 @@ private:
         worldTextures_;
     std::unordered_map<std::string, unsigned int> spriteTextures_;
     struct CachedWorldMesh {
+        engine::render::WorldResourceScopeId scope = 0;
         unsigned int vao = 0;
         unsigned int vertexBuffer = 0;
         unsigned int indexBuffer = 0;

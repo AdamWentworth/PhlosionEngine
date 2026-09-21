@@ -289,6 +289,13 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTextureWithForma
         authoredMipChainValid ? authoredMipLevelCount : 1u;
     if (!authoredMipChainValid) stagingByteCount = byteCount;
 
+    if (!createStandaloneDescriptor && worldScopes.active()) {
+        std::uint64_t checkedBytes = 0;
+        if (!engine::render::worldTextureMipPayload(width, height, authoredMipLevels,
+                authoredMipLevelCount, worldTextureMipChainEnabled(), checkedBytes) ||
+            checkedBytes != stagingByteCount || !worldScopes.admit(checkedBytes))
+            throw std::runtime_error("Scoped Vulkan texture payload admission failed");
+    }
     Buffer staging = createBuffer(
         stagingByteCount,
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -339,6 +346,7 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTextureWithForma
     }
 
     Texture out;
+    out.payloadBytes = stagingByteCount;
     out.format = format;
     out.width = width;
     out.height = height;
@@ -363,6 +371,7 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTextureWithForma
         vkGetImageMemoryRequirements(device, out.image, &requirements);
         VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
         allocation.allocationSize = requirements.size;
+        out.allocationBytes = requirements.size;
         allocation.memoryTypeIndex = findMemoryType(
             requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
         requireVkTexture(vkAllocateMemory(device, &allocation, nullptr, &out.memory),

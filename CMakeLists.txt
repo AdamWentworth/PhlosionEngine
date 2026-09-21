@@ -289,6 +289,10 @@ add_library(engine_render STATIC
     src/engine/render/gltf/ModelFastGltfSceneData.cpp
     src/engine/render/gltf/ModelFastGltfTextures.cpp
     src/engine/render/gltf/GltfSceneAsset.cpp
+    src/engine/render/gltf/GltfSceneSession.cpp
+    src/engine/render/opengl/OpenGLRenderBackendResourceScopes.cpp
+    src/engine/render/vulkan/VulkanRenderBackendResourceScopes.cpp
+    src/engine/render/d3d12/D3D12RenderBackendResourceScopes.cpp
     src/engine/render/gltf/GltfSceneRenderer.cpp
     src/engine/ui/UIManager.cpp
     src/engine/ui/TextRenderer.cpp
@@ -661,6 +665,7 @@ if (PHLOSION_BUILD_SCENE_FIXTURE OR PHLOSION_BUILD_TESTS)
         examples/scene_fixture/SceneFixtureCase.cpp
         examples/scene_fixture/SceneFixtureAssets.cpp
         examples/scene_fixture/SceneFixturePresentation.cpp
+        examples/scene_fixture/SceneFixtureLifecycle.cpp
     )
     target_link_libraries(scene_fixture
         PUBLIC
@@ -676,6 +681,7 @@ if (PHLOSION_BUILD_SCENE_FIXTURE OR PHLOSION_BUILD_TESTS)
     # The runnable example library never depends on it.
     add_library(scene_fixture_verification STATIC
         tools/scene_fixture/SceneFixtureGuard.cpp
+        tools/scene_fixture/SceneLifecycleGuard.cpp
     )
     target_link_libraries(scene_fixture_verification
         PUBLIC
@@ -785,12 +791,15 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestGltfTextureImport.cpp
         tests/TestGltfImportFixture.cpp
         tests/TestGltfSceneAsset.cpp
+        tests/TestGltfSceneSession.cpp
+        tests/TestWorldResourceScope.cpp
         tests/TestGltfSceneAssetRenderer.cpp
         tests/TestModelPoseSampler.cpp
         tests/TestModelCacheAnimation.cpp
         tests/TestAnimationFixture.cpp
         tests/TestMaterialFixture.cpp
         tests/TestSceneFixture.cpp
+        tests/TestSceneLifecycle.cpp
         tests/TestPublicAssetFixture.cpp
         tests/TestPublicAssetFixtureRendering.cpp
     )

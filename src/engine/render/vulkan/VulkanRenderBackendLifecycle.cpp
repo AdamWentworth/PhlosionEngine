@@ -659,6 +659,7 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
     poolSizes[3].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
     poolSizes[3].descriptorCount = kFramesInFlight;
     VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     poolInfo.maxSets = 4096u + kFramesInFlight + kFramesInFlight +
                        (descriptorIndexingSupported ? kFramesInFlight : 0u);
     poolInfo.poolSizeCount = static_cast<std::uint32_t>(poolSizes.size());
@@ -1519,6 +1520,7 @@ void VulkanRenderBackendImpl::beginFrame(float r, float g, float b, float a) {
     editorSurfacePassActive = false;
     activeEditorSurface = 0u;
     if (!initialized || device == VK_NULL_HANDLE) return;
+    if (!collectWorldResourceScopes()) return;
     ++frameCounter;
     if ((swapchainDirty || swapchain == VK_NULL_HANDLE) && !recreateSwapchain()) return;
 
@@ -1738,21 +1740,27 @@ VulkanRenderBackendImpl::Buffer VulkanRenderBackendImpl::createBuffer(
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     requireVk(vkCreateBuffer(device, &bufferInfo, nullptr, &out.buffer), "vkCreateBuffer");
 
-    VkMemoryRequirements requirements{};
-    vkGetBufferMemoryRequirements(device, out.buffer, &requirements);
-    const std::uint32_t memoryType = findMemoryType(
-        requirements.memoryTypeBits, required, preferred);
-    const VkMemoryPropertyFlags selectedFlags =
-        memoryProperties.memoryTypes[memoryType].propertyFlags;
-    out.coherent = (selectedFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0u;
-    VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-    allocation.allocationSize = requirements.size;
-    allocation.memoryTypeIndex = memoryType;
-    requireVk(vkAllocateMemory(device, &allocation, nullptr, &out.memory),
-              "vkAllocateMemory(buffer)");
-    requireVk(vkBindBufferMemory(device, out.buffer, out.memory, 0u), "vkBindBufferMemory");
-    if ((required & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0u) {
-        requireVk(vkMapMemory(device, out.memory, 0u, size, 0u, &out.mapped), "vkMapMemory");
+    try {
+        VkMemoryRequirements requirements{};
+        vkGetBufferMemoryRequirements(device, out.buffer, &requirements);
+        const std::uint32_t memoryType = findMemoryType(
+            requirements.memoryTypeBits, required, preferred);
+        const VkMemoryPropertyFlags selectedFlags =
+            memoryProperties.memoryTypes[memoryType].propertyFlags;
+        out.coherent = (selectedFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0u;
+        VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        allocation.allocationSize = requirements.size;
+        out.allocationBytes = requirements.size;
+        allocation.memoryTypeIndex = memoryType;
+        requireVk(vkAllocateMemory(device, &allocation, nullptr, &out.memory),
+                  "vkAllocateMemory(buffer)");
+        requireVk(vkBindBufferMemory(device, out.buffer, out.memory, 0u), "vkBindBufferMemory");
+        if ((required & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0u) {
+            requireVk(vkMapMemory(device, out.memory, 0u, size, 0u, &out.mapped), "vkMapMemory");
+        }
+    } catch (...) {
+        destroyBuffer(out);
+        throw;
     }
     return out;
 }
@@ -1827,6 +1835,7 @@ void VulkanRenderBackendImpl::endOneTimeCommands(VkCommandBuffer commandBuffer) 
 }
 
 void VulkanRenderBackendImpl::shutdown() {
+    worldScopes.reset();
     frameActive = false;
     initialized = false;
     if (device != VK_NULL_HANDLE) vkDeviceWaitIdle(device);

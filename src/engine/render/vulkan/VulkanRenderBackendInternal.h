@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "engine/render/IRenderBackend.h"
+#include "engine/render/WorldResourceScopeState.h"
 #include "engine/render/vulkan/VulkanWorldInstanceState.h"
 #include "engine/render/vulkan/VulkanWorldIndirectState.h"
 #include "engine/render/vulkan/VulkanWorldMaterialLayout.h"
@@ -22,6 +23,8 @@
 struct SDL_Window;
 
 struct VulkanRenderBackendImpl {
+    engine::render::WorldResourceScopeState worldScopes;
+    bool collectWorldResourceScopes();
     engine::render::WorldMaterialProfile worldMaterialProfile;
     static constexpr std::uint32_t kFramesInFlight = 2u;
     static constexpr VkDeviceSize kTransientBytesPerFrame = 128ull * 1024ull * 1024ull;
@@ -31,6 +34,7 @@ struct VulkanRenderBackendImpl {
         VkDeviceMemory memory = VK_NULL_HANDLE;
         void* mapped = nullptr;
         VkDeviceSize size = 0u;
+        VkDeviceSize allocationBytes = 0u;
         VkDeviceSize offset = 0u;
         bool coherent = false;
     };
@@ -50,11 +54,14 @@ struct VulkanRenderBackendImpl {
     };
 
     struct Texture {
+        engine::render::WorldResourceScopeId scope = 0;
         VkImage image = VK_NULL_HANDLE;
         VkDeviceMemory memory = VK_NULL_HANDLE;
         VkImageView view = VK_NULL_HANDLE;
         VkSampler sampler = VK_NULL_HANDLE;
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+        VkDeviceSize allocationBytes = 0u;
+        VkDeviceSize payloadBytes = 0u;
         VkFormat format = VK_FORMAT_UNDEFINED;
         int width = 0;
         int height = 0;
@@ -85,6 +92,7 @@ struct VulkanRenderBackendImpl {
     };
 
     struct WorldMaterial {
+        engine::render::WorldResourceScopeId scope = 0;
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
         std::array<
             Texture*,
@@ -98,6 +106,8 @@ struct VulkanRenderBackendImpl {
     };
 
     struct CachedWorldMesh {
+        engine::render::WorldResourceScopeId scope = 0;
+        Buffer ownedGeometry;
         VkBuffer geometryBuffer = VK_NULL_HANDLE;
         VkDeviceSize vertexByteOffset = 0u;
         VkDeviceSize indexByteOffset = 0u;

@@ -30,6 +30,18 @@ bool VulkanRenderBackendImpl::allocateWorldGeometry(
     VkDeviceSize indexBytes,
     CachedWorldMesh& outMesh) {
     namespace vulkan = engine::render::vulkan_backend;
+    if (worldScopes.active() != 0) {
+        vulkan::GeometryArenaAllocation allocation;
+        if (!vulkan::planGeometryArenaAllocation(
+                (std::numeric_limits<VkDeviceSize>::max)(), 0u,
+                sizeof(IRenderBackend::WorldMeshVertex), vertexBytes, indexBytes, allocation)) return false;
+        outMesh.ownedGeometry = createBuffer(
+            allocation.endByteOffset,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        applyAllocation(outMesh, outMesh.ownedGeometry.buffer, allocation);
+        return true;
+    }
     const auto tryPage = [&](WorldGeometryPage& page) {
         vulkan::GeometryArenaAllocation allocation;
         if (!vulkan::planGeometryArenaAllocation(

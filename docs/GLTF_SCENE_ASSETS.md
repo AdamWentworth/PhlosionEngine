@@ -106,10 +106,13 @@ the legacy parser's extension recognition does not imply scene-path support.
 
 ## Limits and follow-up
 
-Import is synchronous; asynchronous/archive integration and GPU cache release
-for the CPU snapshots remain explicit follow-up work. The renderer's caches
-outlive these CPU snapshots, so unloading a snapshot does not evict GPU
-resources. The path does not claim general glTF or full PBR conformance.
+Direct import is synchronous. The store overload and
+[archive-backed scene session](GLTF_SCENE_SESSIONS.md) provide background glTF
+decoding and atomic activation. Pass an explicit
+[resource scope](WORLD_RESOURCE_SCOPES.md) through draw options to own and release
+the scene's native cached resources. CPU snapshot release alone still does not
+evict GPU resources; scope zero keeps legacy unowned cache behavior. The path
+does not claim general glTF or full PBR conformance.
 Texture decoding goes through the shared decoders, so a consumer that sets the
 existing `PHLOSION_GLTF_DEBUG_*`/`PHLOSION_GLTF_DUMP_TEXTURES` flags still gets
 that diagnostic behavior; the scene sample scopes those flags off around its own

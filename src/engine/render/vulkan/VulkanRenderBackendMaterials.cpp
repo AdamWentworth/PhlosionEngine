@@ -67,7 +67,9 @@ VulkanRenderBackendImpl::Texture* VulkanRenderBackendImpl::ensureWorldTextureRaw
     const IRenderBackend::WorldTextureMipLevel* authoredMipLevels,
     std::uint32_t authoredMipLevelCount) {
     if (!rgba || width <= 0 || height <= 0) return nullptr;
-    const std::string resolved = resolvedTextureKey(
+    engine::render::WorldResourceScopeState::AllocationAttempt attempt(worldScopes);
+    if (!worldScopes.admitted()) return nullptr;
+    const std::string resolved = worldScopes.key(resolvedTextureKey(
         key,
         cacheKey,
         rgba,
@@ -76,12 +78,14 @@ VulkanRenderBackendImpl::Texture* VulkanRenderBackendImpl::ensureWorldTextureRaw
         wrapS,
         wrapT,
         srgb,
-        authoredMipLevelCount);
+        authoredMipLevelCount));
     if (outResolvedKey) *outResolvedKey = resolved;
     auto existing = worldTextures.find(resolved);
-    if (existing != worldTextures.end()) return &existing->second;
+    if (existing != worldTextures.end()) { attempt.success(); return &existing->second; }
 
-    Texture uploaded = createTexture(
+    Texture uploaded;
+    try {
+        uploaded = createTexture(
         rgba,
         width,
         height,
@@ -91,7 +95,19 @@ VulkanRenderBackendImpl::Texture* VulkanRenderBackendImpl::ensureWorldTextureRaw
         false,
         authoredMipLevels,
         authoredMipLevelCount);
-    return &worldTextures.emplace(resolved, std::move(uploaded)).first->second;
+    } catch (...) {
+        if (worldScopes.active()) return nullptr;
+        throw;
+    }
+    uploaded.scope = worldScopes.active();
+    auto& inserted = worldTextures.emplace(resolved, std::move(uploaded)).first->second;
+    engine::render::WorldResourceCounts counts;
+    counts.textures = 1;
+    counts.payloadBytes = inserted.payloadBytes;
+    counts.apiAllocationBytes = inserted.allocationBytes;
+    worldScopes.commit(counts);
+    attempt.success();
+    return &inserted;
 }
 
 VulkanRenderBackendImpl::WorldMaterial VulkanRenderBackendImpl::createWorldMaterial(
@@ -150,7 +166,9 @@ VulkanRenderBackendImpl::WorldMaterial VulkanRenderBackendImpl::createWorldMater
 
 VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMaterial(
     const IRenderBackend::WorldTextureData* texture) {
+    if (!worldScopes.admitted()) return nullptr;
     if (!texture) return &fallbackWorldMaterial;
+    engine::render::WorldResourceScopeState::AllocationAttempt attempt(worldScopes);
 
     std::array<
         std::string,
@@ -235,7 +253,9 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->emissiveMipLevelCount);
     if (!emissive) emissive = &fallbackWorldEmissiveTexture;
 
-    Texture* environment = ensureWorldTextureRaw(
+    Texture* environment = [&]() {
+        engine::render::WorldResourceScopeState::SharedResources shared(worldScopes);
+        return ensureWorldTextureRaw(
         texture->environmentKey,
         texture->environmentCacheKey,
         texture->environmentRgba,
@@ -247,6 +267,7 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         &keys[5],
         texture->environmentMipLevels,
         texture->environmentMipLevelCount);
+    }();
     if (!environment) environment = &neutralPmremTexture;
 
     Texture* lightProjection = ensureWorldTextureRaw(
@@ -277,16 +298,29 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         0u);
     if (!projectedShadow) projectedShadow = &fallbackWorldLinearTexture;
 
-    const std::string key = materialKey(keys);
+    if (!worldScopes.admitted()) return nullptr;
+    const std::string key = worldScopes.key(materialKey(keys));
     auto existing = worldMaterials.find(key);
     if (existing != worldMaterials.end()) {
         (void)registerIndexedWorldMaterial(existing->second);
+        attempt.success();
         return &existing->second;
     }
-    WorldMaterial material = createWorldMaterial(
+    WorldMaterial material;
+    try {
+        material = createWorldMaterial(
         *base, *normal, *metallicRoughness, *occlusion, *emissive,
         *environment, *lightProjection, *projectedShadow);
+    } catch (...) {
+        if (worldScopes.active()) return nullptr;
+        throw;
+    }
+    material.scope = worldScopes.active();
     WorldMaterial& inserted = worldMaterials.emplace(key, material).first->second;
+    engine::render::WorldResourceCounts counts;
+    counts.materialDescriptors = 8;
+    worldScopes.commit(counts);
+    attempt.success();
     (void)registerIndexedWorldMaterial(inserted);
     return &inserted;
 }

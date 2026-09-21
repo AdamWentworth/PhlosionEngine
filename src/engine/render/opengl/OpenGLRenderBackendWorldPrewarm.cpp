@@ -65,6 +65,7 @@ void OpenGLRenderBackend::prewarmWorldTextureData(const WorldTextureData* textur
     if (texture->environmentRgba &&
         texture->environmentWidth > 0 &&
         texture->environmentHeight > 0) {
+        engine::render::WorldResourceScopeState::SharedResources shared(worldScopes_);
         (void)ensureWorldTextureRaw(
             texture->environmentKey,
             texture->environmentCacheKey,
@@ -95,6 +96,7 @@ void OpenGLRenderBackend::prewarmWorldTextureData(const WorldTextureData* textur
 }
 
 void OpenGLRenderBackend::prewarmWorldRenderAssets() {
+    engine::render::WorldResourceScopeState::SharedResources shared(worldScopes_);
     const auto t0 = std::chrono::high_resolution_clock::now();
     ensureWorldPipeline();
     const auto t1 = std::chrono::high_resolution_clock::now();

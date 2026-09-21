@@ -11,6 +11,7 @@
 #include "GltfSceneAsset.h"
 
 #include "engine/render/IRenderBackend.h"
+#include "engine/render/IWorldResourceScope.h"
 
 #include <array>
 #include <cstdint>
@@ -38,6 +39,9 @@ struct GltfSceneDrawOptions {
     std::array<float, 3> cameraTarget{0.0f, -1.0f, 0.0f};
     // The shared world material path; 2 selects the composed PBR material.
     std::uint8_t materialMode = 2u;
+    // Optional explicit GPU ownership. Create/release this renderer-owned scope
+    // through IWorldResourceScope. Zero retains the legacy unowned cache path.
+    engine::render::WorldResourceScopeId resourceScope = 0u;
 };
 
 struct GltfSceneDrawStats {
@@ -53,7 +57,8 @@ struct GltfSceneDrawStats {
 // Submits every primitive in asset order. Returns false with a diagnostic
 // before submitting anything when the pose does not belong to this asset
 // generation or any submission input is inconsistent; the caller's statistics
-// are only written on success.
+// are only written on success. Native allocation failures in a managed scope
+// are reported after submission; they are not transactional draw rollback.
 bool drawGltfSceneAsset(IRenderBackend& renderer,
                         const GltfSceneAsset& asset,
                         const GltfScenePose& pose,

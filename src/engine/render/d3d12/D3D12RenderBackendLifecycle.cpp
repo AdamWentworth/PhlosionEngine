@@ -42,6 +42,7 @@ engine::log::Sink& d3d12LifecycleLog() {
 }
 
 void D3D12RenderBackend::beginFrame(float r, float g, float b, float a) {
+    if (!collectWorldResourceScopes()) return;
     ++frameCounter_;
     worldSceneColorPassActive_ = false;
     clearColor_[0] = r;
@@ -461,6 +462,7 @@ void D3D12RenderBackend::shutdown() {
     debugVertexFrameOffset_ = 0;
     cachedDebugQuads_.clear();
     cachedDebugLines_.clear();
+    cachedWorldMeshes_.clear();
     if (worldVertexBuffer_ && worldVertexMappedData_) {
         D3D12_RANGE readRange{0, 0};
         worldVertexBuffer_->Unmap(0, &readRange);
@@ -565,6 +567,9 @@ void D3D12RenderBackend::shutdown() {
     srvHeap_.Reset();
     srvDescriptorSize_ = 0;
     nextSrvDescriptorIndex_ = 0;
+    freeWorldTextureDescriptors_.clear();
+    freeWorldMaterialBlocks_.clear();
+    worldScopes_.reset();
     debugPipelineState_.Reset();
     debugRootSignature_.Reset();
 

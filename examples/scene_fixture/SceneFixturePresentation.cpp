@@ -1,6 +1,7 @@
 #include "SceneFixturePresentation.h"
 
 #include "SceneFixtureCase.h"
+#include "SceneFixtureLifecycle.h"
 
 #include "engine/core/Environment.h"
 
@@ -233,8 +234,13 @@ bool prepareFixtureSession(FixtureCase fixtureCase,
     bool loaded = false;
     {
         const ScopedDecoderDiagnostics diagnostics;
-        loaded = engine::render::gltf::scene::loadGltfSceneAsset(
-            document.string(), asset, &loadError);
+        if (engine::env::get("PHLOSION_SCENE_FIXTURE_LIFECYCLE").value_or("0") == "1") {
+            loaded = prepareFixtureLifecycle(session, staging->path().string(), &loadError);
+            asset = session.asset;
+        } else {
+            loaded = engine::render::gltf::scene::loadGltfSceneAsset(
+                document.string(), asset, &loadError);
+        }
     }
     if (!loaded) {
         return fail(outError, "the fixture scene did not load: " + loadError);
@@ -302,6 +308,10 @@ bool prepareFixtureSession(FixtureCase fixtureCase,
 bool advanceFixtureSession(FixtureSession& session,
                            int frame,
                            std::string* outError) {
+    if (session.lifecycle) {
+        const ScopedDecoderDiagnostics diagnostics;
+        return advanceFixtureLifecycle(session, frame, outError);
+    }
     session.renderFrame = frame;
     if (frame < kTransitionFrame || session.transitionApplied) {
         return true;
@@ -408,6 +418,7 @@ bool drawFixtureSession(IRenderBackend& renderer,
                         int surfaceHeight,
                         FixtureDrawStats* outStats,
                         std::string* outError) {
+    if (session.lifecycle && !beginFixtureLifecycleDraw(renderer, session, outError)) return false;
     const int width = std::max(1, surfaceWidth);
     const int height = std::max(1, surfaceHeight);
     FixtureDrawStats stats;
@@ -432,6 +443,7 @@ bool drawFixtureSession(IRenderBackend& renderer,
             target[2] - position[2]));
         options.cameraForward = {forward.x, forward.y, forward.z};
         options.materialMode = kSceneMaterialMode;
+        options.resourceScope = session.assetScope;
 
         engine::render::gltf::scene::GltfSceneDrawStats sceneStats;
         if (!engine::render::gltf::scene::drawGltfSceneAsset(
@@ -453,6 +465,7 @@ bool drawFixtureSession(IRenderBackend& renderer,
             renderer.setWorldMaterialDebugView(session.probeDebugView);
             engine::render::gltf::scene::GltfSceneDrawOptions probeOptions =
                 options;
+            probeOptions.resourceScope = session.probeScope;
             engine::render::gltf::scene::GltfSceneDrawStats probeStats;
             if (!engine::render::gltf::scene::drawGltfSceneAsset(
                     renderer, *session.probe, session.probePose, probeOptions,
@@ -469,6 +482,7 @@ bool drawFixtureSession(IRenderBackend& renderer,
         }
     }
 
+    if (session.lifecycle && !finishFixtureLifecycleDraw(renderer, session, outError)) return false;
     if (outStats != nullptr) {
         *outStats = stats;
     }
@@ -559,6 +573,7 @@ FixtureHandshake buildFixtureHandshake(std::string host,
                                        int surfaceHeight,
                                        const IRenderBackend& renderer) {
     FixtureHandshake handshake;
+    if (session.lifecycle) handshake.lifecycleEvidence = fixtureLifecycleEvidence(session, renderer).dump();
     handshake.schema = "phlosion-scene-fixture-handshake-v1";
     handshake.sampleIdentity =
         std::string("phlosion-scene-fixture-v1/") +
@@ -645,6 +660,8 @@ bool writeFixtureHandshake(const std::string& path,
     document["logical_frame"] = handshake.logicalFrame;
     document["render_frame"] = handshake.renderFrame;
     document["transition_frame"] = handshake.transitionFrame;
+    if (!handshake.lifecycleEvidence.empty())
+        document["lifecycle"] = nlohmann::json::parse(handshake.lifecycleEvidence);
     document["surface"] = {{"width", handshake.surfaceWidth},
                            {"height", handshake.surfaceHeight}};
     document["pose"] = {{"bind", handshake.bindPose},

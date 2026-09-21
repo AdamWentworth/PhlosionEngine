@@ -8,12 +8,21 @@
 #include <vulkan/vulkan.h>
 
 #include "engine/render/IRenderBackend.h"
+#include "engine/render/WorldResourceScopeState.h"
 
 struct SDL_Window;
 struct VulkanRenderBackendImpl;
 
-class VulkanRenderBackend final : public IRenderBackend {
+class VulkanRenderBackend final : public IRenderBackend, public IWorldResourceScope {
 public:
+
+  engine::render::WorldResourceScopeId createWorldResourceScope(std::uint64_t payloadByteLimit) override;
+  bool beginWorldResourceScope(engine::render::WorldResourceScopeId id) override;
+  bool endWorldResourceScope() override;
+  bool requestWorldResourceScopeRelease(engine::render::WorldResourceScopeId id) override;
+  bool getWorldResourceScopeStats(engine::render::WorldResourceScopeId id,
+      engine::render::WorldResourceScopeStats& out) const override;
+  engine::render::WorldResourceStats getWorldResourceStats() const override;
     using EditorSurfaceHandle = std::uint64_t;
     static constexpr EditorSurfaceHandle
         kInvalidEditorSurface = 0u;

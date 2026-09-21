@@ -538,6 +538,8 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
     std::uint32_t lightProjectionTextureDescriptorIndex,
     std::uint32_t projectedShadowTextureDescriptorIndex) {
 #if defined(_WIN32)
+    engine::render::WorldResourceScopeState::AllocationAttempt attempt(worldScopes_);
+    if (!worldScopes_.admitted()) return 0xffffffffu;
     const bool alreadyContiguous =
         normalTextureDescriptorIndex == baseTextureDescriptorIndex + 1u &&
         metallicRoughnessTextureDescriptorIndex == baseTextureDescriptorIndex + 2u &&
@@ -548,7 +550,8 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
             baseTextureDescriptorIndex + 6u &&
         projectedShadowTextureDescriptorIndex ==
             baseTextureDescriptorIndex + 7u;
-    if (alreadyContiguous) {
+    if (alreadyContiguous && worldScopes_.active() == 0) {
+        attempt.success();
         return baseTextureDescriptorIndex;
     }
 
@@ -560,16 +563,17 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
         emissiveTextureDescriptorIndex,
         envTextureDescriptorIndex,
         lightProjectionTextureDescriptorIndex,
-        projectedShadowTextureDescriptorIndex};
+        projectedShadowTextureDescriptorIndex, worldScopes_.active()};
     const auto found = worldMaterialDescriptorBlocks_.find(key);
     if (found != worldMaterialDescriptorBlocks_.end()) {
+        attempt.success();
         return found->second;
     }
 
     if (!device_ || !srvHeap_ || srvDescriptorSize_ == 0u) {
         return 0xffffffffu;
     }
-    if (nextSrvDescriptorIndex_ + 8u >
+    if (freeWorldMaterialBlocks_.empty() && nextSrvDescriptorIndex_ + 8u >
         static_cast<std::uint32_t>(kMaxSrvDescriptors)) {
         return 0xffffffffu;
     }
@@ -594,7 +598,8 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
         }
     }
 
-    const std::uint32_t blockBaseDescriptorIndex = nextSrvDescriptorIndex_;
+    const bool reuseBlock = !freeWorldMaterialBlocks_.empty();
+    const std::uint32_t blockBaseDescriptorIndex = reuseBlock ? freeWorldMaterialBlocks_.back() : nextSrvDescriptorIndex_;
     D3D12_CPU_DESCRIPTOR_HANDLE heapCpuBase = srvHeap_->GetCPUDescriptorHandleForHeapStart();
     for (std::size_t i = 0; i < sourceTextures.size(); ++i) {
         D3D12_CPU_DESCRIPTOR_HANDLE dstHandle = heapCpuBase;
@@ -606,8 +611,13 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
             dstHandle);
     }
 
-    nextSrvDescriptorIndex_ += 8u;
+    if (reuseBlock) freeWorldMaterialBlocks_.pop_back();
+    else nextSrvDescriptorIndex_ += 8u;
     worldMaterialDescriptorBlocks_.emplace(key, blockBaseDescriptorIndex);
+    engine::render::WorldResourceCounts counts;
+    counts.materialDescriptors = 8;
+    worldScopes_.commit(counts);
+    attempt.success();
     return blockBaseDescriptorIndex;
 #else
     (void)baseTextureDescriptorIndex;
@@ -628,8 +638,10 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
     std::uint32_t& outDescriptorBlockIndex,
     float& outUseTexture) {
 #if defined(_WIN32)
+    if (!worldScopes_.admitted()) return false;
     ensureWorldFallbackEnvTexture();
     if (worldFallbackMaterialDescriptorBlockIndex_ == 0xffffffffu) {
+        engine::render::WorldResourceScopeState::SharedResources shared(worldScopes_);
         worldFallbackMaterialDescriptorBlockIndex_ = ensureWorldMaterialDescriptorBlock(
             worldFallbackTextureDescriptorIndex_,
             worldFallbackNormalTextureDescriptorIndex_,
@@ -710,7 +722,9 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
     const std::uint32_t emissiveDescriptorIndex =
         emissiveTex ? emissiveTex->descriptorIndex : worldFallbackEmissiveTextureDescriptorIndex_;
 
-    SpriteTexture* environmentTex = ensureWorldTextureRaw(
+    SpriteTexture* environmentTex = [&]() {
+        engine::render::WorldResourceScopeState::SharedResources shared(worldScopes_);
+        return ensureWorldTextureRaw(
         textureData->environmentKey,
         textureData->environmentCacheKey,
         textureData->environmentRgba,
@@ -721,6 +735,7 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         textureData->environmentTextureSrgb != 0u,
         textureData->environmentMipLevels,
         textureData->environmentMipLevelCount);
+    }();
     const std::uint32_t environmentDescriptorIndex =
         environmentTex
             ? environmentTex->descriptorIndex
@@ -756,6 +771,7 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         ? projectedShadowTex->descriptorIndex
         : worldFallbackOcclusionTextureDescriptorIndex_;
 
+    if (!worldScopes_.admitted()) return false;
     (void)logPbrBinding;
 
     outDescriptorBlockIndex = ensureWorldMaterialDescriptorBlock(
@@ -770,6 +786,7 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
     return outDescriptorBlockIndex != 0xffffffffu;
 #else
     (void)textureData;
+    if (!worldScopes_.admitted()) return false;
     (void)logPbrBinding;
     outDescriptorBlockIndex = 0u;
     outUseTexture = 0.0f;
@@ -791,8 +808,9 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTextureRaw(con
     if (!key || key[0] == '\0' || !rgba || width <= 0 || height <= 0) {
         return nullptr;
     }
+    engine::render::WorldResourceScopeState::AllocationAttempt attempt(worldScopes_);
+    if (!worldScopes_.admitted()) return nullptr;
     if (!device_ || !commandQueue_ || !fence_ || !srvHeap_) return nullptr;
-    if (nextSrvDescriptorIndex_ >= kMaxSrvDescriptors) return nullptr;
 
     // Include wrap + dimensions to avoid accidental cache aliasing for reused key strings.
     std::string resolvedCacheKey;
@@ -811,13 +829,23 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTextureRaw(con
         resolvedCacheKey += srgb ? "|srgb" : "|lin";
     }
 
+    resolvedCacheKey = worldScopes_.key(resolvedCacheKey);
     auto it = worldTextures_.find(resolvedCacheKey);
     if (it != worldTextures_.end()) {
+        attempt.success();
         return &it->second;
     }
 
+    std::uint64_t payloadBytes = 0;
+    if (worldScopes_.active() &&
+        (!engine::render::worldTextureMipPayload(width, height, authoredMipLevels,
+            authoredMipLevelCount, worldTextureMipChainEnabled(), payloadBytes) ||
+         !worldScopes_.admit(payloadBytes))) return nullptr;
+    const bool reuseDescriptor = !freeWorldTextureDescriptors_.empty();
+    if (!reuseDescriptor && nextSrvDescriptorIndex_ >= kMaxSrvDescriptors) return nullptr;
     SpriteTexture texture;
-    texture.descriptorIndex = nextSrvDescriptorIndex_;
+    texture.scope = worldScopes_.active();
+    texture.descriptorIndex = reuseDescriptor ? freeWorldTextureDescriptors_.back() : nextSrvDescriptorIndex_;
     const bool generateMipChain = worldTextureMipChainEnabled();
     const bool traceUpload = traceWorldTextureUpload(key);
     const auto uploadStart = traceUpload ? std::chrono::steady_clock::now()
@@ -867,8 +895,17 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTextureRaw(con
     fillSrvDescFromTextureResource(texture.resource.Get(), texture.srvDesc);
     texture.hasSrvDesc = texture.resource != nullptr;
     texture.valid = true;
-    ++nextSrvDescriptorIndex_;
+    if (reuseDescriptor) freeWorldTextureDescriptors_.pop_back();
+    else ++nextSrvDescriptorIndex_;
     auto [insertedIt, _] = worldTextures_.emplace(resolvedCacheKey, std::move(texture));
+    engine::render::WorldResourceCounts counts;
+    counts.textures = 1;
+    counts.textureDescriptors = 1;
+    counts.payloadBytes = payloadBytes;
+    const auto desc = insertedIt->second.resource->GetDesc();
+    counts.apiAllocationBytes = device_->GetResourceAllocationInfo(0, 1, &desc).SizeInBytes;
+    worldScopes_.commit(counts);
+    attempt.success();
     return &insertedIt->second;
 #else
     (void)key;

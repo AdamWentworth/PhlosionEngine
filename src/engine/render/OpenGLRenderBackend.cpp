@@ -72,6 +72,15 @@ OpenGLRenderBackend::~OpenGLRenderBackend() {
 void OpenGLRenderBackend::setWorldMaterialProfile(const engine::render::WorldMaterialProfile &profile) {
     profile.validate();
     if (profile == worldMaterialProfile_) return;
+    if (worldIndexedBatchSubmissionState_.active) {
+        throw std::runtime_error("Material profiles must be selected outside OpenGL world batches.");
+    }
+    if (worldScopes_.stats().liveScopes != 0) {
+        glFinish();
+        if (glGetError() != GL_NO_ERROR) {
+            throw std::runtime_error("Unable to establish OpenGL completion for material pipeline replacement.");
+        }
+    }
     auto previous = worldMaterialProfile_;
     destroyWorldPipeline();
     worldMaterialProfile_ = profile;
@@ -87,6 +96,7 @@ void OpenGLRenderBackend::setWorldMaterialProfile(const engine::render::WorldMat
 }
 
 void OpenGLRenderBackend::beginFrame(float r, float g, float b, float a) {
+    if (!collectWorldResourceScopes()) return;
     ++frameCounter_;
     frameDrawCalls_ = 0u;
     frameTriangles_ = 0u;
@@ -228,6 +238,7 @@ bool OpenGLRenderBackend::getLastFrameTimings(BackendFrameTimings& outTimings) c
 }
 
 void OpenGLRenderBackend::shutdown() {
+    worldScopes_.reset();
     if (gpuTimingSupported_) {
         glDeleteQueries(static_cast<GLsizei>(gpuTimerQueries_.size()), gpuTimerQueries_.data());
     }

@@ -11,6 +11,8 @@ OpenGLRenderBackend::CachedWorldMesh* OpenGLRenderBackend::ensureCachedWorldMesh
     std::size_t vertexCount,
     const std::uint32_t* indices,
     std::size_t indexCount) {
+    engine::render::WorldResourceScopeState::AllocationAttempt attempt(worldScopes_);
+    if (!worldScopes_.admitted()) return nullptr;
     if (!geometryKey || geometryKey[0] == '\0' || !vertices || !indices || vertexCount == 0u || indexCount < 3u) {
         return nullptr;
     }
@@ -26,7 +28,8 @@ OpenGLRenderBackend::CachedWorldMesh* OpenGLRenderBackend::ensureCachedWorldMesh
         if (indices[i] >= safeVertexCount) return nullptr;
     }
 
-    const std::string key(geometryKey);
+    if (worldScopes_.active() && (safeVertexCount != vertexCount || safeIndexCount != indexCount)) return nullptr;
+    const std::string key = worldScopes_.key(geometryKey);
     const std::size_t vertexBytes = safeVertexCount * sizeof(WorldMeshVertex);
     const std::size_t indexBytes = safeIndexCount * sizeof(std::uint32_t);
 
@@ -38,20 +41,24 @@ OpenGLRenderBackend::CachedWorldMesh* OpenGLRenderBackend::ensureCachedWorldMesh
             mesh.indexCount == safeIndexCount &&
             mesh.vertexBytes == vertexBytes &&
             mesh.indexBytes == indexBytes) {
+            attempt.success();
             return &mesh;
         }
+        if (worldScopes_.active()) return nullptr;
         if (mesh.indexBuffer != 0u) glDeleteBuffers(1, &mesh.indexBuffer);
         if (mesh.vertexBuffer != 0u) glDeleteBuffers(1, &mesh.vertexBuffer);
         if (mesh.vao != 0u) glDeleteVertexArrays(1, &mesh.vao);
         cachedWorldMeshes_.erase(existing);
     }
 
+    if (!worldScopes_.admit(vertexBytes + indexBytes)) return nullptr;
     GLint prevVao = 0;
     GLint prevArrayBuffer = 0;
     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVao);
     glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevArrayBuffer);
 
     CachedWorldMesh mesh{};
+    mesh.scope = worldScopes_.active();
     glGenVertexArrays(1, &mesh.vao);
     glGenBuffers(1, &mesh.vertexBuffer);
     glGenBuffers(1, &mesh.indexBuffer);
@@ -76,6 +83,14 @@ OpenGLRenderBackend::CachedWorldMesh* OpenGLRenderBackend::ensureCachedWorldMesh
                  indices,
                  GL_STATIC_DRAW);
 
+    if (worldScopes_.active() && glGetError() != GL_NO_ERROR) {
+        glDeleteBuffers(1, &mesh.indexBuffer);
+        glDeleteBuffers(1, &mesh.vertexBuffer);
+        glDeleteVertexArrays(1, &mesh.vao);
+        glBindVertexArray(static_cast<GLuint>(prevVao));
+        glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(prevArrayBuffer));
+        return nullptr;
+    }
     mesh.vertexCount = safeVertexCount;
     mesh.indexCount = safeIndexCount;
     mesh.vertexBytes = vertexBytes;
@@ -86,6 +101,13 @@ OpenGLRenderBackend::CachedWorldMesh* OpenGLRenderBackend::ensureCachedWorldMesh
     glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(prevArrayBuffer));
 
     auto [it, _] = cachedWorldMeshes_.emplace(key, std::move(mesh));
+    engine::render::WorldResourceCounts counts;
+    counts.geometryBuffers = 2;
+    counts.payloadBytes = vertexBytes + indexBytes;
+    counts.apiAllocationBytes = counts.payloadBytes;
+    counts.apiAllocationBytesEstimated = true;
+    worldScopes_.commit(counts);
+    attempt.success();
     return &it->second;
 }
 
@@ -117,6 +139,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshCached(const char* geometryKey,
         return;
     }
 
+    if (worldScopes_.active()) return;
     drawWorldIndexedMesh(vertices,
                          vertexCount,
                          indices,
@@ -155,6 +178,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedCached(const char* geometr
         return;
     }
 
+    if (worldScopes_.active()) return;
     drawWorldIndexedMeshTextured(vertices,
                                  vertexCount,
                                  indices,
@@ -224,6 +248,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedCachedInstanced(
         return;
     }
 
+    if (worldScopes_.active()) return;
     IRenderBackend::drawWorldIndexedMeshTexturedCachedInstanced(geometryKey,
                                                                 vertices,
                                                                 vertexCount,
