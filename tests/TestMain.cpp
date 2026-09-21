@@ -26,6 +26,7 @@ bool test_gltf_import_fixture_contract(std::string& outFail);
 bool test_model_pose_sampler_contract(std::string& outFail);
 bool test_model_cache_animation_contract(std::string& outFail);
 bool test_animation_fixture_contract(std::string& outFail);
+bool test_material_fixture_contract(std::string& outFail);
 
 int main(int argc, char** argv) {
     // A real child process for reload launcher tests; avoids shell-specific
@@ -66,6 +67,7 @@ int main(int argc, char** argv) {
         {"model_pose_sampler_contract", &test_model_pose_sampler_contract},
         {"model_cache_animation_contract", &test_model_cache_animation_contract},
         {"animation_fixture_contract", &test_animation_fixture_contract},
+        {"material_fixture_contract", &test_material_fixture_contract},
     };
 
     bool passed = true;

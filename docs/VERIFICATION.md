@@ -13,13 +13,14 @@ No test in the current engine CTest suite needs a graphics context.
 
 | CTest entry | Coverage |
 | --- | --- |
-| `PhlosionEngineContracts` | Twenty-five C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, real PNG/JPEG texture decoding, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, model-cache sampler codec/version identity, animation fixture/palette/image guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
+| `PhlosionEngineContracts` | Twenty-six C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, real PNG/JPEG texture decoding and role fallbacks, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, model-cache sampler codec/version identity, animation fixture/palette/image guards, material fixture/content/evidence guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
 | `PhlosionMaterialDebugViewContract` | Material debug-view source contract |
 | `PhlosionReviewLightingProfileContract` | Generic review-lighting source contract |
 | `PhlosionPublicAssetFixtureHarness` | CPU-only synthetic image/manifest negative tests, capture provenance and native process handling; enabled when fixture hosts and PowerShell are available |
 | `PhlosionAnimationFixtureHarness` | CPU-only skeletal fixture image/provenance/transition rejection checks and process handling; enabled when animation fixture hosts and PowerShell are available |
+| `PhlosionMaterialFixtureHarness` | CPU-only five-map content, fallback, evidence, numeric-boundary and run-path rejection checks; enabled when material fixture hosts and PowerShell are available |
 
 Local equivalent:
 
@@ -69,6 +70,13 @@ and feeds real decoded alpha into the material resolver. These CPU checks do
 not deform GPU vertices or qualify GPU sampling, UV binding or material
 appearance. Native rendering requires separate evidence.
 
+The [material fixture contract](MATERIAL_VERIFICATION.md) verifies five decoded
+role inputs, staging ownership, scoped diagnostics and the image/handshake
+guards. Its adversarial harness checks missing evidence, altered binary hashes,
+path escapes, malformed or overflowing numbers, wrong maps and spatial defects
+that preserve average color. These tests use synthetic images without a graphics
+context; the separate native matrix below supplies the rendering evidence.
+
 The [animation contracts](ANIMATION_VERIFICATION.md) exercise the shared CPU
 pose evaluator, root-motion/loop policies, hierarchy transforms, scale
 compensation, cubic tangent fidelity, malformed cubic channels, the production
@@ -101,6 +109,42 @@ every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
 
+On 2026-09-20, Astra accepted M1-J's [five-map material
+verification](MATERIAL_VERIFICATION.md), based on committed M1-I `a037f88` plus
+the accepted working tree. The only production change routes empty encoded
+image data through existing role-specific fallbacks. The permanent five-role
+regression fails on the old black normal fallback; base/emissive remain
+unchanged, so no legacy Model cache invalidation is required.
+
+The full Debug build with warnings as errors passed, as did 26 CPU contracts and
+all eight CTest entries (223.66 seconds). Final logs are
+`artifacts/m1-j/overflow-final-build.log` and `overflow-final-ctest.log`.
+The final native run `artifacts/m1-j/matrix/m1-j-final3/` contains 18 captures:
+three cases x three APIs x runtime/editor, all at 845x532. The 18 cross-API pairs
+have worst normalized MAE 0.0001075, RMSE 0.0018735 and changed ratio 0.0012636;
+all nine whole-image host pairs are pixel-identical. Limits remain MAE .01,
+RMSE .08, changed ratio .05 and channel tolerance 8. Diagnostic interiors have
+maximum channel deviation 2 under tolerance 3. Twelve targeted authored-versus-
+fallback lit-region comparisons differ throughout the measured region.
+
+Astra reviewed the actual patch, contact sheet and final logs. Review corrections
+added owned temporary assets, matched-size host captures, per-pixel content
+checks, lit-region comparisons and mandatory bounded evidence. Independent
+probes first exposed missing-metrics and numeric-overflow false passes; the
+corrected guard rejects them. `astra-final-negatives.log` preserves final root
+checks, and `astra-final-audit.json` verifies all 12 final binary hashes/sizes
+across the material matrix and retained `archive/m1-j-archive` (24 captures)
+and `animation/m1-j-animation` (36 captures). Earlier material runs remain
+historical artifacts; `m1-j-final3` is the accepted run.
+
+This qualifies one public layout on Windows/GTX 1070 in Debug: decoded map
+identity, channel routing, display treatment and fallback behavior. It does not
+qualify general PBR equations, GPU scalar-factor application, independent UVs,
+filtering, compressed formats, private characters or production game adapters.
+The legacy encoded-byte base-factor and factor-only emission gaps remain.
+M1-J is included in the commit `Verify native material maps and fix empty-image
+fallbacks`; integration changed documentation only.
+
 On 2026-09-20, Astra accepted M1-I's [glTF texture decoding
 verification](GLTF_TEXTURE_VERIFICATION.md), based on committed M1-H `4ab3ac7`
 plus tests and documentation. The production loader feeds real encoded PNG/JPEG
@@ -128,7 +172,9 @@ source-derived factor-only emissive loss on the legacy OpenGL Model path,
 inconsistent empty-byte placeholders, absent runtime calls to three decode
 helpers, per-role UV binding and compressed image formats. World-backend
 material behavior requires separate tracing and native qualification; these
-tests do not certify five-map rendering or cross-API material parity.
+tests do not certify five-map rendering or cross-API material parity. This
+records the M1-I boundary; M1-I was committed as `a037f88`, and M1-J above
+subsequently corrected the empty-byte fallback and added bounded native evidence.
 
 On 2026-09-20, Astra accepted M1-H's [cubic animation
 fidelity](ANIMATION_VERIFICATION.md), based on committed M1-G `afaeb1e` plus the

@@ -150,17 +150,36 @@ bound to every role and retained results after later decodes. Tests and docs
 changed; production behavior is unchanged. The warning-clean Debug build,
 seven CTest entries and 25 CPU contracts passed. See the
 [M1-I accepted checkpoint](agent-work/cyberpunk-m1-textures/CHECKPOINT.md).
+M1-I was committed as `a037f88` before beginning M1-J.
 
-The distinction matters for the remaining material work: the decoder currently
-bakes base-color factors into encoded bytes, factor-only emission is lost on
-the legacy OpenGL Model path according to its source, and empty image bytes
-produce inconsistent placeholders (retained as an artifact probe). Model's
-runtime loader calls only the base-color and emissive decode helpers; passing
-normal/metallic-roughness/occlusion CPU tests does not qualify those maps in a
-rendered character. Independent per-role UVs/transforms, compressed texture
-decoding and native material appearance remain unverified. A following material
-pass must establish the intended shared runtime path and qualify any rendering
-changes on all three APIs, including the editor preview.
+Also accepted on 2026-09-20: **M1-J: five-map native material verification and
+empty-image fallbacks**, implemented by DeepSeek V4.1 Flash through
+`astra_flash_builder` and reviewed by Astra. The [material sample and
+guards](MATERIAL_VERIFICATION.md) connect the existing five glTF decode helpers
+to the existing world renderer. Three cases (authored maps, empty image bytes,
+absent maps) passed on native OpenGL, Vulkan and Direct3D 12 in both the runtime
+and real editor preview: 18 captures at matching viewport sizes, independent
+diagnostic-patch checks, 18 cross-API pairs and nine pixel-identical host pairs.
+The composed lit region is present and differs between authored and fallback
+inputs. Empty encoded images now use the existing role-specific placeholders;
+a permanent regression fails under the old black normal/MR/AO branch.
+
+The warning-clean full Debug build, 26 CPU contracts and all eight CTest entries
+passed. The previous 24 archive and 36 animation captures still match their
+final binaries by SHA-256 and size. Runnable content lives in examples,
+verification tools in tools and automated checks in tests. No renderer, shader,
+Model, cache or plugin ABI changed. See the
+[M1-J accepted checkpoint](agent-work/cyberpunk-m1-materials/CHECKPOINT.md).
+M1-J is included in the commit `Verify native material maps and fix empty-image fallbacks`.
+
+Remaining material work is explicit: base factors are still baked into encoded
+bytes; source inspection still identifies factor-only emission loss on the
+legacy OpenGL Model path. Model's runtime loader calls only base-color and
+emissive helpers; the public sample is not a production character adapter.
+Independent per-role UVs/transforms, compressed texture decoding, GPU scalar
+factor application and general PBR fidelity remain unqualified. M1-J uses one
+shared UV set, identity transforms, baseColorFactor 1 and default wrap on one
+local Windows/GTX 1070 host.
 
 This is partial M1 completion. Next: qualify the actual production
 character/content paths and continue material/texture/environment qualification.
@@ -177,7 +196,7 @@ LODs, compression, material payloads or an importer/cook CLI. Active, staged and
 coexist; their combined residency is not bounded by the per-candidate byte cap.
 The capability matrix below preserves the original
 audited commit's state; this progress record supersedes its byte-loading and
-dependency-resolution/public-fixture/typed-storage/import/pose/texture-verification gaps and twelve-contract count
+dependency-resolution/public-fixture/typed-storage/import/pose/texture/material-verification gaps and twelve-contract count
 for the local implementation.
 
 ## Read this first

@@ -35,6 +35,9 @@ option(PHLOSION_BUILD_PUBLIC_ASSET_FIXTURE
 option(PHLOSION_BUILD_ANIMATION_FIXTURE
     "Build the animation fixture hosts, guard and editor plugin"
     ${_phlosion_tests_default})
+option(PHLOSION_BUILD_MATERIAL_FIXTURE
+    "Build the material fixture hosts, guard and editor plugin"
+    ${_phlosion_tests_default})
 option(PHLOSION_OPTIMIZE_RENDER_HOTPATHS_IN_DEBUG
     "Compile selected renderer hot paths with optimization in Debug"
     ON)
@@ -576,6 +579,78 @@ if (PHLOSION_BUILD_ANIMATION_FIXTURE)
     endif()
 endif()
 
+if (PHLOSION_BUILD_MATERIAL_FIXTURE OR PHLOSION_BUILD_TESTS)
+    add_library(material_fixture STATIC
+        examples/material_fixture/MaterialFixtureCase.cpp
+        examples/material_fixture/MaterialFixtureAssets.cpp
+        examples/material_fixture/MaterialFixturePresentation.cpp
+    )
+    target_link_libraries(material_fixture
+        PUBLIC
+            Engine
+    )
+    target_include_directories(material_fixture
+        PUBLIC
+            "${CMAKE_CURRENT_SOURCE_DIR}/examples/material_fixture"
+    )
+    phlosion_apply_settings(material_fixture)
+
+    # Verification support owns image comparison, the authored expectations and
+    # the guard CLI. The runnable example never depends on it.
+    add_library(material_fixture_verification STATIC
+        tools/material_fixture/MaterialFixtureGuard.cpp
+    )
+    target_link_libraries(material_fixture_verification
+        PUBLIC
+            material_fixture
+    )
+    target_include_directories(material_fixture_verification
+        PUBLIC
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/material_fixture"
+    )
+    phlosion_apply_settings(material_fixture_verification)
+endif()
+
+if (PHLOSION_BUILD_MATERIAL_FIXTURE)
+    add_executable(MaterialFixtureGuard
+        tools/material_fixture/MaterialFixtureGuardMain.cpp
+    )
+    target_link_libraries(MaterialFixtureGuard
+        PRIVATE
+            material_fixture_verification
+    )
+    phlosion_apply_settings(MaterialFixtureGuard)
+
+    add_executable(MaterialFixtureRuntime
+        examples/material_fixture/MaterialFixtureRuntimeMain.cpp
+    )
+    target_link_libraries(MaterialFixtureRuntime
+        PRIVATE
+            material_fixture
+    )
+    phlosion_apply_settings(MaterialFixtureRuntime)
+
+    if (PHLOSION_BUILD_EDITOR)
+        add_library(MaterialFixtureEditorPlugin MODULE
+            examples/material_fixture/MaterialFixtureEditorPlugin.cpp
+        )
+        target_link_libraries(MaterialFixtureEditorPlugin
+            PRIVATE
+                material_fixture
+                engine_editor_core
+        )
+        target_compile_definitions(MaterialFixtureEditorPlugin
+            PRIVATE
+                PHLOSION_EDITOR_BUILD_CONFIGURATION="$<CONFIG>"
+        )
+        set_target_properties(MaterialFixtureEditorPlugin PROPERTIES
+            PREFIX ""
+            OUTPUT_NAME "MaterialFixtureEditorPlugin"
+        )
+        phlosion_apply_settings(MaterialFixtureEditorPlugin)
+    endif()
+endif()
+
 if (PHLOSION_OPTIMIZE_RENDER_HOTPATHS_IN_DEBUG)
     if (MSVC)
         string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
@@ -634,6 +709,7 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestModelPoseSampler.cpp
         tests/TestModelCacheAnimation.cpp
         tests/TestAnimationFixture.cpp
+        tests/TestMaterialFixture.cpp
         tests/TestPublicAssetFixture.cpp
         tests/TestPublicAssetFixtureRendering.cpp
     )
@@ -646,6 +722,8 @@ if (PHLOSION_BUILD_TESTS)
             public_asset_fixture_verification
             animation_fixture
             animation_fixture_verification
+            material_fixture
+            material_fixture_verification
     )
     if (MSVC)
         target_compile_options(PhlosionEngineTests PRIVATE
@@ -701,6 +779,21 @@ if (PHLOSION_BUILD_TESTS)
                     -GuardExe "$<TARGET_FILE:AnimationFixtureGuard>")
             set_tests_properties(
                 PhlosionAnimationFixtureHarness PROPERTIES TIMEOUT 240)
+        endif()
+    endif()
+    if (PHLOSION_BUILD_MATERIAL_FIXTURE)
+        find_program(PHLOSION_POWERSHELL NAMES powershell pwsh)
+        if (PHLOSION_POWERSHELL)
+            add_test(
+                NAME PhlosionMaterialFixtureHarness
+                COMMAND "${PHLOSION_POWERSHELL}" -NoProfile
+                    -ExecutionPolicy Bypass
+                    -File
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/material_fixture/test_fixture_harness.ps1"
+                    -EngineRoot "${CMAKE_CURRENT_SOURCE_DIR}"
+                    -GuardExe "$<TARGET_FILE:MaterialFixtureGuard>")
+            set_tests_properties(
+                PhlosionMaterialFixtureHarness PROPERTIES TIMEOUT 300)
         endif()
     endif()
 endif()

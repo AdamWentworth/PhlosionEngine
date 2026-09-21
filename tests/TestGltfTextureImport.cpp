@@ -13,9 +13,11 @@
 // were produced once by an independent encoder; every expected pixel value here
 // is a literal authored value, not the output of the decoder under test.
 //
-// This contract reports current behavior. It does not claim GPU sampler or UV
-// binding behavior, rendered PBR appearance, linear-light base color
-// multiplication, or that the recorded fallback inconsistencies are desired.
+// This contract reports current behavior, except where it pins a corrected
+// contract: since M1-J, empty or unavailable encoded bytes must take the same
+// role-specific fallback as undecodable bytes, and that is asserted here. It
+// does not claim GPU sampler or UV binding behavior, rendered PBR appearance or
+// linear-light base color multiplication.
 
 #include "gltf_import/GltfImportTestSupport.h"
 #include "gltf_import/GltfTextureFixtures.h"
@@ -1256,10 +1258,142 @@ bool caseInvalidSelectionGuards(const FixtureDirectory& directory,
         return false;
     }
 
-    // The empty-image-bytes fallback inconsistency is deliberately not asserted
-    // here. It is outside this contract's scope and reproduced only by the
-    // standalone probe patch in artifacts/m1-i/empty-byte-probe.patch, which
-    // records the observed values without turning them into a desired contract.
+    return true;
+}
+
+// Empty-but-present encoded image bytes are unavailable in exactly the same way
+// a present-but-undecodable payload is, so every role must take its own
+// role-specific fallback. Each role selects its own zero-length image, so a
+// role whose reference was absent, out of range or bound to a neighbouring
+// role's slot cannot pass by accident.
+bool caseEmptyImageByteFallback(const FixtureDirectory& directory,
+                                const TextureBuffer& layout,
+                                std::string& outFail) {
+    std::string json = R"j({
+  "asset": { "version": "2.0" },
+  "buffers": [ { "uri": "textures.bin", "byteLength": )j";
+    json += std::to_string(layout.bytes.size());
+    json += R"j( } ],
+  "bufferViews": [
+    { "buffer": 0, "byteOffset": )j";
+    json += std::to_string(layout.pngA.offset);
+    json += R"j(, "byteLength": )j";
+    json += std::to_string(layout.pngA.length);
+    json += R"j( },
+    { "buffer": 0, "byteOffset": )j";
+    json += std::to_string(layout.pngA.offset);
+    json += R"j(, "byteLength": 0 },
+    { "buffer": 0, "byteOffset": )j";
+    json += std::to_string(layout.pngB.offset);
+    json += R"j(, "byteLength": 0 },
+    { "buffer": 0, "byteOffset": )j";
+    json += std::to_string(layout.pngC.offset);
+    json += R"j(, "byteLength": 0 },
+    { "buffer": 0, "byteOffset": )j";
+    json += std::to_string(layout.pngD.offset);
+    json += R"j(, "byteLength": 0 },
+    { "buffer": 0, "byteOffset": )j";
+    json += std::to_string(layout.pngE.offset);
+    json += R"j(, "byteLength": 0 }
+  ],
+  "images": [
+    { "name": "emptyBase", "bufferView": 1, "mimeType": "image/png" },
+    { "name": "emptyEmissive", "bufferView": 2, "mimeType": "image/png" },
+    { "name": "emptyNormal", "bufferView": 3, "mimeType": "image/png" },
+    { "name": "emptyMetallicRoughness", "bufferView": 4, "mimeType": "image/png" },
+    { "name": "emptyOcclusion", "bufferView": 5, "mimeType": "image/png" }
+  ],
+  "textures": [
+    { "source": 0 },
+    { "source": 1 },
+    { "source": 2 },
+    { "source": 3 },
+    { "source": 4 }
+  ],
+  "materials": [
+    {
+      "name": "EmptyImageBytes",
+      "pbrMetallicRoughness": { "baseColorTexture": { "index": 0 },
+                                "metallicRoughnessTexture": { "index": 3 } },
+      "emissiveTexture": { "index": 1 },
+      "normalTexture": { "index": 2 },
+      "occlusionTexture": { "index": 4 }
+    }
+  ]
+}
+)j";
+    if (!expect(directory.writeText("probe_empty_image_bytes.gltf", json),
+                "could not write probe_empty_image_bytes.gltf", outFail)) {
+        return false;
+    }
+    std::optional<LoadResult> loaded;
+    if (!loadProbeFixture(directory.file("probe_empty_image_bytes.gltf"), loaded,
+                          outFail)) {
+        return false;
+    }
+    const fastgltf::Asset& asset = loaded->asset;
+
+    const struct {
+        Role role;
+        std::size_t textureIndex;
+        std::size_t imageIndex;
+    } authoredRoles[] = {
+        {Role::BaseColor, 0u, 0u},
+        {Role::Emissive, 1u, 1u},
+        {Role::Normal, 2u, 2u},
+        {Role::MetallicRoughness, 3u, 3u},
+        {Role::Occlusion, 4u, 4u},
+    };
+    for (const auto& entry : authoredRoles) {
+        const std::string context =
+            std::string("empty-image-bytes role ") + roleName(entry.role);
+        // Fixture assertion first: the role must really select its own
+        // zero-length image, otherwise the fallback below could come from an
+        // absent reference rather than from unavailable bytes.
+        std::size_t textureIndex = 0u;
+        std::size_t imageIndex = 0u;
+        if (!expect(authoredRoleImage(asset, 0, entry.role, textureIndex, imageIndex),
+                    context + ": the role has no authored texture/image reference",
+                    outFail)) {
+            return false;
+        }
+        if (!expect(textureIndex == entry.textureIndex &&
+                        imageIndex == entry.imageIndex,
+                    context + ": role selects texture " +
+                        std::to_string(textureIndex) + " image " +
+                        std::to_string(imageIndex) + " != intended texture " +
+                        std::to_string(entry.textureIndex) + " image " +
+                        std::to_string(entry.imageIndex),
+                    outFail)) {
+            return false;
+        }
+        const auto& image = asset.images[entry.imageIndex];
+        const auto* view = std::get_if<fastgltf::sources::BufferView>(&image.data);
+        if (!expect(view != nullptr &&
+                        view->bufferViewIndex < asset.bufferViews.size() &&
+                        asset.bufferViews[view->bufferViewIndex].byteLength == 0u,
+                    context + ": the selected image is not a zero-length bufferView",
+                    outFail)) {
+            return false;
+        }
+
+        const CPUTexture decoded =
+            decodeRole(entry.role, asset, loaded->baseDir, 0, nullptr);
+        std::cout << "[gltf-texture][empty-bytes] role " << roleName(entry.role)
+                  << " size=" << decoded.width << "x" << decoded.height << " pixel0=("
+                  << static_cast<int>(decoded.rgba.empty() ? 0u : decoded.rgba[0]) << ","
+                  << static_cast<int>(decoded.rgba.size() > 1u ? decoded.rgba[1] : 0u) << ","
+                  << static_cast<int>(decoded.rgba.size() > 2u ? decoded.rgba[2] : 0u) << ","
+                  << static_cast<int>(decoded.rgba.size() > 3u ? decoded.rgba[3] : 0u) << ")\n";
+        if (!expectTexture(decoded, roleFallback(entry.role),
+                           context + " (role-specific unavailable-bytes fallback)",
+                           outFail)) {
+            return false;
+        }
+        if (!expectFallbackEnums(decoded, context + " sampler metadata", outFail)) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -1377,6 +1511,9 @@ bool test_gltf_texture_import_contract(std::string& outFail) {
         return false;
     }
     if (!caseInvalidSelectionGuards(directory, layout, outFail)) {
+        return false;
+    }
+    if (!caseEmptyImageByteFallback(directory, layout, outFail)) {
         return false;
     }
     if (!caseDecodedTextureRetention(directory, outFail)) {

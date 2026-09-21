@@ -12,6 +12,7 @@ game-specific authoring and visual qualification stay with the consuming project
 | [Verification](VERIFICATION.md) | CI scope, local checks, visual requirements and dated evidence |
 | [glTF import verification](GLTF_IMPORT_VERIFICATION.md) | CPU evidence for the existing character/animation importer and material metadata, with runtime coverage limits |
 | [glTF texture decoding verification](GLTF_TEXTURE_VERIFICATION.md) | Real PNG/JPEG loader-to-decoder evidence for five material roles, sampler metadata, alpha integration and remaining rendering gaps |
+| [Material verification](MATERIAL_VERIFICATION.md) | Five decoded material maps and corrected empty-image fallbacks in native runtime/editor previews on all three APIs, with content and parity guards |
 | [Animation verification](ANIMATION_VERIFICATION.md) | LINEAR/STEP/CUBICSPLINE pose sampling, cache fidelity and public weighted skeletal deformation in native runtime/editor previews on all three APIs |
 | [Engine boundaries](ENGINE_BOUNDARIES.md) | What belongs to the engine, a game or an optional feature package |
 | [Extraction status](EXTRACTION_STATUS.md) | Completed separation work and remaining delivery limits |

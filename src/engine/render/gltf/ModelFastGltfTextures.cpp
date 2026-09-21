@@ -457,7 +457,10 @@ CPUTexture decodeTextureFast(const fastgltf::Asset& asset,
                                      ") encoded bytes EMPTY (" +
                                      (enc.has_value() ? enc->debugName : std::string("no enc")) + ")");
         }
-        return (kind == TextureKind::BaseColor) ? white : black;
+        // Empty encoded bytes are unavailable just as undecodable bytes are, so
+        // they take the same role-specific fallback: opaque white base,
+        // opaque black emissive, flat normal and opaque white MR/AO.
+        return fallbackForKind(kind);
     }
     int w = 0;
     int h = 0;

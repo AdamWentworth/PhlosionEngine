@@ -1,6 +1,6 @@
 # M1-I checkpoint
 
-Status: accepted by Astra; M1-I remains uncommitted.
+Status: accepted by Astra; M1-I committed as a037f8833cb3a509b980b825fc5833565eac4784.
 
 - M1-H committed as 4ab3ac7e06e912cc3668fa0f69655f5dc4b24f84,
   `Preserve and sample glTF cubic animation curves`. Tree clean after commit;
@@ -76,7 +76,9 @@ do not fix one legacy path and imply three-API coverage. Any affected rendered
 behavior needs matching expected-content checks on native OpenGL/Vulkan/D3D12
 in runtime and editor. Existing meshes/materials must be reused where suitable.
 
-On the next user commit/proceed instruction, commit this accepted M1-I patch,
-then have Astra define that bounded material pass for astra_flash_builder.
-Nothing is staged or pushed; do not recreate the decoder or introduce a new
-asset format simply to continue the roadmap.
+The user authorized commit/proceed and M1-I was committed as `a037f88`,
+`Verify glTF texture decoding and material inputs`. All 13 accepted paths were
+committed; staged whitespace passed, the tree was clean and nothing was pushed.
+M1-J subsequently corrected the empty-byte fallback and added bounded five-map
+native evidence; see its [checkpoint](../cyberpunk-m1-materials/CHECKPOINT.md).
+The historical M1-I evidence and limits above remain scoped to that commit.

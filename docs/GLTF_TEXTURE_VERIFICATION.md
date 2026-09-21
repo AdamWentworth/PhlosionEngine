@@ -1,6 +1,7 @@
 # glTF texture decoding verification
 
-Status: Implemented CPU contract (M1-I)
+Status: Implemented CPU contract (M1-I); unavailable-bytes fallback corrected
+(M1-J)
 Last updated: 2026-09-20
 
 ## Goal and boundary
@@ -10,11 +11,15 @@ M1-I verifies the input boundary underneath it: the existing CPU decode helpers
 now decode genuine PNG and JPEG payloads produced by an independent encoder,
 reached through the production file loader.
 
-This pass is tests and documentation only. Production sources, shaders,
-dependencies, assets and runtime behavior are unchanged, and no graphics
-context is created. The contract does not claim GPU sampler or UV binding
-behavior, rendered PBR appearance, linear-light color handling, or native
-parity on OpenGL, Vulkan and Direct3D 12.
+M1-I was tests and documentation only. M1-J later changed exactly one
+production branch below - the empty/unavailable encoded-byte fallback - and
+promoted the former standalone probe into the checked-in contract. This
+document describes the CPU decoder boundary only: the contract and its
+assertions say nothing about GPU sampler state, texture filtering, UV binding,
+rendered appearance or specific color-space handling beyond the role fallback
+bytes. [Material fixture verification](MATERIAL_VERIFICATION.md) adds bounded
+native evidence for one fixture layout, three inputs and two hosts on three
+APIs; it is not a general UV, filtering, color or appearance qualification.
 
 ## Verified entry points
 
@@ -50,6 +55,7 @@ is a literal authored pixel value.
 | `caseAlphaIntegration` | Real decoded opaque, binary-cutout and intermediate-alpha textures feed `resolveMaterialRenderInfo` and drive OPAQUE/MASK/BLEND; an authored base-color alpha factor is what changes the result |
 | `caseDecodeErrorFallbacks` | Each present-but-undecodable payload (PNG signature only, truncated PNG, truncated JPEG) is bound to all five roles and, before each decode, the loaded fixture is asserted to select that exact corrupt image through the role's own slot; every role then takes its role-specific decode-error placeholder |
 | `caseInvalidSelectionGuards` | Authored out-of-range texture and image indices, a texture with no image index, and an out-of-range sampler index |
+| `caseEmptyImageByteFallback` | Each of the five roles selects its own zero-length encoded image bufferView; the contract asserts the role binding first, then requires the corrected role-specific fallback pixels and fallback sampler metadata |
 | `caseMissingExternalImage` | A referenced-but-absent external image file fails at the loader boundary |
 | `caseDecodedTextureRetention` | Previously returned `CPUTexture` values keep their own pixels after later decodes of the same source image with a different role and a different factor: the same bufferView PNG A is decoded as base color and then as normal, and a factored base-color decode of the same image must leave both earlier results unchanged |
 
@@ -97,8 +103,11 @@ application. Emissive, normal, metallic-roughness and occlusion bytes stay raw;
 their scalar factors are reported separately through `MaterialRenderInfo` and
 must not be baked twice.
 
-Fallback families. Three distinct outcomes exist. The contract pins the first
-two; the third is only reproduced by a standalone artifact probe:
+Fallback families. Two role-fallback families exist, and the contract pins both.
+Before M1-J, empty encoded bytes took a third, inconsistent path that returned
+opaque white for base color and opaque black for every other role; that path is
+gone, is asserted against by `caseEmptyImageByteFallback`, and its historical
+observation is retained under `artifacts/m1-i/`:
 
 - No usable texture reference (valid material without that texture, or an absent
   material index): base color returns the authored `baseColorFactor` as RGBA8
@@ -109,17 +118,16 @@ two; the third is only reproduced by a standalone artifact probe:
 - Present but undecodable bytes: opaque white base color, opaque black
   emissive, flat normal, and white metallic-roughness/occlusion, with repeat
   wrap and linear filtering (role-specific decode-error fallback).
-- Empty or unavailable encoded bytes: base color returns opaque white while
-  every other role returns opaque black
-  ([`ModelFastGltfTextures.cpp:453`](../src/engine/render/gltf/ModelFastGltfTextures.cpp)),
-  which differs from the role-specific decode-error placeholders. This is an
-  inconsistency, and because it is not a desired contract the checked-in test
-  does not assert it. It is reproduced only by
-  `artifacts/m1-i/empty-byte-probe.patch`, a standalone safe probe that a
-  reviewer applies to the contract and whose observed values are retained in
-  `artifacts/m1-i/correct-probe-empty-bytes-from-patch.log`: base color
-  `(255,255,255,255)` and emissive/normal/metallic-roughness/occlusion all
-  `(0,0,0,255)`, each at 1x1. Correction is scheduled with the next material pass.
+- Empty or unavailable encoded bytes: corrected in M1-J to take the same
+  role-specific fallback as the decode-error path
+  ([`ModelFastGltfTextures.cpp`](../src/engine/render/gltf/ModelFastGltfTextures.cpp)):
+  opaque white base, opaque black emissive, flat `(128,128,255,255)` normal and
+  opaque white metallic-roughness/occlusion, with repeat wrap and linear
+  filtering. Before the correction every non-base role returned opaque black,
+  which is why the corrected contract fails against the old branch. The
+  pre-correction observation is retained in `artifacts/m1-i/` (the historical
+  `empty-byte-probe.patch` and its logs), and temporarily restoring the old
+  branch still fails the checked-in contract.
 
 Sampler metadata. A decoded texture keeps repeat wrap, mipmapped-linear
 minification and linear magnification when no sampler applies, and an
@@ -178,10 +186,11 @@ This is decoder metadata; it does not prove GPU sampler state.
 - Lossy JPEG. The JPEG expectation is one authored flat patch with a
   three-per-channel tolerance. It is not a general JPEG fidelity or colour
   accuracy claim.
-- No visual or multi-API claim. Because no production or rendering code changed,
-  this pass needs no native captures and provides none. Texture sampling,
-  filtering, UVs, material appearance and cross-API parity remain unverified
-  and require a separately scoped native phase.
+- No visual or multi-API claim for this contract. It creates no graphics context
+  and provides no captures. M1-J later added bounded native evidence for a
+  separate material fixture; that fixture's three cases, one shared UV set and
+  one layout do not establish texture sampling, filtering or UV semantics in
+  general.
 
 ## Running the contract
 
@@ -195,20 +204,13 @@ name. The new contract creates only uniquely named directories beneath the
 system temporary directory, forces the decoder debug flags off for its own
 duration, and needs no graphics device.
 
-The empty-image-bytes reproduction is deliberately outside the contract. To
-reproduce it, apply the retained probe patch and rebuild:
-
-```powershell
-git apply artifacts/m1-i/empty-byte-probe.patch
-cmake --build --preset debug --target PhlosionEngineTests --parallel 4
-.\build\Debug\PhlosionEngineTests.exe
-git apply -R artifacts/m1-i/empty-byte-probe.patch
-cmake --build --preset debug --target PhlosionEngineTests --parallel 4
-```
-
-`artifacts/` is ignored, so that path is a local retained artifact. The probe
-prints the observed per-role values and `artifacts/m1-i/` keeps the log; the
-patch is not part of the checked-in contract.
+`caseEmptyImageByteFallback` is part of the checked-in contract and needs no
+patch. To reproduce the pre-correction behaviour, temporarily restore the old
+branch (`return (kind == TextureKind::BaseColor) ? white : black;`), rebuild
+`PhlosionEngineTests` and run it: the contract fails on the normal role with
+`actual 0 0x00 != expected 128 0x80`. The historical
+`artifacts/m1-i/empty-byte-probe.patch` and its logs are retained under the
+ignored `artifacts/` directory as the original observation of that behaviour.
 
 ## Related documentation
 
