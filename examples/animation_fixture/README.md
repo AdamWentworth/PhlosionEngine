@@ -7,8 +7,8 @@ caller-owned skin palette to the native renderers:
 
 | File | Role |
 | --- | --- |
-| `AnimationFixtureCase.h/.cpp` | The four authored cases: clip, sample time, logical frame and the analytic tip angle |
-| `AnimationFixtureRig.h/.cpp` | Two-joint rig, one skin, LINEAR and STEP rotation clips, bind strip vertices/indices, mesh transform and camera |
+| `AnimationFixtureCase.h/.cpp` | The six authored cases: clip, sample time, logical frame, analytic tip angle and the LINEAR fallback angle the guard's cubic defect uses |
+| `AnimationFixtureRig.h/.cpp` | Two-joint rig, one skin, LINEAR, STEP and CUBICSPLINE rotation clips, bind strip vertices/indices, mesh transform and camera |
 | `AnimationFixturePresentation.h/.cpp` | Pose sampling, `inverse(mesh) * jointGlobal * inverseBind` palette, background/rig draws and the handshake document |
 | `AnimationFixtureRuntimeMain.cpp` | Standalone `AnimationFixtureRuntime` host (hidden native window, no backend fallback) |
 | `AnimationFixtureEditorPlugin.cpp` | `AnimationFixtureEditorPlugin` project plugin loaded through the existing editor ABI |

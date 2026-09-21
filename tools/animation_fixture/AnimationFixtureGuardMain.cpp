@@ -943,9 +943,9 @@ int runMatrix(const std::vector<std::string>& arguments) {
     if (entries.empty()) {
         return fail("manifest has no entries");
     }
-    if (requireComplete && entries.size() != 24u) {
+    if (requireComplete && entries.size() != 36u) {
         return fail(
-            "complete matrix requires 24 unique entries but the manifest has " +
+            "complete matrix requires 36 unique entries but the manifest has " +
             std::to_string(entries.size()));
     }
 
@@ -1048,7 +1048,9 @@ int runMatrix(const std::vector<std::string>& arguments) {
                  FixtureCase::Bind,
                  FixtureCase::LinearIntermediate,
                  FixtureCase::LinearNearEndpoint,
-                 FixtureCase::StepState}) {
+                 FixtureCase::StepState,
+                 FixtureCase::CubicMidpoint,
+                 FixtureCase::CubicEarly}) {
             for (const auto& [leftApi, rightApi] : apiPairs) {
                 const Entry* left = findEntry(host, leftApi, fixtureCase);
                 const Entry* right = findEntry(host, rightApi, fixtureCase);
@@ -1101,7 +1103,12 @@ int runMatrix(const std::vector<std::string>& arguments) {
             const Entry* endpoint =
                 findEntry(host, api, FixtureCase::LinearNearEndpoint);
             const Entry* step = findEntry(host, api, FixtureCase::StepState);
-            if (!bind || !intermediate || !endpoint || !step) {
+            const Entry* cubicMidpoint =
+                findEntry(host, api, FixtureCase::CubicMidpoint);
+            const Entry* cubicEarly =
+                findEntry(host, api, FixtureCase::CubicEarly);
+            if (!bind || !intermediate || !endpoint || !step ||
+                !cubicMidpoint || !cubicEarly) {
                 ++failureCount;
                 crossCase.push_back({
                     {"host", host},
@@ -1167,6 +1174,21 @@ int runMatrix(const std::vector<std::string>& arguments) {
                 "linear_near_endpoint_vs_step_state",
                 *endpoint,
                 *step,
+                kEndpointVsStepMinimum));
+            crossCase.push_back(record(
+                "bind_vs_cubic_midpoint",
+                *bind,
+                *cubicMidpoint,
+                kBindVsPosedMinimum));
+            crossCase.push_back(record(
+                "bind_vs_cubic_early",
+                *bind,
+                *cubicEarly,
+                kBindVsPosedMinimum));
+            crossCase.push_back(record(
+                "cubic_early_vs_cubic_midpoint",
+                *cubicEarly,
+                *cubicMidpoint,
                 kEndpointVsStepMinimum));
         }
     }

@@ -14,6 +14,8 @@ enum class FixtureCase {
     LinearIntermediate,
     LinearNearEndpoint,
     StepState,
+    CubicMidpoint,
+    CubicEarly,
 };
 
 struct FixtureCaseInfo {
@@ -28,9 +30,14 @@ struct FixtureCaseInfo {
     // verification tools derive expected landmarks from this value instead of
     // from the sampled pose under test.
     float expectedAngleDegrees = 0.0f;
+    // The angle a LINEAR interpolation of the same key values would produce at
+    // this sample time. It equals expectedAngleDegrees for the LINEAR and STEP
+    // cases; on the cubic cases it is the linearized-cubic defect the guard has
+    // to reject, so it is always authored here rather than sampled.
+    float linearFallbackAngleDegrees = 0.0f;
 };
 
-const std::array<FixtureCaseInfo, 4>& fixtureCaseCatalog();
+const std::array<FixtureCaseInfo, 6>& fixtureCaseCatalog();
 
 const FixtureCaseInfo& fixtureCaseInfo(FixtureCase fixtureCase);
 const char* fixtureCaseName(FixtureCase fixtureCase);

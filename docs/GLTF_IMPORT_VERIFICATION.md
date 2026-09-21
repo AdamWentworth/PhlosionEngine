@@ -1,14 +1,15 @@
 # glTF character import verification
 
-Status: Implemented CPU contract (M1-F)
+Status: Implemented CPU contracts (M1-F), extended with cubic sampling (M1-H)
 Last updated: 2026-09-20
 
 ## Goal and boundary
 
 Character meshes, skeletal animation and material metadata already work through
-the engine's glTF path. This pass adds no runtime feature and no new asset
-format; it records what that path already does with public, asset-independent
-CPU tests, and it states the limits of that evidence honestly.
+the engine's glTF path. M1-F recorded its existing behavior with public,
+asset-independent CPU tests, without adding a runtime feature or asset format.
+M1-H preserves cubic tangents and verifies sampled translation/rotation/scale
+through the same importer and the shared production evaluator.
 
 The verified entry points are the existing production functions:
 
@@ -23,7 +24,8 @@ The verified entry points are the existing production functions:
   resolves CPU material metadata for one material index.
 
 The tests do not reimplement the importer or its math, add test-only runtime
-APIs, or refactor `Model`. Production sources are unchanged by this pass.
+APIs, or refactor `Model`. M1-F left production sources unchanged; M1-H's
+bounded runtime changes are described in [animation verification](ANIMATION_VERIFICATION.md).
 
 ## What the CPU contracts execute
 
@@ -44,7 +46,7 @@ uploads a texture or creates a graphics context.
 
 | Contract | Coverage |
 | --- | --- |
-| `gltf_scene_import_contract` | Named hierarchy with translated, rotated and nonuniformly scaled nodes; authored child ordering; mesh-only and mesh-plus-skin node assignments; scene roots for an absent `scene` member, for an authored `scene: 1`, and for a document with no scene list, each list holding parentless nodes; a structurally coherent skinned triangle (JOINTS_0/WEIGHTS_0 present, joint indices addressing the skin's joints, weights normalized, mesh and skin assigned together); joint ordering; nonidentity inverse bind matrices including column order; omitted inverse binds resolving to identity; two clips with LINEAR and STEP translation/rotation/scale channels, key times, values including quaternion xyzw order, sampler/target associations, clip names and duration from the last key across samplers; re-import into prefilled containers and a null name list; missing file, malformed JSON and a missing external buffer failing at the loader boundary; an otherwise empty valid document importing empty containers |
+| `gltf_scene_import_contract` | Named hierarchy with translated, rotated and nonuniformly scaled nodes; authored child ordering; mesh-only and mesh-plus-skin node assignments; scene roots for an absent `scene` member, for an authored `scene: 1`, and for a document with no scene list, each list holding parentless nodes; a structurally coherent skinned triangle (JOINTS_0/WEIGHTS_0 present, joint indices addressing the skin's joints, weights normalized, mesh and skin assigned together); joint ordering; nonidentity inverse bind matrices including column order; omitted inverse binds resolving to identity; two clips with LINEAR and STEP translation/rotation/scale channels, key times, values including quaternion xyzw order, sampler/target associations, clip names and duration from the last key across samplers; a third CUBICSPLINE clip whose three samplers must keep the raw per-key tangent triplets and xyzw rotation order and whose `samplePose` results match independently hand-computed Hermite values; re-import into prefilled containers and a null name list; missing file, malformed JSON and a missing external buffer failing at the loader boundary; an otherwise empty valid document importing empty containers |
 | `gltf_material_import_contract` | Default and out-of-range material indices; default OPAQUE factors; authored metallic/roughness, normal scale, occlusion strength, emissive factor with `KHR_materials_emissive_strength` applied once, alpha cutoff and double-sided state; OPAQUE/MASK/BLEND mapping; the existing BLEND-to-OPAQUE/MASK base-texture alpha normalization with literal 2x2 `CPUTexture` pixel arrays |
 | `gltf_import_fixture_contract` | Fixture-helper ownership only: simultaneous and concurrent instances with one prefix get distinct directories beneath the system temporary directory, a destroyed instance removes only its own directory, sibling markers and preexisting sentinel content survive, and unsafe prefix/child-name components are refused |
 
@@ -77,12 +79,12 @@ project material path and is outside this contract.
 
 ## Evidence limits and remaining gaps
 
-An import test proves that listed values are parsed and mapped. It does not
-prove appearance or runtime behavior:
+Import checks prove that listed values are parsed and mapped. The added cubic
+samples also verify CPU playback, with these boundaries:
 
-- No pose is sampled, no skinning matrix is evaluated and no pixel is drawn.
-  Skeletal animation playback, joint deformation and per-backend shading remain
-  unverified by these contracts. The positive fixture carries coherent
+- M1-H samples cubic T/R/S poses, but no GPU skinning or pixels are exercised
+  by these CPU contracts. Joint deformation and per-backend shading require
+  the separate native animation evidence. The original positive fixture carries coherent
   JOINTS_0/WEIGHTS_0 attributes so it exercises a valid skinned document, but
   that is structure, not deformation: no vertex is transformed by a skin.
 - Full vertex import, index generation, texture decoding and material
@@ -91,12 +93,13 @@ prove appearance or runtime behavior:
 - A private character is not qualified. Existing three-API captures from other
   passes remain that pass's evidence; in particular the rigid fixture marker is
   not skeletal-animation qualification.
-- `buildSceneData` drops CUBICSPLINE tangent entries and keeps only the value at
-  each key, while `ModelAnimation` samples every non-STEP channel with linear
-  interpolation or spherical interpolation. Cubic-spline authoring therefore
-  loses its tangent fidelity today. This is a recorded limitation, not desired
-  behavior; restoring cubic interpolation is a later bounded runtime change and
-  would need native multi-API visual qualification.
+- `buildSceneData` keeps CUBICSPLINE outputs exactly as authored, including the
+  raw per-key `[in-tangent, value, out-tangent]` triplets, and the shared CPU
+  pose sampler evaluates them with componentwise cubic Hermite interpolation
+  (M1-H). The import contract authors a cubic translation/rotation/scale fixture
+  and checks the raw triplets plus hand-computed sampled results; native
+  multi-API qualification of that behavior lives in
+  [ANIMATION_VERIFICATION.md](ANIMATION_VERIFICATION.md).
 - Morph-target weight channels are not represented: `ChannelPath` has only
   translation, rotation and scale, and other channel paths are skipped.
   Advanced blending, animation events, root-motion consumption and managed

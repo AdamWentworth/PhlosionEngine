@@ -46,8 +46,8 @@ using Check = bool (*)(std::string&);
 
 bool checkCaseCatalog(std::string& fail) {
     const auto& catalog = fixture::fixtureCaseCatalog();
-    if (catalog.size() != 4u) {
-        fail = "the animation fixture catalog must have four authored cases";
+    if (catalog.size() != 6u) {
+        fail = "the animation fixture catalog must have six authored cases";
         return false;
     }
     std::vector<std::string> names;
@@ -56,7 +56,7 @@ bool checkCaseCatalog(std::string& fail) {
         names.emplace_back(info.name);
         frames.push_back(info.logicalFrame);
         const std::string clip(info.clipName);
-        if (clip != "linear" && clip != "step") {
+        if (clip != "linear" && clip != "step" && clip != "cubic") {
             fail = "case clip is not one of the authored clips";
             return false;
         }
@@ -100,6 +100,23 @@ bool checkCaseCatalog(std::string& fail) {
                 info.name + "'";
             return false;
         }
+        // The guard's linearized-cubic defect is only distinguishable where the
+        // authored cubic pose differs from a LINEAR interpolation of the same
+        // keys; the other cases must stay identical to their fallback.
+        const double authored = static_cast<double>(info.expectedAngleDegrees);
+        const double fallback =
+            static_cast<double>(info.linearFallbackAngleDegrees);
+        if (std::string(info.clipName) == "cubic") {
+            if (std::abs(authored - fallback) <= 10.0) {
+                fail = std::string("cubic case '") + info.name +
+                    "' is not visibly different from its linear fallback";
+                return false;
+            }
+        } else if (!near(authored, fallback, 1.0e-4)) {
+            fail = std::string("non-cubic case '") + info.name +
+                "' does not share its linear fallback angle";
+            return false;
+        }
     }
     return true;
 }
@@ -137,10 +154,31 @@ bool checkRigStructure(std::string& fail) {
         fail = "the fixture rig mesh transform must be nonidentity";
         return false;
     }
-    if (rig.animations.size() != 2u || rig.linearClipIndex != 0 ||
-        rig.stepClipIndex != 1) {
-        fail = "the fixture rig must author the LINEAR and STEP clips";
+    if (rig.animations.size() != 3u || rig.linearClipIndex != 0 ||
+        rig.stepClipIndex != 1 || rig.cubicClipIndex != 2) {
+        fail = "the fixture rig must author the LINEAR, STEP and cubic clips";
         return false;
+    }
+    // The cubic clip keeps the raw per-key [in-tangent, value, out-tangent]
+    // triplets with nonzero tangents; a tangent-stripped or linearized sampler
+    // could not produce the authored -120 degree midpoint.
+    {
+        const fixture::AnimationClip& cubic =
+            rig.animations[static_cast<std::size_t>(rig.cubicClipIndex)];
+        if (cubic.samplers.size() != 1u ||
+            cubic.samplers[0].interpolation != "CUBICSPLINE" ||
+            !cubic.samplers[0].isVec4 ||
+            cubic.samplers[0].inputs != std::vector<float>({0.0f, 2.0f}) ||
+            cubic.samplers[0].outputs.size() != 6u) {
+            fail = "the fixture cubic clip is not the authored CUBICSPLINE sampler";
+            return false;
+        }
+        const glm::vec4 outTangent0 = cubic.samplers[0].outputs[2];
+        const glm::vec4 inTangent1 = cubic.samplers[0].outputs[3];
+        if (glm::length(outTangent0) < 0.1f || glm::length(inTangent1) < 0.1f) {
+            fail = "the fixture cubic clip must carry nonzero tangents";
+            return false;
+        }
     }
     if (rig.vertices.size() != 10u || rig.indices.size() != 24u) {
         fail = "the fixture rig strip geometry is not the authored quad strip";
@@ -483,6 +521,13 @@ bool checkGuardRejectsAuthoredDefects(std::string& fail) {
         if (defect == SynthDefect::None) {
             return false;
         }
+        if (defect == SynthDefect::LinearizedCubic) {
+            // Only the cubic cases author a pose that differs from a LINEAR
+            // interpolation of the same keys; on the LINEAR and STEP cases the
+            // fallback is the authored pose, so the image is indistinguishable.
+            return std::string(fixture::fixtureCaseInfo(fixtureCase).clipName) ==
+                "cubic";
+        }
         if (fixtureCase != FixtureCase::Bind) {
             return true;
         }
@@ -497,7 +542,8 @@ bool checkGuardRejectsAuthoredDefects(std::string& fail) {
                  SynthDefect::StalePalette,
                  SynthDefect::WrongSpace,
                  SynthDefect::WrongJoint,
-                 SynthDefect::Blank}) {
+                 SynthDefect::Blank,
+                 SynthDefect::LinearizedCubic}) {
             FixtureImage image;
             std::string error;
             if (!verification::buildSyntheticFixtureCapture(

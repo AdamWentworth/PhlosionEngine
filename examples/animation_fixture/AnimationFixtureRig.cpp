@@ -93,9 +93,43 @@ FixtureRig buildRig() {
     step.samplers = {zRotationSampler(1.0f, -110.0f, "STEP")};
     step.channels = {rotationChannel(0)};
 
-    rig.animations = {linear, step};
+    // CUBICSPLINE rotation: the same identity -> -120 degree keys as a LINEAR
+    // curve would use, but with real tangents. The out-tangent of the first key
+    // is 3x the chord / interval and the in-tangent of the second is -1x, so
+    // the componentwise Hermite curve is value0 + (3a - 2a^2) * chord: the
+    // midpoint lands exactly on the authored -120 degree key while a LINEAR
+    // fallback would sit at -60 degrees.
+    AnimationClip cubic;
+    cubic.name = "cubic";
+    cubic.durationSec = 2.0f;
+    {
+        engine::render::model_types::AnimationSampler sampler;
+        sampler.inputs = {0.0f, 2.0f};
+        const glm::quat start(1.0f, 0.0f, 0.0f, 0.0f);
+        const glm::quat end = glm::angleAxis(
+            glm::radians(-120.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        const glm::vec4 chord(
+            end.x - start.x, end.y - start.y, end.z - start.z, end.w - start.w);
+        // Engine storage order for rotation keys is (x, y, z, w), and the
+        // glTF tangents are per-second derivatives, so they scale by 1 / 2 s.
+        sampler.outputs = {
+            glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),                 // key 0 in-tangent
+            glm::vec4(start.x, start.y, start.z, start.w),     // key 0 value
+            (3.0f / 2.0f) * chord,                             // key 0 out-tangent
+            (-1.0f / 2.0f) * chord,                            // key 1 in-tangent
+            glm::vec4(end.x, end.y, end.z, end.w),             // key 1 value
+            glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),                 // key 1 out-tangent
+        };
+        sampler.interpolation = "CUBICSPLINE";
+        sampler.isVec4 = true;
+        cubic.samplers = {sampler};
+        cubic.channels = {rotationChannel(0)};
+    }
+
+    rig.animations = {linear, step, cubic};
     rig.linearClipIndex = 0;
     rig.stepClipIndex = 1;
+    rig.cubicClipIndex = 2;
 
     rig.meshTransform =
         glm::translate(glm::mat4(1.0f), glm::vec3(-0.5f, 0.25f, 0.0f)) *

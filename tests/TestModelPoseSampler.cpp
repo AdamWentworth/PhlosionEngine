@@ -7,6 +7,7 @@
 #include "engine/render/ModelPoseSampler.h"
 
 #include <cmath>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -72,6 +73,17 @@ AnimationSampler vecSampler(std::vector<float> inputs,
     sampler.outputs = std::move(outputs);
     sampler.interpolation = interpolation;
     sampler.isVec4 = true;
+    return sampler;
+}
+
+AnimationSampler cubicSampler(std::vector<float> inputs,
+                              std::vector<glm::vec4> outputs,
+                              bool isVec4) {
+    AnimationSampler sampler;
+    sampler.inputs = std::move(inputs);
+    sampler.outputs = std::move(outputs);
+    sampler.interpolation = "CUBICSPLINE";
+    sampler.isVec4 = isVec4;
     return sampler;
 }
 
@@ -789,6 +801,458 @@ bool checkEmptySamplerFallbacks(std::string& fail) {
     return true;
 }
 
+bool checkCubicTranslationInterpolation(std::string& fail) {
+    // Two segments with non-unit intervals and asymmetric tangents. The
+    // expectations are the closed-form Hermite values written out by hand.
+    //
+    // Keys 0 s, 1.5 s and 4 s with values (0,0,0), (3,0,0) and (3,3,0); the
+    // chords are (3,0,0) over 1.5 s and (0,3,0) over 2.5 s. Segment 0 uses an
+    // out-tangent scaled by 1.0x the chord and an in-tangent of 0, so its
+    // weight at a = 0.5 is h10 + h01 = 0.625 and the value is
+    // (0,0,0) + 0.625 * (3,0,0) = (1.875, 0, 0). Segment 1 uses +2.5x and
+    // -1.0x per second, so its weight at a = 0.5 is
+    // h01 + 2.5*h10 - (5/6)*h11 = 0.5 + 0.3125 + 0.1041667 = 0.9166667 and
+    // the value is (3,0,0) + 0.9166667 * (0,3,0) = (3, 2.75, 0).
+    SingleNodeSource data;
+    data.nodes.push_back(NodeTRS{});
+    data.children.push_back({});
+    data.animations.push_back(clipOf(
+        6.0f,
+        {cubicSampler(
+            {0.0f, 1.5f, 4.0f},
+            {glm::vec4(9.0f, 9.0f, 9.0f, 9.0f),      // key 0 in-tangent: unused
+             glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),      // key 0 value
+             glm::vec4(2.0f, 0.0f, 0.0f, 0.0f),      // key 0 out-tangent
+             glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),      // key 1 in-tangent
+             glm::vec4(3.0f, 0.0f, 0.0f, 0.0f),      // key 1 value
+             glm::vec4(0.0f, 3.0f, 0.0f, 0.0f),      // key 1 out-tangent
+             glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),     // key 2 in-tangent
+             glm::vec4(3.0f, 3.0f, 0.0f, 0.0f),      // key 2 value
+             glm::vec4(9.0f, 9.0f, 9.0f, 9.0f)},     // key 2 out-tangent: unused
+            false)},
+        {AnimationChannel{0, 0, ChannelPath::Translation}}));
+
+    std::vector<NodeTRS> locals;
+    std::vector<glm::mat4> globals;
+
+    samplePose(data.source(), 0.75f, 0, locals, globals);
+    if (!nearVec3(locals[0].t, glm::vec3(1.875f, 0.0f, 0.0f))) {
+        fail = "cubic translation inside the first segment did not match the "
+               "hand-computed Hermite value";
+        return false;
+    }
+    samplePose(data.source(), 2.75f, 0, locals, globals);
+    if (!nearVec3(locals[0].t, glm::vec3(3.0f, 2.75f, 0.0f))) {
+        fail = "cubic translation inside the second segment did not match the "
+               "hand-computed Hermite value";
+        return false;
+    }
+
+    // Exact keys return the authored values, including the first and last.
+    samplePose(data.source(), 0.0f, 0, locals, globals);
+    if (!nearVec3(locals[0].t, glm::vec3(0.0f, 0.0f, 0.0f))) {
+        fail = "an exact first cubic key did not return the authored value";
+        return false;
+    }
+    samplePose(data.source(), 1.5f, 0, locals, globals);
+    if (!nearVec3(locals[0].t, glm::vec3(3.0f, 0.0f, 0.0f))) {
+        fail = "an exact interior cubic key did not return the authored value";
+        return false;
+    }
+    samplePose(data.source(), 4.0f, 0, locals, globals);
+    if (!nearVec3(locals[0].t, glm::vec3(3.0f, 3.0f, 0.0f))) {
+        fail = "an exact last cubic key did not return the authored value";
+        return false;
+    }
+
+    // The key range ends at 4 s inside a 6 s clip: a wrapped sample time past
+    // it clamps to the last key instead of interpolating across the tail.
+    samplePose(data.source(), 5.0f, 0, locals, globals);
+    if (!nearVec3(locals[0].t, glm::vec3(3.0f, 3.0f, 0.0f))) {
+        fail = "a cubic sample past the last key was not clamped to it";
+        return false;
+    }
+    samplePose(data.source(), -1.0f, 0, locals, globals);
+    if (!nearVec3(locals[0].t, glm::vec3(3.0f, 3.0f, 0.0f))) {
+        fail = "a negative wrapped cubic sample was not clamped to the last key";
+        return false;
+    }
+
+    // The same values with LINEAR interpolation must give a different pose at
+    // 0.75 s, so this contract would fail if the cubic path were not used.
+    SingleNodeSource linear;
+    linear.nodes.push_back(NodeTRS{});
+    linear.children.push_back({});
+    linear.animations.push_back(clipOf(
+        6.0f,
+        {vecSampler({0.0f, 1.5f, 4.0f},
+                    {glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+                     glm::vec4(3.0f, 0.0f, 0.0f, 0.0f),
+                     glm::vec4(3.0f, 3.0f, 0.0f, 0.0f)},
+                    "LINEAR")},
+        {AnimationChannel{0, 0, ChannelPath::Translation}}));
+    samplePose(linear.source(), 0.75f, 0, locals, globals);
+    if (!nearVec3(locals[0].t, glm::vec3(1.5f, 0.0f, 0.0f))) {
+        fail = "the LINEAR reference sample changed";
+        return false;
+    }
+    return true;
+}
+
+bool checkCubicScaleInterpolation(std::string& fail) {
+    // Keys 0 s and 1 s with values (1,2,3) and (5,4,1); the chord is
+    // (4,2,-2). The out-tangent (2,1,-1) per second scales the interval to
+    // 0.5x the chord and the in-tangent of the second key is 0, so the weight
+    // at a = 0.5 is h01 + 0.5*h10 = 0.5625 and the value is
+    // (1,2,3) + 0.5625 * (4,2,-2) = (3.25, 3.125, 1.875).
+    SingleNodeSource data;
+    data.nodes.push_back(NodeTRS{});
+    data.children.push_back({});
+    data.animations.push_back(clipOf(
+        1.0f,
+        {cubicSampler({0.0f, 1.0f},
+                      {glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+                       glm::vec4(1.0f, 2.0f, 3.0f, 0.0f),
+                       glm::vec4(2.0f, 1.0f, -1.0f, 0.0f),
+                       glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+                       glm::vec4(5.0f, 4.0f, 1.0f, 0.0f),
+                       glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)},
+                      false)},
+        {AnimationChannel{0, 0, ChannelPath::Scale}}));
+
+    std::vector<NodeTRS> locals;
+    std::vector<glm::mat4> globals;
+    samplePose(data.source(), 0.5f, 0, locals, globals);
+    if (!nearVec3(locals[0].s, glm::vec3(3.25f, 3.125f, 1.875f))) {
+        fail = "cubic scale did not match the hand-computed Hermite value";
+        return false;
+    }
+    // The unused w component of a vec3 cubic sampler is never read into scale.
+    samplePose(data.source(), 0.0f, 0, locals, globals);
+    if (!nearVec3(locals[0].s, glm::vec3(1.0f, 2.0f, 3.0f))) {
+        fail = "the exact first cubic scale key did not return the authored value";
+        return false;
+    }
+    return true;
+}
+
+bool checkCubicRotationNormalization(std::string& fail) {
+    // Keys 0 s and 2 s rotate from identity to -120 degrees about +Z. Values
+    // and tangents are authored at twice the geometric scale, so the sampler
+    // has to normalize the componentwise Hermite result. With an out-tangent
+    // of 3x chord / interval on key 0 and an in-tangent of -1x on key 1 the
+    // curve is value0 + (3a - 2a^2) * chord:
+    //   a = 0.25 (t = 0.5 s) -> -76.4264214034764 degrees
+    //   a = 0.5  (t = 1.0 s) -> the interpolated value equals the authored
+    //                            -120 degree key exactly
+    const float sinHalf = 0.8660254037844386f;
+    SingleNodeSource data;
+    data.nodes.push_back(NodeTRS{});
+    data.children.push_back({});
+    data.animations.push_back(clipOf(
+        2.0f,
+        {cubicSampler(
+            {0.0f, 2.0f},
+            {glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+             glm::vec4(0.0f, 0.0f, 0.0f, 2.0f),
+             glm::vec4(0.0f, 0.0f, -3.0f * sinHalf, -1.5f),
+             glm::vec4(0.0f, 0.0f, sinHalf, 0.5f),
+             glm::vec4(0.0f, 0.0f, -2.0f * sinHalf, 1.0f),
+             glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)},
+            true)},
+        {AnimationChannel{0, 0, ChannelPath::Rotation}}));
+
+    std::vector<NodeTRS> locals;
+    std::vector<glm::mat4> globals;
+    const auto angleDegrees = [](const glm::quat& q) {
+        return 2.0 * std::atan2(
+                         static_cast<double>(q.z),
+                         static_cast<double>(q.w)) *
+            180.0 / 3.14159265358979323846;
+    };
+
+    samplePose(data.source(), 0.5f, 0, locals, globals);
+    if (!near(glm::length(locals[0].r), 1.0f, 1.0e-6f)) {
+        fail = "cubic rotation did not normalize the sampled quaternion";
+        return false;
+    }
+    if (std::abs(angleDegrees(locals[0].r) - (-76.4264214034764)) > 1.0e-3) {
+        fail = "cubic rotation did not match the hand-computed early angle";
+        return false;
+    }
+
+    samplePose(data.source(), 1.0f, 0, locals, globals);
+    if (std::abs(angleDegrees(locals[0].r) - (-120.0)) > 1.0e-3) {
+        fail = "cubic rotation did not match the hand-computed midpoint angle";
+        return false;
+    }
+    if (!near(locals[0].r.z, -sinHalf, 1.0e-5f) ||
+        !near(locals[0].r.w, 0.5f, 1.0e-5f)) {
+        fail = "the exact cubic midpoint did not return the authored quaternion";
+        return false;
+    }
+
+    samplePose(data.source(), 0.0f, 0, locals, globals);
+    if (!near(locals[0].r.w, 1.0f, 1.0e-6f) ||
+        !near(locals[0].r.z, 0.0f, 1.0e-6f)) {
+        fail = "the exact first cubic rotation key did not return identity";
+        return false;
+    }
+    return true;
+}
+
+bool checkCubicRotationSignSensitivity(std::string& fail) {
+    // The second key is the -240 degree rotation about +Z (z = -sqrt(3)/2,
+    // w = -1/2), which is the same orientation as +120 degrees. The authored
+    // component curve is not the short path: slerp would flip the sign onto
+    // -120 degrees. Componentwise interpolation must land on the authored
+    // quaternion at the midpoint instead of flipping it.
+    const float sinHalf = 0.8660254037844386f;
+    SingleNodeSource data;
+    data.nodes.push_back(NodeTRS{});
+    data.children.push_back({});
+    data.animations.push_back(clipOf(
+        2.0f,
+        {cubicSampler({0.0f, 2.0f},
+                      {glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+                       glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
+                       glm::vec4(0.0f, 0.0f, -1.5f * sinHalf, -2.25f),
+                       glm::vec4(0.0f, 0.0f, 0.5f * sinHalf, 0.75f),
+                       glm::vec4(0.0f, 0.0f, -sinHalf, -0.5f),
+                       glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)},
+                      true)},
+        {AnimationChannel{0, 0, ChannelPath::Rotation}}));
+
+    std::vector<NodeTRS> locals;
+    std::vector<glm::mat4> globals;
+    samplePose(data.source(), 1.0f, 0, locals, globals);
+    if (!near(locals[0].r.z, -sinHalf, 1.0e-5f) ||
+        !near(locals[0].r.w, -0.5f, 1.0e-5f)) {
+        fail = "the cubic midpoint flipped the authored quaternion sign";
+        return false;
+    }
+    return true;
+}
+
+bool checkCubicExactKeysWithExtremeTangents(std::string& fail) {
+    // Keys 1 s, 3 s and 5 s with finite FLT_MAX tangents and finite values. The
+    // polynomial form would overflow (2 * FLT_MAX and -0.125 * Inf give NaN),
+    // so a clamped endpoint or exact key must return the authored value without
+    // evaluating it. The node default is deliberately different from every key
+    // value, so a skipped channel is distinguishable from a sampled one.
+    const float huge = std::numeric_limits<float>::max();
+    SingleNodeSource data;
+    NodeTRS node;
+    node.t = glm::vec3(100.0f, 100.0f, 100.0f);
+    data.nodes.push_back(node);
+    data.children.push_back({});
+    data.animations.push_back(clipOf(
+        10.0f,
+        {cubicSampler({1.0f, 3.0f, 5.0f},
+                      {glm::vec4(huge, huge, huge, huge),    // key 0 in-tangent
+                       glm::vec4(1.0f, 2.0f, 3.0f, 0.0f),    // key 0 value
+                       glm::vec4(huge, huge, huge, 0.0f),    // key 0 out-tangent
+                       glm::vec4(huge, huge, huge, 0.0f),    // key 1 in-tangent
+                       glm::vec4(4.0f, 5.0f, 6.0f, 0.0f),    // key 1 value
+                       glm::vec4(huge, huge, huge, 0.0f),    // key 1 out-tangent
+                       glm::vec4(huge, huge, huge, 0.0f),    // key 2 in-tangent
+                       glm::vec4(7.0f, 8.0f, 9.0f, 0.0f),    // key 2 value
+                       glm::vec4(huge, huge, huge, huge)},   // key 2 out-tangent
+                      false)},
+        {AnimationChannel{0, 0, ChannelPath::Translation}}));
+
+    std::vector<NodeTRS> locals;
+    std::vector<glm::mat4> globals;
+    const auto expectAt = [&](float time, const glm::vec3& expected,
+                              const char* label) {
+        samplePose(data.source(), time, 0, locals, globals);
+        if (!nearVec3(locals[0].t, expected)) {
+            fail = std::string("a cubic sample with extreme tangents did not "
+                               "return the authored value: ") + label;
+            return false;
+        }
+        return true;
+    };
+    if (!expectAt(0.0f, glm::vec3(1.0f, 2.0f, 3.0f),
+                  "clamped before the first key")) {
+        return false;
+    }
+    if (!expectAt(1.0f, glm::vec3(1.0f, 2.0f, 3.0f), "exact first key")) {
+        return false;
+    }
+    if (!expectAt(3.0f, glm::vec3(4.0f, 5.0f, 6.0f), "exact interior key")) {
+        return false;
+    }
+    if (!expectAt(5.0f, glm::vec3(7.0f, 8.0f, 9.0f), "exact last key")) {
+        return false;
+    }
+    if (!expectAt(9.0f, glm::vec3(7.0f, 8.0f, 9.0f),
+                  "clamped after the last key")) {
+        return false;
+    }
+
+    // Strictly inside a segment the interpolation is required, and its
+    // non-finite result must skip the channel and keep the current local value.
+    samplePose(data.source(), 2.0f, 0, locals, globals);
+    if (!nearVec3(locals[0].t, node.t)) {
+        fail = "a non-finite interpolated cubic result was not skipped";
+        return false;
+    }
+    return true;
+}
+
+bool checkMalformedCubicIsSkipped(std::string& fail) {
+    // Malformed cubic data skips the channel and leaves the node's current
+    // local component alone. Every sampler below is rejected by the sampler's
+    // own validation, not by the importer.
+    const std::vector<std::pair<AnimationSampler, const char*>> malformed{
+        {cubicSampler({1.0f},
+                      {glm::vec4(0.0f),
+                       glm::vec4(1.0f, 1.0f, 1.0f, 0.0f),
+                       glm::vec4(0.0f)},
+                      false),
+         "single-key cubic"},
+        {cubicSampler({0.0f, 1.0f},
+                      {glm::vec4(0.0f),
+                       glm::vec4(1.0f, 1.0f, 1.0f, 0.0f),
+                       glm::vec4(0.0f),
+                       glm::vec4(2.0f, 2.0f, 2.0f, 0.0f)},
+                      false),
+         "wrong output count"},
+        {cubicSampler({0.0f, 1.0f},
+                      {glm::vec4(0.0f),
+                       glm::vec4(1.0f, std::nanf(""), 1.0f, 0.0f),
+                       glm::vec4(0.0f),
+                       glm::vec4(0.0f),
+                       glm::vec4(2.0f, 2.0f, 2.0f, 0.0f),
+                       glm::vec4(0.0f)},
+                      false),
+         "non-finite value"},
+        {cubicSampler({0.0f, 0.0f},
+                      {glm::vec4(0.0f),
+                       glm::vec4(1.0f, 1.0f, 1.0f, 0.0f),
+                       glm::vec4(0.0f),
+                       glm::vec4(0.0f),
+                       glm::vec4(2.0f, 2.0f, 2.0f, 0.0f),
+                       glm::vec4(0.0f)},
+                      false),
+         "non-increasing times"},
+        {cubicSampler(
+             {0.0f, std::numeric_limits<float>::infinity()},
+             {glm::vec4(0.0f),
+              glm::vec4(1.0f, 1.0f, 1.0f, 0.0f),
+              glm::vec4(0.0f),
+              glm::vec4(0.0f),
+              glm::vec4(2.0f, 2.0f, 2.0f, 0.0f),
+              glm::vec4(0.0f)},
+             false),
+         "non-finite key time"},
+        {cubicSampler(
+             {0.0f, 1.0f},
+             {glm::vec4(0.0f),
+              glm::vec4(1.0f, 1.0f, 1.0f, 0.0f),
+              glm::vec4(std::numeric_limits<float>::infinity(), 0.0f, 0.0f, 0.0f),
+              glm::vec4(0.0f),
+              glm::vec4(2.0f, 2.0f, 2.0f, 0.0f),
+              glm::vec4(0.0f)},
+             false),
+         "non-finite out-tangent"},
+        {cubicSampler(
+             {0.0f, 1.0f},
+             {glm::vec4(0.0f),
+              glm::vec4(1.0f, 1.0f, 1.0f, 0.0f),
+              glm::vec4(0.0f),
+              glm::vec4(0.0f, std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f),
+              glm::vec4(2.0f, 2.0f, 2.0f, 0.0f),
+              glm::vec4(0.0f)},
+             false),
+         "non-finite in-tangent"},
+    };
+
+    for (const auto& [sampler, label] : malformed) {
+        SingleNodeSource data;
+        NodeTRS node;
+        node.t = glm::vec3(1.0f, 2.0f, 3.0f);
+        data.nodes.push_back(node);
+        data.children.push_back({});
+        data.animations.push_back(clipOf(
+            2.0f, {sampler}, {AnimationChannel{0, 0, ChannelPath::Translation}}));
+        std::vector<NodeTRS> locals;
+        std::vector<glm::mat4> globals;
+        samplePose(data.source(), 0.5f, 0, locals, globals);
+        if (!nearVec3(locals[0].t, node.t)) {
+            fail = std::string("a ") + label +
+                " translation was not skipped";
+            return false;
+        }
+    }
+
+    // A malformed cubic channel after a valid LINEAR channel on the same node
+    // keeps the pose the valid channel produced.
+    {
+        SingleNodeSource data;
+        data.nodes.push_back(NodeTRS{});
+        data.children.push_back({});
+        data.animations.push_back(clipOf(
+            2.0f,
+            {vecSampler({0.0f, 2.0f},
+                        {glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+                         glm::vec4(4.0f, 4.0f, 4.0f, 0.0f)},
+                        "LINEAR"),
+             cubicSampler({1.0f, 1.0f},
+                          {glm::vec4(0.0f),
+                           glm::vec4(9.0f, 9.0f, 9.0f, 0.0f),
+                           glm::vec4(0.0f),
+                           glm::vec4(0.0f),
+                           glm::vec4(9.0f, 9.0f, 9.0f, 0.0f),
+                           glm::vec4(0.0f)},
+                          false)},
+            {AnimationChannel{0, 0, ChannelPath::Translation},
+             AnimationChannel{1, 0, ChannelPath::Translation}}));
+        std::vector<NodeTRS> locals;
+        std::vector<glm::mat4> globals;
+        samplePose(data.source(), 1.0f, 0, locals, globals);
+        if (!nearVec3(locals[0].t, glm::vec3(2.0f, 2.0f, 2.0f))) {
+            fail = "a malformed cubic channel overwrote the current local value";
+            return false;
+        }
+    }
+
+    // A degenerate rotation curve has a zero-length quaternion even though its
+    // components are finite; the channel must be skipped.
+    {
+        SingleNodeSource data;
+        NodeTRS node;
+        node.r = glm::angleAxis(glm::radians(40.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        data.nodes.push_back(node);
+        data.children.push_back({});
+        data.animations.push_back(clipOf(
+            2.0f,
+            {cubicSampler({0.0f, 1.0f},
+                          {glm::vec4(0.0f),
+                           glm::vec4(0.0f),
+                           glm::vec4(0.0f),
+                           glm::vec4(0.0f),
+                           glm::vec4(0.0f),
+                           glm::vec4(0.0f)},
+                          true)},
+            {AnimationChannel{0, 0, ChannelPath::Rotation}}));
+        std::vector<NodeTRS> locals;
+        std::vector<glm::mat4> globals;
+        samplePose(data.source(), 0.5f, 0, locals, globals);
+        if (!nearQuat(locals[0].r, node.r)) {
+            fail = "a degenerate cubic rotation did not keep the default rotation";
+            return false;
+        }
+        if (!near(locals[0].r.w, node.r.w, 1.0e-6f) ||
+            !near(locals[0].r.y, node.r.y, 1.0e-6f)) {
+            fail = "a degenerate cubic rotation changed the authored quaternion";
+            return false;
+        }
+    }
+    return true;
+}
+
 const Check kChecks[] = {
     &checkEmptyInputsReplaceOutputs,
     &checkDefaultsAndInvalidClip,
@@ -808,6 +1272,12 @@ const Check kChecks[] = {
     &checkSuppressionOnMatrixAuthoredCarrier,
     &checkSegmentScaleCompensation,
     &checkEmptySamplerFallbacks,
+    &checkCubicTranslationInterpolation,
+    &checkCubicScaleInterpolation,
+    &checkCubicRotationNormalization,
+    &checkCubicRotationSignSensitivity,
+    &checkCubicExactKeysWithExtremeTangents,
+    &checkMalformedCubicIsSkipped,
 };
 
 } // namespace

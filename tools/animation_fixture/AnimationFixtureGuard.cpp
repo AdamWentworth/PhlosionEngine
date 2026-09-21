@@ -529,11 +529,14 @@ std::array<double, 3> vertexColor(std::size_t station) {
 glm::vec3 rigVertexPosition(std::size_t station,
                             bool top,
                             SynthDefect defect,
-                            float angleDegrees) {
+                            const FixtureCaseInfo& info) {
     const float x = kStripStations[station];
     const float y = top ? kStripHalfHeight : -kStripHalfHeight;
     const glm::vec3 bind(x, y, 0.0f);
     const double tipWeight = static_cast<double>(x / kStripStations.back());
+    const float angleDegrees = (defect == SynthDefect::LinearizedCubic)
+        ? info.linearFallbackAngleDegrees
+        : info.expectedAngleDegrees;
     switch (defect) {
         case SynthDefect::WrongJoint: {
             const glm::mat4 tipTransform =
@@ -559,6 +562,7 @@ glm::vec3 rigVertexPosition(std::size_t station,
             return bind;
         case SynthDefect::None:
         case SynthDefect::Blank:
+        case SynthDefect::LinearizedCubic:
             break;
     }
     return analyticBlend(bind, tipWeight, angleDegrees);
@@ -688,6 +692,10 @@ bool parseSynthDefect(const std::string& name, SynthDefect& outDefect) {
         outDefect = SynthDefect::Blank;
         return true;
     }
+    if (name == "linearized-cubic") {
+        outDefect = SynthDefect::LinearizedCubic;
+        return true;
+    }
     return false;
 }
 
@@ -705,6 +713,8 @@ const char* synthDefectName(SynthDefect defect) {
             return "wrong-joint";
         case SynthDefect::Blank:
             return "blank";
+        case SynthDefect::LinearizedCubic:
+            return "linearized-cubic";
     }
     return "unknown";
 }
@@ -751,7 +761,7 @@ bool buildSyntheticFixtureCapture(FixtureCase fixtureCase,
         std::array<ScreenVertex, 2> column;
         for (int row = 0; row < 2; ++row) {
             const glm::vec3 world = rigVertexPosition(
-                station, row == 1, defect, info.expectedAngleDegrees);
+                station, row == 1, defect, info);
             const std::array<double, 2> projected =
                 projectNormalized(viewProjection, world);
             ScreenVertex vertex;

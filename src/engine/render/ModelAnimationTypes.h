@@ -29,9 +29,15 @@ struct SkinData {
 enum class ChannelPath { Translation, Rotation, Scale };
 
 struct AnimationSampler {
+    // Key times in seconds, strictly increasing for imported data.
     std::vector<float> inputs;
+    // One (x, y, z, w) entry per key for LINEAR and STEP. For CUBICSPLINE this
+    // holds the raw per-key glTF [in-tangent, value, out-tangent] triplets
+    // exactly as authored, so outputs.size() == 3 * inputs.size(); the shared
+    // sampler consumes the tangents directly and no other engine code may
+    // assume one entry per key. Rotation entries are xyzw in every case.
     std::vector<glm::vec4> outputs;
-    std::string interpolation;
+    std::string interpolation;  // "LINEAR", "STEP" or "CUBICSPLINE"
     bool isVec4 = false;
 };
 

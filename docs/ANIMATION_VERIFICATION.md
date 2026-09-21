@@ -1,6 +1,7 @@
 # Animation pose sampling and native skeletal verification
 
-Status: Implemented CPU extraction, CPU contracts and public native fixture (M1-G)
+Status: Implemented CPU extraction, CPU contracts, CUBICSPLINE sampling and
+public native fixture (M1-G extraction, M1-H cubic fidelity)
 Last updated: 2026-09-20
 
 ## Goal and boundary
@@ -12,10 +13,13 @@ interface, makes `Model` delegate to it, and verifies real weighted skeletal
 deformation with a tiny public rig through the standalone runtime host and the
 actual editor project plugin on OpenGL, Vulkan and Direct3D 12.
 
-Nothing about animation semantics changed. The sampling policy, `Model`'s public
-API, defaults, diagnostics and draw behavior are unchanged, and no backend,
-editor-host, shader, cache-schema or material code was touched. Cubic
-interpolation, channel blending, animation events, attachments, morph targets,
+M1-H adds the glTF CUBICSPLINE path on top of that extraction: the importer
+keeps the authored tangents instead of discarding them, the shared sampler
+evaluates them with componentwise cubic Hermite interpolation, and the model
+cache bumped to v10 so tangent-stripped caches re-import. The LINEAR and STEP
+sampling policy, `Model`'s public API, defaults, diagnostics and draw behavior
+are otherwise unchanged, and no backend, editor-host, shader or material code
+was touched. Channel blending, animation events, attachments, morph targets,
 importer/cook policy and Pokemon-specific rules remain out of scope.
 
 ## Shared CPU pose sampler
@@ -30,13 +34,36 @@ extraction has exactly one implementation.
 
 [`ModelAnimation.cpp`](../src/engine/render/ModelAnimation.cpp) keeps its
 OpenGL-only responsibilities (skin uniform upload, cached draws, sampled
-drawing, bound-shader geometry drawing) and `Model::buildPoseMatrices` is now a
-thin call into the shared sampler. The extraction is proven mechanical: the
-normalized statement streams of the committed baseline
-`Model::buildPoseMatrices` (9c0d812) and the extracted `samplePose` are
-byte-identical after removing comments, blank lines, the `source.` alias block
-and namespace qualification. That script and its output are retained in
-`artifacts/m1-g/diff/`; no baseline copy ships in production or tests.
+drawing, bound-shader geometry drawing) and `Model::buildPoseMatrices` is a
+thin call into the shared sampler. The extraction itself was proven mechanical
+in M1-G, whose committed state is afaeb1e: at that time the normalized
+statement streams of `Model::buildPoseMatrices` (baseline 9c0d812) and the
+extracted `samplePose` were byte-identical after removing comments, blank
+lines, the `source.` alias block and namespace qualification. That script and
+its output are retained in `artifacts/m1-g/diff/`; no baseline copy ships in
+production or tests. The proof is historical: M1-H deliberately changes
+`samplePose` afterwards to add CUBICSPLINE, so it covers the extraction only,
+not the current sampler body.
+
+M1-H adds CUBICSPLINE to that shared sampler. `AnimationSampler` keeps its
+existing members: `outputs` stores one (x, y, z, w) value per key for LINEAR and
+STEP and the raw per-key glTF `[in-tangent, value, out-tangent]` triplets for
+CUBICSPLINE, which the type comment records. The importer no longer drops the
+tangents, the sampler clamps the wrapped sample time to the channel's own keys
+and evaluates componentwise cubic Hermite with tangents scaled by the real
+interval in seconds, and rotations normalize the result without a sign flip.
+`LINEAR` and `STEP` keep the legacy wrapping, tail and fallback behavior
+byte-for-byte.
+
+[`ModelCacheAnimation.h`](../src/engine/render/ModelCacheAnimation.h) /
+`ModelCacheAnimation.cpp` is the narrow CPU seam for the sampler part of the
+model cache: the packed-header identity constants plus `readAnimationSampler`
+and `writeAnimationSampler` over standard streams. `ModelCache` uses those
+functions for real sampler I/O and for the identity check before any cached
+state is published, so the CPU contract exercises the shipped codec rather than
+a copy. A failed read returns false and leaves the caller's sampler untouched.
+The cache version moved from 9 to 10 so caches written while tangents were
+stripped re-import instead of replaying lossy animation.
 
 ## CPU contracts
 
@@ -50,7 +77,31 @@ scene-root selection, output replacement, horizontal root-motion suppression for
 named carriers, skeleton-root carriers and matrix-authored carriers, unaffected
 non-carrier translation, LINEAR nonuniform scale interpolation (literal
 per-axis midpoint plus a transformed point), segment-scale compensation and
-empty-sampler fallbacks.
+empty-sampler fallbacks. The M1-H additions cover cubic translation, scale and
+rotation with literal closed-form expectations, two segments with non-unit
+intervals and asymmetric tangents, exact interior keys, clamped channel
+endpoints, a LINEAR reference that would differ, quaternion normalization from
+scaled values, a sign-sensitive curve that must not flip, and malformed cubic
+data (too few keys, wrong output count, non-finite components, non-increasing
+times, non-finite key times and tangents, a degenerate quaternion) leaving the
+current local component untouched. One contract uses finite FLT_MAX tangents to
+prove that clamped endpoints and exact first/interior/last keys return the
+authored values while a strictly interpolated sample with a non-finite result
+skips the channel.
+
+[`TestGltfSceneImport.cpp`](../tests/TestGltfSceneImport.cpp) adds an authored
+cubic glTF fixture (JSON plus explicit little-endian bytes) that is loaded
+through `loader::tryLoad` and `buildSceneData` and then sampled: the importer
+must keep the raw tangent triplets and the xyzw rotation order, and `samplePose`
+must reproduce independently hand-computed Hermite results.
+
+[`TestModelCacheAnimation.cpp`](../tests/TestModelCacheAnimation.cpp) exercises
+the production cache codec seam
+([`ModelCacheAnimation.h`](../src/engine/render/ModelCacheAnimation.h)) that
+`ModelCache` itself uses: raw tangent roundtrip, sampling after the roundtrip,
+LINEAR/STEP one-output-per-key layout, a truncated stream that must fail without
+publishing a partial sampler, and the packed-header identity check (v10
+accepted, v9 and wrong magic rejected).
 
 Engine policies recorded by these contracts (not universal glTF rules):
 
@@ -58,18 +109,27 @@ Engine policies recorded by these contracts (not universal glTF rules):
   so a LINEAR channel returns its last key instead of wrapping to the first.
   Negative whole durations land on the first key, and negative fractional times
   wrap forward.
-- STEP holds the earlier key inside its key range and the last key beyond it.
+- On the legacy LINEAR/STEP path, STEP holds the earlier key inside its key
+  range and the last key beyond it.
 - Horizontal root-motion suppression freezes animated X/Z on the carrier nodes
   (`origin`, `waist`, `hips`, plus each skin's skeleton root) while keeping
   animated Y, every rotation and every scale.
-- A channel shorter than the clip interpolates from its last key back to its
-  first across the remaining tail span.
-- A channel whose sampler has no keys contributes zero translation, zero scale
-  and identity rotation; channels with unknown sampler or node indices are
-  skipped entirely.
+- A legacy LINEAR channel shorter than the clip interpolates from its last
+  key back to its first across the remaining tail span.
+- A legacy LINEAR/STEP channel whose sampler has no keys contributes zero
+  translation, zero scale and identity rotation; channels with unknown sampler
+  or node indices are skipped entirely.
+- CUBICSPLINE clamps the wrapped sample time into the channel's own key range
+  and evaluates the raw per-key [in-tangent, value, out-tangent] triplets with
+  componentwise cubic Hermite interpolation, scaling the tangents by the real
+  interval in seconds. Rotation normalizes the result without flipping the
+  authored quaternion sign. Clamped endpoints and exact keys return the authored
+  value directly (rotations are then normalized by the caller), so finite but
+  extreme tangents cannot overflow a sample that does not need interpolation;
+  only a non-finite interpolated result, or malformed cubic data, skips the
+  channel and leaves the destination's current local component untouched.
 
-CUBICSPLINE tangent loss and absent morph-weight channels remain documented
-limitations of the importer, not newly accepted behavior.
+Absent morph-weight channels remain a documented limitation of the importer.
 
 ## Public native fixture
 
@@ -97,17 +157,28 @@ the contents changed; both live in the example, not in the engine.
 | `linear-intermediate` | `linear` | 1.0 s | 30 | -35° |
 | `linear-near-endpoint` | `linear` | 2.0 s | 60 | -70° |
 | `step-state` | `step` | 1.5 s | 90 | -110° |
+| `cubic-midpoint` | `cubic` | 1.0 s | 120 | -120° |
+| `cubic-early` | `cubic` | 0.5 s | 150 | -76.4264214° |
 
 The case catalog in
 [`AnimationFixtureCase.h`](../examples/animation_fixture/AnimationFixtureCase.h)
-owns clip, sample time, logical frame and the analytic angle. The verification
-tools derive expected landmarks from those authored values with their own
+owns clip, sample time, logical frame, the analytic angle and the angle a LINEAR
+interpolation of the same keys would produce. The verification tools derive
+expected landmarks from those authored values with their own
 linear-blend-skinning math, never from the sampled pose under test.
+
+The `cubic` clip is the authored CUBICSPLINE rotation: keys at 0 s and 2 s from
+identity to -120° about +Z with nonzero tangents (3x the chord / interval out of
+the first key, -1x into the second). Componentwise Hermite interpolation puts
+the curve exactly on the authored -120° key at the midpoint and at
+-76.4264214° at a quarter of the interval, while a LINEAR fallback would sit at
+-60° and -30°, so both cubic cases are visibly distinct from a tangent-stripped
+or linearized sampler and the guard's synthetic defect is detectable.
 
 ## Capture matrix and guard
 
-`tools/animation_fixture/run_capture_matrix.ps1` captures four cases x three
-native APIs x two hosts (24 images), records the engine revision/baseline, dirty
+`tools/animation_fixture/run_capture_matrix.ps1` captures six cases x three
+native APIs x two hosts (36 images), records the engine revision/baseline, dirty
 state, binary hashes, requested capture frames and parsed log provenance, and
 then runs `AnimationFixtureGuard matrix --require-complete`. The runner reuses
 the shared native process launcher from the public asset fixture. An omitted
@@ -121,7 +192,7 @@ resolved to a commit and must match HEAD.
   (normalized MAE <= 0.01, RMSE <= 0.08, changed ratio <= 0.05 at channel
   tolerance 8) that cannot be loosened;
 - requires exactly the unique `{runtime, editor} x {opengl, vulkan, d3d12} x
-  four cases` Cartesian set, a zero exit code, exactly one matching
+  six cases` Cartesian set, a zero exit code, exactly one matching
   `[Screenshot][<Backend>] WROTE` record at the requested frame, a passing
   parity contract for that API and no OpenGL compatibility fallback;
 - re-hashes the runtime, editor, plugin and guard binaries and requires the
@@ -147,8 +218,8 @@ resolved to a commit and must match HEAD.
   background at the positions a rigid base or a single-joint (rigid middle)
   mapping would occupy;
 - checks authored case differences (bind vs each posed case, intermediate vs
-  near-endpoint and near-endpoint vs step) and writes `matrix.json` plus a
-  contact sheet.
+  near-endpoint, near-endpoint vs step, the cubic cases against bind and against
+  each other) and writes `matrix.json` plus a contact sheet.
 
 Measured image values (`measured_content`) are reported separately from the
 authored landmark distances (`expected_geometry`), so a published number never
@@ -156,9 +227,13 @@ mixes an expected separation with a pixel measurement.
 
 The guard's `synth` command builds deterministic captures for the hermetic
 tests. It models disabled skinning, a stale bind palette, a palette built in
-mesh space, a rigid tip mapping and a blank frame; the CPU contract requires the
-validator to reject every distinguishable defect, and the PowerShell harness
-drives the same paths through the real CLI. With skinning disabled the renderer
+mesh space, a rigid tip mapping, a blank frame and a cubic clip evaluated as a
+LINEAR curve between its keys (`linearized-cubic`); the CPU contract requires
+the validator to reject every distinguishable defect, and the PowerShell harness
+drives the same paths through the real CLI. The cubic defect uses the catalog's
+authored LINEAR fallback angle, so it is rejected on `cubic-midpoint` and
+`cubic-early` and is deliberately indistinguishable (and accepted) on the
+LINEAR and STEP cases. With skinning disabled the renderer
 still applies the nonidentity mesh transform to the raw bind vertices, so that
 defect is rejected even on the `bind` case; at zero degrees a stale bind palette
 and the rigid tip transform are the identity and are indistinguishable there.
@@ -177,33 +252,39 @@ published SHA-256 vectors. The contracts need no graphics device.
 
 On 2026-09-20, the existing `build-presentation` Debug tree (VS2026,
 editor/tests enabled, engine warnings as errors) rebuilt warning-clean and CTest
-passed 7 of 7 entries, including the 23 C++ contracts and both fixture
-harnesses. The final native matrix (`artifacts/m1-g/m1g-run04`) captured all 24
-animation cases with
-`failure_count = 0`; the worst cross-API pair measured normalized MAE
-0.0000038 and RMSE 0.00029 under the unchanged approved limits, and the authored
-case differences measured 4.77-9.73% changed pixels. Re-capturing the same tree
-after the shared-palette fix reproduced the previous 24 captures
-pixel-identically (worst channel difference 0), and the handshakes record one
-palette address for the bind and requested draws with changed contents on the
-posed cases.
+passed 7 of 7 entries, including the 24 C++ contracts and both fixture
+harnesses. The native matrix (`artifacts/m1-h/m1h-run02`, captured after the
+review correction that returns authored values for clamped endpoints and exact
+keys) captured all 36 animation cases with `failure_count = 0`; the worst
+cross-API pair measured normalized MAE 0.0000074 and RMSE 0.00039 under the
+unchanged approved limits, and the authored case differences measured 4.8-9.7%
+changed pixels with the two cubic cases distinct from bind (7.4-9.6%) and from
+each other (5.0-5.6%). The original four cases re-captured on this tree are
+pixel-identical to the retained M1-G captures (24 of 24 comparisons), the whole
+36-image matrix is pixel-identical to the pre-correction M1-H run (36 of 36),
+and every comparison reports worst channel difference 0.
 
 The existing public archive fixture was re-run as regression coverage
-(`artifacts/m1-g/archive-regression/m1g-archive-02`): all 24 cases passed with
-its historical numbers (A0 vs A30 1.40%, A30 vs B30 34.55%, failed replacement
-pixel-identical), and its runtime/editor/plugin/guard binaries were unchanged by
-this pass. That fixture renders rigid archive content and never samples a pose,
-so it evidences only that the shared renderer paths keep their appearance;
-sampler behavior rests on the CPU contracts, the authored palette expectations
-and the animation matrix.
+(`artifacts/m1-h/archive-regression/m1h-archive-final`): all 24 cases passed with
+its historical numbers (editor A0 vs A30 1.40%, editor A30 vs B30 34.55%,
+runtime 1.25%/30.90%, failed replacement pixel-identical). That fixture renders
+rigid archive content and never samples a pose, so it evidences only that the
+shared renderer paths keep their appearance; sampler behavior rests on the CPU
+contracts, the authored palette expectations and the animation matrix. Astra
+recaptured this archive matrix after an independent check found all four older
+recorded binary hashes differed from the final build. Unlike the animation
+guard, the archive guard validates digest format and binary size without
+recomputing the digest; its earlier PASS was insufficient to reuse that evidence.
+All four hashes in each final manifest were independently checked against the
+actual binaries (`artifacts/m1-h/final-provenance.json`).
 
-A child-project configure confirmed `PHLOSION_BUILD_ANIMATION_FIXTURE=OFF` by
-default with the fixture hosts absent, that the example and verification
-libraries still build when engine tests are enabled, and that a consumer linking
-only `Phlosion::Engine` reaches the shared sampler without a graphics context.
+The M1-H extraction of the cache sampler codec keeps the packed layout
+unchanged: `ModelCacheAnimation` is the only writer/reader of sampler bytes and
+the model cache version moved from 9 to 10 so tangent-stripped caches re-import.
 
-Raw logs, handshakes, metrics, manifests, matrices, contact sheets, the
-extraction differential proof and the child-project evidence are under ignored
+Raw logs, handshakes, metrics, manifests, matrices, contact sheets and the
+retained comparison summaries are under ignored `artifacts/m1-h/`; the M1-G
+extraction differential proof and child-project evidence remain under
 `artifacts/m1-g/`.
 
 ## Evidence limits
@@ -211,15 +292,20 @@ extraction differential proof and the child-project evidence are under ignored
 These public cases qualify the shared sampler, the caller-owned palette space
 and the world-mesh-textured skinning path in both hosts on one Windows/NVIDIA
 GTX 1070 Debug workstation. They do not qualify a private character, production
-materials, morph targets, cubic spline tangents, instanced or indirect skinned
-paths that were not exercised, other GPUs/drivers, or performance budgets.
+materials, morph targets, instanced or indirect skinned paths that were not
+exercised, other GPUs/drivers, or performance budgets. The fixture's cubic
+coverage is a single-segment, two-key Z-rotation curve captured natively on all
+three APIs; multi-segment cubic translation, two-key cubic scale, the
+extreme-tangent exact-key behavior and every malformed-data rule are CPU-tested
+only (sampler, importer and cache-codec contracts), with no native capture.
 
 The legacy OpenGL-only `Model::drawAnimated` path is not exercised by this
-fixture; its behavior is preserved by the shared sampler plus unchanged draw
-code, and M1-F's glTF import contracts still cover import structure. The matrix
-establishes three-API-consistent presentation of a two-joint rig, not general
-skeletal-animation coverage. Synthetic captures and CLI-level mutations are
-hermetic checks of the guard; only the 24 native images exercise the real
+fixture. Its draw code is unchanged and it now samples through the shared
+corrected evaluator, so its playback of CUBICSPLINE clips changes with the rest
+of the engine by design; the native legacy draw path itself remains unqualified.
+The matrix establishes three-API-consistent presentation of a two-joint rig, not
+general skeletal-animation coverage. Synthetic captures and CLI-level mutations
+are hermetic checks of the guard; only the 36 native images exercise the real
 backends.
 
 ## Related documentation

@@ -209,18 +209,11 @@ void buildSceneData(const fastgltf::Asset& asset,
                     samp.isVec4 = true;
                 }
 
-                if (samp.interpolation == "CUBICSPLINE" && !samp.inputs.empty()) {
-                    const size_t keys = samp.inputs.size();
-                    std::vector<glm::vec4> values;
-                    values.reserve(keys);
-                    for (size_t k = 0; k < keys; ++k) {
-                        const size_t idx = k * 3 + 1;
-                        if (idx < raw.size()) values.push_back(raw[idx]);
-                    }
-                    samp.outputs = std::move(values);
-                } else {
-                    samp.outputs = std::move(raw);
-                }
+                // Keep the authored outputs exactly as the accessor stores
+                // them: one value per key for LINEAR/STEP and the raw per-key
+                // [in-tangent, value, out-tangent] triplets for CUBICSPLINE.
+                // The shared pose sampler consumes and validates that layout.
+                samp.outputs = std::move(raw);
             }
 
             clip.samplers[si] = std::move(samp);

@@ -117,6 +117,10 @@ enum class SynthDefect {
     WrongSpace,
     WrongJoint,
     Blank,
+    // A cubic clip evaluated as if it were a LINEAR curve between its keys.
+    // On the LINEAR and STEP cases the fallback equals the authored pose, so
+    // only the cubic cases are distinguishable.
+    LinearizedCubic,
 };
 
 bool parseSynthDefect(const std::string& name, SynthDefect& outDefect);

@@ -1,6 +1,7 @@
 // src/engine/render/ModelCache.cpp
 
 #include "Model.h"
+#include "ModelCacheAnimation.h"
 #include "ModelStartupLog.h"
 #include "engine/core/Environment.h"
 #include "engine/utils/Log.h"
@@ -75,9 +76,10 @@ static bool envTruthy(const char* name) {
     return engine::env::truthyNonZero(name);
 }
 
-// Cache format constants
-static constexpr uint64_t kModelCacheMagic = 0x4C444D434150554FULL; // "PACMDML" in little-endian-ish
-static constexpr uint32_t kModelCacheVersion = 9;
+// Cache format identity lives with the narrow codec seam so the CPU contracts
+// exercise the exact magic/version the production reader enforces.
+using engine::render::model_cache::kModelCacheMagic;
+using engine::render::model_cache::kModelCacheVersion;
 
 #pragma pack(push, 1)
 struct CacheHeader {
@@ -140,8 +142,10 @@ bool Model::tryLoadCache(const std::string& filepath)
             std::ifstream in(cpath, std::ios::binary);
             if (!in.is_open()) return false;
             if (!readPod(in, hdr)) return false;
-            if (hdr.magic != kModelCacheMagic) return false;
-            if (hdr.version != kModelCacheVersion) return false;
+            if (!engine::render::model_cache::cacheIdentityValid(
+                    hdr.magic, hdr.version)) {
+                return false;
+            }
 
             const auto srcSz = (uint64_t)fs::file_size(filepath);
             const auto srcWt = fs::last_write_time(filepath).time_since_epoch().count();
@@ -256,25 +260,10 @@ bool Model::tryLoadCache(const std::string& filepath)
                 clip.samplers.resize(sc);
                 for (uint32_t s = 0; s < sc; ++s) {
                     AnimationSampler samp{};
-                    if (!readString(in, samp.interpolation)) return false;
-                    uint8_t iv = 0;
-                    if (!readPod(in, iv)) return false;
-                    samp.isVec4 = (iv != 0);
-
-                    uint32_t ic = 0;
-                    if (!readPod(in, ic)) return false;
-                    samp.inputs.resize(ic);
-                    for (uint32_t k = 0; k < ic; ++k) {
-                        if (!readPod(in, samp.inputs[k])) return false;
+                    if (!engine::render::model_cache::readAnimationSampler(
+                            in, samp)) {
+                        return false;
                     }
-
-                    uint32_t oc = 0;
-                    if (!readPod(in, oc)) return false;
-                    samp.outputs.resize(oc);
-                    for (uint32_t k = 0; k < oc; ++k) {
-                        if (!readPod(in, samp.outputs[k])) return false;
-                    }
-
                     clip.samplers[s] = std::move(samp);
                 }
 
@@ -645,20 +634,9 @@ void Model::writeCache(const std::string& filepath,
             uint32_t sc = (uint32_t)a.samplers.size();
             if (!writePod(out, sc)) { warn("writePod failed"); return; }
             for (const auto& s : a.samplers) {
-                if (!writeString(out, s.interpolation)) { warn("writeString failed"); return; }
-                uint8_t iv = s.isVec4 ? 1u : 0u;
-                if (!writePod(out, iv)) { warn("writePod failed"); return; }
-
-                uint32_t ic = (uint32_t)s.inputs.size();
-                if (!writePod(out, ic)) { warn("writePod failed"); return; }
-                for (float v : s.inputs) {
-                    if (!writePod(out, v)) { warn("writePod failed"); return; }
-                }
-
-                uint32_t oc = (uint32_t)s.outputs.size();
-                if (!writePod(out, oc)) { warn("writePod failed"); return; }
-                for (const auto& v : s.outputs) {
-                    if (!writePod(out, v)) { warn("writePod failed"); return; }
+                if (!engine::render::model_cache::writeAnimationSampler(out, s)) {
+                    warn("writeAnimationSampler failed");
+                    return;
                 }
             }
 

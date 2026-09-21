@@ -98,10 +98,10 @@ system. See the [M1-F accepted checkpoint](agent-work/cyberpunk-m1-gltf/CHECKPOI
 M1-F was committed as `9c0d812` before beginning M1-G's pose-sampling and native
 skeletal-deformation verification.
 
-Import is distinct from playback: these tests do not sample poses, deform
-vertices or draw pixels. Inspected limitations include discarded CUBICSPLINE
-tangents and unsupported morph-weight channels; they remain recorded gaps,
-not behavior newly introduced by M1-F.
+Import is distinct from playback: M1-F's original tests did not sample poses,
+deform vertices or draw pixels. Its audit found discarded CUBICSPLINE tangents
+and unsupported morph-weight channels. M1-H below closes the cubic gap and adds
+import-to-sampling checks; morph weights remain unsupported.
 
 Also accepted on 2026-09-20: **M1-G: shared pose sampling and native skeletal
 verification**, implemented by DeepSeek V4.1 Flash through `astra_flash_builder`
@@ -115,15 +115,33 @@ deformation and stable palette-storage transition checks. The warning-clean
 build, seven CTest entries and 23 CPU contracts passed. The existing 24-case
 archive matrix also passed. See the
 [M1-G accepted checkpoint](agent-work/cyberpunk-m1-animation/CHECKPOINT.md).
-M1-G is accepted for the requested commit; the next checkpoint records its
-revision. This qualifies a bounded shared sampler/world-mesh
+M1-G was committed as `afaeb1e` before beginning M1-H.
+This qualifies a bounded shared sampler/world-mesh
 path on one GTX 1070 Debug host; private characters, legacy Model drawing,
 instanced/indirect skinning and performance remain outside that evidence.
 
-This is partial M1 completion. Next: address evidenced animation fidelity gaps
-(including cubic-spline tangent preservation/interpolation), qualify the actual
-production character/content paths, and continue material/environment
-qualification. Asset contracts can document
+Also accepted on 2026-09-20: **M1-H: glTF cubic animation fidelity**, implemented
+by DeepSeek V4.1 Flash through `astra_flash_builder` and reviewed by Astra.
+The importer preserves cubic tangent triplets; the shared sampler evaluates
+translation, rotation and scale curves with authored interval timing and
+normalized quaternion results. Exact/clamped keys bypass interpolation, malformed
+cubic channels preserve their current component, and existing LINEAR/STEP
+policies remain unchanged. Cache v10 rejects older tangent-stripped caches;
+CPU contracts exercise the production sampler codec and identity gate.
+
+The warning-clean Debug build, seven CTest entries and 24 CPU contracts passed.
+Six poses passed across native runtime/editor and all three APIs (36 captures),
+including two cubic rotation poses with guards that reject linearized playback.
+The original 24 animation images remain pixel-identical to M1-G. The archive
+fixture also passed 24 final-build captures. See the
+[M1-H accepted checkpoint](agent-work/cyberpunk-m1-cubic/CHECKPOINT.md) and
+[animation verification](ANIMATION_VERIFICATION.md). M1-H is accepted for the
+requested commit; the next checkpoint records its revision. This is bounded public-rig evidence, not private-character or full
+Model cache/draw qualification.
+
+This is partial M1 completion. Next: qualify the actual production
+character/content paths and continue material/texture/environment qualification.
+Blending, events and managed attachments remain M3 work. Asset contracts can document
 and test an existing representation; they do not require a new file format.
 The full typed family remains optional, as the audit below states. Production game adapters, private roster
 qualification, richer GPU resource lifetimes and residency/load-time measurements
@@ -320,7 +338,7 @@ it is proven" means consumer usage, not engine verification.
 | --- | --- | --- | --- |
 | Cooked container and runtime archives | Implemented | [PhlosionResourceContainer.h](../src/engine/assets/phlosion/PhlosionResourceContainer.h), [PhlosionSceneArchive.h](../src/engine/assets/phlosion/PhlosionSceneArchive.h), tests for both | Archives load whole into memory; no partial or ranged reads |
 | Asset store abstraction | Implemented | [IAssetStore.h](../src/engine/core/IAssetStore.h); no engine test identified | Three read methods only: no async handle, dependency resolution, cancellation or residency policy |
-| Model loading and on-disk cache | Partial | [Model.h](../src/engine/render/Model.h), [ModelCache.cpp](../src/engine/render/ModelCache.cpp) (cache version 9), [ResourceManager.h](../src/engine/utils/ResourceManager.h) | Synchronous, path-keyed loads; cache keyed by source mtime/size; no memory budget or eviction; background loading and cancellation are M1/M4 work |
+| Model loading and on-disk cache | Partial | [Model.h](../src/engine/render/Model.h), [ModelCache.cpp](../src/engine/render/ModelCache.cpp) (cache version 10), [ModelCacheAnimation.h](../src/engine/render/ModelCacheAnimation.h), [ResourceManager.h](../src/engine/utils/ResourceManager.h); M1-H verifies the production sampler codec and rejects old lossy cache versions | Model loads remain synchronous and path-keyed; cache keyed by source mtime/size; no Model memory budget or eviction. Async byte/graph loading exists separately (M1-A/B/C); full Model cache and loading integration remain unqualified |
 | glTF import and fire-case fidelity | Partial | [gltf/](../src/engine/render/gltf) loader family, [FastGltfValidator.h](../src/engine/render/gltf/FastGltfValidator.h) | The user's own experience is that glTF was problematic for fire-heavy characters; see the roster section, and treat manual authoring or a project importer as expected |
 | Source-format import and cooking | Game-owned by contract | [ENGINE_BOUNDARIES.md](ENGINE_BOUNDARIES.md) | The game supplies its own importers and cook policy |
 | Scene and world streaming | Not found in inspected scope | One startup scene per descriptor in [ProjectDescriptor.h](../src/engine/editor/ProjectDescriptor.h); editor scene switching is frame-scheduled via `--open-scene-at`; no cell, region, streaming source, HLOD or data-layer concept in engine source | Outskirt Stand is one scene. Loaded map transitions plus async loading may satisfy a Colosseum-style structure; cell/HLOD streaming is conditional on a measured region-size decision, not assumed |
@@ -344,12 +362,12 @@ Destructible or vehicle physics stays excluded.
 
 | Capability | Status | Evidence | Gap for this work |
 | --- | --- | --- | --- |
-| Skeletal animation sampling | Implemented | [ModelAnimation.cpp](../src/engine/render/ModelAnimation.cpp), [ModelAnimationTypes.h](../src/engine/render/ModelAnimationTypes.h), [Model.h](../src/engine/render/Model.h); no engine test identified, but the current consumer exercises it | CPU-side pose sampling per instance; no blending graph or state machine |
+| Skeletal animation sampling | Implemented; bounded verification | [ModelPoseSampler.cpp](../src/engine/render/ModelPoseSampler.cpp), [animation verification](ANIMATION_VERIFICATION.md); M1-G/H CPU contracts cover LINEAR/STEP/CUBICSPLINE T/R/S, hierarchy and loop/root-motion policies; native public-rig runtime/editor captures cover all three APIs | Per-instance CPU sampling; no blending graph or state machine. Private rigs and the legacy Model GPU draw path remain unqualified |
 | Blending, crossfade, layers, parameters | Not found in inspected scope | No animator type in engine source | Battle and exploration need it; completed by M3. The recovered roadmap treated it as a freeze blocker |
 | Animation events and notifies | Not found in inspected scope | No event hook in the animation API | Needed for footsteps, hit reactions and state transitions |
 | Sockets and attachment | Partial | Node lookups exist (`getNodeIndexByName`, `getNodeGlobalTransformByName` in [Model.h](../src/engine/render/Model.h)) | Attachment exists as a lookup primitive; a socket/attachment contract with ownership and updates does not |
 | Root motion | Partial | `sampleAnimatedPose(..., suppressHorizontalRootMotion)` in [Model.h](../src/engine/render/Model.h) | Suppression exists; controller consumption of root motion does not |
-| GPU skinning paths | Partial | Vulkan/D3D12 world pipelines under [render/](../src/engine/render) | Present for the current consumer; a new character pipeline still needs independent qualification |
+| GPU skinning paths | Partial; bounded verification | M1-G/H [weighted public rig](ANIMATION_VERIFICATION.md) through OpenGL/Vulkan/D3D12 world-mesh-textured drawing in runtime and real editor preview | A production character pipeline, legacy Model drawing, instanced/indirect paths and performance still need independent qualification |
 
 ### Navigation and AI support
 

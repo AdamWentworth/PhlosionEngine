@@ -37,6 +37,7 @@ struct FixtureRig {
     std::vector<std::string> nodeNames;
     int linearClipIndex = 0;
     int stepClipIndex = 1;
+    int cubicClipIndex = 2;
     int skinIndex = 0;
     // Nonidentity mesh transform. The caller-owned palette has to undo it, so a
     // palette built in the wrong space shows up as a visibly displaced rig.

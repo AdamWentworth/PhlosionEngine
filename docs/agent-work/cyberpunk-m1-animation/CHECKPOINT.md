@@ -1,6 +1,6 @@
 # M1-G checkpoint
 
-Status: accepted by Astra after one consolidated correction; authorized for commit.
+Status: accepted by Astra after one consolidated correction; committed as afaeb1e.
 Date: 2026-09-20.
 Baseline: clean engine main 9c0d812ce2520f0fbfae6dd5bcccc0e42e118339.
 
@@ -93,7 +93,9 @@ for one public two-joint fixture on Windows/GTX 1070 Debug. No blanket animation
 private-character, legacy Model draw, instanced/indirect, production material or
 performance qualification. Cubic-spline and morph-weight gaps remain.
 
-The user has now authorized committing M1-G and proceeding. The next checkpoint
-will record its exact revision. Nothing pushed. Next: a bounded pass for known
-animation fidelity gaps and/or production character path qualification. Keep the optional
+The user's next request authorized committing M1-G and proceeding. Astra
+committed it as afaeb1ec470434fe3da10f7c5f3c8238b2fc5068,
+`Verify shared pose sampling and native skeletal deformation`; the tree was
+clean afterward and nothing was pushed. The next bounded pass is
+[M1-H cubic fidelity](../cyberpunk-m1-cubic/CHECKPOINT.md). Keep the optional
 typed-format family separate from required gameplay readiness.

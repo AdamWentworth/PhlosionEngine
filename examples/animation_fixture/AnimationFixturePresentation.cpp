@@ -102,6 +102,8 @@ bool buildFixturePose(FixtureCase fixtureCase,
         clipIndex = rig.linearClipIndex;
     } else if (std::string(info.clipName) == "step") {
         clipIndex = rig.stepClipIndex;
+    } else if (std::string(info.clipName) == "cubic") {
+        clipIndex = rig.cubicClipIndex;
     }
     if (clipIndex < 0 || clipIndex >= static_cast<int>(rig.animations.size())) {
         return fail(

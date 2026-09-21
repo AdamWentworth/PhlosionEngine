@@ -23,6 +23,7 @@ bool test_gltf_scene_import_contract(std::string& outFail);
 bool test_gltf_material_import_contract(std::string& outFail);
 bool test_gltf_import_fixture_contract(std::string& outFail);
 bool test_model_pose_sampler_contract(std::string& outFail);
+bool test_model_cache_animation_contract(std::string& outFail);
 bool test_animation_fixture_contract(std::string& outFail);
 
 int main(int argc, char** argv) {
@@ -61,6 +62,7 @@ int main(int argc, char** argv) {
         {"gltf_material_import_contract", &test_gltf_material_import_contract},
         {"gltf_import_fixture_contract", &test_gltf_import_fixture_contract},
         {"model_pose_sampler_contract", &test_model_pose_sampler_contract},
+        {"model_cache_animation_contract", &test_model_cache_animation_contract},
         {"animation_fixture_contract", &test_animation_fixture_contract},
     };
 

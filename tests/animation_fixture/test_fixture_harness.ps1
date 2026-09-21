@@ -60,7 +60,9 @@ $cases = @(
     @{ name = 'bind'; frame = 0 },
     @{ name = 'linear-intermediate'; frame = 30 },
     @{ name = 'linear-near-endpoint'; frame = 60 },
-    @{ name = 'step-state'; frame = 90 }
+    @{ name = 'step-state'; frame = 90 },
+    @{ name = 'cubic-midpoint'; frame = 120 },
+    @{ name = 'cubic-early'; frame = 150 }
 )
 $captureFrames = @{ runtime = 6; editor = 8 }
 $approvedThresholds = [ordered]@{
@@ -69,7 +71,7 @@ $approvedThresholds = [ordered]@{
     changed_ratio = 0.05
     channel_tolerance = 8
 }
-$revision = '9c0d812ce2520f0fbfae6dd5bcccc0e42e118339'
+$revision = 'afaeb1ec470434fe3da10f7c5f3c8238b2fc5068'
 
 $guardItem = Get-Item -LiteralPath $guardPath
 $binaryIdentity = [ordered]@{
@@ -232,12 +234,12 @@ function Copy-And-MutateManifest([string]$Name, [scriptblock]$Mutation) {
     return $path
 }
 
-# Positive coverage: the hermetic 24-entry Cartesian matrix must pass.
+# Positive coverage: the hermetic 36-entry Cartesian matrix must pass.
 Invoke-GuardMatrix -ManifestPath $baseManifestPath -Name 'positive' -ExpectSuccess $true | Out-Null
 
 $duplicatePath = Copy-And-MutateManifest 'duplicate' {
     param($document)
-    $document.entries = @($document.entries[0]) * 24
+    $document.entries = @($document.entries[0]) * 36
 }
 $duplicateResult = Invoke-GuardMatrix -ManifestPath $duplicatePath -Name 'duplicate' -ExpectSuccess $false
 Check-Fixture ((Get-GuardFailureText $duplicateResult) -match 'duplicate') `
@@ -245,10 +247,10 @@ Check-Fixture ((Get-GuardFailureText $duplicateResult) -match 'duplicate') `
 
 $missingPath = Copy-And-MutateManifest 'missing' {
     param($document)
-    $document.entries = @($document.entries[0..22])
+    $document.entries = @($document.entries[0..34])
 }
 $missingResult = Invoke-GuardMatrix -ManifestPath $missingPath -Name 'missing' -ExpectSuccess $false
-Check-Fixture ((Get-GuardFailureText $missingResult) -match '24|missing') `
+Check-Fixture ((Get-GuardFailureText $missingResult) -match '36|missing') `
     'incomplete manifest did not report the missing tuple'
 
 $unknownHostPath = Copy-And-MutateManifest 'unknown-host' {
@@ -307,8 +309,13 @@ $stepEntry = $baseManifest.entries | Where-Object { $_.case -eq 'step-state' } |
     Select-Object -First 1
 $bindEntry = $baseManifest.entries | Where-Object { $_.case -eq 'bind' } |
     Select-Object -First 1
+$cubicMidpointEntry = $baseManifest.entries |
+    Where-Object { $_.case -eq 'cubic-midpoint' } | Select-Object -First 1
+$cubicEarlyEntry = $baseManifest.entries |
+    Where-Object { $_.case -eq 'cubic-early' } | Select-Object -First 1
 $pristine = @{}
-foreach ($entry in @($posedEntry, $stepEntry, $bindEntry)) {
+foreach ($entry in @(
+        $posedEntry, $stepEntry, $bindEntry, $cubicMidpointEntry, $cubicEarlyEntry)) {
     $pristine[$entry.handshake] = [System.IO.File]::ReadAllBytes($entry.handshake)
     $pristine[$entry.png] = [System.IO.File]::ReadAllBytes($entry.png)
     $pristine[$entry.stdout] = [System.IO.File]::ReadAllBytes($entry.stdout)
@@ -527,6 +534,52 @@ Check-Fixture ((Get-GuardFailureText $disabledSkinningResult) -match 'landmark|r
     'disabled skinning on the bind case was not reported'
 Restore-FixtureFile $bindEntry.png
 Restore-FixtureFile $bindEntry.handshake
+
+# A cubic clip evaluated as a LINEAR curve between its keys must be rejected on
+# both cubic cases. The LINEAR and STEP cases author the same pose as their
+# fallback, so this defect is deliberately only distinguishable there.
+foreach ($cubicEntry in @($cubicMidpointEntry, $cubicEarlyEntry)) {
+    $cubicCaseName = $cubicEntry.case
+    # Each affected entry is restored inside its own iteration, so the second
+    # negative cannot pass because the first one left a corrupted capture behind.
+    try {
+        $linearizedPath = Copy-And-MutateManifest "linearized-$cubicCaseName" {
+            param($document)
+        }
+        $linearizedSynth = Invoke-FixtureProcess `
+            -FilePath $guardPath `
+            -Arguments @(
+                'synth',
+                "--out-png=$($cubicEntry.png)",
+                "--out-handshake=$($cubicEntry.handshake)",
+                '--host=runtime',
+                '--api=opengl',
+                "--case=$cubicCaseName",
+                '--defect=linearized-cubic',
+                '--surface=320x180') `
+            -TimeoutSeconds 60
+        Check-Fixture ($linearizedSynth.ExitCode -eq 0) `
+            "linearized-cubic synth for $cubicCaseName failed: $($linearizedSynth.Stderr)"
+        $linearizedResult = Invoke-GuardMatrix `
+            -ManifestPath $linearizedPath `
+            -Name "linearized-$cubicCaseName" `
+            -ExpectSuccess $false
+        Check-Fixture ((Get-GuardFailureText $linearizedResult) -match 'landmark|rig_coverage') `
+            "linearized cubic on $cubicCaseName was not reported"
+    } finally {
+        Restore-FixtureFile $cubicEntry.png
+        Restore-FixtureFile $cubicEntry.handshake
+    }
+}
+
+# After the targeted mutations are restored, the pristine 36-entry matrix must
+# pass again; otherwise a negative could have been caused by stale state.
+$pristineAfterLinearized = Invoke-GuardMatrix `
+    -ManifestPath $baseManifestPath `
+    -Name 'pristine-after-linearized' `
+    -ExpectSuccess $true
+Check-Fixture ($pristineAfterLinearized.ExitCode -eq 0) `
+    'the pristine matrix did not pass after restoring the cubic captures'
 
 # Native process helper: quoting, exit codes and bounded tree cleanup.
 $quoteText = 'spaces & percent % caret ^ quote " backslash \ comma, paren( ) bracket[ ]'

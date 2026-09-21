@@ -10,6 +10,7 @@
 
 #include "engine/render/gltf/FastGLTFLoader.h"
 #include "engine/render/gltf/ModelFastGltfSceneData.h"
+#include "engine/render/ModelPoseSampler.h"
 
 #include <fastgltf/tools.hpp>
 
@@ -25,9 +26,12 @@
 namespace {
 
 using engine::render::model_types::AnimationClip;
+using engine::render::model_types::AnimationSampler;
 using engine::render::model_types::ChannelPath;
 using engine::render::model_types::NodeTRS;
 using engine::render::model_types::SkinData;
+using engine::render::animation::PoseSource;
+using engine::render::animation::samplePose;
 using gltf_import_contract::FixtureDirectory;
 using gltf_import_contract::LittleEndianBuffer;
 using gltf_import_contract::expect;
@@ -39,6 +43,7 @@ using gltf_import_contract::vecText;
 
 // Authored fixture values shared by the assertions below.
 constexpr float kSqrtHalf = 0.70710678f;
+constexpr float kSqrtThreeOverTwo = 0.86602540f;
 constexpr std::size_t kFixtureBufferBytes = 408u;
 
 struct SceneImport {
@@ -261,6 +266,120 @@ bool writeCharacterFixture(const FixtureDirectory& directory,
     }
     if (!expect(directory.writeText(name, characterSceneJson(selection)),
                 "could not write " + name, outFail)) {
+        return false;
+    }
+    return true;
+}
+
+// A tiny cubic fixture: one CUBICSPLINE translation, rotation and scale
+// sampler over three nodes. The binary layout is explicit little-endian and the
+// bufferView offsets in cubicAnimationJson below match it exactly.
+constexpr std::size_t kCubicFixtureBufferBytes = 264u;
+
+std::vector<std::uint8_t> cubicAnimationBinary() {
+    LittleEndianBuffer buffer;
+    // bufferView 0 @0: translation input, 2 * FLOAT.
+    buffer.addF32(0.0f);
+    buffer.addF32(2.0f);
+    // bufferView 1 @8: translation output, 2 keys * [in-tangent, value,
+    // out-tangent] as VEC3.
+    buffer.addVec3({0.0f, 0.0f, 0.0f});
+    buffer.addVec3({1.0f, 2.0f, 3.0f});
+    buffer.addVec3({1.0f, 1.5f, 2.0f});
+    buffer.addVec3({-0.5f, -0.75f, -1.0f});
+    buffer.addVec3({5.0f, 8.0f, 11.0f});
+    buffer.addVec3({0.0f, 0.0f, 0.0f});
+    // bufferView 2 @80: rotation input, 2 * FLOAT.
+    buffer.addF32(0.0f);
+    buffer.addF32(2.0f);
+    // bufferView 3 @88: rotation output, 2 keys * 3 entries as xyzw VEC4. The
+    // out-tangent of key 0 is 3x the chord / interval and the in-tangent of
+    // key 1 is -1x, which makes the curve pass through the authored -120 degree
+    // rotation at the midpoint.
+    buffer.addVec4({0.0f, 0.0f, 0.0f, 0.0f});
+    buffer.addVec4({0.0f, 0.0f, 0.0f, 1.0f});
+    buffer.addVec4({0.0f, 0.0f, -1.5f * kSqrtThreeOverTwo, -0.75f});
+    buffer.addVec4({0.0f, 0.0f, 0.5f * kSqrtThreeOverTwo, 0.25f});
+    buffer.addVec4({0.0f, 0.0f, -kSqrtThreeOverTwo, 0.5f});
+    buffer.addVec4({0.0f, 0.0f, 0.0f, 0.0f});
+    // bufferView 4 @184: scale input, 2 * FLOAT.
+    buffer.addF32(0.0f);
+    buffer.addF32(1.0f);
+    // bufferView 5 @192: scale output, 2 keys * 3 entries as VEC3.
+    buffer.addVec3({0.0f, 0.0f, 0.0f});
+    buffer.addVec3({1.0f, 2.0f, 3.0f});
+    buffer.addVec3({2.0f, 1.0f, -1.0f});
+    buffer.addVec3({-1.0f, -0.5f, 0.5f});
+    buffer.addVec3({5.0f, 4.0f, 1.0f});
+    buffer.addVec3({0.0f, 0.0f, 0.0f});
+    return buffer.bytes();
+}
+
+std::string cubicAnimationJson() {
+    return std::string(R"({
+  "asset": { "version": "2.0" },
+  "buffers": [ { "uri": "cubic_animation.bin", "byteLength": 264 } ],
+  "bufferViews": [
+    { "buffer": 0, "byteOffset": 0, "byteLength": 8 },
+    { "buffer": 0, "byteOffset": 8, "byteLength": 72 },
+    { "buffer": 0, "byteOffset": 80, "byteLength": 8 },
+    { "buffer": 0, "byteOffset": 88, "byteLength": 96 },
+    { "buffer": 0, "byteOffset": 184, "byteLength": 8 },
+    { "buffer": 0, "byteOffset": 192, "byteLength": 72 }
+  ],
+  "accessors": [
+    { "bufferView": 0, "componentType": 5126, "count": 2, "type": "SCALAR",
+      "min": [0.0], "max": [2.0] },
+    { "bufferView": 1, "componentType": 5126, "count": 6, "type": "VEC3" },
+    { "bufferView": 2, "componentType": 5126, "count": 2, "type": "SCALAR",
+      "min": [0.0], "max": [2.0] },
+    { "bufferView": 3, "componentType": 5126, "count": 6, "type": "VEC4" },
+    { "bufferView": 4, "componentType": 5126, "count": 2, "type": "SCALAR",
+      "min": [0.0], "max": [1.0] },
+    { "bufferView": 5, "componentType": 5126, "count": 6, "type": "VEC3" }
+  ],
+  "nodes": [
+    { "name": "translation_node" },
+    { "name": "rotation_node" },
+    { "name": "scale_node" }
+  ],
+  "animations": [
+    {
+      "name": "Cubic",
+      "samplers": [
+        { "input": 0, "output": 1, "interpolation": "CUBICSPLINE" },
+        { "input": 2, "output": 3, "interpolation": "CUBICSPLINE" },
+        { "input": 4, "output": 5, "interpolation": "CUBICSPLINE" }
+      ],
+      "channels": [
+        { "sampler": 0, "target": { "node": 0, "path": "translation" } },
+        { "sampler": 1, "target": { "node": 1, "path": "rotation" } },
+        { "sampler": 2, "target": { "node": 2, "path": "scale" } }
+      ]
+    }
+  ],
+  "scenes": [ { "name": "cubic", "nodes": [0, 1, 2] } ]
+}
+)");
+}
+
+bool writeCubicAnimationFixture(const FixtureDirectory& directory,
+                                std::string& outFail) {
+    const std::vector<std::uint8_t> binary = cubicAnimationBinary();
+    if (!expect(binary.size() == kCubicFixtureBufferBytes,
+                "authored cubic buffer is " + std::to_string(binary.size()) +
+                    " bytes, expected " +
+                    std::to_string(kCubicFixtureBufferBytes),
+                outFail)) {
+        return false;
+    }
+    if (!expect(directory.writeBytes("cubic_animation.bin", binary),
+                "could not write cubic_animation.bin", outFail)) {
+        return false;
+    }
+    if (!expect(directory.writeText("cubic_animation.gltf",
+                                    cubicAnimationJson()),
+                "could not write cubic_animation.gltf", outFail)) {
         return false;
     }
     return true;
@@ -848,6 +967,177 @@ bool caseEmptyDocument(std::string& outFail) {
     return true;
 }
 
+bool caseCubicAnimationImport(std::string& outFail) {
+    FixtureDirectory directory("phlosion-gltf-scene-import-cubic");
+    if (!expect(directory.ready(), "fixture directory was not created", outFail)) {
+        return false;
+    }
+    if (!writeCubicAnimationFixture(directory, outFail)) {
+        return false;
+    }
+
+    SceneImport imported;
+    if (!importSceneFile(directory.file("cubic_animation.gltf"), imported,
+                         outFail)) {
+        return false;
+    }
+    if (!expect(imported.animations.size() == 1u,
+                "cubic fixture must import exactly one clip", outFail)) {
+        return false;
+    }
+    const AnimationClip& clip = imported.animations[0];
+    if (!expect(clip.name == "Cubic" && nearlyEqual(clip.durationSec, 2.0f),
+                "cubic clip identity must come from the authored document",
+                outFail)) {
+        return false;
+    }
+    if (!expect(clip.samplers.size() == 3u && clip.channels.size() == 3u,
+                "cubic clip must keep three samplers and three channels",
+                outFail)) {
+        return false;
+    }
+    if (!expect(imported.nodes.size() == 3u &&
+                    imported.sceneRoots == std::vector<int>({0, 1, 2}),
+                "cubic fixture nodes and scene roots changed", outFail)) {
+        return false;
+    }
+    const bool channelMapping =
+        clip.channels[0].samplerIndex == 0 && clip.channels[0].targetNode == 0 &&
+        clip.channels[0].path == ChannelPath::Translation &&
+        clip.channels[1].samplerIndex == 1 && clip.channels[1].targetNode == 1 &&
+        clip.channels[1].path == ChannelPath::Rotation &&
+        clip.channels[2].samplerIndex == 2 && clip.channels[2].targetNode == 2 &&
+        clip.channels[2].path == ChannelPath::Scale;
+    if (!expect(channelMapping,
+                "cubic channels must map samplers 0/1/2 to nodes 0/1/2 as "
+                "translation/rotation/scale",
+                outFail)) {
+        return false;
+    }
+
+    // The importer must keep the raw per-key [in-tangent, value, out-tangent]
+    // triplets: three outputs per key, tangents included, and the authored
+    // xyzw rotation order.
+    const AnimationSampler& translation = clip.samplers[0];
+    if (!expect(translation.interpolation == "CUBICSPLINE" &&
+                    !translation.isVec4 &&
+                    translation.inputs == std::vector<float>({0.0f, 2.0f}),
+                "cubic translation sampler identity changed", outFail)) {
+        return false;
+    }
+    if (!expect(translation.outputs.size() == 6u &&
+                    nearlyEqual(translation.outputs[0],
+                                glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)) &&
+                    nearlyEqual(translation.outputs[1],
+                                glm::vec4(1.0f, 2.0f, 3.0f, 0.0f)) &&
+                    nearlyEqual(translation.outputs[2],
+                                glm::vec4(1.0f, 1.5f, 2.0f, 0.0f)) &&
+                    nearlyEqual(translation.outputs[3],
+                                glm::vec4(-0.5f, -0.75f, -1.0f, 0.0f)) &&
+                    nearlyEqual(translation.outputs[4],
+                                glm::vec4(5.0f, 8.0f, 11.0f, 0.0f)) &&
+                    nearlyEqual(translation.outputs[5],
+                                glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)),
+                "cubic translation outputs must keep the raw tangent triplets",
+                outFail)) {
+        return false;
+    }
+
+    const AnimationSampler& rotation = clip.samplers[1];
+    if (!expect(rotation.interpolation == "CUBICSPLINE" && rotation.isVec4 &&
+                    rotation.inputs == std::vector<float>({0.0f, 2.0f}) &&
+                    rotation.outputs.size() == 6u &&
+                    nearlyEqual(rotation.outputs[1],
+                                glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)) &&
+                    nearlyEqual(rotation.outputs[2],
+                                glm::vec4(0.0f, 0.0f,
+                                          -1.5f * kSqrtThreeOverTwo, -0.75f)) &&
+                    nearlyEqual(rotation.outputs[3],
+                                glm::vec4(0.0f, 0.0f,
+                                          0.5f * kSqrtThreeOverTwo, 0.25f)) &&
+                    nearlyEqual(rotation.outputs[4],
+                                glm::vec4(0.0f, 0.0f,
+                                          -kSqrtThreeOverTwo, 0.5f)),
+                "cubic rotation outputs must keep the xyzw tangent triplets",
+                outFail)) {
+        return false;
+    }
+
+    const AnimationSampler& scale = clip.samplers[2];
+    if (!expect(scale.interpolation == "CUBICSPLINE" && !scale.isVec4 &&
+                    scale.inputs == std::vector<float>({0.0f, 1.0f}) &&
+                    scale.outputs.size() == 6u &&
+                    nearlyEqual(scale.outputs[1],
+                                glm::vec4(1.0f, 2.0f, 3.0f, 0.0f)) &&
+                    nearlyEqual(scale.outputs[2],
+                                glm::vec4(2.0f, 1.0f, -1.0f, 0.0f)) &&
+                    nearlyEqual(scale.outputs[3],
+                                glm::vec4(-1.0f, -0.5f, 0.5f, 0.0f)) &&
+                    nearlyEqual(scale.outputs[4],
+                                glm::vec4(5.0f, 4.0f, 1.0f, 0.0f)),
+                "cubic scale outputs must keep the raw tangent triplets",
+                outFail)) {
+        return false;
+    }
+
+    // Hand-computed Hermite results from the imported raw tangents.
+    //
+    // Translation: chord (4,6,8) over 2 s with interval-scaled tangents of
+    // +0.5x and -0.25x the chord. At t = 0.5 s (a = 0.25) the weight is
+    // h01 + 0.5*h10 - 0.25*h11 = 0.23828125, giving
+    // (1,2,3) + 0.23828125 * (4,6,8) = (1.953125, 3.4296875, 4.90625). At
+    // t = 1.0 s (a = 0.5) the weight is 0.59375, giving
+    // (1,2,3) + 0.59375 * (4,6,8) = (3.375, 5.5625, 7.75).
+    //
+    // Scale: chord (4,2,-2) over 1 s with +0.5x and -0.25x tangents. At
+    // t = 0.5 s (a = 0.5) the weight is h01 + 0.5*h10 - 0.25*h11 = 0.59375,
+    // giving (1,2,3) + 0.59375 * (4,2,-2) = (3.375, 3.1875, 1.8125).
+    //
+    // Rotation: the 3x/-1x tangents put the curve exactly on the authored key
+    // value at t = 1.0 s, the -120 degree rotation about +Z in xyzw order.
+    const PoseSource source{imported.nodes,
+                            imported.children,
+                            imported.sceneRoots,
+                            imported.skins,
+                            imported.animations,
+                            imported.names};
+    std::vector<NodeTRS> locals;
+    std::vector<glm::mat4> globals;
+
+    samplePose(source, 0.5f, 0, locals, globals);
+    if (!expect(nearlyEqual(locals[0].t,
+                            glm::vec3(1.953125f, 3.4296875f, 4.90625f)),
+                "imported cubic translation at 0.5 s did not match the "
+                "hand-computed Hermite value",
+                outFail)) {
+        return false;
+    }
+    if (!expect(nearlyEqual(locals[2].s,
+                            glm::vec3(3.375f, 3.1875f, 1.8125f)),
+                "imported cubic scale at 0.5 s did not match the hand-computed "
+                "Hermite value",
+                outFail)) {
+        return false;
+    }
+
+    samplePose(source, 1.0f, 0, locals, globals);
+    if (!expect(nearlyEqual(locals[0].t,
+                            glm::vec3(3.375f, 5.5625f, 7.75f)),
+                "imported cubic translation at 1.0 s did not match the "
+                "hand-computed Hermite value",
+                outFail)) {
+        return false;
+    }
+    if (!expect(nearlyEqual(locals[1].r,
+                            glm::quat(0.5f, 0.0f, 0.0f, -kSqrtThreeOverTwo)),
+                "imported cubic rotation at 1.0 s did not match the authored "
+                "xyzw quaternion",
+                outFail)) {
+        return false;
+    }
+    return true;
+}
+
 }  // namespace
 
 bool test_gltf_scene_import_contract(std::string& outFail) {
@@ -862,6 +1152,9 @@ bool test_gltf_scene_import_contract(std::string& outFail) {
         return false;
     }
     if (!caseAnimations(outFail)) {
+        return false;
+    }
+    if (!caseCubicAnimationImport(outFail)) {
         return false;
     }
     if (!caseReimportIntoPrefilledContainers(outFail)) {

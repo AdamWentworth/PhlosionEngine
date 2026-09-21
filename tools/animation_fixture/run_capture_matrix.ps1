@@ -1,6 +1,6 @@
 # Animation fixture capture matrix runner.
 #
-# Captures four deterministic authored cases on each native API for both the
+# Captures six deterministic authored cases on each native API for both the
 # standalone runtime host and the real Phlosion Editor project plugin, verifies
 # the process/capture/parity evidence, and validates the images into a
 # machine-readable matrix plus a contact sheet.
@@ -13,7 +13,7 @@ param(
     [string]$EngineRoot = '',
     [string]$BuildDirectory = 'build-presentation',
     [string]$Configuration = 'Debug',
-    [string]$ArtifactsRoot = 'artifacts/m1-g',
+    [string]$ArtifactsRoot = 'artifacts/m1-h',
     [string]$RunId = (Get-Date -Format 'yyyyMMdd-HHmmss'),
     [string[]]$Apis = @('opengl', 'vulkan', 'd3d12'),
     [string[]]$Hosts = @('runtime', 'editor'),
@@ -96,7 +96,9 @@ $cases = @(
     @{ Name = 'bind'; Frame = 0 },
     @{ Name = 'linear-intermediate'; Frame = 30 },
     @{ Name = 'linear-near-endpoint'; Frame = 60 },
-    @{ Name = 'step-state'; Frame = 90 }
+    @{ Name = 'step-state'; Frame = 90 },
+    @{ Name = 'cubic-midpoint'; Frame = 120 },
+    @{ Name = 'cubic-early'; Frame = 150 }
 )
 
 $artifactsRootPath = if ([System.IO.Path]::IsPathRooted($ArtifactsRoot)) {

@@ -13,7 +13,7 @@ No test in the current engine CTest suite needs a graphics context.
 
 | CTest entry | Coverage |
 | --- | --- |
-| `PhlosionEngineContracts` | Twenty-three C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, temporary-fixture ownership, shared pose sampling, animation fixture/palette/image guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
+| `PhlosionEngineContracts` | Twenty-four C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, model-cache sampler codec/version identity, animation fixture/palette/image guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
 | `PhlosionMaterialDebugViewContract` | Material debug-view source contract |
@@ -62,12 +62,14 @@ the rendered matrix below uses the existing single-slot visual scene.
 The [glTF import contracts](GLTF_IMPORT_VERIFICATION.md) exercise the existing
 file loader, scene/skeleton/clip importer and CPU material resolver using tiny
 authored public fixtures. They verify imported values and fixture ownership;
-they do not sample poses, deform vertices, decode textures or qualify material
-appearance. Runtime animation and native rendering require separate evidence.
+M1-H also samples imported cubic translation/rotation/scale curves. These CPU
+checks do not deform GPU vertices, decode textures or qualify material
+appearance. Native rendering requires separate evidence.
 
 The [animation contracts](ANIMATION_VERIFICATION.md) exercise the shared CPU
 pose evaluator, root-motion/loop policies, hierarchy transforms, scale
-compensation and the public rig's palette space. Synthetic image and manifest
+compensation, cubic tangent fidelity, malformed cubic channels, the production
+cache sampler codec/version gate and the public rig's palette space. Synthetic image and manifest
 checks validate the native capture guards without a graphics context. The
 separate native matrix below supplies bounded GPU evidence.
 
@@ -96,9 +98,47 @@ every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
 
+On 2026-09-20, Astra accepted M1-H's [cubic animation
+fidelity](ANIMATION_VERIFICATION.md), based on committed M1-G `afaeb1e` plus the
+M1-H working tree. The existing importer retains cubic tangent triplets and the
+shared sampler evaluates them for T/R/S. Cache v10 invalidates earlier lossy
+results through the production identity gate. Exact/clamped keys bypass tangent
+arithmetic; malformed cubic samples skip their channel. Legacy LINEAR/STEP
+policies and backend/shader code are unchanged.
+
+The final warning-clean Debug build, seven CTest entries and 24 CPU contracts
+passed (`artifacts/m1-h/build-full-02.log`, `ctest-03.log`, `tests-03.log`).
+Tests include non-unit intervals, multi-segment translation, two-key scale,
+quaternion sign/normalization, extreme finite tangents at exact/clamped keys,
+non-finite interpolation rejection, import-to-sampling and cache roundtrip.
+The CLI harness independently rejects each linearized cubic image and passes
+the pristine matrix after restoring mutations (`harness-02.log`).
+
+`artifacts/m1-h/m1h-run02/` contains all 36 native animation captures (six poses,
+three APIs, runtime and real editor), zero failures, expected-content checks
+and stable palette transitions. Worst cross-API normalized MAE/RMSE are
+0.0000074/0.00039 under unchanged limits. The original 24 images match M1-G
+pixel for pixel (`compare24-run02/summary.json`); all 36 match the pre-correction
+M1-H run (`compare-run02-vs-run01/summary.json`). Astra inspected the patch,
+corrections, contact sheet and final binary hashes.
+
+Archive regression evidence is `artifacts/m1-h/archive-regression/m1h-archive-final/`
+with 24 passing final-build captures (`archive-final.log`). Astra found that the
+older archive guard checks digest format and file size, but does not re-hash
+binaries: its earlier PASS did not establish final-build provenance. The older
+archive capture was superseded, and Astra independently checked all four hashes
+in each final manifest against the actual binaries. Future archive evidence
+reuse still requires that explicit hash check.
+
+This qualifies one public two-joint rig on Windows/GTX 1070 Debug. Native cubic
+coverage is one two-key Z-rotation curve sampled twice; broader T/R/S cases rely
+on CPU contracts. Full Model cache integration, legacy Model GPU drawing,
+private characters, morphs, blending, instanced/indirect skinning, materials and
+performance remain outside this evidence. M1-H is accepted for the requested commit.
+
 On 2026-09-20, Astra accepted M1-G's [pose-sampling and skeletal
 verification](ANIMATION_VERIFICATION.md), based on `9c0d812` plus the M1-G
-working tree. Model delegates to its existing CPU evaluator through
+working tree, subsequently committed as `afaeb1e`. Model delegates to its existing CPU evaluator through
 ModelPoseSampler; the extraction preserves the inspected algorithm and public
 behavior. No backend, shader, cache schema or editor-host code changed.
 
@@ -144,8 +184,8 @@ all twenty-one C++ contracts passed. Evidence is retained locally in ignored
 reverted (`regression-probe-0{1..5}.log`). No GPU run was needed for this
 tests/documentation-only pass, and none is claimed. Pose sampling, skeletal
 deformation, texture decoding and material appearance remain outside these
-contracts. CUBICSPLINE tangent loss and absent morph-weight channels are
-documented limitations rather than newly accepted runtime behavior.
+original contracts. CUBICSPLINE tangent loss was an audited limitation closed
+by M1-H above; absent morph-weight channels remain unsupported.
 
 On 2026-09-20, Astra accepted M1-E's [typed static mesh resource](MESH_ASSETS.md)
 after one consolidated review-fix cycle. The reusable contract lives in

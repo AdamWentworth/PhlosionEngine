@@ -9,6 +9,13 @@
 // - Keep all rotations/scales, and all other node translations intact.
 // This prevents run/walk clips from moving the mesh ahead of instanceTransform
 // (grid/world).
+//
+// CUBICSPLINE (glTF 2.0, "interpolation-cubic") is supported on top of that
+// policy: wrapped sample time is clamped into the channel's own key range, the
+// raw per-key [in-tangent, value, out-tangent] triplets are evaluated with
+// componentwise cubic Hermite interpolation, and malformed cubic data skips the
+// channel so the destination keeps its previous local value. LINEAR and STEP
+// keep the legacy wrapping and tail behavior above, unchanged.
 
 #include "ModelPoseSampler.h"
 
@@ -213,6 +220,112 @@ void samplePose(const PoseSource& source,
         return glm::normalize(glm::slerp(q0, q1, std::clamp(a, 0.0f, 1.0f)));
     };
 
+    // ---- CUBICSPLINE helpers ----
+    // A cubic sampler is well formed when it has at least two keys, exactly
+    // three outputs per key, and finite strictly increasing key times with
+    // finite relevant components. The count comparison is written so that
+    // keys * 3 cannot overflow.
+    const auto cubicKeysValid = [](const AnimationSampler& s, bool rotation) {
+        const size_t keys = s.inputs.size();
+        if (keys < 2u) return false;
+        if (keys > s.outputs.size() / 3u) return false;
+        if (s.outputs.size() != keys * 3u) return false;
+        const int components = rotation ? 4 : 3;
+        for (size_t k = 0; k < keys; ++k) {
+            const float time = s.inputs[k];
+            if (!std::isfinite(time)) return false;
+            if (k > 0u && !(time > s.inputs[k - 1u])) return false;
+            const size_t base = k * 3u;
+            for (int c = 0; c < components; ++c) {
+                if (!std::isfinite(s.outputs[base][c]) ||
+                    !std::isfinite(s.outputs[base + 1u][c]) ||
+                    !std::isfinite(s.outputs[base + 2u][c])) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+
+    const auto sampleCubicVec4 =
+        [&](const AnimationSampler& s, float t, bool rotation, glm::vec4& out)->bool {
+        if (!cubicKeysValid(s, rotation)) return false;
+        if (!std::isfinite(t)) return false;
+
+        const auto keyValue = [&](size_t index) {
+            return s.outputs[index * 3u + 1u];
+        };
+        // glTF clamps the sampled time of a cubic channel to its own key range;
+        // the engine's wrap above still decides which cycle of the clip applies.
+        // Clamped endpoints and exact keys return the authored value directly:
+        // the interpolation is not needed there, and with finite but extreme
+        // tangents the polynomial form could overflow to a non-finite value for
+        // a key whose authored value is perfectly valid.
+        const float firstTime = s.inputs.front();
+        const float lastTime = s.inputs.back();
+        if (t <= firstTime) {
+            out = keyValue(0u);
+            return true;
+        }
+        if (t >= lastTime) {
+            out = keyValue(s.inputs.size() - 1u);
+            return true;
+        }
+        const auto atOrAfter = std::lower_bound(s.inputs.begin(), s.inputs.end(), t);
+        if (atOrAfter != s.inputs.end() && *atOrAfter == t) {
+            out = keyValue(static_cast<size_t>(atOrAfter - s.inputs.begin()));
+            return true;
+        }
+
+        const size_t i = static_cast<size_t>(atOrAfter - s.inputs.begin()) - 1u;
+        const float t0 = s.inputs[i];
+        const float t1 = s.inputs[i + 1u];
+        const float span = t1 - t0;
+        const float a = (t - t0) / span;
+        const float a2 = a * a;
+        const float a3 = a2 * a;
+        const float h00 = 2.0f * a3 - 3.0f * a2 + 1.0f;
+        const float h10 = a3 - 2.0f * a2 + a;
+        const float h01 = -2.0f * a3 + 3.0f * a2;
+        const float h11 = a3 - a2;
+
+        const glm::vec4 v0 = s.outputs[i * 3u + 1u];
+        const glm::vec4 outTangent0 = s.outputs[i * 3u + 2u];
+        const glm::vec4 inTangent1 = s.outputs[(i + 1u) * 3u];
+        const glm::vec4 v1 = s.outputs[(i + 1u) * 3u + 1u];
+
+        // Tangents are authored per second, so they scale by the real interval.
+        const glm::vec4 result = h00 * v0 + h10 * (span * outTangent0) +
+            h01 * v1 + h11 * (span * inTangent1);
+        const int components = rotation ? 4 : 3;
+        for (int c = 0; c < components; ++c) {
+            if (!std::isfinite(result[c])) return false;
+        }
+        out = result;
+        return true;
+    };
+
+    const auto sampleCubicQuat =
+        [&](const AnimationSampler& s, float t, glm::quat& out)->bool {
+        glm::vec4 components;
+        if (!sampleCubicVec4(s, t, true, components)) return false;
+        const float lengthSquared = glm::dot(components, components);
+        if (!std::isfinite(lengthSquared) || !(lengthSquared > 0.0f)) {
+            return false;
+        }
+        const float inverseLength = 1.0f / std::sqrt(lengthSquared);
+        const glm::quat q(components.w * inverseLength,
+                          components.x * inverseLength,
+                          components.y * inverseLength,
+                          components.z * inverseLength);
+        if (!std::isfinite(q.w) || !std::isfinite(q.x) ||
+            !std::isfinite(q.y) || !std::isfinite(q.z)) {
+            return false;
+        }
+        out = q;
+        return true;
+    };
+
     if (animIndex >= 0 && animIndex < (int)animations.size()) {
         const auto& clip = animations[animIndex];
         float t = wrapTime(timeSec, clip.durationSec);
@@ -222,10 +335,18 @@ void samplePose(const PoseSource& source,
             if (ch.samplerIndex < 0 || ch.samplerIndex >= (int)clip.samplers.size()) continue;
 
             const auto& s = clip.samplers[ch.samplerIndex];
+            const bool cubic = (s.interpolation == "CUBICSPLINE");
 
             if (ch.path == ChannelPath::Translation) {
-                glm::vec4 v = sampleVec4(s, t, clip.durationSec);
-                glm::vec3 animT(v.x, v.y, v.z);
+                glm::vec3 animT;
+                if (cubic) {
+                    glm::vec4 v;
+                    if (!sampleCubicVec4(s, t, false, v)) continue;
+                    animT = glm::vec3(v.x, v.y, v.z);
+                } else {
+                    const glm::vec4 v = sampleVec4(s, t, clip.durationSec);
+                    animT = glm::vec3(v.x, v.y, v.z);
+                }
 
                 if (suppressHorizontalRootMotion &&
                     rmNodes.find(ch.targetNode) != rmNodes.end()) {
@@ -258,12 +379,26 @@ void samplePose(const PoseSource& source,
             }
 
             else if (ch.path == ChannelPath::Scale) {
-                glm::vec4 v = sampleVec4(s, t, clip.durationSec);
-                outLocal[ch.targetNode].s = glm::vec3(v.x, v.y, v.z);
+                glm::vec3 scale;
+                if (cubic) {
+                    glm::vec4 v;
+                    if (!sampleCubicVec4(s, t, false, v)) continue;
+                    scale = glm::vec3(v.x, v.y, v.z);
+                } else {
+                    const glm::vec4 v = sampleVec4(s, t, clip.durationSec);
+                    scale = glm::vec3(v.x, v.y, v.z);
+                }
+                outLocal[ch.targetNode].s = scale;
                 outLocal[ch.targetNode].hasMatrix = false;
             }
             else if (ch.path == ChannelPath::Rotation) {
-                outLocal[ch.targetNode].r = sampleQuat(s, t, clip.durationSec);
+                if (cubic) {
+                    glm::quat q;
+                    if (!sampleCubicQuat(s, t, q)) continue;
+                    outLocal[ch.targetNode].r = q;
+                } else {
+                    outLocal[ch.targetNode].r = sampleQuat(s, t, clip.durationSec);
+                }
                 outLocal[ch.targetNode].hasMatrix = false;
             }
         }
