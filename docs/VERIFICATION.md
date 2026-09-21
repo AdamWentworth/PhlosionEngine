@@ -13,6 +13,7 @@ No test in the current engine CTest suite needs a graphics context.
 
 | CTest entry | Coverage |
 | --- | --- |
+| `PhlosionCollisionContracts` | Eight standalone C++ groups against real Jolt geometry: analytic ray/capsule contacts, transformed boxes/meshes, exact overlaps, filters/metadata, ID/capacity/geometry ownership, malformed input/output preservation, configuration bounds, thread ownership and repeated authored query sequences |
 | `PhlosionEngineContracts` | Thirty-two C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, real PNG/JPEG texture decoding and role fallbacks, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, model-cache sampler codec/version identity, owned CPU glTF scene validation/retention and renderer preflight, archive-backed glTF worker sessions, GPU resource-scope state/accounting, animation/material/integrated-scene content and lifecycle evidence guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
@@ -33,6 +34,12 @@ ctest --preset debug
 
 Tests enforce particular contracts, not a blanket claim of correctness. Review
 the changed implementation and relevant consumer behavior as well.
+
+The opt-in [collision world](COLLISION_WORLD.md) has its own executable linked
+only to `Phlosion::Collision` and a 120 second CTest timeout. Its eight groups
+are separate from the 32 `PhlosionEngineContracts` groups. Queries use real
+Jolt boxes and triangle meshes without a graphics context. They do not qualify
+character movement, trigger events, scene integration or visual behavior.
 
 The asynchronous loading contract and its retained-byte-budget limits are
 described in [ASYNC_ASSET_LOADING.md](ASYNC_ASSET_LOADING.md). The loader tests
@@ -118,6 +125,22 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-20, Astra accepted [M2-A's static collision foundation](agent-work/cyberpunk-m2-collision/ACCEPTANCE.md)
+from M1 commit `08f5791`. The full enabled VS2026 Debug build with `/WX` passed,
+and all ten CTest entries passed (292.07 seconds). Review then added analytic
+world-space checks for a translated/rotated mesh and owner-thread rejection
+plus independent threaded-world lifetime checks. The affected `/WX` rebuild
+and collision CTest passed again (eight groups, 0.09 seconds); production code
+and the other nine test entries were unchanged.
+
+Raw logs are in `artifacts/m2-a/`: `build-all.log`, `ctest-all.log`,
+`build-collision-review-1.log` and `ctest-collision-review-1.log`. Actual compiler,
+linker, package and DLL-import evidence confirms the independent collision
+target and manifest-pinned Jolt 5.4.0#0. The resolved MSVC x64 package uses the
+SSE2 baseline, without added AVX/SSE4 requirements. This is a Windows CPU
+qualification; no rendering or host integration changed and no new GPU result
+is claimed.
 
 On 2026-09-20, Astra accepted the [engine-facing M1 closure](agent-work/cyberpunk-m1-closure/ACCEPTANCE.md)
 from `56cdf24`: archive-backed worker glTF sessions, atomic activation and

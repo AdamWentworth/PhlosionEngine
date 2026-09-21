@@ -104,6 +104,7 @@ Consumers should pin the engine revision they qualify.
 | --- | --- |
 | `Phlosion::Engine` | Core, platform and rendering aggregate |
 | `Phlosion::Core` | ECS, events and cooked-resource/scene primitives |
+| `Phlosion::Collision` | Opt-in static collision queries; independent of Core, rendering and the Engine aggregate; see [contract](COLLISION_WORLD.md) |
 | `Phlosion::Platform` | SDL window and input integration |
 | `Phlosion::Render` | Native rendering, models, animation, resources and common UI |
 | `Phlosion::Runtime` | Application lifecycle; includes the Engine aggregate |

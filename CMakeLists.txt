@@ -53,6 +53,7 @@ find_package(SDL2_ttf CONFIG REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(glad CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
+find_package(Jolt CONFIG REQUIRED)
 find_package(lua CONFIG REQUIRED)
 find_package(sol2 CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
@@ -192,6 +193,13 @@ function(phlosion_apply_settings target_name)
         endif()
     endif()
 endfunction()
+
+add_library(engine_collision STATIC
+    src/engine/collision/CollisionWorld.cpp
+)
+target_link_libraries(engine_collision PUBLIC glm::glm PRIVATE Jolt::Jolt)
+phlosion_apply_settings(engine_collision)
+add_library(Phlosion::Collision ALIAS engine_collision)
 
 add_library(engine_core STATIC
     src/engine/core/SystemRegistry.cpp
@@ -768,6 +776,12 @@ endif()
 
 if (PHLOSION_BUILD_TESTS)
     include(CTest)
+    add_executable(PhlosionCollisionTests tests/TestCollisionWorld.cpp)
+    target_link_libraries(PhlosionCollisionTests PRIVATE Phlosion::Collision)
+    phlosion_apply_settings(PhlosionCollisionTests)
+    add_test(NAME PhlosionCollisionContracts COMMAND PhlosionCollisionTests)
+    set_tests_properties(PhlosionCollisionContracts PROPERTIES TIMEOUT 120)
+
     add_executable(PhlosionEngineTests
         tests/TestMain.cpp
         tests/TestWorldMaterialProfile.cpp

@@ -12,6 +12,7 @@
     "sdl2-ttf",
     "glad",
     "glm",
+    "joltphysics",
     "lua",
     "sol2",
     "nlohmann-json",

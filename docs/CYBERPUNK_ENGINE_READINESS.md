@@ -1,6 +1,6 @@
 # Cyberpunk engine readiness audit
 
-Status: Engine-facing M1 complete for the documented subset; game-scale readiness remains unverified
+Status: Engine-facing M1 complete; M2-A collision accepted; game-scale readiness remains unverified
 Date: 2026-09-20
 Owner: Astra (scope, architecture, acceptance)
 Audited engine baseline: `c17d2122bd36b3c3bb49c4e703900f40cccfbd76` (`main`)
@@ -286,6 +286,30 @@ interactive context. A bounded lighting feature can then precede M5's full
 environment qualification. M2 needs its own bounded implementation brief; this
 closure pass does not start it.
 
+### M2-A: collision foundation (accepted 2026-09-20)
+
+The first M2 pass establishes a reusable CPU static collision world through
+`Phlosion::Collision`: owned boxes/triangle meshes, layer and sensor filtering,
+raycasts, upright-capsule sweeps and precise overlaps. Astra selected Jolt behind
+a Phlosion-owned public API; the unchanged vcpkg baseline selects Jolt 5.4.0#0.
+The target is separate from Core, rendering and the existing Engine umbrella.
+See the [collision contract](COLLISION_WORLD.md) and
+[acceptance record](agent-work/cyberpunk-m2-collision/ACCEPTANCE.md).
+
+Astra implemented through the user-authorized fallback after Flash returned
+HTTP 402 before editing. Root Astra reviewed the complete source and evidence,
+then requested transformed-mesh and thread-ownership verification. The full
+enabled Debug build with warnings as errors and all ten CTest entries passed;
+the final affected rebuild and all eight collision groups passed after review.
+The standalone executable links no engine graphics/platform/editor targets.
+
+This is the foundation for subsequent controller, camera and trigger behavior.
+Character movement, gameplay trigger events, input/controller handling and the
+walkable runtime/editor scene are later M2 passes. M2 remains in progress;
+this accepts only the bounded CPU collision foundation, with no native visual
+or playable-scene qualification claim. Next: fixed-step kinematic movement,
+grounding, sliding, slopes, steps and recovery tests.
+
 ## Read this first
 
 **Design provenance.** The product direction below comes from a user-supplied
@@ -477,15 +501,15 @@ it is proven" means consumer usage, not engine verification.
 
 | Capability | Status | Evidence | Gap for this work |
 | --- | --- | --- | --- |
-| Physics/collision layer | Not found in inspected scope | Engine search for `physics`, `rigidbody`, `collision`, `raycast`, `jolt`, `bullet`, `physx`: one comment in [PhlosionAuthoredScene.h](../src/engine/assets/phlosion/PhlosionAuthoredScene.h) line 56 | No collision world, layers, triggers, raycasts, sweeps or mesh colliders |
+| Physics/collision layer | M2-A accepted, bounded CPU subset | [Static collision queries](COLLISION_WORLD.md): Jolt-backed boxes/meshes, rigid transforms, layers/sensors, rays, capsule sweeps/overlaps; eight standalone CPU contract groups | Character response, trigger events, scene/editor integration and representative content/scale remain outstanding; general dynamic physics is outside the baseline |
 | Character controller | Not found in inspected scope | Same search | Walk/run, gravity, grounding, slope and step handling do not exist; the slice requires them |
 | Traversal (jumping, ledges, ramps) | Unverified | Autochess has game-owned traversal animation code; no engine traversal contract found | Needs a real controller policy before the slice |
 
-The recovered material's guidance matches the evidence: this needs excellent
-kinematic character/world collision, not a full rigid-body stack. Integrating a
-mature library (Jolt was named as a suggestion, not an accepted decision) is a
-valid alternative to building one; vendor selection is out of scope here.
-Destructible or vehicle physics stays excluded.
+The recovered material calls for kinematic character/world collision.
+The original audit deferred vendor selection; M2-A selected manifest-pinned
+Jolt 5.4.0 behind a Phlosion-owned API and accepted the static query foundation.
+Controller policy remains future work. Destructible and vehicle physics stay
+excluded.
 
 ### Animation
 
@@ -687,6 +711,10 @@ load-time and residency measurements feeding M4/M5.
 **M2 - Walkable Outskirt Stand.** Owner: Engine + Game. Prerequisite: M1 for
 scene content. This milestone pulls in the collision and character-controller
 capability, the exploration camera, and action-based input:
+
+Progress: M2-A has accepted the static query foundation described above. The
+controller, trigger event state, camera/input and walkable-scene exit gate below
+remain outstanding.
 
 - static collision, layers, triggers, raycasts and sweeps, plus a kinematic
   controller with walk/run, gravity, grounding, slopes and steps, covered by

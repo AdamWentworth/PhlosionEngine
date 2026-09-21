@@ -28,6 +28,7 @@ game-specific authoring and visual qualification stay with the consuming project
 | [Asset dependency loading](ASSET_DEPENDENCY_LOADING.md) | Required asset graphs, PHRC integrity, dependency hashes and session ownership |
 | [Staged archive activation](ARCHIVE_ACTIVATION.md) | Scene/prefab candidate validation, explicit activation and retained snapshots |
 | [Typed static mesh assets](MESH_ASSETS.md) | Portable PHMS geometry, submeshes, material slot labels, bounds and strict CPU validation |
+| [Static collision queries](COLLISION_WORLD.md) | Opt-in Jolt-backed boxes/meshes, layers/sensors, ray/capsule casts, precise overlaps and world ownership |
 | [glTF scene assets](GLTF_SCENE_ASSETS.md) | Owned CPU scene snapshots, validated import, pose sampling and a reusable world-renderer adapter |
 | [Public asset fixture](PUBLIC_ASSET_FIXTURE.md) | Synthetic archive rendering, scene replacement and native runtime/editor capture verification |
 | [Editor project extensions](EDITOR_PROJECT_EXTENSIONS.md) | Game-plugin ABI, capabilities and command routing |
