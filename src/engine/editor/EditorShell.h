@@ -303,6 +303,8 @@ struct WorkspaceView {
     bool focusActiveViewport = false;
     std::uint64_t sceneTextureId = 0u;
     std::uint64_t gameTextureId = 0u;
+    int gameAspectNumerator = 0;
+    int gameAspectDenominator = 0;
     std::uint64_t assetPreviewTextureId = 0u;
     bool flipRenderSurfaceTexturesVertically = false;
     std::uint32_t sceneCount = 0u;
@@ -323,6 +325,8 @@ struct ProjectBrowserView {
 };
 
 struct EditorShellActions {
+    bool textEditing = false;
+    bool viewportImageHovered = false;
     bool recordPerformance = false;
     bool rebuildGameplay = false;
     bool toggleGameplayAutoReload = false;

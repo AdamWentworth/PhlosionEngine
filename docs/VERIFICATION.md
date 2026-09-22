@@ -26,6 +26,11 @@ No test in the current engine CTest suite needs a graphics context.
 | `PhlosionInputContracts` | Six SDL-free groups for named action mapping, button/axis transitions, rebinding, deadzones, controller identity/selection, focus/enable recovery, bounds and thread ownership |
 | `PhlosionSdlInputContracts` | Three real SDL virtual-device groups for mapped-controller discovery, all 15 buttons/six axes, normalization, queued taps and event/poll duplicate observations, hotplug/disconnect, window focus filtering and subsystem/handle ownership |
 | `PhlosionCameraContracts` | Ten groups for exploration framing, delta/rate controls, follow/recovery damping, real sphere obstruction queries, validation/ownership, relative movement and repeated CPU input/character/camera composition |
+| `PhlosionExplorationContracts` | Optional public course: SDL extension validation, viewport/input gates, zero/multiple-tick cadence, bounded replay, real movement/sensors/camera/NPC composition, safe recovery and SDL lifetime ownership |
+| `PhlosionExplorationEvidenceContracts` | Optional course's independent state and ray/box pixel oracles, malformed state/content rejection and pristine recovery; no graphics context |
+| `PhlosionSdlExtensionValid` | Plugin probe accepts the sample's separate versioned SDL callback table |
+| `PhlosionSdlExtensionMalformed` | Plugin probe rejects a present truncated SDL callback table before reading callbacks |
+| `PhlosionSdlExtensionAbsent` | Plugin probe accepts the existing scene plugin through the unchanged legacy contract |
 | `PhlosionEngineContracts` | Thirty-two C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, real PNG/JPEG texture decoding and role fallbacks, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, model-cache sampler codec/version identity, owned CPU glTF scene validation/retention and renderer preflight, archive-backed glTF worker sessions, GPU resource-scope state/accounting, animation/material/integrated-scene content and lifecycle evidence guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
@@ -77,6 +82,15 @@ geometry and kinematic characters. Mathematical 16:9/21:9 framing checks are
 separate from native image qualification; final radial sphere clearance is
 separate from swept camera motion or whole-frustum clearance. Host integration
 still requires the native runtime/editor scene checks below.
+
+The optional [public exploration course](EXPLORATION_FIXTURE.md) adds the five
+entries above when its fixture, editor, tests and existing scene fixture are
+enabled. Its native matrix uses the actual editor Game preview and standalone
+runtime, with explicitly synthetic focus and owned SDL virtual controllers.
+The primary 96 captures cover eight states, both hosts, all three APIs and exact
+16:9/21:9 viewports. Supplemental steep-slope and ledge-drop cases add twelve
+16:9 captures. Independent state/content/provenance guards complement the
+unchanged image thresholds; physical-device observations remain a separate check.
 
 The asynchronous loading contract and its retained-byte-budget limits are
 described in [ASYNC_ASSET_LOADING.md](ASYNC_ASSET_LOADING.md). The loader tests
@@ -162,6 +176,28 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-22, Astra accepted the asset-independent implementation and automated
+qualification for [M2-F's public exploration course](agent-work/cyberpunk-m2-exploration/ACCEPTANCE.md)
+from M2-E commit `36b6986`. The enabled Debug build passed and all twenty CTest
+entries passed in 349.04 seconds. Final native evidence includes 96 exploration
+captures at 16:9/21:9, twelve supplemental steep-slope/ledge-drop captures, and
+the existing 36-case scene regression, covering both actual hosts and all three
+APIs. Both exploration matrices have zero maximum MAE/RMSE/changed-pixel ratio
+at unchanged thresholds. Independent state/content/provenance checks and all 27
+native evidence mutations passed, including pristine recovery.
+
+Evidence is under `artifacts/m2-f/`: `build-full-03`, `ctest-all-03`, `matrix-04`,
+`supplemental-01`, `scene-regression/final-02`, `negative-01` and `compiler/`.
+Root reviewed the patch, one consolidated correction cycle, native contact
+sheets, a raw editor capture and 936 current file identities. The main plugin
+ABI/InputEvent and accepted module algorithms are unchanged. Replay uses owned
+virtual devices and explicitly synthetic focus. Subsequent visible D3D12 sessions
+exercised basic physical controls with SDL reporting `Xbox 360 Controller`.
+Runtime movement/run/camera/focus/pause/reset and editor movement/camera/focus
+are corroborated by traces. Manual editor toolbar transitions are deferred by
+the user; reported physical unplug/reconnect has no SDL inventory transition
+in the trace. Final character/environment fitting remains a separate gate.
 
 On 2026-09-22, Astra accepted [M2-E's exploration camera](agent-work/cyberpunk-m2-camera/ACCEPTANCE.md)
 from M2-D commit `bd76391`. The final enabled VS2026 Debug build passed, and all

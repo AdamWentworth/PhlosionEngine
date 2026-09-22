@@ -22,15 +22,17 @@ ray/capsule queries, filtering, collider lifetime and
 collision geometry, layer meanings, movement intent, tick/sample scheduling and
 interaction rules. The engine reports geometric Enter/Stay/Exit state; games
 decide whether that starts dialogue, transitions a scene or has another effect.
-The module is linked explicitly as `Phlosion::Collision` and currently has no
-runtime/editor host integration.
+The module is linked explicitly as `Phlosion::Collision`. The public
+[exploration sample](EXPLORATION_FIXTURE.md) demonstrates runtime/editor
+integration; each game still supplies its own scene and scheduling policy.
 
 The [input action layer](INPUT_ACTIONS.md) owns generic physical-to-action
 mapping, frame transitions, deadzones, controller identity and focus gates.
 `Phlosion::Input` is SDL-free; the optional SDL adapter lives in Platform.
 Projects define action names, bindings, controller selection, gameplay capture
-and frame scheduling. Existing runtime/editor event pumps remain separate until
-explicit integration; this addition does not change the InputEvent/plugin ABI.
+and frame scheduling. The optional SDL Game-input extension supplies editor host
+context and callbacks without changing InputEvent or the main plugin ABI.
+Plugins that omit it retain their legacy input route.
 
 The [exploration camera rig](EXPLORATION_CAMERA.md) owns follow/orbit math,
 camera-relative movement and static-geometry obstruction queries. Authored
@@ -39,6 +41,12 @@ settings, camera-zone transitions, controls, update timing and viewport policy,
 then apply returned pose/lens values to the renderer. `Phlosion::Camera` links
 the CPU Collision module and does not choose game input names or migrate the
 runtime/editor camera paths.
+
+The authored course, bindings, NPC route and traversal cases live in
+`examples/exploration_fixture`; their guards and capture tools live in
+`tools/exploration_fixture`. Generic SDL replay and viewport/input policy contain
+no course names or game content. Replay is opt-in automation; its synthetic
+focus and virtual controllers do not establish physical-device qualification.
 
 ## What a project must supply
 

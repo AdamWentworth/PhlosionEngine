@@ -6,6 +6,8 @@
 #include "engine/editor/EditorPackagePlugin.h"
 #include "engine/editor/D3D12EditorRenderSurface.h"
 #include "engine/editor/EditorGamePreviewRouting.h"
+#include "engine/editor/EditorSdlGameInput.h"
+#include "engine/input/SdlInputReplay.h"
 #include "engine/editor/EditorGameplayReload.h"
 #include "engine/editor/EditorPerformanceRecording.h"
 #include "engine/editor/EditorBuildProfile.h"
@@ -94,6 +96,9 @@ struct Arguments {
     std::optional<glm::vec3> sceneCameraPosition;
     std::optional<glm::vec3> sceneCameraTarget;
     bool hidden = false;
+    std::filesystem::path inputReplay;
+    int gameAspectNumerator = 0;
+    int gameAspectDenominator = 0;
     bool showStats = false;
     int recordPerformanceAt = -1;
     std::string launchPlayId;
@@ -410,6 +415,13 @@ Arguments parseArguments(int argc, char** argv) {
                 std::stof(argument.substr(fixedDeltaPrefix.size())),
                 0.0001f,
                 0.05f);
+        } else if (argument.starts_with("--input-replay=")) {
+            result.inputReplay = argument.substr(15);
+        } else if (argument.starts_with("--game-aspect=")) {
+            const auto ratio = argument.substr(14);
+            if (ratio == "16:9") { result.gameAspectNumerator = 16; result.gameAspectDenominator = 9; }
+            else if (ratio == "21:9") { result.gameAspectNumerator = 21; result.gameAspectDenominator = 9; }
+            else throw std::runtime_error("Game aspect must be 16:9 or 21:9.");
         } else if (argument == "--hidden") {
             result.hidden = true;
         } else if (argument == "--stats") {
@@ -1586,6 +1598,7 @@ struct LoadedProject {
     std::shared_ptr<engine::editor::GameplayPluginCopy> pluginCopy;
     DynamicLibrary library;
     engine::editor::IEditorProjectRuntime* runtime = nullptr;
+    const engine::editor::EditorSdlGameInputExtension* sdlGameInput = nullptr;
     engine::editor::DestroyEditorProjectRuntimeFn destroyRuntime =
         nullptr;
     struct LoadedEditorPackage {
@@ -2710,6 +2723,11 @@ std::unique_ptr<LoadedProject> loadProjectRuntime(
             "\nPlugin: " + loaded->pluginPath.generic_string();
         return nullptr;
     }
+    if (const auto extension = loaded->library.function<engine::editor::EditorSdlGameInputFn>(
+            engine::editor::kEditorSdlGameInputSymbol)) {
+        loaded->sdlGameInput = extension();
+        if (!engine::editor::validateEditorSdlGameInput(loaded->sdlGameInput, outError)) return nullptr;
+    }
     loaded->destroyRuntime = contract->destroyRuntime;
     loaded->runtime = contract->createRuntime();
     if (!loaded->runtime) {
@@ -3684,6 +3702,11 @@ int main(int argc, char** argv) {
         float editorViewportScreenY = 0.0f;
         bool editorViewportHovered = false;
         bool editorViewportFocused = false;
+        bool editorViewportImageHovered = false;
+        bool editorTextEditing = false;
+        bool windowFocused = (SDL_GetWindowFlags(window.getSDLWindow()) & SDL_WINDOW_INPUT_FOCUS) != 0;
+        std::unique_ptr<engine::input::SdlInputReplay> inputReplay;
+        if (!arguments.inputReplay.empty()) inputReplay = std::make_unique<engine::input::SdlInputReplay>(arguments.inputReplay);
         bool focusActiveViewport = true;
         int assetPreviewWidth = 400;
         int assetPreviewHeight = 300;
@@ -3800,9 +3823,30 @@ int main(int argc, char** argv) {
             float wheelDelta = 0.0f;
             glm::vec2 panPixels(0.0f);
             glm::vec2 orbitRadians(0.0f);
+            engine::editor::EditorSdlGameInputContext gameInputContext{
+                SDL_GetWindowID(window.getSDLWindow()), windowFocused,
+                activeViewport == engine::editor::EditorViewportKind::Game,
+                playState == engine::editor::EditorPlayState::Playing,
+                playState == engine::editor::EditorPlayState::Paused,
+                editorViewportFocused, editorViewportImageHovered, editorTextEditing, false,
+                {static_cast<int>(editorViewportScreenX), static_cast<int>(editorViewportScreenY), editorViewportWidth, editorViewportHeight}};
+            if (inputReplay && project && project->runtime->gamePreviewReady()) {
+                inputReplay->frame(gameInputContext);
+                playState = gameInputContext.paused ? engine::editor::EditorPlayState::Paused :
+                    (gameInputContext.playing ? engine::editor::EditorPlayState::Playing : engine::editor::EditorPlayState::Editing);
+            }
+            if (project && project->sdlGameInput) project->sdlGameInput->beginFrame(project->runtime, &gameInputContext);
             SDL_Event event{};
             while (SDL_PollEvent(&event)) {
                 editor.processEvent(event);
+                if (event.type == SDL_WINDOWEVENT && event.window.windowID == gameInputContext.windowId) {
+                    if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) windowFocused = false;
+                    if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) windowFocused = true;
+                    if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST || event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)
+                        gameInputContext.windowFocused = windowFocused;
+                }
+                if (project && project->sdlGameInput)
+                    project->sdlGameInput->event(project->runtime, &gameInputContext, &event);
                 if (event.type == SDL_QUIT) {
                     running = false;
                 } else if (event.type == SDL_DROPFILE) {
@@ -3846,7 +3890,7 @@ int main(int argc, char** argv) {
                             windowPlacement);
                     }
                 } else if (
-                    project &&
+                    project && !project->sdlGameInput &&
                     activeViewport ==
                         engine::editor::EditorViewportKind::Game &&
                     engine::editor::shouldForwardGamePreviewInput(
@@ -3906,6 +3950,7 @@ int main(int argc, char** argv) {
                     }
                 }
             }
+            if (project && project->sdlGameInput) project->sdlGameInput->endFrame(project->runtime, &gameInputContext);
             if (!running) {
                 break;
             }
@@ -4576,6 +4621,8 @@ int main(int argc, char** argv) {
                         sceneSurface->textureId(),
                     .gameTextureId =
                         gameSurface->textureId(),
+                    .gameAspectNumerator = arguments.gameAspectNumerator,
+                    .gameAspectDenominator = arguments.gameAspectDenominator,
                     .assetPreviewTextureId =
                         assetPreviewSurface->textureId(),
                     .flipRenderSurfaceTexturesVertically =
@@ -4643,10 +4690,11 @@ int main(int argc, char** argv) {
                         }
                     }
                 }
+                const int minimumViewportExtent = activeViewport == engine::editor::EditorViewportKind::Game && arguments.gameAspectNumerator > 0 ? 0 : 1;
                 editorViewportWidth =
-                    std::max(1, actions.viewportWidth);
+                    std::max(minimumViewportExtent, actions.viewportWidth);
                 editorViewportHeight =
-                    std::max(1, actions.viewportHeight);
+                    std::max(minimumViewportExtent, actions.viewportHeight);
                 editorViewportScreenX =
                     actions.viewportScreenX;
                 editorViewportScreenY =
@@ -4655,6 +4703,8 @@ int main(int argc, char** argv) {
                     actions.viewportHovered;
                 editorViewportFocused =
                     actions.viewportFocused;
+                editorTextEditing = actions.textEditing;
+                editorViewportImageHovered = actions.viewportImageHovered;
             } else {
                 const engine::editor::ProjectBrowserView browser{
                     .status = browserStatus,

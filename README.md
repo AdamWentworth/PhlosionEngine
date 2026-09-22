@@ -82,7 +82,7 @@ engine content. [Capture provenance](docs/SHOWCASE_MEDIA.md).*
 
 The engine API is still evolving. Windows is the documented build and CI target;
 other operating systems are not qualified by that workflow. An installed
-`find_package` SDK, a bundled playable demo and an API freeze are not provided.
+`find_package` SDK, a prebuilt game distribution and an API freeze are not provided.
 
 ## Architecture and Ownership
 
@@ -154,8 +154,8 @@ targets and project-plugin setup are described in
 Link `Phlosion::Collision` explicitly for [static collision queries](docs/COLLISION_WORLD.md)
 and [kinematic characters](docs/CHARACTER_CONTROLLER.md), including explicit
 [sensor trigger sampling](docs/CHARACTER_TRIGGERS.md). It is independent of
-rendering and the Engine aggregate; runtime/editor host integration remains
-separate work.
+rendering and the Engine aggregate. The opt-in [public exploration course](docs/EXPLORATION_FIXTURE.md)
+shows runtime and editor Game-preview integration with public placeholder geometry.
 
 Use [named input actions](docs/INPUT_ACTIONS.md) through `Phlosion::Input`;
 `Phlosion::Platform` supplies the optional SDL adapter. Games define their own
@@ -166,6 +166,10 @@ Use [exploration camera rigs](docs/EXPLORATION_CAMERA.md) through
 `Phlosion::Camera`, which depends on the CPU collision module. Projects supply
 targets, camera controls and timing; the resulting pose and lens values can feed
 the existing render-side `Camera3D`.
+
+The exploration course combines these interfaces into a playable sample. Enable
+`PHLOSION_BUILD_EXPLORATION_FIXTURE` using the [build instructions](docs/DEVELOPMENT.md#public-exploration-course).
+Actual game assets and scene fitting remain the consuming project's responsibility.
 
 ## Verification
 

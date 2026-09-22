@@ -1,5 +1,7 @@
+#define SDL_MAIN_HANDLED
 #include "engine/editor/EditorProjectPlugin.h"
 #include "engine/editor/EditorProjectPluginContract.h"
+#include "engine/editor/EditorSdlGameInput.h"
 
 #include <filesystem>
 #include <iostream>
@@ -129,6 +131,11 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    const auto getSdlInput = library.function<engine::editor::EditorSdlGameInputFn>(engine::editor::kEditorSdlGameInputSymbol);
+    if (getSdlInput && !engine::editor::validateEditorSdlGameInput(getSdlInput(), error)) {
+        std::cerr << error << '\n'; return 1;
+    }
+    std::cout << "  SDL game input: " << (getSdlInput ? "version 1" : "absent (legacy route)") << '\n';
     std::cout
         << "Compatible project editor plugin: "
         << pluginPath.generic_string() << '\n'

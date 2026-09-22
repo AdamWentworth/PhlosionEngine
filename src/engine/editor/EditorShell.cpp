@@ -3,6 +3,7 @@
 #endif
 
 #include "engine/editor/EditorShell.h"
+#include "engine/editor/EditorSdlGameInput.h"
 #include "engine/editor/EditorBuildProfile.h"
 
 #include <algorithm>
@@ -1857,14 +1858,21 @@ EditorShellActions EditorShell::drawWorkspace(
                 : workspace.sceneTextureId;
         const ImVec2 available =
             ImGui::GetContentRegionAvail();
-        const ImVec2 origin =
+        ImVec2 origin =
             ImGui::GetCursorScreenPos();
-        const int viewportWidth = std::max(
+        int viewportWidth = std::max(
             1,
             static_cast<int>(available.x));
-        const int viewportHeight = std::max(
+        int viewportHeight = std::max(
             1,
             static_cast<int>(available.y));
+        if (kind == EditorViewportKind::Game && workspace.gameAspectNumerator > 0) {
+            const auto fit = fitGameViewport(viewportWidth, viewportHeight, workspace.gameAspectNumerator, workspace.gameAspectDenominator);
+            ImGui::GetWindowDrawList()->AddRectFilled(origin, ImVec2(origin.x + available.x, origin.y + available.y), IM_COL32(6, 8, 12, 255));
+            origin.x += static_cast<float>(fit.x); origin.y += static_cast<float>(fit.y);
+            viewportWidth = fit.width; viewportHeight = fit.height;
+            ImGui::SetCursorScreenPos(origin);
+        }
         if (textureId != 0u) {
             const ImVec2 uv0 =
                 workspace.flipRenderSurfaceTexturesVertically
@@ -2490,9 +2498,10 @@ EditorShellActions EditorShell::drawWorkspace(
         actions.viewportHeight = viewportHeight;
         actions.viewportScreenX = origin.x;
         actions.viewportScreenY = origin.y;
-        actions.viewportHovered =
-            ImGui::IsWindowHovered(
-                ImGuiHoveredFlags_RootAndChildWindows);
+        actions.viewportHovered = kind == EditorViewportKind::Game && workspace.gameAspectNumerator > 0
+            ? imageHovered : ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
+        actions.textEditing = ImGui::GetIO().WantTextInput;
+        actions.viewportImageHovered = imageHovered;
         actions.viewportFocused =
             ImGui::IsWindowFocused(
                 ImGuiFocusedFlags_RootAndChildWindows);

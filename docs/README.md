@@ -14,6 +14,7 @@ game-specific authoring and visual qualification stay with the consuming project
 | [glTF texture decoding verification](GLTF_TEXTURE_VERIFICATION.md) | Real PNG/JPEG loader-to-decoder evidence for five material roles, sampler metadata, alpha integration and remaining rendering gaps |
 | [Material verification](MATERIAL_VERIFICATION.md) | Five decoded material maps and corrected empty-image fallbacks in native runtime/editor previews on all three APIs, with content and parity guards |
 | [Integrated scene verification](SCENE_FIXTURE.md) | Imported animated character/environment, replacement, unload and independent color-factor checks in both hosts on all three APIs |
+| [Public exploration course](EXPLORATION_FIXTURE.md) | Playable collision/action/camera sample, runtime and editor Game input, exact aspect ratios, replay and native evidence guards |
 | [Animation verification](ANIMATION_VERIFICATION.md) | LINEAR/STEP/CUBICSPLINE pose sampling, cache fidelity and public weighted skeletal deformation in native runtime/editor previews on all three APIs |
 | [Engine boundaries](ENGINE_BOUNDARIES.md) | What belongs to the engine, a game or an optional feature package |
 | [Extraction status](EXTRACTION_STATUS.md) | Completed separation work and remaining delivery limits |
@@ -33,6 +34,7 @@ game-specific authoring and visual qualification stay with the consuming project
 | [Character trigger events](CHARACTER_TRIGGERS.md) | Explicit discrete sensor Enter/Stay/Exit samples, independent filters, copied metadata and lifecycle rules |
 | [Named input actions](INPUT_ACTIONS.md) | SDL-free action state, rebinding, deadzones, controller selection and focus recovery, plus the opt-in SDL adapter |
 | [Exploration camera](EXPLORATION_CAMERA.md) | Authored framing settings, follow/orbit state, camera-relative movement, collision-aware distance and CPU composition with input/characters |
+| [M2 asset handoff](M2_ASSET_HANDOFF.md) | Character fitting, environment collision/spawn/trigger/camera data and the final asset-specific scene gate |
 | [glTF scene assets](GLTF_SCENE_ASSETS.md) | Owned CPU scene snapshots, validated import, pose sampling and a reusable world-renderer adapter |
 | [Public asset fixture](PUBLIC_ASSET_FIXTURE.md) | Synthetic archive rendering, scene replacement and native runtime/editor capture verification |
 | [Editor project extensions](EDITOR_PROJECT_EXTENSIONS.md) | Game-plugin ABI, capabilities and command routing |

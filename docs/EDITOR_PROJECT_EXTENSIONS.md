@@ -1,7 +1,7 @@
 # Editor Project Extension Boundary
 
 Status: Active
-Last updated: 2026-08-02
+Last updated: 2026-09-22
 
 ## Rule
 
@@ -36,6 +36,24 @@ the data/action protocol and loads the package named by `editor_packages`.
 The generated package DLL is project-local under `.phlosion/packages/`; its
 source and Git history remain in `PhlosionPackages`. A project that omits the
 declaration gets no tile toolbar, panel, or viewport interception.
+
+## Optional SDL Game input
+
+An SDL-based Game preview can export the separate version-1
+[`EditorSdlGameInput`](../src/engine/editor/EditorSdlGameInput.h) callback table.
+The host validates its size, layout and required callbacks after the main
+plugin contract, then supplies borrowed begin/event/end context around its
+existing SDL pump. The main plugin ABI remains 34; `InputEvent` is unchanged.
+An absent export preserves legacy delivery, while a malformed present export
+fails loading. Opted-in previews receive the new route once, without duplicate
+legacy delivery.
+
+Context includes window and viewport focus, hover, text editing, Play/Pause and
+the actual image rectangle. Games retain action names, bindings, fixed-tick
+publication and controller selection. `--game-aspect=16:9` or `21:9` optionally
+fits that image to an exact ratio; other layouts keep their existing behavior.
+The [exploration course](EXPLORATION_FIXTURE.md#sdl-editor-extension-and-scheduling)
+demonstrates gate/rearm policy and once-per-tick input delivery.
 
 ## A game project owns
 
