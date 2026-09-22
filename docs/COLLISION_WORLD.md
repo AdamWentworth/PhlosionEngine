@@ -1,4 +1,4 @@
-# Static collision queries
+# Static collision queries and character ownership
 
 `Phlosion::Collision` is an opt-in static library backed by manifest-pinned
 Jolt Physics 5.4.0 (MIT). Include `engine/collision/CollisionWorld.h` and link
@@ -8,6 +8,11 @@ set do not include collision. Top-level configuration still discovers the
 engine's other dependencies, but collision consumers link only collision, GLM,
 Jolt and standard platform/runtime libraries. Queries require no window,
 graphics API, simulation update, job system, filesystem or game content.
+
+The same opt-in world now owns fixed-step kinematic capsule characters. See
+[the character-controller contract](CHARACTER_CONTROLLER.md) for movement,
+settings, support, recovery and teleport. Characters are invisible to the static
+query API and do not collide with one another.
 
 ```cpp
 engine::collision::CollisionWorld world;
@@ -53,7 +58,9 @@ editor plugin ABI or a bridge between separate DLL copies of Jolt.
 `ColliderId` is an opaque, comparable, nonzero 64-bit identity. IDs increase
 across worlds sharing this module, never wrap and never return to the pool.
 Zero, foreign and removed IDs fail `contains`/`remove` without affecting bodies.
-`clear` invalidates all IDs in the world. Removal recovers body capacity, not
+`clear` removes characters before colliders and invalidates both kinds of ID in
+the world. Collider removal refreshes live character contacts before destroying
+the removed body. Removal recovers body capacity, not
 identity values. Identity exhaustion raises `std::overflow_error`.
 
 Descriptions carry rigid position and rotation, layer 0..31, sensor state and a
@@ -73,6 +80,7 @@ open triangle mesh.
 | `maxColliders` | 4096 | 1..65536 |
 | `maxMeshVertices` per insertion | 1,000,000 | 3..1,000,000 |
 | `maxMeshTriangles` per insertion | 1,000,000 | 1..1,000,000 |
+| `maxCharacters` | 64 | 1..4096 |
 
 Invalid constructor options throw `std::invalid_argument`. These are count
 limits, not process-memory or peak-cooking-memory budgets. Allocation/resource
@@ -132,7 +140,8 @@ this host; cross-platform bitwise determinism is not promised.
 
 Sensors are static queryable shapes. Inclusion does not create trigger
 enter/exit events, character response, interaction rules or a simulation state
-machine. Controller, camera and editor/runtime integration are later work.
+machine. Trigger events, camera and editor/runtime integration are later work;
+fixed-step character movement is documented separately above.
 
 ## Qualified build and verification
 

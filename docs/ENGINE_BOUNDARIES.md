@@ -16,10 +16,12 @@ Pokemon Autochess systems.
 - generic VFX host/preview integration points supplied by Phlosion VFX.
 
 The opt-in [collision module](COLLISION_WORLD.md) owns reusable static geometry,
-ray/capsule queries, filtering and collider lifetime. Projects supply collision
-geometry, layer meanings and interaction rules. Queryable sensors do not define
-gameplay trigger events. The module is linked explicitly as `Phlosion::Collision`
-and currently has no runtime/editor host integration or character controller.
+ray/capsule queries, filtering, collider lifetime and
+[fixed-step kinematic characters](CHARACTER_CONTROLLER.md). Projects supply
+collision geometry, layer meanings, movement intent, tick scheduling and
+interaction rules. Queryable sensors do not define gameplay trigger events.
+The module is linked explicitly as `Phlosion::Collision` and currently has no
+runtime/editor host integration.
 
 ## What a project must supply
 

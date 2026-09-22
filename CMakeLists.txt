@@ -782,6 +782,12 @@ if (PHLOSION_BUILD_TESTS)
     add_test(NAME PhlosionCollisionContracts COMMAND PhlosionCollisionTests)
     set_tests_properties(PhlosionCollisionContracts PROPERTIES TIMEOUT 120)
 
+    add_executable(PhlosionCharacterTests tests/TestCharacterController.cpp)
+    target_link_libraries(PhlosionCharacterTests PRIVATE Phlosion::Collision)
+    phlosion_apply_settings(PhlosionCharacterTests)
+    add_test(NAME PhlosionCharacterContracts COMMAND PhlosionCharacterTests)
+    set_tests_properties(PhlosionCharacterContracts PROPERTIES TIMEOUT 120)
+
     add_executable(PhlosionEngineTests
         tests/TestMain.cpp
         tests/TestWorldMaterialProfile.cpp

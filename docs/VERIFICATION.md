@@ -14,6 +14,7 @@ No test in the current engine CTest suite needs a graphics context.
 | CTest entry | Coverage |
 | --- | --- |
 | `PhlosionCollisionContracts` | Eight standalone C++ groups against real Jolt geometry: analytic ray/capsule contacts, transformed boxes/meshes, exact overlaps, filters/metadata, ID/capacity/geometry ownership, malformed input/output preservation, configuration bounds, thread ownership and repeated authored query sequences |
+| `PhlosionCharacterContracts` | Ten standalone C++ groups against real Jolt geometry: fixed-tick analog movement, gravity/landing, walls/corners/thin sweeps, slopes/ceilings, stairs/floor following/ledges, recovery/teleport, filters/support removal, identities/capacity/threads, malformed inputs/transactional bounds and repeated authored sequences |
 | `PhlosionEngineContracts` | Thirty-two C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, real PNG/JPEG texture decoding and role fallbacks, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, model-cache sampler codec/version identity, owned CPU glTF scene validation/retention and renderer preflight, archive-backed glTF worker sessions, GPU resource-scope state/accounting, animation/material/integrated-scene content and lifecycle evidence guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
@@ -40,6 +41,12 @@ only to `Phlosion::Collision` and a 120 second CTest timeout. Its eight groups
 are separate from the 32 `PhlosionEngineContracts` groups. Queries use real
 Jolt boxes and triangle meshes without a graphics context. They do not qualify
 character movement, trigger events, scene integration or visual behavior.
+
+The separate [character controller](CHARACTER_CONTROLLER.md) executable links
+only `Phlosion::Collision` and also has a 120 second timeout. Its ten groups
+qualify the bounded static-world movement API, including 4096-character capacity,
+support removal, blocked teleport and rollback preservation. They do not qualify
+host scheduling, input devices, trigger events or a native walkable scene.
 
 The asynchronous loading contract and its retained-byte-budget limits are
 described in [ASYNC_ASSET_LOADING.md](ASYNC_ASSET_LOADING.md). The loader tests
@@ -125,6 +132,21 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-22, Astra accepted [M2-B's kinematic character foundation](agent-work/cyberpunk-m2-character/ACCEPTANCE.md)
+from M2-A commit `b570f4e`. The full enabled VS2026 Debug build with `/W4 /WX`
+passed, and all eleven CTest entries passed (312.42 seconds). Final test-only
+teleport/filter assertions then passed another all-target build and the affected
+character CTest (0.42 seconds); all ten character groups also passed directly.
+Existing query tests and their assertions were unchanged.
+
+Evidence under `artifacts/m2-b/` includes `build-all-01.log`, `build-all-02.log`,
+`ctest-all-01.log`, `ctest-character-final.log`, `character-groups-final.log`,
+`compile-link-settings.log` and `character-imports.log`. Root reviewed the actual
+code, tests, retained negative/final evidence and relevant installed Jolt rollback
+and slope logic. The standalone executable imports only Windows/C++ runtimes;
+Jolt remains pinned at 5.4.0. Qualification is CPU-only on this Windows host;
+no renderer or runtime/editor integration changed, and no GPU claim is made.
 
 On 2026-09-20, Astra accepted [M2-A's static collision foundation](agent-work/cyberpunk-m2-collision/ACCEPTANCE.md)
 from M1 commit `08f5791`. The full enabled VS2026 Debug build with `/WX` passed,

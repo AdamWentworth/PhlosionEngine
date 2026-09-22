@@ -1,7 +1,7 @@
 # Cyberpunk engine readiness audit
 
-Status: Engine-facing M1 complete; M2-A collision accepted; game-scale readiness remains unverified
-Date: 2026-09-20
+Status: Engine-facing M1 complete; M2-A collision and M2-B character movement accepted; game-scale readiness remains unverified
+Date: 2026-09-22 (original audit 2026-09-20)
 Owner: Astra (scope, architecture, acceptance)
 Audited engine baseline: `c17d2122bd36b3c3bb49c4e703900f40cccfbd76` (`main`)
 
@@ -307,8 +307,32 @@ This is the foundation for subsequent controller, camera and trigger behavior.
 Character movement, gameplay trigger events, input/controller handling and the
 walkable runtime/editor scene are later M2 passes. M2 remains in progress;
 this accepts only the bounded CPU collision foundation, with no native visual
-or playable-scene qualification claim. Next: fixed-step kinematic movement,
-grounding, sliding, slopes, steps and recovery tests.
+or playable-scene qualification claim. The next pass's fixed-step movement,
+grounding, sliding, slopes, steps and recovery work is recorded below.
+
+### M2-B: character movement (accepted 2026-09-22)
+
+The continuation from M2-A commit `b570f4e` adds
+[world-owned upright characters](CHARACTER_CONTROLLER.md) using the pinned Jolt
+virtual-character solver: fixed-tick analog walk/run, gravity/terminal fall speed,
+grounding, wall/corner sliding, slope/step policy, floor following, bounded
+penetration recovery and precise safe teleport. Public state reports actual
+movement and copied support metadata; character IDs, ownership and rollback
+remain behind the Phlosion API. Sensors never block or support characters.
+
+The full enabled Debug build with `/W4 /WX` and all eleven CTest entries passed.
+Ten standalone character groups exercise analytic geometry, fixed-tick batching,
+removed support, thread ownership, capacity and failed-operation preservation.
+Final test-only filter additions passed another build and the affected CTest.
+Root reviewed the actual source and evidence, including velocity-reporting and
+rollback-support defects found and fixed during implementation. Flash returned
+HTTP 402 before editing; the user-authorized Astra fallback implemented the pass.
+See the [acceptance record](agent-work/cyberpunk-m2-character/ACCEPTANCE.md) and
+[checkpoint](agent-work/cyberpunk-m2-character/CHECKPOINT.md).
+
+Trigger event state, exploration camera/actions, runtime/editor host integration
+and the matching-frame three-API walkable-scene gate remain subsequent M2 work.
+This CPU pass does not qualify a playable scene or complete M2.
 
 ## Read this first
 
@@ -501,15 +525,15 @@ it is proven" means consumer usage, not engine verification.
 
 | Capability | Status | Evidence | Gap for this work |
 | --- | --- | --- | --- |
-| Physics/collision layer | M2-A accepted, bounded CPU subset | [Static collision queries](COLLISION_WORLD.md): Jolt-backed boxes/meshes, rigid transforms, layers/sensors, rays, capsule sweeps/overlaps; eight standalone CPU contract groups | Character response, trigger events, scene/editor integration and representative content/scale remain outstanding; general dynamic physics is outside the baseline |
-| Character controller | Not found in inspected scope | Same search | Walk/run, gravity, grounding, slope and step handling do not exist; the slice requires them |
-| Traversal (jumping, ledges, ramps) | Unverified | Autochess has game-owned traversal animation code; no engine traversal contract found | Needs a real controller policy before the slice |
+| Physics/collision layer | M2-A accepted, bounded CPU subset | [Static collision queries](COLLISION_WORLD.md): Jolt-backed boxes/meshes, rigid transforms, layers/sensors, rays, capsule sweeps/overlaps; eight standalone CPU contract groups | Trigger events, scene/editor integration and representative content/scale remain outstanding; general dynamic physics is outside the baseline |
+| Character controller | M2-B accepted, bounded CPU subset | [Kinematic character contract](CHARACTER_CONTROLLER.md): fixed-tick walk/run, gravity, grounding, sliding, slope/step/floor-following policy and recovery; ten standalone CPU groups | Trigger state, camera/actions, host scheduling/integration and game-scale movement remain outstanding; moving bodies and character-character response are outside this pass |
+| Traversal (jumping, ledges, ramps) | Partial, CPU-qualified subset | M2-B tests ramp ascent/descent, stairs, ledge falling, blocked ceilings and safe teleport | Jumping, climbing and authored traversal animation remain outside the implemented contract; native scene qualification is pending |
 
 The recovered material calls for kinematic character/world collision.
 The original audit deferred vendor selection; M2-A selected manifest-pinned
 Jolt 5.4.0 behind a Phlosion-owned API and accepted the static query foundation.
-Controller policy remains future work. Destructible and vehicle physics stay
-excluded.
+M2-B now supplies the bounded static-world controller policy. Destructible and
+vehicle physics stay excluded.
 
 ### Animation
 
@@ -712,9 +736,9 @@ load-time and residency measurements feeding M4/M5.
 scene content. This milestone pulls in the collision and character-controller
 capability, the exploration camera, and action-based input:
 
-Progress: M2-A has accepted the static query foundation described above. The
-controller, trigger event state, camera/input and walkable-scene exit gate below
-remain outstanding.
+Progress: M2-A's static queries and M2-B's CPU kinematic controller are accepted.
+Trigger event state, camera/input, host integration and the walkable-scene exit
+gate below remain outstanding.
 
 - static collision, layers, triggers, raycasts and sweeps, plus a kinematic
   controller with walk/run, gravity, grounding, slopes and steps, covered by

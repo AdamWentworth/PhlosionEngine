@@ -3,7 +3,10 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/RegisterTypes.h>
 #include <Jolt/Core/Factory.h>
+#include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/StateRecorderImpl.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
@@ -28,6 +31,8 @@ namespace {
 constexpr float maxCoordinate = 1'000'000.0f;
 constexpr float minDimension = 0.0001f;
 constexpr float collisionTolerance = 0.0001f;
+constexpr float characterPadding = 0.005f;
+constexpr float maxCharacterCoordinate = 10'000.0f;
 
 bool fail(std::string* error, const char* message) {
     if (error) *error = message;
@@ -37,6 +42,23 @@ void succeed(std::string* error) { if (error) error->clear(); }
 bool bounded(float value) { return std::isfinite(value) && std::abs(value) <= maxCoordinate; }
 bool bounded(const glm::vec3& value) { return bounded(value.x) && bounded(value.y) && bounded(value.z); }
 bool dimension(float value) { return bounded(value) && value >= minDimension; }
+bool range(float value, float low, float high) { return std::isfinite(value) && value >= low && value <= high; }
+bool characterPosition(const glm::vec3& p) {
+    return range(p.x, -maxCharacterCoordinate, maxCharacterCoordinate)
+        && range(p.y, -maxCharacterCoordinate, maxCharacterCoordinate)
+        && range(p.z, -maxCharacterCoordinate, maxCharacterCoordinate);
+}
+bool validCharacter(const CharacterSettings& s, const glm::vec3& center, std::string* error) {
+    if (!characterPosition(center) || !range(s.radius, 0.05f, 5.0f)
+        || !range(s.cylinderHalfHeight, 0.0f, 10.0f)
+        || !range(s.walkSpeed, 0.0f, 100.0f) || !range(s.runSpeed, s.walkSpeed, 100.0f)
+        || !range(s.gravity, 0.0f, 100.0f) || !range(s.terminalFallSpeed, 0.01f, 100.0f)
+        || !range(s.maxSlopeDegrees, 1.0f, 89.0f) || !range(s.stepHeight, 0.0f, 2.0f)
+        || !range(s.floorSnapDistance, 0.0f, 2.0f)
+        || !range(s.fixedDeltaSeconds, 1.0f / 240.0f, 1.0f / 15.0f))
+        return fail(error, "Character settings/center outside documented finite ranges (CHARACTER_CONTROLLER.md)");
+    return true;
+}
 JPH::Vec3 vec(const glm::vec3& v) { return {v.x, v.y, v.z}; }
 glm::vec3 vec(JPH::Vec3Arg v) { return {v.GetX(), v.GetY(), v.GetZ()}; }
 glm::vec3 unit(const glm::vec3& v) {
@@ -151,6 +173,12 @@ private:
 
 struct CollisionWorld::Impl {
     struct Entry { JPH::BodyID body; ColliderInfo info; };
+    struct CharacterEntry {
+        CharacterSettings settings;
+        std::unique_ptr<JPH::CharacterVirtual> solver;
+        glm::vec3 velocity{0.0f};
+        float fallVelocity = 0.0f;
+    };
     CollisionWorldOptions options;
     std::thread::id owner = std::this_thread::get_id();
     BroadLayers broadLayers;
@@ -158,6 +186,8 @@ struct CollisionWorld::Impl {
     JPH::ObjectLayerPairFilter pairFilter;
     JPH::PhysicsSystem physics;
     std::map<ColliderId, Entry> entries;
+    JPH::TempAllocatorMalloc characterAllocator;
+    std::map<CharacterId, CharacterEntry> characters;
 
     explicit Impl(const CollisionWorldOptions& settings) : options(settings) {
         // Jolt's unused simulation caches still require at least four buckets.
@@ -194,13 +224,48 @@ struct CollisionWorld::Impl {
         const auto id = ColliderId(physics.GetBodyInterface().GetUserData(body));
         return entries.at(id).info;
     }
+    void refresh(CharacterEntry& entry) {
+        const QueryFilter filter{entry.settings.layerMask, SensorPolicy::Exclude, entry.settings.ignore};
+        const BodyQueryFilter bodyFilter(filter, filter.ignore.value_);
+        entry.solver->RefreshContacts({}, {}, bodyFilter, {}, characterAllocator);
+    }
+    CharacterState state(const CharacterEntry& entry) const {
+        const auto& solver = *entry.solver;
+        CharacterState result;
+        result.center = vec(solver.GetPosition());
+        result.velocity = entry.velocity;
+        switch (solver.GetGroundState()) {
+        case JPH::CharacterBase::EGroundState::OnGround: result.groundState = CharacterGroundState::Grounded; break;
+        case JPH::CharacterBase::EGroundState::OnSteepGround: result.groundState = CharacterGroundState::Steep; break;
+        case JPH::CharacterBase::EGroundState::NotSupported: result.groundState = CharacterGroundState::Unsupported; break;
+        case JPH::CharacterBase::EGroundState::InAir: break;
+        }
+        // Resolve copied identity rather than dereferencing a potentially removed Jolt body.
+        auto support = entries.find(ColliderId(solver.GetGroundUserData()));
+        // Jolt's rollback format deliberately omits user data. Recover it from live metadata,
+        // comparing full body IDs (including their generation) without touching a body handle.
+        if (support == entries.end() && !solver.GetGroundBodyID().IsInvalid())
+            support = std::find_if(entries.begin(), entries.end(), [&](const auto& item) {
+                return item.second.body == solver.GetGroundBodyID();
+            });
+        if (result.groundState != CharacterGroundState::InAir && support != entries.end()
+            && support->second.body == solver.GetGroundBodyID()) {
+            result.support = support->second.info;
+            result.groundPoint = vec(solver.GetGroundPosition());
+            result.groundNormal = unit(vec(solver.GetGroundNormal()));
+        } else {
+            result.groundState = CharacterGroundState::InAir;
+        }
+        return result;
+    }
 };
 
 CollisionWorld::CollisionWorld(const CollisionWorldOptions& options) {
     if (options.maxColliders == 0 || options.maxColliders > 65536
         || options.maxMeshVertices < 3 || options.maxMeshVertices > 1'000'000
-        || options.maxMeshTriangles == 0 || options.maxMeshTriangles > 1'000'000)
-        throw std::invalid_argument("CollisionWorld limits: colliders 1..65536, mesh vertices 3..1000000, triangles 1..1000000");
+        || options.maxMeshTriangles == 0 || options.maxMeshTriangles > 1'000'000
+        || options.maxCharacters == 0 || options.maxCharacters > 4096)
+        throw std::invalid_argument("CollisionWorld limits: colliders 1..65536, mesh vertices 3..1000000, triangles 1..1000000, characters 1..4096");
     ensureRuntime();
     impl_ = std::make_unique<Impl>(options);
 }
@@ -255,12 +320,18 @@ bool CollisionWorld::remove(ColliderId id) {
     if (it == impl_->entries.end()) return false;
     auto& bodies = impl_->physics.GetBodyInterface();
     bodies.RemoveBody(it->second.body);
+    // Drop all cached contacts while the removed body still exists but is no longer queryable.
+    for (auto& [characterId, character] : impl_->characters) {
+        (void)characterId;
+        impl_->refresh(character);
+    }
     bodies.DestroyBody(it->second.body);
     impl_->entries.erase(it);
     return true;
 }
 void CollisionWorld::clear() {
     impl_->checkOwner();
+    impl_->characters.clear();
     while (!impl_->entries.empty()) remove(impl_->entries.begin()->first);
 }
 bool CollisionWorld::contains(ColliderId id) const {
@@ -270,6 +341,124 @@ bool CollisionWorld::contains(ColliderId id) const {
 std::size_t CollisionWorld::colliderCount() const {
     impl_->checkOwner();
     return impl_->entries.size();
+}
+
+bool CollisionWorld::createCharacter(const CharacterSettings& settings, const glm::vec3& center,
+                                     CharacterId& out, std::string* error) {
+    impl_->checkOwner();
+    if (!validCharacter(settings, center, error)) return false;
+    if (impl_->characters.size() >= impl_->options.maxCharacters) return fail(error, "Character capacity reached");
+    const auto shape = JPH::CapsuleShapeSettings(settings.cylinderHalfHeight, settings.radius).Create();
+    if (shape.HasError()) return fail(error, shape.GetError().c_str());
+    JPH::CharacterVirtualSettings config;
+    config.mShape = shape.Get();
+    config.mMaxSlopeAngle = JPH::DegreesToRadians(settings.maxSlopeDegrees);
+    config.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), settings.cylinderHalfHeight);
+    config.mCharacterPadding = characterPadding;
+    // Jolt adds padding along up to its shape transform. Cancel that offset to retain Capsule's center convention.
+    config.mShapeOffset = JPH::Vec3(0.0f, -characterPadding, 0.0f);
+    config.mCollisionTolerance = collisionTolerance;
+    config.mEnhancedInternalEdgeRemoval = true;
+    const CharacterId id(nextIdentity());
+    Impl::CharacterEntry entry{settings, std::make_unique<JPH::CharacterVirtual>(
+        &config, JPH::RVec3(vec(center)), JPH::Quat::sIdentity(), &impl_->physics)};
+    impl_->refresh(entry);
+    impl_->characters.emplace(id, std::move(entry));
+    out = id;
+    succeed(error);
+    return true;
+}
+
+bool CollisionWorld::removeCharacter(CharacterId id) {
+    impl_->checkOwner();
+    return impl_->characters.erase(id) != 0;
+}
+
+std::size_t CollisionWorld::characterCount() const {
+    impl_->checkOwner();
+    return impl_->characters.size();
+}
+
+bool CollisionWorld::characterState(CharacterId id, CharacterState& out, std::string* error) const {
+    impl_->checkOwner();
+    const auto it = impl_->characters.find(id);
+    if (it == impl_->characters.end()) return fail(error, "Unknown character ID");
+    out = impl_->state(it->second);
+    succeed(error);
+    return true;
+}
+
+bool CollisionWorld::stepCharacter(CharacterId id, const CharacterInput& input, CharacterState& out, std::string* error) {
+    impl_->checkOwner();
+    const auto it = impl_->characters.find(id);
+    if (it == impl_->characters.end()) return fail(error, "Unknown character ID");
+    if (!std::isfinite(input.move.x) || !std::isfinite(input.move.y)) return fail(error, "Character movement must be finite");
+    auto& entry = it->second;
+    auto& solver = *entry.solver;
+    const auto& s = entry.settings;
+    const auto before = impl_->state(entry);
+    const glm::dvec2 direction = glm::dvec2(input.move) / std::max(1.0, glm::length(glm::dvec2(input.move)));
+    const float speed = input.run ? s.runSpeed : s.walkSpeed;
+    const float vertical = before.groundState == CharacterGroundState::Grounded ? 0.0f : entry.fallVelocity;
+    glm::vec3 velocity(static_cast<float>(direction.x * speed),
+        std::max(-s.terminalFallSpeed, vertical - s.gravity * s.fixedDeltaSeconds),
+        static_cast<float>(direction.y * speed));
+    const bool grounded = before.groundState == CharacterGroundState::Grounded;
+    const auto endpoint = before.center + velocity * s.fixedDeltaSeconds;
+    if (!characterPosition(endpoint)
+        || (grounded && (!characterPosition(endpoint + glm::vec3(0, s.stepHeight, 0))
+            || !characterPosition(endpoint - glm::vec3(0, s.floorSnapDistance, 0)))))
+        return fail(error, "Character tick endpoint exceeds coordinate envelope");
+    JPH::StateRecorderImpl saved;
+    solver.SaveState(saved);
+    solver.SetLinearVelocity(vec(velocity));
+    const QueryFilter filter{s.layerMask, SensorPolicy::Exclude, s.ignore};
+    const BodyQueryFilter bodyFilter(filter, filter.ignore.value_);
+    JPH::CharacterVirtual::ExtendedUpdateSettings update;
+    update.mStickToFloorStepDown = JPH::Vec3(0.0f, grounded ? -s.floorSnapDistance : 0.0f, 0.0f);
+    update.mWalkStairsStepUp = JPH::Vec3(0.0f, grounded ? s.stepHeight : 0.0f, 0.0f);
+    solver.ExtendedUpdate(s.fixedDeltaSeconds, JPH::Vec3(0.0f, -s.gravity, 0.0f),
+        update, {}, {}, bodyFilter, {}, impl_->characterAllocator);
+    auto result = impl_->state(entry);
+    result.velocity = (result.center - before.center) / s.fixedDeltaSeconds;
+    if (!characterPosition(result.center) || !bounded(result.velocity) || !bounded(result.groundPoint)) {
+        saved.Rewind();
+        solver.RestoreState(saved);
+        return fail(error, "Character solver result exceeds finite numeric envelope; tick was restored");
+    }
+    entry.velocity = result.velocity;
+    entry.fallVelocity = result.groundState == CharacterGroundState::Grounded ? 0.0f : velocity.y;
+    out = result;
+    succeed(error);
+    return true;
+}
+
+bool CollisionWorld::teleportCharacter(CharacterId id, const glm::vec3& center, std::string* error) {
+    impl_->checkOwner();
+    const auto it = impl_->characters.find(id);
+    if (it == impl_->characters.end()) return fail(error, "Unknown character ID");
+    if (!characterPosition(center)) return fail(error, "Character destination exceeds finite coordinate envelope");
+    auto& entry = it->second;
+    const QueryFilter filter{entry.settings.layerMask, SensorPolicy::Exclude, entry.settings.ignore};
+    const BodyQueryFilter bodyFilter(filter, filter.ignore.value_);
+    JPH::CollideShapeSettings settings;
+    settings.mBackFaceMode = JPH::EBackFaceMode::CollideWithBackFaces;
+    settings.mCollisionTolerance = collisionTolerance;
+    settings.mActiveEdgeMode = JPH::EActiveEdgeMode::CollideWithAll;
+    JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> contacts;
+    impl_->physics.GetNarrowPhaseQuery().CollideShape(entry.solver->GetShape(), JPH::Vec3::sReplicate(1.0f),
+        JPH::RMat44::sTranslation(JPH::RVec3(vec(center))), settings, JPH::RVec3(vec(center)),
+        contacts, {}, {}, bodyFilter);
+    for (const auto& hit : contacts.mHits)
+        if (hit.mPenetrationDepth > collisionTolerance)
+            return fail(error, "Character destination penetrates blocking geometry");
+    entry.solver->SetPosition(JPH::RVec3(vec(center)));
+    entry.solver->SetLinearVelocity(JPH::Vec3::sZero());
+    entry.velocity = glm::vec3(0.0f);
+    entry.fallVelocity = 0.0f;
+    impl_->refresh(entry);
+    succeed(error);
+    return true;
 }
 
 bool CollisionWorld::rayCast(const glm::vec3& origin, const glm::vec3& displacement,
