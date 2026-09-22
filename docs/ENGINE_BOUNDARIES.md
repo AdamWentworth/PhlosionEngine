@@ -25,6 +25,13 @@ decide whether that starts dialogue, transitions a scene or has another effect.
 The module is linked explicitly as `Phlosion::Collision` and currently has no
 runtime/editor host integration.
 
+The [input action layer](INPUT_ACTIONS.md) owns generic physical-to-action
+mapping, frame transitions, deadzones, controller identity and focus gates.
+`Phlosion::Input` is SDL-free; the optional SDL adapter lives in Platform.
+Projects define action names, bindings, controller selection, gameplay capture
+and frame scheduling. Existing runtime/editor event pumps remain separate until
+explicit integration; this addition does not change the InputEvent/plugin ABI.
+
 ## What a project must supply
 
 - gameplay rules, states, simulation, units, UI semantics, and save data;

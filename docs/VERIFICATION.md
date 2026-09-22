@@ -5,7 +5,14 @@
 [Engine CI](../.github/workflows/ci.yml) runs on pushes to `main`, pull requests
 and manual dispatch. It uses the Windows Visual Studio 2026 runner, restores
 the manifest-pinned vcpkg dependencies, builds all enabled Debug targets with
-warnings treated as errors, and runs CTest.
+the engine warning policy enabled, and runs CTest.
+
+The settings helper applies `/W4 /WX` to targets that use it. M2-D's compiler
+audit found that the pre-existing aggregate `PhlosionEngineTests` target bypasses
+that helper and retains `/W1 /WX-` in the ordinary generated project. Its local
+M2-D qualification additionally forced `/WX` and checked actual compiler records;
+that temporary qualification does not change the repository's default policy.
+Do not infer every target's flags from the top-level option alone.
 
 The build includes the native editor, plugin probe and Vulkan shader programs.
 It does not fetch a game, private assets or optional package repositories.
@@ -16,6 +23,8 @@ No test in the current engine CTest suite needs a graphics context.
 | `PhlosionCollisionContracts` | Eight standalone C++ groups against real Jolt geometry: analytic ray/capsule contacts, transformed boxes/meshes, exact overlaps, filters/metadata, ID/capacity/geometry ownership, malformed input/output preservation, configuration bounds, thread ownership and repeated authored query sequences |
 | `PhlosionCharacterContracts` | Ten standalone C++ groups against real Jolt geometry: fixed-tick analog movement, gravity/landing, walls/corners/thin sweeps, slopes/ceilings, stairs/floor following/ledges, recovery/teleport, filters/support removal, identities/capacity/threads, malformed inputs/transactional bounds and repeated authored sequences |
 | `PhlosionTriggerContracts` | Seven standalone real-geometry groups for discrete sensor Enter/Stay/Exit membership, precise overlap geometry, filters/metadata/order, teleport and failure preservation, removed/replaced sensors, character/world/thread ownership, capacity and repeated sequences |
+| `PhlosionInputContracts` | Six SDL-free groups for named action mapping, button/axis transitions, rebinding, deadzones, controller identity/selection, focus/enable recovery, bounds and thread ownership |
+| `PhlosionSdlInputContracts` | Three real SDL virtual-device groups for mapped-controller discovery, all 15 buttons/six axes, normalization, queued taps and event/poll duplicate observations, hotplug/disconnect, window focus filtering and subsystem/handle ownership |
 | `PhlosionEngineContracts` | Thirty-two C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, real PNG/JPEG texture decoding and role fallbacks, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, model-cache sampler codec/version identity, owned CPU glTF scene validation/retention and renderer preflight, archive-backed glTF worker sessions, GPU resource-scope state/accounting, animation/material/integrated-scene content and lifecycle evidence guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
@@ -54,6 +63,12 @@ The separate [trigger sampler](CHARACTER_TRIGGERS.md) executable links only
 membership and lifecycle event state. A complete crossing between samples is
 explicitly outside that behavior; no continuous sensor detection, game event
 dispatch, host scheduling or native walkable-scene qualification is implied.
+
+The [input action layer](INPUT_ACTIONS.md) has separate pure and SDL-backed
+executables with 120-second timeouts. SDL tests use owned virtual controllers
+without a window or graphics context. They establish the adapter's bounded
+behavior, not physical-device coverage, editor capture/focus behavior or a
+native walkable scene. Existing hosts are not migrated by the input module.
 
 The asynchronous loading contract and its retained-byte-budget limits are
 described in [ASYNC_ASSET_LOADING.md](ASYNC_ASSET_LOADING.md). The loader tests
@@ -140,9 +155,33 @@ every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
 
+On 2026-09-22, Astra accepted [M2-D's input actions and SDL adapter](agent-work/cyberpunk-m2-input/ACCEPTANCE.md)
+from M2-C commit `6a72ded`. The full enabled VS2026 Debug build and fourteen
+CTest entries passed (299.96 seconds). After discovering the legacy aggregate
+test target's warning-policy exception described above, a temporary global
+`/WX` qualification rebuilt all 37 compiled targets and passed all fourteen
+CTest entries again (355.57 seconds). Compiler records contain 177 commands,
+all with `/WX`; only `PhlosionEngineTests` uses `/W1` instead of `/W4`.
+The original local `CMAKE_CXX_FLAGS` was restored. A final test-only RAII cleanup
+then passed another all-target build and both input executables directly.
+
+Raw commands, logs, exit codes and final hashes remain in `artifacts/m2-d/`:
+`full-build.log`, `full-ctest.log`, `global-wx-build.log`, `global-wx-ctest.log`,
+`compiler-flags-summary.json`, `all-target-compiler-commands.json`,
+`restored-flags.txt`, `review-build.log`, `review-pure-tests.log`,
+`review-sdl-tests.log`, `final-pure-imports.log`, `final-sdl-imports.log` and
+`verified-file-hashes.json`. Negative development runs are retained separately.
+Root reviewed source/tests and verified the eleven recorded source/document/
+binary hashes against the final files. SDL reports runtime 2.32.10. The pure
+test imports only Windows/C++ runtimes; the adapter test adds SDL2d.dll and no
+graphics backend DLL. This is local CPU/virtual-device qualification; physical
+controllers, camera movement and runtime/editor input routing remain unverified.
+No render behavior changed, so no new GPU qualification is claimed.
+
 On 2026-09-22, Astra accepted [M2-C's discrete trigger sampling](agent-work/cyberpunk-m2-triggers/ACCEPTANCE.md)
-from M2-B commit `21672db`. The full enabled VS2026 Debug build with `/W4 /WX`
-passed, and all twelve CTest entries passed (297.60 seconds). Final test-only
+from M2-B commit `21672db`. The full enabled VS2026 Debug build with the engine
+warning policy enabled passed; the affected targets used `/W4 /WX`. All twelve
+CTest entries passed (297.60 seconds). Final test-only
 creation/removal and teleport-crossing cases passed the affected rebuild and
 trigger CTest (0.09 seconds); all seven groups passed directly. Existing collision
 and character test sources were unchanged.
@@ -157,8 +196,9 @@ continuous crossing events, game dispatch and native runtime/editor integration
 remain outside this evidence. No rendering changed and no new GPU claim is made.
 
 On 2026-09-22, Astra accepted [M2-B's kinematic character foundation](agent-work/cyberpunk-m2-character/ACCEPTANCE.md)
-from M2-A commit `b570f4e`. The full enabled VS2026 Debug build with `/W4 /WX`
-passed, and all eleven CTest entries passed (312.42 seconds). Final test-only
+from M2-A commit `b570f4e`. The full enabled VS2026 Debug build with the engine
+warning policy enabled passed; the affected targets used `/W4 /WX`. All eleven
+CTest entries passed (312.42 seconds). Final test-only
 teleport/filter assertions then passed another all-target build and the affected
 character CTest (0.42 seconds); all ten character groups also passed directly.
 Existing query tests and their assertions were unchanged.

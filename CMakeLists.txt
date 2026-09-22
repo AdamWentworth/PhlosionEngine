@@ -223,12 +223,19 @@ target_link_libraries(engine_core
 )
 phlosion_apply_settings(engine_core)
 
+add_library(engine_input STATIC src/engine/input/InputActions.cpp)
+target_link_libraries(engine_input PUBLIC glm::glm)
+phlosion_apply_settings(engine_input)
+add_library(Phlosion::Input ALIAS engine_input)
+
 add_library(engine_platform STATIC
     src/engine/platform/Window.cpp
     src/engine/input/SdlKeyMap.cpp
+    src/engine/input/SdlActionInput.cpp
 )
 target_link_libraries(engine_platform
     PUBLIC
+        Phlosion::Input
         SDL2::SDL2
         ${PHLOSION_SDL2_TTF_TARGET}
         glm::glm
@@ -776,6 +783,18 @@ endif()
 
 if (PHLOSION_BUILD_TESTS)
     include(CTest)
+    add_executable(PhlosionInputTests tests/TestInputActions.cpp)
+    target_link_libraries(PhlosionInputTests PRIVATE Phlosion::Input)
+    phlosion_apply_settings(PhlosionInputTests)
+    add_test(NAME PhlosionInputContracts COMMAND PhlosionInputTests)
+    set_tests_properties(PhlosionInputContracts PROPERTIES TIMEOUT 120)
+
+    add_executable(PhlosionSdlInputTests tests/TestSdlActionInput.cpp)
+    target_link_libraries(PhlosionSdlInputTests PRIVATE engine_platform)
+    phlosion_apply_settings(PhlosionSdlInputTests)
+    add_test(NAME PhlosionSdlInputContracts COMMAND PhlosionSdlInputTests)
+    set_tests_properties(PhlosionSdlInputContracts PROPERTIES TIMEOUT 120)
+
     add_executable(PhlosionCollisionTests tests/TestCollisionWorld.cpp)
     target_link_libraries(PhlosionCollisionTests PRIVATE Phlosion::Collision)
     phlosion_apply_settings(PhlosionCollisionTests)

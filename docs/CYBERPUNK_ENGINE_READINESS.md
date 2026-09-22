@@ -1,6 +1,6 @@
 # Cyberpunk engine readiness audit
 
-Status: Engine-facing M1 complete; M2-A collision, M2-B characters and M2-C trigger samples accepted; game-scale readiness remains unverified
+Status: Engine-facing M1 complete; M2-A/B/C/D collision, characters, triggers and input accepted; camera/host integration and game-scale readiness remain unverified
 Date: 2026-09-22 (original audit 2026-09-20)
 Owner: Astra (scope, architecture, acceptance)
 Audited engine baseline: `c17d2122bd36b3c3bb49c4e703900f40cccfbd76` (`main`)
@@ -360,6 +360,37 @@ samples can produce no event, as explicitly tested. Continuous path events,
 camera/actions and native runtime/editor host qualification remain outside this
 pass. M2 is still incomplete.
 
+### M2-D: named actions and controller input (accepted 2026-09-22)
+
+From M2-C commit `6a72ded`, [named input actions](INPUT_ACTIONS.md) now provide
+SDL-free button/scalar/vector actions, transactional rebinding, explicit frame
+edges, rescaled deadzones, controller selection and focus/enable recovery.
+The opt-in Platform adapter discovers mapped SDL controllers, preserves queued
+taps, polls complete snapshots and handles hotplug without owning the host's
+event queue. Existing InputEvent and runtime/editor event paths remain unchanged.
+
+The full enabled Debug build and all fourteen CTest entries passed. A second
+build qualified all 37 compiled targets with `/WX` and passed all fourteen
+entries again (355.57 seconds). The two new suites use `/W4 /WX`; the pre-existing
+aggregate test target retains `/W1` and ordinarily disables `/WX`, as documented
+in [verification](VERIFICATION.md). Temporary qualification flags were restored.
+Final test-only cleanup passed another full build and both input executables.
+
+Six pure groups cover frame semantics, combinations, validation, identities,
+gates and ownership. Three SDL groups use real virtual mapped devices, including
+all 15 buttons and six axes, queued taps, event/poll duplicate observations,
+selection, removal, window filtering and balanced subsystem/handle teardown.
+Import inspection confirms the pure executable needs only Windows/C++ runtimes;
+the adapter test adds SDL without graphics backend imports. Root reviewed the
+implementation and evidence with no outstanding findings. This reused the
+approved Astra fallback after the Flash balance failure; routing was unchanged.
+See the [acceptance](agent-work/cyberpunk-m2-input/ACCEPTANCE.md) and
+[checkpoint](agent-work/cyberpunk-m2-input/CHECKPOINT.md).
+
+Exploration camera, physical controller qualification and native host integration
+remain subsequent work. Virtual devices do not qualify the full M2 scene/device
+gate, input contexts, binding persistence or mouse-look controls.
+
 ## Read this first
 
 **Design provenance.** The product direction below comes from a user-supplied
@@ -518,9 +549,9 @@ it is proven" means consumer usage, not engine verification.
 | Capability | Status | Evidence | Gap for this work |
 | --- | --- | --- | --- |
 | Window, drawable size, VSync, swap | Implemented | [Window.h](../src/engine/platform/Window.h); no engine test identified | Fullscreen/borderless policy and display-mode enumeration are consumer-side |
-| Keyboard and mouse input | Implemented | [InputEvent.h](../src/engine/input/InputEvent.h), [SdlKeyMap.h](../src/engine/input/SdlKeyMap.h), event pump in [Application.cpp](../src/engine/runtime/Application.cpp); no engine test identified | Raw keys and buttons; no text-input or IME events |
-| Gamepad / controller | Not found in inspected scope | Search of engine source, assets, tests and build manifests for `gamecontroller`, `joystick`, `sdl_haptic`, `controllerrumble`: no matches | The slice explicitly requires controller hotplug, mapping, deadzones and appropriate prompts |
-| Named action mapping, rebinding, context layers | Not found in inspected scope | No action-map type in engine source | Gameplay currently reads raw keys, which the recovered roadmap also listed as a gap |
+| Keyboard and mouse input | Implemented; M2-D adds opt-in actions | Existing [InputEvent.h](../src/engine/input/InputEvent.h) and [SdlKeyMap.h](../src/engine/input/SdlKeyMap.h); [input contracts](INPUT_ACTIONS.md) cover buttons, repeat, frame edges and focus | Existing hosts still use raw events; mouse-motion/scroll action bindings, text/IME and native capture qualification remain |
+| Gamepad / controller | Bounded adapter implemented and virtual-device qualified in M2-D | [SDL action adapter](INPUT_ACTIONS.md): mapped device discovery, hotplug, polling/events, deadzones and explicit selection; real SDL virtual-device tests | Physical devices, runtime/editor routing, prompts and haptics remain unqualified |
+| Named action mapping, rebinding, context layers | Actions and in-memory rebinding implemented in M2-D; context layers remain absent | [InputActions](INPUT_ACTIONS.md), six pure contract groups; focus and enable gates | Host/game integration, context priority/consumption, binding capture UI and persistence remain |
 | Camera | Partial | [Camera3D.h](../src/engine/render/Camera3D.h); contract in tests/TestCamera3D.cpp | One camera type; no rigs, target framing, blends, cuts or shake, which the battle and exploration cameras need |
 | Cursor capture and pointer policy | Unverified | No distinct contract found | Needed for exploration and battle input modes |
 
@@ -763,10 +794,11 @@ load-time and residency measurements feeding M4/M5.
 scene content. This milestone pulls in the collision and character-controller
 capability, the exploration camera, and action-based input:
 
-Progress: M2-A's static queries, M2-B's CPU kinematic controller and M2-C's
-discrete trigger samples are accepted. Camera/input, host integration and the
-walkable-scene exit gate below remain outstanding. Trigger sampling does not
-guarantee events for complete crossings between samples.
+Progress: M2-A's static queries, M2-B's CPU kinematic controller, M2-C's discrete
+trigger samples and M2-D's named actions/SDL controller adapter are accepted.
+Exploration camera, input/character integration into hosts, physical controller
+qualification and the walkable-scene exit gate below remain outstanding. Trigger
+sampling does not guarantee events for complete crossings between samples.
 
 - static collision, layers, triggers, raycasts and sweeps, plus a kinematic
   controller with walk/run, gravity, grounding, slopes and steps, covered by

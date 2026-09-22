@@ -73,6 +73,8 @@ engine content. [Capture provenance](docs/SHOWCASE_MEDIA.md).*
   parameter packing; an empty profile selects engine defaults.
 - **Runtime foundations:** application lifecycle, ECS, events, SDL window/input,
   logging, camera and common text/sprite/UI primitives.
+- **Input actions:** named buttons and axes, rebinding, controller deadzones and
+  focus recovery, with an opt-in SDL controller adapter.
 - **Cooked resources:** PHRC containers and `.phlo` / `.phscene` runtime APIs,
   authored scenes and environment patches, with integrity and round-trip tests.
 
@@ -153,6 +155,11 @@ and [kinematic characters](docs/CHARACTER_CONTROLLER.md), including explicit
 rendering and the Engine aggregate; runtime/editor host integration remains
 separate work.
 
+Use [named input actions](docs/INPUT_ACTIONS.md) through `Phlosion::Input`;
+`Phlosion::Platform` supplies the optional SDL adapter. Games define their own
+bindings, controller selection and action-frame scheduling. Existing hosts keep
+their legacy event paths until explicitly integrated.
+
 ## Verification
 
 ```powershell
@@ -160,8 +167,9 @@ cmake --build --preset debug
 ctest --preset debug
 ```
 
-[CI](.github/workflows/ci.yml) builds the engine, editor and tests on Windows with
-warnings treated as errors, then runs the asset-independent contracts. Tests
+[CI](.github/workflows/ci.yml) builds the engine, editor and tests on Windows,
+then runs the asset-independent contracts. Warning-policy coverage and its
+legacy test-target exception are documented in [verification](docs/VERIFICATION.md). Tests
 cover resources/scenes, material profiles, editor descriptors and ABI, preview
 routing, reload, camera behavior and semantic boundaries.
 
