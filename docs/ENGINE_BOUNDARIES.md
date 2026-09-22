@@ -32,6 +32,14 @@ Projects define action names, bindings, controller selection, gameplay capture
 and frame scheduling. Existing runtime/editor event pumps remain separate until
 explicit integration; this addition does not change the InputEvent/plugin ABI.
 
+The [exploration camera rig](EXPLORATION_CAMERA.md) owns follow/orbit math,
+camera-relative movement and static-geometry obstruction queries. Authored
+settings are separate from each rig's runtime state. Projects choose targets,
+settings, camera-zone transitions, controls, update timing and viewport policy,
+then apply returned pose/lens values to the renderer. `Phlosion::Camera` links
+the CPU Collision module and does not choose game input names or migrate the
+runtime/editor camera paths.
+
 ## What a project must supply
 
 - gameplay rules, states, simulation, units, UI semantics, and save data;

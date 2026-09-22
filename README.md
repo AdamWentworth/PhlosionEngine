@@ -75,6 +75,8 @@ engine content. [Capture provenance](docs/SHOWCASE_MEDIA.md).*
   logging, camera and common text/sprite/UI primitives.
 - **Input actions:** named buttons and axes, rebinding, controller deadzones and
   focus recovery, with an opt-in SDL controller adapter.
+- **Exploration camera:** opt-in follow/orbit framing, camera-relative movement
+  and collision-aware distance, with separate authored settings and runtime state.
 - **Cooked resources:** PHRC containers and `.phlo` / `.phscene` runtime APIs,
   authored scenes and environment patches, with integrity and round-trip tests.
 
@@ -159,6 +161,11 @@ Use [named input actions](docs/INPUT_ACTIONS.md) through `Phlosion::Input`;
 `Phlosion::Platform` supplies the optional SDL adapter. Games define their own
 bindings, controller selection and action-frame scheduling. Existing hosts keep
 their legacy event paths until explicitly integrated.
+
+Use [exploration camera rigs](docs/EXPLORATION_CAMERA.md) through
+`Phlosion::Camera`, which depends on the CPU collision module. Projects supply
+targets, camera controls and timing; the resulting pose and lens values can feed
+the existing render-side `Camera3D`.
 
 ## Verification
 

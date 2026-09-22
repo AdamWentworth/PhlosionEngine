@@ -1,6 +1,6 @@
 # Cyberpunk engine readiness audit
 
-Status: Engine-facing M1 complete; M2-A/B/C/D collision, characters, triggers and input accepted; camera/host integration and game-scale readiness remain unverified
+Status: Engine-facing M1 complete; M2-A/B/C/D/E collision, characters, triggers, input and camera accepted; native host integration and game-scale readiness remain unverified
 Date: 2026-09-22 (original audit 2026-09-20)
 Owner: Astra (scope, architecture, acceptance)
 Audited engine baseline: `c17d2122bd36b3c3bb49c4e703900f40cccfbd76` (`main`)
@@ -391,6 +391,34 @@ Exploration camera, physical controller qualification and native host integratio
 remain subsequent work. Virtual devices do not qualify the full M2 scene/device
 gate, input contexts, binding persistence or mouse-look controls.
 
+### M2-E: exploration camera rig (accepted 2026-09-22)
+
+From M2-D commit `bd76391`, the opt-in [exploration camera](EXPLORATION_CAMERA.md)
+now provides separate authored settings and runtime follow/orbit state, explicit
+delta/rate controls, camera-relative movement and a sphere-probed collision boom.
+It pulls in immediately at obstructions, recovers distance with analytic damping
+and resets explicitly for teleports/cuts. Failures preserve the previous state;
+origin penetration is reported with a finite view direction at zero boom length.
+The module links Collision and GLM without requiring SDL or a renderer.
+
+The full enabled Debug build and all fifteen CTest entries passed (333.88 seconds).
+Ten camera groups include analytic 16:9/21:9 framing and damping, real thin-wall,
+rotated-box and transformed-mesh probes, filters/copied metadata, validation,
+ownership and a repeated InputActions -> kinematic character -> camera sequence.
+The composition exercises walk/run, blocking, orbit-relative movement, focus
+release/rearm and recovery/reset. Both new targets compile with `/W4 /WX`, and
+the executable imports only Windows/C++ runtimes. Root reviewed the source,
+tests and retained evidence with no outstanding findings. Implementation reused
+the approved Astra fallback with unchanged routing. See the
+[acceptance](agent-work/cyberpunk-m2-camera/ACCEPTANCE.md) and
+[checkpoint](agent-work/cyberpunk-m2-camera/CHECKPOINT.md).
+
+Existing Camera3D, host event paths and rendering remain unchanged. This is CPU
+API composition, not a native playable scene. The probe covers the final radial
+sphere, not the camera's swept trajectory or whole-frustum clearance. Runtime/
+editor scene integration, native aspect-ratio captures, authored camera zones
+and physical-device qualification remain; M2 is still incomplete.
+
 ## Read this first
 
 **Design provenance.** The product direction below comes from a user-supplied
@@ -552,7 +580,7 @@ it is proven" means consumer usage, not engine verification.
 | Keyboard and mouse input | Implemented; M2-D adds opt-in actions | Existing [InputEvent.h](../src/engine/input/InputEvent.h) and [SdlKeyMap.h](../src/engine/input/SdlKeyMap.h); [input contracts](INPUT_ACTIONS.md) cover buttons, repeat, frame edges and focus | Existing hosts still use raw events; mouse-motion/scroll action bindings, text/IME and native capture qualification remain |
 | Gamepad / controller | Bounded adapter implemented and virtual-device qualified in M2-D | [SDL action adapter](INPUT_ACTIONS.md): mapped device discovery, hotplug, polling/events, deadzones and explicit selection; real SDL virtual-device tests | Physical devices, runtime/editor routing, prompts and haptics remain unqualified |
 | Named action mapping, rebinding, context layers | Actions and in-memory rebinding implemented in M2-D; context layers remain absent | [InputActions](INPUT_ACTIONS.md), six pure contract groups; focus and enable gates | Host/game integration, context priority/consumption, binding capture UI and persistence remain |
-| Camera | Partial | [Camera3D.h](../src/engine/render/Camera3D.h); contract in tests/TestCamera3D.cpp | One camera type; no rigs, target framing, blends, cuts or shake, which the battle and exploration cameras need |
+| Camera | Exploration rig implemented and CPU-qualified in M2-E; native host integration remains | [Exploration camera](EXPLORATION_CAMERA.md): follow/orbit, collision boom, relative movement, reset and separate authored settings; ten CPU groups. Existing [Camera3D](../src/engine/render/Camera3D.h) and pan contract retained | Native exploration framing, authored zones/editor controls, battle rigs, blends and shake remain unqualified |
 | Cursor capture and pointer policy | Unverified | No distinct contract found | Needed for exploration and battle input modes |
 
 ### Runtime, ECS, jobs and time
@@ -795,10 +823,12 @@ scene content. This milestone pulls in the collision and character-controller
 capability, the exploration camera, and action-based input:
 
 Progress: M2-A's static queries, M2-B's CPU kinematic controller, M2-C's discrete
-trigger samples and M2-D's named actions/SDL controller adapter are accepted.
-Exploration camera, input/character integration into hosts, physical controller
-qualification and the walkable-scene exit gate below remain outstanding. Trigger
-sampling does not guarantee events for complete crossings between samples.
+trigger samples, M2-D's named actions/SDL controller adapter and M2-E's CPU
+exploration camera are accepted. Input/character/camera integration into native
+hosts, physical controller qualification and the walkable-scene exit gate below
+remain outstanding. Trigger sampling does not guarantee events for complete
+crossings between samples; the camera probe does not qualify full-frustum or
+swept-trajectory clearance.
 
 - static collision, layers, triggers, raycasts and sweeps, plus a kinematic
   controller with walk/run, gravity, grounding, slopes and steps, covered by

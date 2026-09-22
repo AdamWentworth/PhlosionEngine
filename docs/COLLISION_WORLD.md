@@ -141,9 +141,10 @@ this host; cross-platform bitwise determinism is not promised.
 Sensors are static queryable shapes. Query inclusion does not create trigger
 events, character response, interaction rules or a simulation state machine.
 [Explicit character trigger sampling](CHARACTER_TRIGGERS.md) provides discrete
-Enter/Stay/Exit membership as a separate owner-thread operation. Camera and
-editor/runtime integration remain later work; fixed-step character movement is
-documented separately above.
+Enter/Stay/Exit membership as a separate owner-thread operation. The optional
+[exploration camera rig](EXPLORATION_CAMERA.md) consumes sphere sweeps for its
+radial obstruction probe. Editor/runtime integration remains later work;
+fixed-step character movement is documented separately above.
 
 ## Qualified build and verification
 

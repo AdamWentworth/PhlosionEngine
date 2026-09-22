@@ -40,7 +40,9 @@ world X/Z. Finite magnitudes up to one preserve analog strength; larger values
 normalize using double-precision arithmetic, including extreme finite floats.
 `run` selects run speed. Requested horizontal velocity changes immediately,
 including in air. Zero intent is idle. Camera-relative input, acceleration,
-jumping and crouching are outside this API.
+jumping and crouching are outside this API. The separate
+[exploration camera module](EXPLORATION_CAMERA.md) provides a camera-relative
+movement helper and a tested input/character/camera composition.
 
 Gravity uses semi-implicit Euler: subtract `gravity * fixedDeltaSeconds` from
 the private downward velocity, clamp to `-terminalFallSpeed`, then move for one

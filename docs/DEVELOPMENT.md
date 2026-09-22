@@ -106,6 +106,7 @@ Consumers should pin the engine revision they qualify.
 | `Phlosion::Core` | ECS, events and cooked-resource/scene primitives |
 | `Phlosion::Collision` | Opt-in [static queries](COLLISION_WORLD.md), [kinematic characters](CHARACTER_CONTROLLER.md) and [sensor trigger samples](CHARACTER_TRIGGERS.md); independent of Core, rendering and the Engine aggregate |
 | `Phlosion::Input` | SDL-free [named actions](INPUT_ACTIONS.md), rebinding, controller snapshots and frame edges |
+| `Phlosion::Camera` | Opt-in CPU [exploration rig](EXPLORATION_CAMERA.md), relative movement and collision-aware distance; links Collision, not Render or Platform |
 | `Phlosion::Platform` | SDL window/key mapping and the opt-in action/controller adapter |
 | `Phlosion::Render` | Native rendering, models, animation, resources and common UI |
 | `Phlosion::Runtime` | Application lifecycle; includes the Engine aggregate |

@@ -25,6 +25,7 @@ No test in the current engine CTest suite needs a graphics context.
 | `PhlosionTriggerContracts` | Seven standalone real-geometry groups for discrete sensor Enter/Stay/Exit membership, precise overlap geometry, filters/metadata/order, teleport and failure preservation, removed/replaced sensors, character/world/thread ownership, capacity and repeated sequences |
 | `PhlosionInputContracts` | Six SDL-free groups for named action mapping, button/axis transitions, rebinding, deadzones, controller identity/selection, focus/enable recovery, bounds and thread ownership |
 | `PhlosionSdlInputContracts` | Three real SDL virtual-device groups for mapped-controller discovery, all 15 buttons/six axes, normalization, queued taps and event/poll duplicate observations, hotplug/disconnect, window focus filtering and subsystem/handle ownership |
+| `PhlosionCameraContracts` | Ten groups for exploration framing, delta/rate controls, follow/recovery damping, real sphere obstruction queries, validation/ownership, relative movement and repeated CPU input/character/camera composition |
 | `PhlosionEngineContracts` | Thirty-two C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, real PNG/JPEG texture decoding and role fallbacks, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, model-cache sampler codec/version identity, owned CPU glTF scene validation/retention and renderer preflight, archive-backed glTF worker sessions, GPU resource-scope state/accounting, animation/material/integrated-scene content and lifecycle evidence guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
@@ -69,6 +70,13 @@ executables with 120-second timeouts. SDL tests use owned virtual controllers
 without a window or graphics context. They establish the adapter's bounded
 behavior, not physical-device coverage, editor capture/focus behavior or a
 native walkable scene. Existing hosts are not migrated by the input module.
+
+The [exploration camera](EXPLORATION_CAMERA.md) has a standalone CPU executable
+linked to Camera and Input, without SDL or rendering. It uses real collision
+geometry and kinematic characters. Mathematical 16:9/21:9 framing checks are
+separate from native image qualification; final radial sphere clearance is
+separate from swept camera motion or whole-frustum clearance. Host integration
+still requires the native runtime/editor scene checks below.
 
 The asynchronous loading contract and its retained-byte-budget limits are
 described in [ASYNC_ASSET_LOADING.md](ASYNC_ASSET_LOADING.md). The loader tests
@@ -154,6 +162,26 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-22, Astra accepted [M2-E's exploration camera](agent-work/cyberpunk-m2-camera/ACCEPTANCE.md)
+from M2-D commit `bd76391`. The final enabled VS2026 Debug build passed, and all
+fifteen CTest entries passed in 333.88 seconds; the camera entry took 0.10 seconds.
+Ten groups cover analytic framing/damping and real Jolt obstruction geometry,
+plus a repeated input/character/camera sequence. A separate wrong-owner
+destruction probe exited through its terminate handler with the expected code 73.
+Actual compiler records show `/W4 /WX` for both new targets. The existing
+aggregate warning exception and original CMAKE_CXX_FLAGS are unchanged.
+
+Evidence under ignored `artifacts/m2-e/` includes `09-final-build.log`,
+`10-all-ctest.log`, `CTest-LastTest.log`, `11-destruction.exit.txt`,
+`12-imports.log`, copied compiler/link tlogs, `source-binary-sha256.json` and
+`evidence-sha256.json`, with command/exit sidecars and retained negative attempts.
+Root reviewed the actual implementation, all test groups and guide, matched
+all fifteen recorded source/document/binary hashes and checked the dependency
+boundary. The test executable imports only Windows/C++ runtimes. No renderer,
+host event path, InputEvent or plugin ABI changed. Mathematical aspect checks
+are CPU evidence; native scenes, physical devices and GPU parity remain future
+integration work. Radial sphere clearance is not full-frustum/trajectory proof.
 
 On 2026-09-22, Astra accepted [M2-D's input actions and SDL adapter](agent-work/cyberpunk-m2-input/ACCEPTANCE.md)
 from M2-C commit `6a72ded`. The full enabled VS2026 Debug build and fourteen
