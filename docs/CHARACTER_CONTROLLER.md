@@ -132,8 +132,10 @@ character cannot snap to a remote floor, and ledge departure falls under gravity
 Sensors never block or support. Layer/ignore filters apply to movement and
 teleport. Characters have no inner rigid body or character-vs-character collision
 interface: they can share space, and collision-world queries do not see them.
-Static sensor queries remain available; trigger enter/stay/exit events are later
-work.
+Static sensor queries remain available. Explicit
+[character trigger samples](CHARACTER_TRIGGERS.md) provide discrete Enter/Stay/Exit
+membership independently of movement; ticks and teleports do not sample or
+reset that history automatically.
 
 ## Creation, recovery and teleport
 
@@ -172,5 +174,6 @@ contracts remain separate and unchanged.
 Evidence is under ignored `artifacts/m2-b/`, with the implementation report in
 `docs/agent-work/cyberpunk-m2-character/REPORT.md`. This CPU foundation does not
 qualify a native walkable scene, runtime/editor integration or renderer parity.
-Trigger events, camera/actions, host scheduling/interpolation, moving bodies
-and platforms, and character-character response remain later work.
+Trigger sampling is documented separately above. Camera/actions, host
+scheduling/interpolation, moving bodies and platforms, and character-character
+response remain later work.

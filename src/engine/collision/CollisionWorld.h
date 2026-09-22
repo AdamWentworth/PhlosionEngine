@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CharacterController.h"
+#include "CharacterTriggers.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -83,6 +84,10 @@ public:
     bool stepCharacter(CharacterId id, const CharacterInput& input, CharacterState& out,
                        std::string* error = nullptr);
     bool teleportCharacter(CharacterId id, const glm::vec3& center, std::string* error = nullptr);
+
+    // Discrete geometric endpoint membership, not swept crossing events. False preserves out/history.
+    bool sampleCharacterTriggers(CharacterId id, CharacterTriggerSample& out,
+                                 const TriggerFilter& filter = {}, std::string* error = nullptr);
 
     // False preserves out and sets error. True publishes a hit/miss and clears error.
     bool rayCast(const glm::vec3& origin, const glm::vec3& displacement,

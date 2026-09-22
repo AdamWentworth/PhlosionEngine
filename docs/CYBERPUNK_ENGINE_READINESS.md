@@ -1,6 +1,6 @@
 # Cyberpunk engine readiness audit
 
-Status: Engine-facing M1 complete; M2-A collision and M2-B character movement accepted; game-scale readiness remains unverified
+Status: Engine-facing M1 complete; M2-A collision, M2-B characters and M2-C trigger samples accepted; game-scale readiness remains unverified
 Date: 2026-09-22 (original audit 2026-09-20)
 Owner: Astra (scope, architecture, acceptance)
 Audited engine baseline: `c17d2122bd36b3c3bb49c4e703900f40cccfbd76` (`main`)
@@ -330,9 +330,35 @@ HTTP 402 before editing; the user-authorized Astra fallback implemented the pass
 See the [acceptance record](agent-work/cyberpunk-m2-character/ACCEPTANCE.md) and
 [checkpoint](agent-work/cyberpunk-m2-character/CHECKPOINT.md).
 
-Trigger event state, exploration camera/actions, runtime/editor host integration
-and the matching-frame three-API walkable-scene gate remain subsequent M2 work.
-This CPU pass does not qualify a playable scene or complete M2.
+M2-B did not add trigger event state; the next pass below supplies discrete
+sampling. Exploration camera/actions, runtime/editor host integration and the
+matching-frame three-API walkable-scene gate remain subsequent M2 work. This
+CPU pass does not qualify a playable scene or complete M2.
+
+### M2-C: character trigger events (accepted 2026-09-22)
+
+From M2-B commit `21672db`, the [trigger sampler](CHARACTER_TRIGGERS.md) adds
+explicit character sensor Enter/Stay/Exit state, independent filters, copied
+metadata and deterministic ordering. Precise capsule overlaps compare each
+character's current membership with its previous successful sample. Removed
+sensors retain copied exit metadata; filter changes and teleports reconcile on
+the next sample. Sampling neither moves characters nor dispatches gameplay.
+
+The full enabled `/W4 /WX` Debug build and all twelve CTest entries passed
+(297.60 seconds). Seven standalone trigger groups verify precise geometry,
+full event metadata/order, independent history/filter ownership, failed calls,
+sensor removal/slot reuse, lifetime/thread rules and repeated sequences. Final
+test-only cases passed the affected rebuild/CTest. Root reviewed the actual
+patch and retained evidence with no outstanding findings. This pass reused the
+disclosed Astra fallback after the recent Flash balance failure; no routing
+settings changed. See the
+[acceptance record](agent-work/cyberpunk-m2-triggers/ACCEPTANCE.md) and
+[checkpoint](agent-work/cyberpunk-m2-triggers/CHECKPOINT.md).
+
+Samples record discrete endpoint membership: a complete sensor crossing between
+samples can produce no event, as explicitly tested. Continuous path events,
+camera/actions and native runtime/editor host qualification remain outside this
+pass. M2 is still incomplete.
 
 ## Read this first
 
@@ -525,8 +551,9 @@ it is proven" means consumer usage, not engine verification.
 
 | Capability | Status | Evidence | Gap for this work |
 | --- | --- | --- | --- |
-| Physics/collision layer | M2-A accepted, bounded CPU subset | [Static collision queries](COLLISION_WORLD.md): Jolt-backed boxes/meshes, rigid transforms, layers/sensors, rays, capsule sweeps/overlaps; eight standalone CPU contract groups | Trigger events, scene/editor integration and representative content/scale remain outstanding; general dynamic physics is outside the baseline |
-| Character controller | M2-B accepted, bounded CPU subset | [Kinematic character contract](CHARACTER_CONTROLLER.md): fixed-tick walk/run, gravity, grounding, sliding, slope/step/floor-following policy and recovery; ten standalone CPU groups | Trigger state, camera/actions, host scheduling/integration and game-scale movement remain outstanding; moving bodies and character-character response are outside this pass |
+| Physics/collision layer | M2-A accepted, bounded CPU subset | [Static collision queries](COLLISION_WORLD.md): Jolt-backed boxes/meshes, rigid transforms, layers/sensors, rays, capsule sweeps/overlaps; eight standalone CPU contract groups | Scene/editor integration and representative content/scale remain outstanding; general dynamic physics is outside the baseline |
+| Character controller | M2-B accepted, bounded CPU subset | [Kinematic character contract](CHARACTER_CONTROLLER.md): fixed-tick walk/run, gravity, grounding, sliding, slope/step/floor-following policy and recovery; ten standalone CPU groups | Camera/actions, host scheduling/integration and game-scale movement remain outstanding; moving bodies and character-character response are outside this pass |
+| Character sensor events | M2-C accepted, discrete CPU subset | [Trigger samples](CHARACTER_TRIGGERS.md): precise sensor overlaps, Enter/Stay/Exit, independent filters and lifecycle-safe copied snapshots; seven standalone groups | No continuous crossing guarantee, gameplay dispatch or native host integration; callers schedule samples and author sensor volumes |
 | Traversal (jumping, ledges, ramps) | Partial, CPU-qualified subset | M2-B tests ramp ascent/descent, stairs, ledge falling, blocked ceilings and safe teleport | Jumping, climbing and authored traversal animation remain outside the implemented contract; native scene qualification is pending |
 
 The recovered material calls for kinematic character/world collision.
@@ -736,9 +763,10 @@ load-time and residency measurements feeding M4/M5.
 scene content. This milestone pulls in the collision and character-controller
 capability, the exploration camera, and action-based input:
 
-Progress: M2-A's static queries and M2-B's CPU kinematic controller are accepted.
-Trigger event state, camera/input, host integration and the walkable-scene exit
-gate below remain outstanding.
+Progress: M2-A's static queries, M2-B's CPU kinematic controller and M2-C's
+discrete trigger samples are accepted. Camera/input, host integration and the
+walkable-scene exit gate below remain outstanding. Trigger sampling does not
+guarantee events for complete crossings between samples.
 
 - static collision, layers, triggers, raycasts and sweeps, plus a kinematic
   controller with walk/run, gravity, grounding, slopes and steps, covered by

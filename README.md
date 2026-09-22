@@ -106,7 +106,7 @@ enforce that split. See [engine boundaries](docs/ENGINE_BOUNDARIES.md),
 | Editor | Dear ImGui docking | Native panels and render-surface presentation |
 | Scripting integration | Lua 5.4, sol2 | Runtime bindings; gameplay scripts stay with projects |
 | Resources | PHRC, fastgltf, stb, nlohmann-json | Cooked containers, model/image loading and structured data |
-| Collision | Jolt Physics | Opt-in static queries and fixed-step kinematic character movement |
+| Collision | Jolt Physics | Opt-in static queries, kinematic character movement and sensor trigger sampling |
 | Build and verification | CMake, vcpkg, CTest, GitHub Actions | Pinned dependencies, builds and engine contracts |
 
 Dependencies and configuration are defined by [CMake](CMakeLists.txt),
@@ -148,7 +148,8 @@ targets and project-plugin setup are described in
 [editor extensions](docs/EDITOR_PROJECT_EXTENSIONS.md).
 
 Link `Phlosion::Collision` explicitly for [static collision queries](docs/COLLISION_WORLD.md)
-and [kinematic characters](docs/CHARACTER_CONTROLLER.md). It is independent of
+and [kinematic characters](docs/CHARACTER_CONTROLLER.md), including explicit
+[sensor trigger sampling](docs/CHARACTER_TRIGGERS.md). It is independent of
 rendering and the Engine aggregate; runtime/editor host integration remains
 separate work.
 

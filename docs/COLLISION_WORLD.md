@@ -138,10 +138,12 @@ All triangle edges participate in capsule queries. This is query information,
 not a character sliding/step/slope/grounding policy. Repeatability is tested on
 this host; cross-platform bitwise determinism is not promised.
 
-Sensors are static queryable shapes. Inclusion does not create trigger
-enter/exit events, character response, interaction rules or a simulation state
-machine. Trigger events, camera and editor/runtime integration are later work;
-fixed-step character movement is documented separately above.
+Sensors are static queryable shapes. Query inclusion does not create trigger
+events, character response, interaction rules or a simulation state machine.
+[Explicit character trigger sampling](CHARACTER_TRIGGERS.md) provides discrete
+Enter/Stay/Exit membership as a separate owner-thread operation. Camera and
+editor/runtime integration remain later work; fixed-step character movement is
+documented separately above.
 
 ## Qualified build and verification
 

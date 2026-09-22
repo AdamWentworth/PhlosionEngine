@@ -178,6 +178,7 @@ struct CollisionWorld::Impl {
         std::unique_ptr<JPH::CharacterVirtual> solver;
         glm::vec3 velocity{0.0f};
         float fallVelocity = 0.0f;
+        std::vector<ColliderInfo> triggerMembership;
     };
     CollisionWorldOptions options;
     std::thread::id owner = std::this_thread::get_id();
@@ -457,6 +458,38 @@ bool CollisionWorld::teleportCharacter(CharacterId id, const glm::vec3& center, 
     entry.velocity = glm::vec3(0.0f);
     entry.fallVelocity = 0.0f;
     impl_->refresh(entry);
+    succeed(error);
+    return true;
+}
+
+bool CollisionWorld::sampleCharacterTriggers(CharacterId id, CharacterTriggerSample& out,
+                                             const TriggerFilter& filter, std::string* error) {
+    impl_->checkOwner();
+    const auto it = impl_->characters.find(id);
+    if (it == impl_->characters.end()) return fail(error, "Unknown character ID");
+    auto& entry = it->second;
+    CharacterTriggerSample result;
+    const Capsule capsule{vec(entry.solver->GetPosition()), entry.settings.radius, entry.settings.cylinderHalfHeight};
+    if (!overlapCapsule(capsule, result.overlaps, {filter.layerMask, SensorPolicy::Only, filter.ignore}, error))
+        return false;
+    const auto& previous = entry.triggerMembership;
+    result.events.reserve(previous.size() + result.overlaps.size());
+    auto old = previous.begin();
+    auto current = result.overlaps.cbegin();
+    while (old != previous.end() || current != result.overlaps.cend()) {
+        if (current == result.overlaps.cend() || (old != previous.end() && old->id < current->id)) {
+            result.events.push_back({TriggerEventKind::Exit, *old++});
+        } else if (old == previous.end() || current->id < old->id) {
+            result.events.push_back({TriggerEventKind::Enter, *current++});
+        } else {
+            result.events.push_back({TriggerEventKind::Stay, *current++});
+            ++old;
+        }
+    }
+    // Complete both allocations before the noexcept publication; caller mutations cannot alter history.
+    auto nextMembership = result.overlaps;
+    out = std::move(result);
+    entry.triggerMembership.swap(nextMembership);
     succeed(error);
     return true;
 }

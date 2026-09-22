@@ -15,6 +15,7 @@ No test in the current engine CTest suite needs a graphics context.
 | --- | --- |
 | `PhlosionCollisionContracts` | Eight standalone C++ groups against real Jolt geometry: analytic ray/capsule contacts, transformed boxes/meshes, exact overlaps, filters/metadata, ID/capacity/geometry ownership, malformed input/output preservation, configuration bounds, thread ownership and repeated authored query sequences |
 | `PhlosionCharacterContracts` | Ten standalone C++ groups against real Jolt geometry: fixed-tick analog movement, gravity/landing, walls/corners/thin sweeps, slopes/ceilings, stairs/floor following/ledges, recovery/teleport, filters/support removal, identities/capacity/threads, malformed inputs/transactional bounds and repeated authored sequences |
+| `PhlosionTriggerContracts` | Seven standalone real-geometry groups for discrete sensor Enter/Stay/Exit membership, precise overlap geometry, filters/metadata/order, teleport and failure preservation, removed/replaced sensors, character/world/thread ownership, capacity and repeated sequences |
 | `PhlosionEngineContracts` | Thirty-two C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, real PNG/JPEG texture decoding and role fallbacks, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, model-cache sampler codec/version identity, owned CPU glTF scene validation/retention and renderer preflight, archive-backed glTF worker sessions, GPU resource-scope state/accounting, animation/material/integrated-scene content and lifecycle evidence guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
@@ -47,6 +48,12 @@ only `Phlosion::Collision` and also has a 120 second timeout. Its ten groups
 qualify the bounded static-world movement API, including 4096-character capacity,
 support removal, blocked teleport and rollback preservation. They do not qualify
 host scheduling, input devices, trigger events or a native walkable scene.
+
+The separate [trigger sampler](CHARACTER_TRIGGERS.md) executable links only
+`Phlosion::Collision` and has a 120 second timeout. It checks discrete endpoint
+membership and lifecycle event state. A complete crossing between samples is
+explicitly outside that behavior; no continuous sensor detection, game event
+dispatch, host scheduling or native walkable-scene qualification is implied.
 
 The asynchronous loading contract and its retained-byte-budget limits are
 described in [ASYNC_ASSET_LOADING.md](ASYNC_ASSET_LOADING.md). The loader tests
@@ -132,6 +139,22 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-22, Astra accepted [M2-C's discrete trigger sampling](agent-work/cyberpunk-m2-triggers/ACCEPTANCE.md)
+from M2-B commit `21672db`. The full enabled VS2026 Debug build with `/W4 /WX`
+passed, and all twelve CTest entries passed (297.60 seconds). Final test-only
+creation/removal and teleport-crossing cases passed the affected rebuild and
+trigger CTest (0.09 seconds); all seven groups passed directly. Existing collision
+and character test sources were unchanged.
+
+Raw logs are in `artifacts/m2-c/`: `build-all-01.log`, `ctest-all-01.log`,
+`build-trigger-final.log`, `ctest-trigger-final.log`, `trigger-groups-final.log`,
+`compile-link-settings.log` and `trigger-imports.log`. Root inspected the actual
+source, tests, complete metadata/order assertions and publication/ownership
+behavior, with no outstanding findings. Imports are only Windows/C++ runtimes.
+This qualifies discrete CPU membership samples on the local Windows host;
+continuous crossing events, game dispatch and native runtime/editor integration
+remain outside this evidence. No rendering changed and no new GPU claim is made.
 
 On 2026-09-22, Astra accepted [M2-B's kinematic character foundation](agent-work/cyberpunk-m2-character/ACCEPTANCE.md)
 from M2-A commit `b570f4e`. The full enabled VS2026 Debug build with `/W4 /WX`

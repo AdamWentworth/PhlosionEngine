@@ -30,6 +30,7 @@ game-specific authoring and visual qualification stay with the consuming project
 | [Typed static mesh assets](MESH_ASSETS.md) | Portable PHMS geometry, submeshes, material slot labels, bounds and strict CPU validation |
 | [Static collision queries](COLLISION_WORLD.md) | Opt-in Jolt-backed boxes/meshes, layers/sensors, ray/capsule casts, precise overlaps and world ownership |
 | [Kinematic characters](CHARACTER_CONTROLLER.md) | Fixed-tick walk/run, gravity, grounding, slopes, stairs, floor following, recovery and safe teleport with standalone CPU contracts |
+| [Character trigger events](CHARACTER_TRIGGERS.md) | Explicit discrete sensor Enter/Stay/Exit samples, independent filters, copied metadata and lifecycle rules |
 | [glTF scene assets](GLTF_SCENE_ASSETS.md) | Owned CPU scene snapshots, validated import, pose sampling and a reusable world-renderer adapter |
 | [Public asset fixture](PUBLIC_ASSET_FIXTURE.md) | Synthetic archive rendering, scene replacement and native runtime/editor capture verification |
 | [Editor project extensions](EDITOR_PROJECT_EXTENSIONS.md) | Game-plugin ABI, capabilities and command routing |
