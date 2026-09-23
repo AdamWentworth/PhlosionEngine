@@ -137,6 +137,13 @@ Launching without a project opens the project browser. Open a game's
 The **Development** editor uses `RelWithDebInfo`: optimized code, symbols and
 assertions. Project plugins must match the editor's configuration and ABI.
 
+On the maintained Windows workstation, run `tools/Install-EditorPicker.ps1` once
+to create **Phlosion Editor** shortcuts on the Desktop and Start menu. The
+clickable picker discovers game projects under the sibling `Games` folder, lets
+you browse for another project, and uses a game's launch script when present to
+prepare its editor. Daily use needs no terminal. The game launchers remain
+available for builds, diagnostics, and renderer-specific probes.
+
 ## Use from a Game
 
 With `PHLOSION_ENGINE_SOURCE_DIR` set to an engine checkout, a consumer can use:
