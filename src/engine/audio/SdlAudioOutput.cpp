@@ -2,6 +2,8 @@
 
 #include <SDL.h>
 
+#include <algorithm>
+#include <cmath>
 #include <exception>
 #include <stdexcept>
 
@@ -76,9 +78,13 @@ bool SdlAudioOutput::pump(std::size_t elapsedFrames, std::string* diagnostic) {
     checkOwner();
     if (elapsedFrames == 0u || elapsedFrames > 4096u)
         return fail(diagnostic, "invalid SDL audio pump frame count");
+    const bool hadVoices = mixer_.activeVoices() != 0u;
     buffer_.resize(elapsedFrames * 2u);
     if (!mixer_.render(elapsedFrames, buffer_, diagnostic)) return false;
-    if (device_ == 0) {
+    lastPeak_ = 0.0f;
+    for (const float sample : buffer_)
+        lastPeak_ = std::max(lastPeak_, std::abs(sample));
+    if (device_ == 0 || !hadVoices) {
         succeed(diagnostic);
         return true;
     }
@@ -101,6 +107,7 @@ void SdlAudioOutput::stopAll() {
     checkOwner();
     mixer_.stopAll();
     if (device_ != 0) SDL_ClearQueuedAudio(device_);
+    lastPeak_ = 0.0f;
 }
 
 void SdlAudioOutput::shutdown() {
@@ -122,6 +129,11 @@ bool SdlAudioOutput::deviceReady() const {
 std::size_t SdlAudioOutput::queuedFrames() const {
     checkOwner();
     return device_ == 0 ? 0u : SDL_GetQueuedAudioSize(device_) / (2u * sizeof(float));
+}
+
+float SdlAudioOutput::lastPeak() const {
+    checkOwner();
+    return lastPeak_;
 }
 
 } // namespace engine::audio

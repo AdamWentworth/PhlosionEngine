@@ -104,7 +104,8 @@ int main(int argc,char** argv) {
             std::unique_ptr<engine::exploration_fixture::ExplorationSession> session;
             std::unique_ptr<engine::exploration_fixture::ExplorationPresentation> presentation;
             std::unique_ptr<engine::exploration_fixture::BattlePreview> battle;
-            if (battleMode) battle = std::make_unique<engine::exploration_fixture::BattlePreview>();
+            if (battleMode) battle = std::make_unique<engine::exploration_fixture::BattlePreview>(
+                !a.hidden || engine::env::get("PHLOSION_BATTLE_AUDIO_OUTPUT").value_or("0") == "1");
             else {
                 session = std::make_unique<engine::exploration_fixture::ExplorationSession>(a.caseName,replay!=nullptr,engine::exploration_fixture::configuredCameraSettings());
                 session->setTrace(a.trace);

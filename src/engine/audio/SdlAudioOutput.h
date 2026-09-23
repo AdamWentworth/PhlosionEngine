@@ -27,6 +27,7 @@ public:
     void shutdown();
     bool deviceReady() const;
     std::size_t queuedFrames() const;
+    float lastPeak() const;
 
 private:
     void checkOwner() const;
@@ -36,6 +37,7 @@ private:
     SDL_AudioDeviceID device_ = 0;
     bool ownsAudioSubsystem_ = false;
     std::vector<float> buffer_;
+    float lastPeak_ = 0.0f;
 };
 
 } // namespace engine::audio

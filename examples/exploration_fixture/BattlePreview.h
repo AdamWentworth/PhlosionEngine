@@ -2,6 +2,7 @@
 
 #include "BattleSequence.h"
 #include "engine/audio/AudioMixer.h"
+#include "engine/audio/SdlAudioOutput.h"
 #include "engine/camera/BattleCamera.h"
 #include "engine/render/gltf/GltfSceneRenderer.h"
 
@@ -14,7 +15,7 @@ inline constexpr float battleFixedDelta = 1.0f / 60.0f;
 
 class BattlePreview {
 public:
-    BattlePreview();
+    explicit BattlePreview(bool audioOutput = false);
     ~BattlePreview();
     BattlePreview(const BattlePreview&) = delete;
     BattlePreview& operator=(const BattlePreview&) = delete;
@@ -38,8 +39,8 @@ private:
     camera::BattleCameraPose cameraPose_;
     BattleSequence sequence_;
     audio::AudioMixer mixer_;
+    audio::SdlAudioOutput audioOutput_;
     std::shared_ptr<const audio::AudioClip> impactClip_;
-    std::array<float, 1600> mixFrame_{};
     bool activeEffect_ = false;
     float lastAudioPeak_ = 0.0f;
     std::string automationAction_;

@@ -36,6 +36,7 @@ void failureSinkRetryAndCleanup() {
     CHECK(output.pump(2));
     CHECK(mixer.activeVoices() == 0);
     CHECK(output.queuedFrames() == 0);
+    CHECK(output.lastPeak() > 0.0f);
     CHECK(!output.pump(0, &diagnostic));
     CHECK(!diagnostic.empty());
 
@@ -44,6 +45,9 @@ void failureSinkRetryAndCleanup() {
     CHECK(diagnostic.empty());
     CHECK(output.deviceReady());
     CHECK(output.start());
+    CHECK(output.pump(800));
+    CHECK(output.queuedFrames() == 0);
+    CHECK(output.lastPeak() == 0.0f);
     AudioPlayOptions looping;
     looping.loop = true;
     CHECK(mixer.play(clip(), looping, id));
@@ -52,9 +56,11 @@ void failureSinkRetryAndCleanup() {
         CHECK(output.queuedFrames() <= sampleRate / 10u);
     }
     CHECK(mixer.activeVoices() == 1);
+    CHECK(output.lastPeak() > 0.0f);
     output.stopAll();
     CHECK(mixer.activeVoices() == 0);
     CHECK(output.queuedFrames() == 0);
+    CHECK(output.lastPeak() == 0.0f);
     CHECK(mixer.play(clip(), looping, id));
     output.shutdown();
     CHECK(!output.deviceReady());

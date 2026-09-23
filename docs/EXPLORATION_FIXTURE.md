@@ -67,11 +67,16 @@ and recovery at 110, and automatic cleanup at 150. The fixture binds the
 impact marker to a generated PCM cue in `AudioMixer` and a short visual flash;
 four simple health bars show the scripted damage. Escape / gamepad B cancels,
 Space / gamepad A skips, and R resets in the active Game view. Cancel, skip,
-and natural exit clear the mixer voice, flash, HUD and camera rig. The audio
-samples are mixed through a null sink in this fixture; physical-device output,
-the PhlosionVFX effect host, battle rules and a production HUD remain separate
-integration work. The private runner captures eight phases, including the
-three cleanup routes, at both target aspect ratios in runtime and editor.
+and natural exit clear the mixer voice, queued audio, flash, HUD and camera rig.
+The interactive runtime and editor Game preview send the generated spatial cue
+through the SDL audio device. Hidden capture runs use the same mixer with a null
+sink; set `PHLOSION_BATTLE_AUDIO_OUTPUT=1` to exercise a hidden run with an SDL
+dummy device. If opening or queuing the device fails, playback continues through
+the null sink and logs the device error. Physical audibility still needs a
+listening check. The PhlosionVFX effect host, battle rules and a production HUD
+remain separate integration work. The private runner captures eight phases,
+including the three cleanup routes, at both target aspect ratios in runtime
+and editor.
 The 96 native captures pass expected actor, field, HUD, flash and cleanup
 checks on OpenGL, Vulkan and D3D12. All 48 matching runtime/editor viewport
 pairs are pixel-identical; the 64 cross-API comparisons have maximum MAE

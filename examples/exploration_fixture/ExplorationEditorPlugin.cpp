@@ -11,7 +11,8 @@ public:
         automation_=env::get("PHLOSION_EXPLORATION_AUTOMATION").value_or("0")=="1";
         const auto caseName=env::get("PHLOSION_EXPLORATION_CASE").value_or("walk");
         battleMode_=caseName=="outskirt-battle";
-        if(battleMode_) battle_=std::make_unique<exploration_fixture::BattlePreview>();
+        if(battleMode_) battle_=std::make_unique<exploration_fixture::BattlePreview>(
+            !automation_ || env::get("PHLOSION_BATTLE_AUDIO_OUTPUT").value_or("0")=="1");
         else {
             session_=std::make_unique<exploration_fixture::ExplorationSession>(caseName,automation_,exploration_fixture::configuredCameraSettings());
             session_->setTrace(env::get("PHLOSION_EXPLORATION_TRACE").value_or(""));

@@ -604,6 +604,23 @@ demonstration, not the M3 double battle: it has no Pokémon rules, final actors,
 production text HUD, physical audio output or PhlosionVFX effect-host binding,
 and it does not return to the overworld.
 
+### M3-L: provisional encounter audio output (2026-09-22)
+
+The opt-in battle preview now uses `SdlAudioOutput` to pump its generated,
+spatialized impact cue in the interactive standalone runtime and editor Game
+preview. Hidden captures keep the deterministic null sink by default. The SDL
+adapter reports the mixed peak and avoids filling its device queue with silence;
+cancel, skip, reset and natural exit clear queued sound as well as mixer voices.
+An unavailable or lost device falls back to the null sink with a diagnostic.
+This connects the existing M3-F/G audio capability to the provisional M3-K
+encounter; it does not supply battle music, ambient content or final SFX.
+The dummy-device and missing-device branches are covered automatically; physical
+audibility remains a manual check. The six affected CPU contract suites pass.
+The private six-case audio probe passes impact in both hosts, cancel, skip and
+automatic exit with the dummy device, and missing-device fallback. The unchanged
+eight-phase native matrix passes all 96 runtime/editor captures on OpenGL,
+Vulkan and D3D12 at 16:9 and 21:9 (112 parity comparisons).
+
 ## Read this first
 
 **Design provenance.** The product direction below comes from a user-supplied
@@ -1050,6 +1067,7 @@ M3-I integrates Wes's provisional locomotion clips through the state machine
 in the Outskirt preview. M3-J adds a native provisional battle-field camera
 preview with four actor stand-ins. M3-K adds a fixed-tick encounter cue
 sequence with temporary HUD, audio-mixer and flash bindings plus cleanup.
+M3-L connects its generated cue to the SDL output adapter in interactive hosts.
 Battle systems, roster qualification and the end-to-end exit gate remain.
 
 - blending, crossfade, layers, parameter-driven state and animation events,

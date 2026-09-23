@@ -7,6 +7,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <cmath>
 #include <fstream>
+#include <iostream>
 #include <stdexcept>
 
 namespace engine::exploration_fixture {
@@ -53,7 +54,7 @@ std::array<camera::BattleCameraTarget, 4> targets() {
 }
 } // namespace
 
-BattlePreview::BattlePreview() {
+BattlePreview::BattlePreview(bool audioOutput) : audioOutput_(mixer_) {
     const auto fieldPath = env::get("PHLOSION_OUTSKIRT_BATTLE_GLB");
     const auto wesPath = env::get("PHLOSION_OUTSKIRT_WES_GLB");
     require(fieldPath && !fieldPath->empty() && wesPath && !wesPath->empty(),
@@ -77,6 +78,8 @@ BattlePreview::BattlePreview() {
         tone[index] = .2f * falloff * std::sin(2.0f * 3.14159265f * 330.0f * time);
     }
     require(audio::AudioClip::create(audio::sampleRate, 1u, tone, impactClip_, &error), error);
+    if (audioOutput && !audioOutput_.start(&error))
+        std::cerr << "[BattlePreview] Audio device unavailable; using null sink: " << error << '\n';
     if (env::get("PHLOSION_EXPLORATION_AUTOMATION").value_or("0") == "1") {
         automationAction_ = env::get("PHLOSION_BATTLE_ACTION").value_or("");
         if (!automationAction_.empty()) {
@@ -113,7 +116,7 @@ void BattlePreview::dispatch(BattleCue cue) {
     } else if (cue == BattleCue::EffectStop) {
         activeEffect_ = false;
     } else if (cue == BattleCue::Cleanup) {
-        mixer_.stopAll();
+        audioOutput_.stopAll();
         lastAudioPeak_ = 0.0f;
         camera_.reset();
         activeEffect_ = false;
@@ -123,6 +126,7 @@ void BattlePreview::dispatch(BattleCue cue) {
 
 void BattlePreview::reset() {
     sequence_.reset();
+    audioOutput_.stopAll();
     mixer_.reset();
     camera_.reset();
     activeEffect_ = false;
@@ -196,10 +200,11 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
             if (automationAction_ == "cancel") cancel();
             else skip();
         }
-        require(mixer_.render(800u, mixFrame_, &error), error);
-        lastAudioPeak_ = 0.0f;
-        for (const float sample : mixFrame_)
-            lastAudioPeak_ = std::max(lastAudioPeak_, std::abs(sample));
+        if (!audioOutput_.pump(800u, &error)) {
+            require(error.starts_with("SDL audio queue failed:"), error);
+            std::cerr << "[BattlePreview] Audio device lost; using null sink: " << error << '\n';
+        }
+        lastAudioPeak_ = audioOutput_.lastPeak();
     }
     Camera3D camera(cameraPose_.verticalFovDegrees,
                     static_cast<float>(width) / height,
@@ -315,6 +320,7 @@ nlohmann::json BattlePreview::state(int tick, std::array<int, 4> viewport) const
                            {"gesture_clip", encounter.gestureClip},
                            {"health", encounter.health},
                            {"audio_voices", mixer_.activeVoices()},
+                           {"audio_device_ready", audioOutput_.deviceReady()},
                            {"audio_peak", lastAudioPeak_}}},
             {"camera", {{"position", vec(cameraPose_.position)},
                          {"target", vec(cameraPose_.lookTarget)},
