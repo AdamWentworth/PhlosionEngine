@@ -44,6 +44,24 @@ ExplorationPresentation::ExplorationPresentation(bool outskirt) : outskirtMode_(
         require(sampleGltfScenePose(outskirt_, 0, kBindPoseClip, outskirtPose_, &error), error);
         require(loadGltfSceneAsset(*character, wes_, &error), error);
         require(wes_->animations.size() >= 4, "Wes preview needs idle, walk and run clips");
+        using namespace render::animation;
+        const PoseSource source{wes_->nodesDefault, wes_->nodeChildren,
+                                wes_->sceneRoots, wes_->skins, wes_->animations,
+                                wes_->nodeNames};
+        AnimationStateGraph graph;
+        graph.initialState = "idle";
+        graph.parameters = {{"speed", AnimationParameterType::Number, false, 0.0f}};
+        graph.states = {{"idle", 1, true, {}}, {"walk", 2, true, {}},
+                        {"run", 3, true, {}}};
+        graph.transitions = {
+            {"idle", "run", "speed", AnimationConditionKind::AtLeast, 3.0f, .15f},
+            {"idle", "walk", "speed", AnimationConditionKind::AtLeast, .1f, .15f},
+            {"walk", "run", "speed", AnimationConditionKind::AtLeast, 3.0f, .15f},
+            {"walk", "idle", "speed", AnimationConditionKind::Below, .1f, .15f},
+            {"run", "idle", "speed", AnimationConditionKind::Below, .1f, .15f},
+            {"run", "walk", "speed", AnimationConditionKind::Below, 3.0f, .15f}};
+        const bool configured = wesMachine_.configure(source, graph, &error);
+        require(configured, error);
         return;
     }
     BoxStore store;
@@ -93,6 +111,14 @@ nlohmann::json ExplorationPresentation::imports() const {
     }
     return j;
 }
+nlohmann::json ExplorationPresentation::animationState() const {
+    if (!outskirtMode_) return {};
+    return {{"state", wesFrame_.state}, {"transitioning", wesFrame_.transitioning},
+            {"base_clip", wesFrame_.pose.baseClipIndex},
+            {"target_clip", wesFrame_.pose.targetClipIndex},
+            {"weight", wesFrame_.pose.crossfadeWeight}, {"tick", wesLastTick_},
+            {"reset", wesLastReset_}};
+}
 void ExplorationPresentation::draw(IRenderBackend& renderer,const ExplorationSession& s,int width,int height) {
     if(!scope_) { scopes_=dynamic_cast<IWorldResourceScope*>(&renderer); require(scopes_!=nullptr,"Managed world resources required"); scope_=scopes_->createWorldResourceScope(outskirtMode_ ? 256u*1024u*1024u : 16u*1024u*1024u); require(scope_!=0,"Could not create exploration GPU scope"); }
     require(dynamic_cast<IWorldResourceScope*>(&renderer)==scopes_,"Exploration renderer changed without release");
@@ -123,11 +149,22 @@ void ExplorationPresentation::draw(IRenderBackend& renderer,const ExplorationSes
         const glm::vec3 center = s.player().center;
         const glm::vec3 velocity = s.player().velocity;
         const float speed = glm::length(glm::vec2(velocity.x, velocity.z));
-        const int clip = speed > 3.0f ? 3 : speed > 0.1f ? 2 : 1;
-        const float duration = wes_->animations.at(static_cast<std::size_t>(clip)).durationSec;
+        if (wesLastReset_ < 0) {
+            wesLastReset_ = s.resets();
+        } else if (wesLastReset_ != s.resets() || s.ticks() < wesLastTick_) {
+            wesMachine_.reset();
+            wesFrame_ = {};
+            wesLastReset_ = s.resets();
+            wesLastTick_ = s.ticks();
+        }
+        if (wesFrame_.state.empty() || s.ticks() != wesLastTick_) {
+            require(wesMachine_.setNumber("speed", speed, &error), error);
+            const int elapsedTicks = std::max(0, s.ticks() - wesLastTick_);
+            require(wesMachine_.advance(elapsedTicks * fixedDelta, wesFrame_, &error), error);
+            wesLastTick_ = s.ticks();
+        }
         GltfScenePose pose;
-        require(sampleGltfScenePose(wes_, duration > 0 ? std::fmod(s.ticks()*fixedDelta, duration) : 0.0f,
-                                    clip, pose, &error), error);
+        require(sampleGltfSceneBlendedPose(wes_, wesFrame_.pose, pose, &error), error);
         const glm::mat4 placement = glm::translate(glm::mat4(1),
             glm::vec3(center.x, center.y - .9f, center.z));
         std::copy_n(glm::value_ptr(placement), 16, options.instanceTransform.begin());
@@ -154,6 +191,8 @@ void writeHandshake(const std::string& path,const char* host,const std::string& 
         {"gpu",renderer.activeGpuName()},{"gpu_discrete",renderer.activeGpuIsDiscrete()},
         {"width",width},{"height",height},{"render_frame",renderFrame},{"frozen",s.ticks()==targetTick},
         {"state",s.state()},{"imports",presentation.imports()}};
+    const auto animation = presentation.animationState();
+    if (!animation.is_null()) j["animation"] = animation;
     std::ofstream out(path); if(!out)throw std::runtime_error("Cannot write exploration handshake");out<<j.dump(2);
 }
 } // namespace engine::exploration_fixture

@@ -544,6 +544,26 @@ spawn IDs, moving-anchor attachment, expiry and stop-all cleanup. Its standalone
 contracts pass. The game must still bind battle/animation events and actor
 sockets to real effects; native attack-effect presentation remains open.
 
+### M3-I: provisional Wes locomotion integration (qualified 2026-09-22)
+
+The opt-in Outskirt Stand preview now drives Wes's accepted idle/walk/run clips
+through M3-B's numeric-speed state graph and 0.15-second crossfades. The shared
+blended glTF pose and skin palette feed all three renderers. Animation state in
+the capture handshake records the chosen clip, target and blend weight. The
+private six-phase native matrix covers idle, a 55.6% idle-to-run blend, walk,
+run, recovered ramp ascent and a blocked train-side route at 16:9 and 21:9:
+72 captures across runtime/editor and OpenGL/Vulkan/D3D12. All 36 matching-tick
+host viewport pairs are pixel-identical, 48 cross-API image pairs have maximum
+mean channel error 0.82/255, and all 36 corresponding aspect-ratio gameplay and
+animation-state pairs match. The exploration, engine animation and animation
+fixture contracts pass. A separate OpenGL runtime/editor reset probe restores
+Wes to idle and the player to spawn. See the [fixture guide](EXPLORATION_FIXTURE.md)
+and private recovery record.
+
+This qualifies provisional field locomotion, not the M3 double battle. The
+battle-field GLB has only CPU import and Blender preview evidence; actors,
+camera, HUD, audio, VFX, attack events and battle exit still need integration.
+
 ## Read this first
 
 **Design provenance.** The product direction below comes from a user-supplied
@@ -986,6 +1006,8 @@ M3-C begins the [battle camera](BATTLE_CAMERA.md) with a CPU rig. M3-D adds
 [runtime audio mixer](AUDIO_MIXER.md) on the CPU.
 M3-G adds opt-in SDL queued-device output and a no-device sink.
 M3-H adds a generic effect host in PhlosionVFX with spawn/attach/cleanup rules.
+M3-I integrates Wes's provisional locomotion clips through the state machine
+in the Outskirt preview.
 Battle systems, roster qualification and the end-to-end exit gate remain.
 
 - blending, crossfade, layers, parameter-driven state and animation events,

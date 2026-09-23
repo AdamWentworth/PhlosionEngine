@@ -37,6 +37,7 @@ public:
     const camera::ExplorationCameraPose& cameraPose() const { return pose_; }
     bool sensorActive() const { return sensorActive_; }
     int ticks() const { return ticks_; }
+    int resets() const { return resets_; }
     const std::string& caseName() const { return case_; }
     const camera::ExplorationCameraSettings& settings() const { return rig_.settings(); }
 private:
