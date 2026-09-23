@@ -99,7 +99,7 @@ int main(int argc,char** argv) {
             std::unique_ptr<engine::input::SdlInputReplay> replay;
             if(!a.replay.empty())replay=std::make_unique<engine::input::SdlInputReplay>(a.replay);
             engine::exploration_fixture::ExplorationSession session(a.caseName,replay!=nullptr,engine::exploration_fixture::configuredCameraSettings());session.setTrace(a.trace);
-            engine::exploration_fixture::ExplorationPresentation presentation;
+            engine::exploration_fixture::ExplorationPresentation presentation(a.caseName == "outskirt");
             engine::editor::EditorSdlGameInputContext context;context.windowId=SDL_GetWindowID(graphics.window->getSDLWindow());
             context.windowFocused=(SDL_GetWindowFlags(graphics.window->getSDLWindow())&SDL_WINDOW_INPUT_FOCUS)!=0;
             context.activeGameViewport=true;context.viewportFocused=true;context.viewportHovered=true;context.playing=true;

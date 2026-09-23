@@ -26,11 +26,22 @@ const std::vector<CourseBox>& course() {
     };
     return boxes;
 }
+const std::vector<CourseBox>& outskirtCourse() {
+    // Provisional collision proxy in glTF Y-up coordinates, based on the
+    // recovered S1_out geometry. It is intentionally separate from the mesh.
+    static const std::vector<CourseBox> boxes{
+        {"forecourt", {0,-.25f,0}, {55,.25f,55}, 0, 0},
+        {"stand-and-train", {2.7f,2.0f,-3.2f}, {6.5f,2.0f,4.0f}, 0, 1},
+        {"approach", {-2,.2f,1.0f}, {1.5f,.2f,1.0f}, 0, 6, true}
+    };
+    return boxes;
+}
 const std::vector<std::string>& cases() {
     static const std::vector<std::string> names{"walk","run","wall-blocked","ramp","stairs","trigger-active","camera-obstructed","recovered-reset"}; return names;
 }
 const std::vector<std::string>& supplementalCases() {static const std::vector<std::string> names{"steep","ledge-drop"};return names;}
 glm::vec3 caseSpawn(const std::string& n) {
+    if (n == "outskirt") return {-2,.9f,3};
     if (n == "steep") return {-8,.9f,-1};
     if (n == "ledge-drop") return {5,1.705f,-3};
     if (n == "run") return {-5,.9f,6};
@@ -68,12 +79,12 @@ ExplorationSession::ExplorationSession(std::string name, bool automation, camera
     require(actions_.define({"zoom", ActionKind::Axis1D,{ButtonBinding{GamepadButton::LeftShoulder,{-1,0}},ButtonBinding{GamepadButton::RightShoulder,{1,0}}}},&error),error);
     actions_.setEnabled(false);
     std::uint64_t id = 1;
-    for (const auto& box : course()) {
+    for (const auto& box : case_ == "outskirt" ? outskirtCourse() : course()) {
         collision::StaticColliderDesc d; d.position = box.center; d.rotation = glm::angleAxis(box.pitch,glm::vec3(1,0,0)); d.sensor = box.sensor; d.userData = id++;
         collision::ColliderId collider; require(world_.addBox(d,box.half,collider,&error),error);
     }
     require(world_.createCharacter({},caseSpawn(case_),playerId_,&error),error);
-    require(world_.createCharacter({}, {-1,.9f,3},npcId_,&error),error);
+    require(world_.createCharacter({}, case_ == "outskirt" ? glm::vec3(-5,.9f,3) : glm::vec3(-1,.9f,3),npcId_,&error),error);
     reset(false); resets_ = 0;
 }
 void ExplorationSession::setTrace(const std::string& path) {
@@ -95,8 +106,8 @@ void ExplorationSession::reset(bool safe) {
     if (input_) { input_->takeLookDelta(); input_->takeZoomDelta(); }
     // Recreate characters to clear their trigger history; immutable authored rig settings survive.
     world_.removeCharacter(playerId_); world_.removeCharacter(npcId_);
-    require(world_.createCharacter({},safe ? caseSpawn("walk") : caseSpawn(case_),playerId_,&error),error);
-    require(world_.createCharacter({}, {-1,.9f,3},npcId_,&error),error);
+    require(world_.createCharacter({},safe && case_ != "outskirt" ? caseSpawn("walk") : caseSpawn(case_),playerId_,&error),error);
+    require(world_.createCharacter({}, case_ == "outskirt" ? glm::vec3(-5,.9f,3) : glm::vec3(-1,.9f,3),npcId_,&error),error);
     require(world_.characterState(playerId_,playerState_,&error),error);
     require(world_.characterState(npcId_,npcState_,&error),error);
     require(rig_.reset(playerState_.center,aspect_,pose_,&world_,&error),error);
@@ -104,6 +115,7 @@ void ExplorationSession::reset(bool safe) {
     record("reset");
 }
 void ExplorationSession::npcTick() {
+    if (case_ == "outskirt") return;
     std::string error;
     if (npcWait_ > 0) {
         if (--npcWait_ == 0) { require(world_.teleportCharacter(npcId_,{-1,.9f,3},&error),error); ++npcRetries_; }

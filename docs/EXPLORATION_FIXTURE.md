@@ -7,6 +7,40 @@ characters, discrete sensor samples and the exploration camera. It runs in
 color-coded placeholders intentionally use the existing unlit world material
 path; this is not character animation or production-scene qualification.
 
+## Provisional Outskirt Stand content
+
+The `outskirt` case is an opt-in private-content preview. It keeps the public
+course and its automated matrix unchanged. Set both paths to engine-subset GLBs
+from the private GameCube research depot, then launch the existing runtime:
+
+```powershell
+$env:PHLOSION_OUTSKIRT_ENVIRONMENT_GLB = 'D:/ProjectData/Research/PokemonColosseum/OutskirtStand/output/outskirt_outdoor_engine.glb'
+$env:PHLOSION_OUTSKIRT_WES_GLB = 'D:/ProjectData/Research/PokemonColosseum/Wes/jacket/output/wes_field_controller_loops.glb'
+.\build-presentation\Debug\ExplorationFixtureRuntime.exe --api=d3d12 --case=outskirt
+```
+
+With both asset variables above set, set `PHLOSION_EXPLORATION_CASE=outskirt` and launch a project
+using `ExplorationFixtureEditorPlugin`. The Game preview is labelled “Outskirt
+Stand (provisional)”. Stage and open the private preview project with:
+
+```powershell
+& 'D:/Projects/Research/PokemonGCAssetResearch/tools/colosseum/run_outskirt_native.ps1' -SetupOnly
+$env:PHLOSION_EXPLORATION_CASE = 'outskirt'
+.\build-presentation\Debug\PhlosionEditor.exe --project='D:/ProjectData/Research/PokemonColosseum/OutskirtStand/editor-project/phlosion.project.json' --renderer=d3d12 --game-preview=exploration --play-game-preview --game-aspect=16:9
+```
+
+The project descriptor lives in the private depot. The plugin contains no
+private binary asset paths. The scene draws the recovered
+environment and Wes through the shared glTF renderer. Wes's source-confirmed
+idle/walk/run clip slots are chosen from character velocity. The fixture uses
+a provisional floor, stand/blocker and approach-trigger collider table; this
+is not extracted game collision. Source materials are converted to the engine's
+opaque material subset and 256-pixel images. The private research guide at
+`D:/Projects/Research/PokemonGCAssetResearch/docs/colosseum/OUTSKIRT_STAND.md`
+records source hashes, conversion limits and the 18 native idle/walk/run captures.
+Neither the final M2 scene gate nor the M3 double-battle gate is closed by this
+preview.
+
 Configure `PHLOSION_BUILD_EXPLORATION_FIXTURE=ON`, then build Debug. The engine
 aggregate does not gain a collision/camera dependency. The sample links those
 modules explicitly. Geometry is ten tiny generated glTF cube materials loaded

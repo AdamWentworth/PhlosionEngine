@@ -10,15 +10,29 @@ public:
         automation_=env::get("PHLOSION_EXPLORATION_AUTOMATION").value_or("0")=="1";
         session_=std::make_unique<exploration_fixture::ExplorationSession>(env::get("PHLOSION_EXPLORATION_CASE").value_or("walk"),automation_,exploration_fixture::configuredCameraSettings());
         session_->setTrace(env::get("PHLOSION_EXPLORATION_TRACE").value_or(""));
-        presentation_=std::make_unique<exploration_fixture::ExplorationPresentation>();return true;
+        presentation_=std::make_unique<exploration_fixture::ExplorationPresentation>(session_->caseName()=="outskirt");return true;
     }
     void prewarm(IRenderBackend& renderer,const editor::EditorProjectCameraContext&) override {renderer.prewarmWorldRenderAssets();}
     void update(float) override {}
     void render(const editor::EditorProjectRenderContext& c) override { if(c.renderer)presentation_->draw(*c.renderer,*session_,c.surfaceWidth,c.surfaceHeight); }
-    editor::EditorProjectStats stats() const override {return {.sceneCount=1,.materialCount=10,.drawClassCount=14,.visibleTriangleCount=168};}
+    editor::EditorProjectStats stats() const override {
+        if(session_ && session_->caseName()=="outskirt") {
+            editor::EditorProjectStats result{.sceneCount=1};
+            for(const auto& item : presentation_->imports()) {
+                result.materialCount += item.at("materials").get<std::uint32_t>();
+                result.drawClassCount += item.at("primitives").get<std::uint32_t>();
+                result.visibleTriangleCount += item.at("indices").get<std::uint64_t>()/3;
+            }
+            return result;
+        }
+        return {.sceneCount=1,.materialCount=10,.drawClassCount=14,.visibleTriangleCount=168};
+    }
     const char* status() const noexcept override {return "WASD / left stick move; Shift / L3 run; RMB / right stick orbit; wheel / bumpers zoom; R / Back reset; Tab / Start select pad.";}
     std::size_t gamePreviewCount() const noexcept override {return 1;}
-    editor::EditorProjectGamePreview gamePreview(std::size_t) const noexcept override {return {"exploration","Public exploration course","Samples",status(),"fixture/scene"};}
+    editor::EditorProjectGamePreview gamePreview(std::size_t) const noexcept override {
+        if(session_ && session_->caseName()=="outskirt")return {"exploration","Outskirt Stand (provisional)","Samples",status(),"fixture/scene"};
+        return {"exploration","Public exploration course","Samples",status(),"fixture/scene"};
+    }
     bool initializeGamePreview(const editor::EditorProjectGamePreviewContext&,std::string*) override {ready_=true;return true;}
     bool selectGamePreview(const char* id,std::string*) override {if(std::string(id)!="exploration")return false;if(selected_)session_->reset(false);selected_=true;return true;}
     bool gamePreviewReady() const noexcept override {return ready_;}

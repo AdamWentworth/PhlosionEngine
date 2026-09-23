@@ -7,7 +7,7 @@ const std::array<glm::vec3, 10>& colors();
 glm::mat4 viewProjection(const camera::ExplorationCameraPose& pose, int width, int height);
 class ExplorationPresentation {
 public:
-    ExplorationPresentation();
+    explicit ExplorationPresentation(bool outskirt = false);
     ~ExplorationPresentation();
     void draw(IRenderBackend& renderer, const ExplorationSession& session, int width, int height);
     void release();
@@ -15,6 +15,9 @@ public:
 private:
     std::array<std::shared_ptr<const render::gltf::scene::GltfSceneAsset>,10> assets_;
     std::array<render::gltf::scene::GltfScenePose,10> poses_;
+    std::shared_ptr<const render::gltf::scene::GltfSceneAsset> outskirt_, wes_;
+    render::gltf::scene::GltfScenePose outskirtPose_;
+    bool outskirtMode_ = false;
     IWorldResourceScope* scopes_ = nullptr;
     render::WorldResourceScopeId scope_ = 0;
 };

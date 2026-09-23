@@ -445,6 +445,21 @@ change. Actual character fitting, environment collision authoring,
 Outskirt Stand camera/routes/triggers and final scene qualification await the
 game assets. Public placeholder evidence cannot close those asset-specific gates.
 
+On 2026-09-22 the private GameCube research depot supplied provisional recovered
+Outskirt Stand and Wes GLBs. The existing exploration runtime/editor now has an
+opt-in `outskirt` case that draws both through the shared glTF scene path and
+uses a separate, approximate forecourt/stand/trigger collision proxy. CPU import
+accepted the outdoor and battle-field environment derivatives plus Wes. The
+outdoor idle/walk/run preview passed 18 native captures: both hosts, OpenGL/Vulkan/
+D3D12, matched simulation ticks, expected scene/character content, grounded
+walking and trigger activation. Runtime and editor viewports matched pixel for
+pixel at each API; cross-API mean channel error stayed below 0.6/255. See the
+[fixture guide](EXPLORATION_FIXTURE.md) and private recovery record. The
+battle-field variant has only CPU import and Blender preview evidence. Material
+fidelity and collision are provisional; full routes, final content and manual
+editor toolbar checks still leave the M2 gate open. M3 battle integration has
+not yet been claimed.
+
 ### M3-A: asset-independent animation blend foundation (qualified 2026-09-22)
 
 The [blend foundation](ANIMATION_BLEND.md) adds clip crossfades, masked override

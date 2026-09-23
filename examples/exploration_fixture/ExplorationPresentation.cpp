@@ -1,7 +1,10 @@
 #include "ExplorationPresentation.h"
 #include "engine/core/IAssetStore.h"
+#include "engine/core/Environment.h"
 #include "engine/render/Camera3D.h"
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <cmath>
 #include <cstring>
 #include <map>
 
@@ -30,7 +33,19 @@ glm::mat4 viewProjection(const camera::ExplorationCameraPose& p,int width,int he
     Camera3D camera(p.verticalFovDegrees,static_cast<float>(width)/static_cast<float>(height),p.nearPlane,p.farPlane);
     camera.setPosition(p.position); camera.lookAt(p.lookTarget,p.up); return camera.getProjectionMatrix()*camera.getViewMatrix();
 }
-ExplorationPresentation::ExplorationPresentation() {
+ExplorationPresentation::ExplorationPresentation(bool outskirt) : outskirtMode_(outskirt) {
+    if (outskirtMode_) {
+        const auto environment = engine::env::get("PHLOSION_OUTSKIRT_ENVIRONMENT_GLB");
+        const auto character = engine::env::get("PHLOSION_OUTSKIRT_WES_GLB");
+        require(environment && !environment->empty() && character && !character->empty(),
+                "Outskirt preview requires PHLOSION_OUTSKIRT_ENVIRONMENT_GLB and PHLOSION_OUTSKIRT_WES_GLB");
+        std::string error;
+        require(loadGltfSceneAsset(*environment, outskirt_, &error), error);
+        require(sampleGltfScenePose(outskirt_, 0, kBindPoseClip, outskirtPose_, &error), error);
+        require(loadGltfSceneAsset(*character, wes_, &error), error);
+        require(wes_->animations.size() >= 4, "Wes preview needs idle, walk and run clips");
+        return;
+    }
     BoxStore store;
     std::vector<float> positions, normals;
     std::vector<std::uint32_t> indices;
@@ -65,10 +80,21 @@ void ExplorationPresentation::release() {
     if (scopes_ && scope_) { if (!scopes_->requestWorldResourceScopeRelease(scope_)) std::terminate(); scope_=0; scopes_=nullptr; }
 }
 nlohmann::json ExplorationPresentation::imports() const {
-    nlohmann::json j=nlohmann::json::array(); for(const auto& a:assets_) j.push_back({{"identity",a->sourceIdentity},{"primitives",a->primitives.size()},{"vertices",a->primitives.front().vertices.size()},{"geometry_bytes",a->stats.retainedGeometryBytes}}); return j;
+    nlohmann::json j=nlohmann::json::array();
+    if (outskirtMode_) {
+        for (const auto& a : {outskirt_, wes_})
+            j.push_back({{"identity", a->sourceIdentity}, {"primitives", a->stats.primitiveCount},
+                         {"vertices", a->stats.vertexCount}, {"indices", a->stats.indexCount},
+                         {"materials", a->stats.materialCount},
+                         {"geometry_bytes", a->stats.retainedGeometryBytes},
+                         {"clips", a->stats.clipCount}});
+    } else {
+        for(const auto& a:assets_) j.push_back({{"identity",a->sourceIdentity},{"primitives",a->primitives.size()},{"vertices",a->primitives.front().vertices.size()},{"geometry_bytes",a->stats.retainedGeometryBytes}});
+    }
+    return j;
 }
 void ExplorationPresentation::draw(IRenderBackend& renderer,const ExplorationSession& s,int width,int height) {
-    if(!scope_) { scopes_=dynamic_cast<IWorldResourceScope*>(&renderer); require(scopes_!=nullptr,"Managed world resources required"); scope_=scopes_->createWorldResourceScope(16*1024*1024); require(scope_!=0,"Could not create exploration GPU scope"); }
+    if(!scope_) { scopes_=dynamic_cast<IWorldResourceScope*>(&renderer); require(scopes_!=nullptr,"Managed world resources required"); scope_=scopes_->createWorldResourceScope(outskirtMode_ ? 256u*1024u*1024u : 16u*1024u*1024u); require(scope_!=0,"Could not create exploration GPU scope"); }
     require(dynamic_cast<IWorldResourceScope*>(&renderer)==scopes_,"Exploration renderer changed without release");
     // Opaque sky covers the whole offscreen surface, also on reset/resize.
     std::array<IRenderBackend::WorldMeshVertex,4> sky{};
@@ -89,6 +115,25 @@ void ExplorationPresentation::draw(IRenderBackend& renderer,const ExplorationSes
     const auto& p=s.cameraPose();options.cameraPosition={p.position.x,p.position.y,p.position.z};options.cameraTarget={p.lookTarget.x,p.lookTarget.y,p.lookTarget.z};options.cameraForward={p.forward.x,p.forward.y,p.forward.z};options.resourceScope=scope_;
     // Public color-coded course, using the existing unlit material mode.
     options.materialMode=0;
+    if (outskirtMode_) {
+        options.materialMode = 2;
+        GltfSceneDrawStats stats;
+        std::string error;
+        require(drawGltfSceneAsset(renderer, *outskirt_, outskirtPose_, options, stats, &error), error);
+        const glm::vec3 center = s.player().center;
+        const glm::vec3 velocity = s.player().velocity;
+        const float speed = glm::length(glm::vec2(velocity.x, velocity.z));
+        const int clip = speed > 3.0f ? 3 : speed > 0.1f ? 2 : 1;
+        const float duration = wes_->animations.at(static_cast<std::size_t>(clip)).durationSec;
+        GltfScenePose pose;
+        require(sampleGltfScenePose(wes_, duration > 0 ? std::fmod(s.ticks()*fixedDelta, duration) : 0.0f,
+                                    clip, pose, &error), error);
+        const glm::mat4 placement = glm::translate(glm::mat4(1),
+            glm::vec3(center.x, center.y - .9f, center.z));
+        std::copy_n(glm::value_ptr(placement), 16, options.instanceTransform.begin());
+        require(drawGltfSceneAsset(renderer, *wes_, pose, options, stats, &error), error);
+        return;
+    }
     auto draw=[&](glm::vec3 center,glm::vec3 half,float pitch,int color) {
         const glm::mat4 transform=glm::translate(glm::mat4(1),center)*glm::rotate(glm::mat4(1),pitch,glm::vec3(1,0,0))*glm::scale(glm::mat4(1),half);
         std::copy_n(glm::value_ptr(transform),16,options.instanceTransform.begin()); GltfSceneDrawStats stats;std::string error;
