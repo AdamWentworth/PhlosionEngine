@@ -2635,6 +2635,21 @@ bool selectAssetPreview(
     return true;
 }
 
+void showAssetPreviewFailure(
+    LoadedProject& project,
+    const engine::editor::WorkspaceAsset& asset,
+    std::string_view error) {
+    project.assetPreviewAnimations.clear();
+    project.assetPreviewView =
+        engine::editor::WorkspaceAssetPreview{
+            .assetId = asset.id,
+            .status =
+                "Preview unavailable: " +
+                std::string(error.empty()
+                    ? "The project did not provide a preview."
+                    : error)};
+}
+
 std::unique_ptr<LoadedProject> loadProjectRuntime(
     const std::filesystem::path &requestedDescriptorPath,
     IRenderBackend &renderer,
@@ -4302,6 +4317,11 @@ int main(int argc, char** argv) {
                                 project->status =
                                     "Command-line prefab preview selection failed: " +
                                     previewError;
+                                showAssetPreviewFailure(
+                                    *project,
+                                    *match,
+                                    previewError);
+                                editor.selectAsset(assetIndex);
                             }
                         } else {
                             project->status =
@@ -4602,7 +4622,7 @@ int main(int argc, char** argv) {
                     .projectCommands =
                         &project->projectCommandViews,
                     .assetPreview =
-                        selectedAssetPreviewIndex >= 0
+                        !project->assetPreviewView.assetId.empty()
                             ? &project->assetPreviewView
                             : nullptr,
                     .scenes = &project->sceneViews,
@@ -5226,12 +5246,17 @@ int main(int argc, char** argv) {
                             selectedAssetPreviewIndex,
                             previewError)) {
                         selectedAssetPreviewIndex = -1;
+                        showAssetPreviewFailure(
+                            *project,
+                            asset,
+                            previewError);
                         project->status =
                             "Cooked prefab preview failed: " +
                             previewError;
                     }
                 } else {
                     selectedAssetPreviewIndex = -1;
+                    project->assetPreviewView = {};
                 }
             }
             if (project &&

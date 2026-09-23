@@ -56,6 +56,10 @@ public:
         selected_=true;return true;
     }
     bool gamePreviewReady() const noexcept override {return ready_;}
+    bool selectAssetPreview(const char*,const char*,std::string* outError) override {
+        if(outError)*outError="The temporary exploration fixture does not render cooked model previews.";
+        return false;
+    }
     void resetGamePreview() override {if(battle_){battle_->reset();battleTicks_=0;}else session_->reset();}
     void fixedUpdateGamePreview(float dt) override {
         if(std::abs(dt-exploration_fixture::fixedDelta)>.00001f)throw std::runtime_error("Fixture requires 60 Hz ticks");
