@@ -789,10 +789,11 @@ endif()
 if (PHLOSION_BUILD_EXPLORATION_FIXTURE)
     add_library(exploration_fixture STATIC
         examples/exploration_fixture/BattlePreview.cpp
+        examples/exploration_fixture/BattleSequence.cpp
         examples/exploration_fixture/ExplorationSession.cpp
         examples/exploration_fixture/ExplorationPresentation.cpp)
     target_include_directories(exploration_fixture PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/examples/exploration_fixture")
-    target_link_libraries(exploration_fixture PUBLIC Engine Phlosion::Camera engine_sdl_replay)
+    target_link_libraries(exploration_fixture PUBLIC Engine Phlosion::Camera Phlosion::Audio engine_sdl_replay)
     phlosion_apply_settings(exploration_fixture)
     add_executable(ExplorationFixtureRuntime examples/exploration_fixture/ExplorationRuntimeMain.cpp)
     target_link_libraries(ExplorationFixtureRuntime PRIVATE exploration_fixture)
@@ -815,6 +816,10 @@ if (PHLOSION_BUILD_EXPLORATION_FIXTURE)
         phlosion_apply_settings(ExplorationFixtureEditorPlugin)
     endif()
     if (PHLOSION_BUILD_TESTS)
+        add_executable(PhlosionBattleSequenceTests tests/TestBattleSequence.cpp)
+        target_link_libraries(PhlosionBattleSequenceTests PRIVATE exploration_fixture)
+        phlosion_apply_settings(PhlosionBattleSequenceTests)
+        add_test(NAME PhlosionBattleSequenceContracts COMMAND PhlosionBattleSequenceTests)
         add_executable(PhlosionExplorationTests tests/TestExplorationFixture.cpp)
         target_link_libraries(PhlosionExplorationTests PRIVATE exploration_fixture)
         phlosion_apply_settings(PhlosionExplorationTests)

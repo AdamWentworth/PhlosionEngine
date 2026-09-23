@@ -61,12 +61,22 @@ roster or battle rules. The private research runner
 `tools/colosseum/run_outskirt_battle_native.ps1` stages the project and checks
 both hosts on all three APIs and both target aspect ratios.
 
-The 60-capture native run verifies scene content, four wide-shot actor
-projections, camera state and pixel-identical runtime/editor viewport pairs.
-Its report currently fails two OpenGL/D3D12 comparisons at the 21:9 blend
-frame (MAE 1.0231/255 against the existing 1.0 limit). These frames are
-retained in the private depot for renderer diagnosis; battle visual parity is
-not yet qualified. The preview has no battle simulation, UI or VFX bindings.
+The temporary `BattleSequence` advances on fixed ticks: camera blend at 30,
+counter cut and Wes gesture at 60, an animation impact marker at 90, damage
+and recovery at 110, and automatic cleanup at 150. The fixture binds the
+impact marker to a generated PCM cue in `AudioMixer` and a short visual flash;
+four simple health bars show the scripted damage. Escape / gamepad B cancels,
+Space / gamepad A skips, and R resets in the active Game view. Cancel, skip,
+and natural exit clear the mixer voice, flash, HUD and camera rig. The audio
+samples are mixed through a null sink in this fixture; physical-device output,
+the PhlosionVFX effect host, battle rules and a production HUD remain separate
+integration work. The private runner captures eight phases, including the
+three cleanup routes, at both target aspect ratios in runtime and editor.
+The 96 native captures pass expected actor, field, HUD, flash and cleanup
+checks on OpenGL, Vulkan and D3D12. All 48 matching runtime/editor viewport
+pairs are pixel-identical; the 64 cross-API comparisons have maximum MAE
+0.892/255 against the unchanged 1.0 limit. The machine-readable report and
+images are in the private Outskirt depot.
 
 Configure `PHLOSION_BUILD_EXPLORATION_FIXTURE=ON`, then build Debug. The engine
 aggregate does not gain a collision/camera dependency. The sample links those

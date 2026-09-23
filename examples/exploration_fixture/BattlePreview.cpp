@@ -66,11 +66,30 @@ BattlePreview::BattlePreview() {
     require(posedField, error);
     const bool loadedWes = loadGltfSceneAsset(*wesPath, wes_, &error);
     require(loadedWes, error);
-    require(wes_->animations.size() > 1u && wes_->animations[1].durationSec > 0.0f,
-            "Battle preview needs Wes's idle clip");
+    require(wes_->animations.size() > 8u &&
+            wes_->animations[1].durationSec > 0.0f &&
+            wes_->animations[8].durationSec > 0.0f,
+            "Battle preview needs Wes's idle and gesture clips");
+    std::array<float, 9600> tone{};
+    for (std::size_t index = 0; index < tone.size(); ++index) {
+        const float time = static_cast<float>(index) / audio::sampleRate;
+        const float falloff = 1.0f - static_cast<float>(index) / tone.size();
+        tone[index] = .2f * falloff * std::sin(2.0f * 3.14159265f * 330.0f * time);
+    }
+    require(audio::AudioClip::create(audio::sampleRate, 1u, tone, impactClip_, &error), error);
+    if (env::get("PHLOSION_EXPLORATION_AUTOMATION").value_or("0") == "1") {
+        automationAction_ = env::get("PHLOSION_BATTLE_ACTION").value_or("");
+        if (!automationAction_.empty()) {
+            require(automationAction_ == "cancel" || automationAction_ == "skip",
+                    "Invalid battle automation action");
+            automationActionTick_ = std::stoi(env::get("PHLOSION_BATTLE_ACTION_TICK").value_or("-1"));
+            require(automationActionTick_ > 0 && automationActionTick_ < 150,
+                    "Invalid battle automation action tick");
+        }
+    }
 }
 
-BattlePreview::~BattlePreview() { release(); }
+BattlePreview::~BattlePreview() { cancel(); release(); }
 
 void BattlePreview::release() {
     if (scopes_ && scope_) {
@@ -78,6 +97,45 @@ void BattlePreview::release() {
         scope_ = 0;
         scopes_ = nullptr;
     }
+}
+
+void BattlePreview::dispatch(BattleCue cue) {
+    if (cue == BattleCue::ImpactSound) {
+        audio::AudioVoiceId voice = 0;
+        audio::AudioPlayOptions options;
+        options.bus = audio::AudioBus::Sfx;
+        options.spatial = true;
+        options.emitterPosition = slots[3].position;
+        std::string error;
+        require(mixer_.play(impactClip_, options, voice, &error), error);
+    } else if (cue == BattleCue::ImpactEffect) {
+        activeEffect_ = true;
+    } else if (cue == BattleCue::EffectStop) {
+        activeEffect_ = false;
+    } else if (cue == BattleCue::Cleanup) {
+        mixer_.stopAll();
+        lastAudioPeak_ = 0.0f;
+        camera_.reset();
+        activeEffect_ = false;
+        phase_ = "complete";
+    }
+}
+
+void BattlePreview::reset() {
+    sequence_.reset();
+    mixer_.reset();
+    camera_.reset();
+    activeEffect_ = false;
+    lastAudioPeak_ = 0.0f;
+    phase_ = "wide";
+}
+
+void BattlePreview::cancel() {
+    for (const auto cue : sequence_.cancel()) dispatch(cue);
+}
+
+void BattlePreview::skip() {
+    for (const auto cue : sequence_.skip()) dispatch(cue);
 }
 
 void BattlePreview::frameCamera(int tick, float aspect) {
@@ -119,7 +177,7 @@ void BattlePreview::frameCamera(int tick, float aspect) {
 }
 
 void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int height) {
-    if (tick < 0 || width <= 0 || height <= 0) throw std::runtime_error("Invalid battle preview frame");
+    if (tick < 0 || tick > 3600 || width <= 0 || height <= 0) throw std::runtime_error("Invalid battle preview frame");
     if (!scope_) {
         scopes_ = dynamic_cast<IWorldResourceScope*>(&renderer);
         require(scopes_ != nullptr, "Managed battle resources required");
@@ -128,7 +186,21 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
     }
     require(dynamic_cast<IWorldResourceScope*>(&renderer) == scopes_,
             "Battle renderer changed without release");
-    frameCamera(tick, static_cast<float>(width) / height);
+    if (sequence_.state().active)
+        frameCamera(tick, static_cast<float>(width) / height);
+    std::string error;
+    require(mixer_.setListener(cameraPose_.position, cameraPose_.right, &error), error);
+    while (sequence_.state().active && sequence_.state().tick < tick) {
+        for (const auto cue : sequence_.advance()) dispatch(cue);
+        if (sequence_.state().tick == automationActionTick_) {
+            if (automationAction_ == "cancel") cancel();
+            else skip();
+        }
+        require(mixer_.render(800u, mixFrame_, &error), error);
+        lastAudioPeak_ = 0.0f;
+        for (const float sample : mixFrame_)
+            lastAudioPeak_ = std::max(lastAudioPeak_, std::abs(sample));
+    }
     Camera3D camera(cameraPose_.verticalFovDegrees,
                     static_cast<float>(width) / height,
                     cameraPose_.nearPlane, cameraPose_.farPlane);
@@ -148,7 +220,6 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
     options.resourceScope = scope_;
     options.materialMode = 2;
     GltfSceneDrawStats stats;
-    std::string error;
     const bool drewField = drawGltfSceneAsset(renderer, *field_, fieldPose_,
                                                options, stats, &error);
     require(drewField, error);
@@ -158,8 +229,29 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
     for (std::size_t index = 0; index < slots.size(); ++index) {
         const float sampleTime = std::fmod(tick * battleFixedDelta + index * .17f,
                                            duration);
-        const bool sampled = sampleGltfScenePose(wes_, sampleTime, 1,
-                                                  actorPoses[index], &error);
+        bool sampled = false;
+        if (index == 1 && sequence_.state().active && tick >= 110 && tick < 119) {
+            render::animation::PoseBlendRequest recovery;
+            recovery.baseClipIndex = 8;
+            recovery.baseTimeSec = std::fmod((tick - 60) * battleFixedDelta,
+                                             wes_->animations[8].durationSec);
+            recovery.targetClipIndex = 1;
+            recovery.targetTimeSec = sampleTime;
+            recovery.crossfadeWeight = (tick - 109) / 9.0f;
+            sampled = sampleGltfSceneBlendedPose(wes_, recovery, actorPoses[index], &error);
+        } else if (index == 1 && sequence_.state().gestureClip == 8) {
+            render::animation::PoseBlendRequest gesture;
+            gesture.baseClipIndex = 1;
+            gesture.baseTimeSec = sampleTime;
+            gesture.targetClipIndex = 8;
+            gesture.targetTimeSec = std::fmod((tick - 60) * battleFixedDelta,
+                                               wes_->animations[8].durationSec);
+            gesture.crossfadeWeight = std::min(1.0f, (tick - 59) / 9.0f);
+            sampled = sampleGltfSceneBlendedPose(wes_, gesture, actorPoses[index], &error);
+        } else {
+            sampled = sampleGltfScenePose(wes_, sampleTime, 1,
+                                          actorPoses[index], &error);
+        }
         require(sampled, error);
     }
     for (std::size_t index = 0; index < slots.size(); ++index) {
@@ -171,6 +263,26 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
                                                   options, stats, &error);
         require(drewActor, error);
     }
+}
+
+void BattlePreview::drawOverlay(IRenderBackend& renderer, int width, int height) const {
+    if (!sequence_.state().hudVisible) return;
+    std::array<IRenderBackend::DebugQuad, 10> quads{};
+    std::size_t count = 0;
+    const float panelWidth = std::min(180.0f, width * .24f);
+    for (std::size_t index = 0; index < slots.size(); ++index) {
+        const float x = index < 2 ? 12.0f : width - panelWidth - 12.0f;
+        const float y = height - 50.0f + (index % 2) * 18.0f;
+        quads[count++] = {x, y, panelWidth, 12.0f, .04f, .06f, .09f, 1.0f};
+        quads[count++] = {x + 3.0f, y + 3.0f,
+                          (panelWidth - 6.0f) * sequence_.state().health[index], 6.0f,
+                          index < 2 ? .15f : .8f, index < 2 ? .8f : .55f,
+                          .25f, 1.0f};
+    }
+    if (activeEffect_ && sequence_.state().effectVisible)
+        quads[count++] = {width * .5f + 80.0f, height * .5f - 45.0f,
+                          14.0f, 14.0f, 1.0f, .75f, .2f, 1.0f};
+    renderer.drawDebugQuads(quads.data(), count, width, height);
 }
 
 nlohmann::json BattlePreview::imports() const {
@@ -190,7 +302,20 @@ nlohmann::json BattlePreview::state(int tick, std::array<int, 4> viewport) const
     for (const auto& actor : slots)
         actors.push_back({{"slot", actor.name}, {"position", vec(actor.position)},
                           {"stand_in", "wes"}});
+    const auto& encounter = sequence_.state();
+    camera::BattleCameraPose rigPose;
+    const bool cameraActive = camera_.pose(rigPose);
     return {{"tick", tick}, {"phase", phase_}, {"viewport", viewport},
+            {"encounter", {{"tick", encounter.tick}, {"active", encounter.active},
+                           {"camera_active", cameraActive},
+                           {"cancelled", encounter.cancelled}, {"skipped", encounter.skipped},
+                           {"hud_visible", encounter.hudVisible},
+                           {"effect_visible", encounter.effectVisible},
+                           {"vfx_active", activeEffect_},
+                           {"gesture_clip", encounter.gestureClip},
+                           {"health", encounter.health},
+                           {"audio_voices", mixer_.activeVoices()},
+                           {"audio_peak", lastAudioPeak_}}},
             {"camera", {{"position", vec(cameraPose_.position)},
                          {"target", vec(cameraPose_.lookTarget)},
                          {"forward", vec(cameraPose_.forward)},

@@ -706,12 +706,12 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
                                      D3D12_TEXTURE_ADDRESS_MODE addressU,
                                      D3D12_TEXTURE_ADDRESS_MODE addressV) {
         D3D12_STATIC_SAMPLER_DESC s{};
-        // Match OpenGL world texture quality closer: anisotropic + slight negative LOD bias.
+        // The default LOD improves native Outskirt texture parity while retaining anisotropy.
         s.Filter = D3D12_FILTER_ANISOTROPIC;
         s.AddressU = addressU;
         s.AddressV = addressV;
         s.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-        s.MipLODBias = -0.35f;
+        s.MipLODBias = 0.0f;
         s.MaxAnisotropy = 16;
         s.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
         s.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;

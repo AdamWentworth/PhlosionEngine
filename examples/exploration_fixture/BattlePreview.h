@@ -1,5 +1,7 @@
 #pragma once
 
+#include "BattleSequence.h"
+#include "engine/audio/AudioMixer.h"
 #include "engine/camera/BattleCamera.h"
 #include "engine/render/gltf/GltfSceneRenderer.h"
 
@@ -18,17 +20,30 @@ public:
     BattlePreview& operator=(const BattlePreview&) = delete;
 
     void draw(IRenderBackend& renderer, int tick, int width, int height);
+    void drawOverlay(IRenderBackend& renderer, int width, int height) const;
+    void reset();
+    void cancel();
+    void skip();
     void release();
     nlohmann::json imports() const;
     nlohmann::json state(int tick, std::array<int, 4> viewport) const;
 
 private:
     void frameCamera(int tick, float aspect);
+    void dispatch(BattleCue cue);
 
     std::shared_ptr<const render::gltf::scene::GltfSceneAsset> field_, wes_;
     render::gltf::scene::GltfScenePose fieldPose_;
     camera::BattleCameraRig camera_;
     camera::BattleCameraPose cameraPose_;
+    BattleSequence sequence_;
+    audio::AudioMixer mixer_;
+    std::shared_ptr<const audio::AudioClip> impactClip_;
+    std::array<float, 1600> mixFrame_{};
+    bool activeEffect_ = false;
+    float lastAudioPeak_ = 0.0f;
+    std::string automationAction_;
+    int automationActionTick_ = -1;
     std::string phase_ = "wide";
     IWorldResourceScope* scopes_ = nullptr;
     render::WorldResourceScopeId scope_ = 0;

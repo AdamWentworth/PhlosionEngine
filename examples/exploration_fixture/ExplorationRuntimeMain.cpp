@@ -127,8 +127,16 @@ int main(int argc,char** argv) {
                         if(e.window.event==SDL_WINDOWEVENT_SIZE_CHANGED) {graphics.window->getDrawableSize(width,height);width=std::max(1,width);height=std::max(1,height);renderer.onResize(width,height);}
                     }
                     if(e.type==SDL_KEYDOWN && !e.key.repeat && e.key.windowID==context.windowId) {
-                        if(e.key.keysym.sym==SDLK_ESCAPE)running=false;
+                        if(e.key.keysym.sym==SDLK_ESCAPE) {
+                            if(battle){if(context.windowFocused)battle->cancel();}else running=false;
+                        }
+                        if(battle&&context.windowFocused&&e.key.repeat==0&&e.key.keysym.sym==SDLK_SPACE)battle->skip();
+                        if(battle&&context.windowFocused&&e.key.repeat==0&&e.key.keysym.sym==SDLK_r){battle->reset();battleTicks=0;}
                         if(!replay&&e.key.keysym.sym==SDLK_p)context.paused=!context.paused;
+                    }
+                    if(battle&&context.windowFocused&&e.type==SDL_CONTROLLERBUTTONDOWN) {
+                        if(e.cbutton.button==SDL_CONTROLLER_BUTTON_B)battle->cancel();
+                        if(e.cbutton.button==SDL_CONTROLLER_BUTTON_A)battle->skip();
                     }
                     if(session)session->event(context,e);
                 }
@@ -143,7 +151,9 @@ int main(int argc,char** argv) {
                 renderer.beginFrame(.035f,.05f,.085f,1);renderer.beginWorldSceneColorPass(width,height);
                 if(battle)battle->draw(renderer,battleTicks,width,height);
                 else presentation->draw(renderer,*session,width,height);
-                renderer.endWorldSceneColorPass();renderer.endFrame();
+                renderer.endWorldSceneColorPass();
+                if(battle)battle->drawOverlay(renderer,width,height);
+                renderer.endFrame();
                 if(frame==capture) {
                     if(battle)engine::exploration_fixture::writeBattleHandshake(a.handshake,"runtime",a.api,*battle,renderer,battleTicks,width,height,frame,{0,0,width,height});
                     else engine::exploration_fixture::writeHandshake(a.handshake,"runtime",a.api,*session,*presentation,renderer,width,height,frame);

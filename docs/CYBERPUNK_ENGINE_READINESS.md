@@ -562,7 +562,7 @@ and private recovery record.
 
 This qualifies provisional field locomotion, not the M3 double battle.
 
-### M3-J: provisional battle-field camera preview (native coverage, parity open 2026-09-22)
+### M3-J: provisional battle-field camera preview (native parity qualified 2026-09-22)
 
 The opt-in `outskirt-battle` fixture draws the recovered Outskirt battle-field
 GLB with four labelled actor slots occupied by temporary Wes copies. M3-C's
@@ -573,16 +573,36 @@ battle-field framing path; it does not implement battle rules or qualify the
 final roster. See the [fixture guide](EXPLORATION_FIXTURE.md) and private
 Outskirt recovery record for the repeatable native runner.
 
-All 60 native OpenGL/Vulkan/D3D12 captures pass backend startup and expected
-Wes, train and forecourt content checks. The 30 matching-frame runtime/editor
-viewport pairs are pixel-identical, all camera and actor states agree across
-hosts and APIs, and all 30 corresponding aspect-ratio state pairs agree. Four
-relevant CPU contracts pass. Of 70 image comparisons, two remain over the
-existing MAE limit of 1.0/255: the 21:9 blend frame on D3D12 versus OpenGL in
-runtime and editor, both at 1.0231/255 (1.87% of channels differ by more than
-eight). The private report records these failures. The visual parity gate is
-therefore open; battle HUD, audio, VFX, attack events, exit and final roster
-remain unqualified.
+The D3D12 world sampler now uses default mip bias rather than -0.35. On the
+previously failing 21:9 blend frame, this reduced OpenGL/D3D12 MAE from
+1.0231/255 to 0.8885/255 without changing the 1.0 limit. The expanded M3-K
+matrix below qualifies the temporary camera path in runtime and editor on all
+three APIs. Final roster and authored-scene framing remain open.
+As a regression check for the shared sampler change, the consumer's Release
+matrix passes four existing scenes (combat, static PBR, transparent fire and
+the wide starter battle) on all three APIs with content guards. Its complete
+31-scene matrix was not rerun for this pass.
+
+### M3-K: provisional encounter cue sequence (native qualified 2026-09-22)
+
+An opt-in `BattleSequence` advances the four temporary actor slots through
+fixed-tick camera blend/cut, a Wes gesture crossfade, a 0.5-second animation
+impact marker, scripted health change and cleanup. The marker starts a
+generated spatial SFX voice in `AudioMixer` and a short visual flash. Simple
+health bars and the flash use backend-independent debug quads. Escape/B cancels,
+Space/A skips, and R resets; cancel, skip, natural exit and preview teardown
+clear the camera rig, active sound and effect state. The CPU sequence,
+exploration, mixer and camera contracts pass.
+
+The private eight-phase matrix covers 96 captures across runtime/editor,
+16:9/21:9 and OpenGL/Vulkan/D3D12. All pass expected field, actor, HUD,
+impact and cleanup checks. All 48 runtime/editor viewport pairs are
+pixel-identical; 64 cross-API image comparisons pass with maximum MAE
+0.892/255 and maximum over-eight changed-channel ratio 1.43%. All 48
+corresponding aspect-ratio state pairs agree. This is a provisional encounter
+demonstration, not the M3 double battle: it has no Pokémon rules, final actors,
+production text HUD, physical audio output or PhlosionVFX effect-host binding,
+and it does not return to the overworld.
 
 ## Read this first
 
@@ -745,7 +765,7 @@ it is proven" means consumer usage, not engine verification.
 | Keyboard and mouse input | Actions and bounded native exploration routing qualified through M2-F | [Input contracts](INPUT_ACTIONS.md) plus the [public course](EXPLORATION_FIXTURE.md): keys, RMB orbit, wheel zoom, focus/text/pause gates and fixed-tick delivery | General text/IME input and final game integration remain; existing plugins opt in explicitly |
 | Gamepad / controller | Mapped adapter and synthetic runtime/editor integration qualified through M2-F; basic physical D3D12 controls exercised | [SDL action adapter](INPUT_ACTIONS.md), public-course virtual-device select/hotplug/rearm, and recorded Xbox 360 Controller manual sessions | Manual editor toolbar checks deferred; physical SDL detach not corroborated; prompts, haptics and other hardware/driver coverage remain |
 | Named action mapping, rebinding, context layers | Actions, in-memory rebinding and sample host integration implemented; context layers remain absent | [InputActions](INPUT_ACTIONS.md) and [course scheduling](EXPLORATION_FIXTURE.md) preserve taps/deltas through zero-tick frames and consume them once across catch-up ticks | Context priority/consumption, binding capture UI and persistence remain |
-| Camera | Exploration CPU/native path qualified through M2-F; M3-C battle rig CPU foundation and M3-J provisional native preview | [Exploration camera](EXPLORATION_CAMERA.md), [battle camera](BATTLE_CAMERA.md) and [Outskirt fixture](EXPLORATION_FIXTURE.md): four-slot framing, blend, cut, shake and settle on all three APIs in runtime/editor | One 21:9 blend D3D12 image comparison exceeds the established threshold; final-asset framing and authored scene zones remain unqualified |
+| Camera | Exploration CPU/native path qualified through M2-F; M3-C battle rig CPU foundation and M3-J/K provisional native preview | [Exploration camera](EXPLORATION_CAMERA.md), [battle camera](BATTLE_CAMERA.md) and [Outskirt fixture](EXPLORATION_FIXTURE.md): four-slot framing, blend, cut, shake, settle and cleanup on all three APIs in runtime/editor | Final-asset framing and authored scene zones remain unqualified |
 | Cursor capture and pointer policy | Bounded viewport-local exploration policy qualified in M2-F | RMB starts inside the active image; gates/releases clear drag and deltas; wheel respects image hover without global relative mouse mode | Broader cursor modes and battle pointer policy remain |
 
 ### Runtime, ECS, jobs and time
@@ -1028,8 +1048,8 @@ M3-G adds opt-in SDL queued-device output and a no-device sink.
 M3-H adds a generic effect host in PhlosionVFX with spawn/attach/cleanup rules.
 M3-I integrates Wes's provisional locomotion clips through the state machine
 in the Outskirt preview. M3-J adds a native provisional battle-field camera
-preview with four actor stand-ins; its 21:9 blend frame has an open D3D12 image
-threshold failure.
+preview with four actor stand-ins. M3-K adds a fixed-tick encounter cue
+sequence with temporary HUD, audio-mixer and flash bindings plus cleanup.
 Battle systems, roster qualification and the end-to-end exit gate remain.
 
 - blending, crossfade, layers, parameter-driven state and animation events,

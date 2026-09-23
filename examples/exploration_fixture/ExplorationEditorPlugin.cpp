@@ -55,7 +55,7 @@ public:
         selected_=true;return true;
     }
     bool gamePreviewReady() const noexcept override {return ready_;}
-    void resetGamePreview() override {if(battle_)battleTicks_=0;else session_->reset();}
+    void resetGamePreview() override {if(battle_){battle_->reset();battleTicks_=0;}else session_->reset();}
     void fixedUpdateGamePreview(float dt) override {
         if(std::abs(dt-exploration_fixture::fixedDelta)>.00001f)throw std::runtime_error("Fixture requires 60 Hz ticks");
         if(battle_)++battleTicks_;else session_->tick();
@@ -65,6 +65,7 @@ public:
         if(battle_)battle_->draw(*c.renderer,battleTicks_,c.surfaceWidth,c.surfaceHeight);
         else presentation_->draw(*c.renderer,*session_,c.surfaceWidth,c.surfaceHeight);
         c.renderer->endWorldSceneColorPass();
+        if(battle_)battle_->drawOverlay(*c.renderer,c.surfaceWidth,c.surfaceHeight);
         const int capture=std::stoi(env::get("PHLOSION_BACKEND_SCREENSHOT_FRAME").value_or("160"));
         if(frames_==capture) {
             if(battle_)exploration_fixture::writeBattleHandshake(env::get("PHLOSION_EXPLORATION_HANDSHAKE").value_or(""),"editor",
@@ -77,7 +78,19 @@ public:
         if(battle_)battleViewport_={c.viewport.x,c.viewport.y,c.viewport.width,c.viewport.height};
         else session_->begin(c);
     }
-    void event(const editor::EditorSdlGameInputContext& c,const SDL_Event& e){if(session_)session_->event(c,e);}
+    void event(const editor::EditorSdlGameInputContext& c,const SDL_Event& e){
+        if(session_){session_->event(c,e);return;}
+        if(!battle_||!editor::gameInputEnabled(c))return;
+        if(e.type==SDL_KEYDOWN&&e.key.repeat==0){
+            if(e.key.keysym.sym==SDLK_ESCAPE)battle_->cancel();
+            if(e.key.keysym.sym==SDLK_SPACE)battle_->skip();
+            if(e.key.keysym.sym==SDLK_r)resetGamePreview();
+        }
+        if(e.type==SDL_CONTROLLERBUTTONDOWN){
+            if(e.cbutton.button==SDL_CONTROLLER_BUTTON_B)battle_->cancel();
+            if(e.cbutton.button==SDL_CONTROLLER_BUTTON_A)battle_->skip();
+        }
+    }
     void end(const editor::EditorSdlGameInputContext& c){if(session_)session_->end(c);}
 private:
     std::unique_ptr<exploration_fixture::ExplorationSession> session_;
