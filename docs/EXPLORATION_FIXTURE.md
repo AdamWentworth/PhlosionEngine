@@ -41,7 +41,7 @@ is not extracted game collision. Source materials are converted to the engine's
 opaque material subset and 256-pixel images. The private research guide at
 `D:/Projects/Research/PokemonGCAssetResearch/docs/colosseum/OUTSKIRT_STAND.md`
 records source hashes, conversion limits, collision audit and the native
-idle/walk/run/ramp/wall captures.
+idle/walk/run/ramp/wall captures at 16:9 and 21:9.
 Neither the final M2 scene gate nor the M3 double-battle gate is closed by this
 preview.
 

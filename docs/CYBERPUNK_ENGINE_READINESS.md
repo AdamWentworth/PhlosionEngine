@@ -458,15 +458,17 @@ train ramp and train body. It filters ten degenerate train-body triangles.
 The approach trigger and train-side blockers remain authored because the
 visual mesh leaves a passable gap. The Blender source audit and five-phase
 native matrix cover idle, walk, run, ramp ascent and a blocked train-side route:
-30 captures across both hosts and all three APIs at matching simulation ticks.
+60 captures across both hosts, all three APIs and both target aspect ratios at
+matching simulation ticks.
 Expected Wes/stand/forecourt pixels, grounded movement, ramp support and the
-blocked wall route passed; all 15 runtime/editor viewport pairs are pixel
-identical. The 20 cross-API pairs have a maximum mean channel error of
-0.58/255. The two affected exploration CTest entries pass. See the
+blocked wall route passed; all 30 runtime/editor viewport pairs are pixel
+identical. The 40 cross-API pairs have a maximum mean channel error of
+0.82/255, and all 30 corresponding 16:9/21:9 gameplay-state pairs match.
+The two affected exploration CTest entries pass. See the
 [fixture guide](EXPLORATION_FIXTURE.md) and private recovery record. This is
 collision built from recovered render geometry plus authored blockers, not
 extracted game collision. The battle-field variant still has only CPU import
-and Blender preview evidence. Material fidelity, full routes, 21:9 and physical
+and Blender preview evidence. Material fidelity, full routes and physical
 controls on this provisional scene, final replacement content and manual editor
 toolbar checks still leave the M2 gate open. M3 battle integration has not yet
 been claimed.
