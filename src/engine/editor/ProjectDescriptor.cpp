@@ -351,6 +351,20 @@ bool parseProjectDescriptor(
             }
         }
 
+        if (root.contains("asset_preview_plugin")) {
+            const auto& pluginJson = root.at("asset_preview_plugin");
+            parsed.assetPreviewPlugin.library =
+                pluginJson.at("library").get<std::string>();
+            parsed.assetPreviewPlugin.directory =
+                pluginJson.at("directory").get<std::string>();
+            if (!isPortableLibraryName(parsed.assetPreviewPlugin.library) ||
+                !isPortableRelativePath(parsed.assetPreviewPlugin.directory)) {
+                return fail(
+                    "Asset-preview plugin requires a portable library name and relative directory.",
+                    outError);
+            }
+        }
+
         if (root.contains("editor_packages")) {
             const auto& packagesJson = root.at("editor_packages");
             if (!packagesJson.is_array()) {

@@ -1309,26 +1309,23 @@ discoverCookedAssets(
                 prefabKind
                 ? cookedPrefabAssetType(*prefabKind)
                 : *discoveredType;
-            std::error_code mountRelativeError;
+            const auto relativeToMount =
+                entry.path().lexically_relative(mountRoot);
             const std::string mountRelativePath =
-                std::filesystem::relative(
-                    entry.path(),
-                    mountRoot,
-                    mountRelativeError)
-                    .generic_string();
-            if (mountRelativeError ||
+                relativeToMount.generic_string();
+            if (relativeToMount.empty() ||
+                relativeToMount.is_absolute() ||
+                *relativeToMount.begin() == ".." ||
                 hiddenFromAssetBrowser(
                     mount,
                     mountRelativePath)) {
                 continue;
             }
-            std::error_code relativeError;
             const auto relativeToProject =
-                std::filesystem::relative(
-                    entry.path(),
-                    projectRoot,
-                    relativeError);
-            if (relativeError) {
+                entry.path().lexically_relative(projectRoot);
+            if (relativeToProject.empty() ||
+                relativeToProject.is_absolute() ||
+                *relativeToProject.begin() == "..") {
                 continue;
             }
             std::error_code sizeError;
@@ -1580,6 +1577,10 @@ buildReadOnlyHierarchy(
 
 struct LoadedProject {
     ~LoadedProject() {
+        if (assetPreviewRuntime && destroyAssetPreviewRuntime) {
+            destroyAssetPreviewRuntime(assetPreviewRuntime);
+            assetPreviewRuntime = nullptr;
+        }
         if (runtime && destroyRuntime) {
             destroyRuntime(runtime);
             runtime = nullptr;
@@ -1598,6 +1599,13 @@ struct LoadedProject {
     std::shared_ptr<engine::editor::GameplayPluginCopy> pluginCopy;
     DynamicLibrary library;
     engine::editor::IEditorProjectRuntime* runtime = nullptr;
+    std::shared_ptr<engine::editor::GameplayPluginCopy> assetPreviewPluginCopy;
+    DynamicLibrary assetPreviewLibrary;
+    engine::editor::IEditorProjectRuntime* assetPreviewRuntime = nullptr;
+    engine::editor::DestroyEditorProjectRuntimeFn destroyAssetPreviewRuntime = nullptr;
+    engine::editor::IEditorProjectRuntime* previewProvider() const noexcept {
+        return assetPreviewRuntime ? assetPreviewRuntime : runtime;
+    }
     const engine::editor::EditorSdlGameInputExtension* sdlGameInput = nullptr;
     engine::editor::DestroyEditorProjectRuntimeFn destroyRuntime =
         nullptr;
@@ -1860,6 +1868,14 @@ void writeAutomationMetrics(
         for (const auto& preview : project->gamePreviewViews) {
             editorContents["scenarios"].push_back({
                 {"id", preview.id}, {"scene_id", preview.sceneId}, {"group", preview.group}});
+        }
+        editorContents["assets"] = nlohmann::json::array();
+        for (const auto& asset : project->assetViews) {
+            editorContents["assets"].push_back({
+                {"id", asset.id},
+                {"display_name", asset.displayName},
+                {"type", asset.typeName},
+                {"previewable", asset.previewable3d}});
         }
         editorContents["layout_objects"] = nlohmann::json::array();
         for (const auto& object : project->layoutObjectViews) {
@@ -2507,7 +2523,7 @@ void refreshAssetPreviewView(
     LoadedProject& project,
     bool rebuildAnimationCatalog = false) {
     const auto info =
-        project.runtime->assetPreviewInfo();
+        project.previewProvider()->assetPreviewInfo();
     const std::string_view infoAssetId =
         info.assetId ? info.assetId : "";
     rebuildAnimationCatalog =
@@ -2523,7 +2539,7 @@ void refreshAssetPreviewView(
              index < info.animationCount;
              ++index) {
             const auto animation =
-                project.runtime->assetPreviewAnimation(index);
+                project.previewProvider()->assetPreviewAnimation(index);
             project.assetPreviewAnimations.push_back(
                 engine::editor::WorkspaceAssetAnimation{
                     .name =
@@ -2620,7 +2636,7 @@ bool selectAssetPreview(
             : (project.root / asset.path)
                   .lexically_normal()
                   .string();
-    if (!project.runtime->selectAssetPreview(
+    if (!project.previewProvider()->selectAssetPreview(
             asset.id.c_str(),
             resolvedAssetPath.c_str(),
             &outError)) {
@@ -3047,6 +3063,57 @@ std::unique_ptr<LoadedProject> loadProjectRuntime(
         .startupScenePath = loaded->scenePathText.c_str()};
     if (!loaded->runtime->open(openContext, &outError)) {
         return nullptr;
+    }
+    if (!loaded->descriptor.assetPreviewPlugin.library.empty()) {
+        auto previewDescriptor = loaded->descriptor;
+        previewDescriptor.editorPlugin =
+            loaded->descriptor.assetPreviewPlugin;
+        std::filesystem::path previewPath;
+        if (!engine::editor::resolveEditorPluginPath(
+                loaded->descriptorPath, previewDescriptor,
+                PHLOSION_EDITOR_BUILD_CONFIGURATION,
+                previewPath, &outError)) {
+            return nullptr;
+        }
+        if (!std::filesystem::is_regular_file(previewPath)) {
+            outError = "Asset-preview plugin is not built: " +
+                previewPath.generic_string();
+            return nullptr;
+        }
+        loaded->assetPreviewPluginCopy =
+            engine::editor::GameplayPluginCopy::create(
+                previewPath, outError);
+        if (!loaded->assetPreviewPluginCopy ||
+            !loaded->assetPreviewLibrary.open(
+                loaded->assetPreviewPluginCopy->path(), outError)) {
+            return nullptr;
+        }
+        const auto getPreviewContract =
+            loaded->assetPreviewLibrary.function<
+                engine::editor::EditorProjectPluginContractFn>(
+                engine::editor::kEditorProjectPluginContractSymbol);
+        if (!getPreviewContract) {
+            outError = "Asset-preview plugin has no project runtime contract: " +
+                previewPath.generic_string();
+            return nullptr;
+        }
+        const auto* previewContract = getPreviewContract();
+        if (!engine::editor::validateEditorProjectPluginContract(
+                previewContract,
+                PHLOSION_EDITOR_BUILD_CONFIGURATION,
+                outError)) {
+            outError += "\nPlugin: " + previewPath.generic_string();
+            return nullptr;
+        }
+        loaded->destroyAssetPreviewRuntime = previewContract->destroyRuntime;
+        loaded->assetPreviewRuntime = previewContract->createRuntime();
+        if (!loaded->assetPreviewRuntime) {
+            outError = "Asset-preview plugin could not create its runtime.";
+            return nullptr;
+        }
+        if (!loaded->assetPreviewRuntime->open(openContext, &outError)) {
+            return nullptr;
+        }
     }
     appendProjectAssets(
         *loaded->runtime,
@@ -4272,9 +4339,9 @@ int main(int argc, char** argv) {
                                         .assetPreviewLightingProfile ||
                                     arguments.assetPreviewTime) {
                                     const auto currentOptions =
-                                        project->runtime->
+                                        project->previewProvider()->
                                             assetPreviewInfo();
-                                    project->runtime->
+                                    project->previewProvider()->
                                         setAssetPreviewOptions(
                                             engine::editor::
                                                 EditorProjectAssetPreviewOptions{
@@ -4505,7 +4572,7 @@ int main(int argc, char** argv) {
 
                 viewportMs = elapsedMilliseconds(viewportStart);
                 if (selectedAssetPreviewIndex >= 0) {
-                    project->runtime->updateAssetPreview(
+                    project->previewProvider()->updateAssetPreview(
                         deltaSeconds);
                     refreshAssetPreviewView(*project);
                     if (project->assetPreviewView.ready) {
@@ -4550,7 +4617,7 @@ int main(int argc, char** argv) {
                         if (assetPreviewSurface->begin(
                                 previewWidth,
                                 previewHeight)) {
-                            project->runtime->
+                            project->previewProvider()->
                                 renderAssetPreview(
                                     assetRenderContext);
                             assetPreviewSurface->end();
@@ -5262,7 +5329,7 @@ int main(int argc, char** argv) {
             if (project &&
                 selectedAssetPreviewIndex >= 0 &&
                 actions.assetPreviewOptionsChanged) {
-                project->runtime->setAssetPreviewOptions(
+                project->previewProvider()->setAssetPreviewOptions(
                     engine::editor::
                         EditorProjectAssetPreviewOptions{
                             .animationIndex =

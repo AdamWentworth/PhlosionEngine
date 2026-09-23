@@ -79,6 +79,9 @@ struct ProjectDescriptor {
     std::vector<ProjectEnvironment> environments;
     std::vector<ProjectScene> scenes;
     EditorPlugin editorPlugin;
+    // Optional asset Inspector provider. The primary plugin still owns scenes
+    // and gameplay; this plugin receives only asset-preview calls.
+    EditorPlugin assetPreviewPlugin;
     std::filesystem::path worldMaterialProfile;
     std::vector<EditorPackageDependency> editorPackages;
     std::vector<PlayConfiguration> playConfigurations;

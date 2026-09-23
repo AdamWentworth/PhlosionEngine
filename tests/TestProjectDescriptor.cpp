@@ -65,6 +65,10 @@ bool test_project_descriptor_contract(std::string& outFail) {
             "library": "TestGameEditorProject",
             "directory": ".phlosion/editor/{config}"
         },
+        "asset_preview_plugin": {
+            "library": "TestModelPreview",
+            "directory": ".phlosion/editor/{config}"
+        },
         "editor_packages": [
             {
                 "id": "phlosion.tile-tools",
@@ -119,6 +123,8 @@ bool test_project_descriptor_contract(std::string& outFail) {
             "scenes/test.scene.json" ||
         project.scenes[0].environmentAssetId !=
             project.scenes[1].environmentAssetId ||
+        project.assetPreviewPlugin.library != "TestModelPreview" ||
+        project.assetPreviewPlugin.directory != ".phlosion/editor/{config}" ||
         project.playConfigurations.size() != 1u ||
         project.editorPackages.size() != 1u ||
         project.editorPackages.front().id !=
