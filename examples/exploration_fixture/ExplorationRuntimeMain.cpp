@@ -1,4 +1,5 @@
 #define SDL_MAIN_HANDLED
+#include "BattlePreview.h"
 #include "ExplorationPresentation.h"
 #include "engine/input/SdlInputReplay.h"
 #include "engine/core/Environment.h"
@@ -98,17 +99,26 @@ int main(int argc,char** argv) {
         {
             std::unique_ptr<engine::input::SdlInputReplay> replay;
             if(!a.replay.empty())replay=std::make_unique<engine::input::SdlInputReplay>(a.replay);
-            engine::exploration_fixture::ExplorationSession session(a.caseName,replay!=nullptr,engine::exploration_fixture::configuredCameraSettings());session.setTrace(a.trace);
-            engine::exploration_fixture::ExplorationPresentation presentation(a.caseName == "outskirt");
+            const bool battleMode = a.caseName == "outskirt-battle";
+            if (battleMode && replay) throw std::runtime_error("Battle preview does not accept an input replay");
+            std::unique_ptr<engine::exploration_fixture::ExplorationSession> session;
+            std::unique_ptr<engine::exploration_fixture::ExplorationPresentation> presentation;
+            std::unique_ptr<engine::exploration_fixture::BattlePreview> battle;
+            if (battleMode) battle = std::make_unique<engine::exploration_fixture::BattlePreview>();
+            else {
+                session = std::make_unique<engine::exploration_fixture::ExplorationSession>(a.caseName,replay!=nullptr,engine::exploration_fixture::configuredCameraSettings());
+                session->setTrace(a.trace);
+                presentation = std::make_unique<engine::exploration_fixture::ExplorationPresentation>(a.caseName == "outskirt");
+            }
             engine::editor::EditorSdlGameInputContext context;context.windowId=SDL_GetWindowID(graphics.window->getSDLWindow());
             context.windowFocused=(SDL_GetWindowFlags(graphics.window->getSDLWindow())&SDL_WINDOW_INPUT_FOCUS)!=0;
             context.activeGameViewport=true;context.viewportFocused=true;context.viewportHovered=true;context.playing=true;
-            bool running=true;int frame=0;float accumulator=0;auto previous=std::chrono::steady_clock::now();
+            bool running=true;int frame=0,battleTicks=0;float accumulator=0;auto previous=std::chrono::steady_clock::now();
             const int capture=std::stoi(engine::env::get("PHLOSION_BACKEND_SCREENSHOT_FRAME").value_or("160"));
             while(running && (a.frames==0||frame<a.frames)) {
                 ++frame; const auto now=std::chrono::steady_clock::now();
-                const float delta=replay?engine::exploration_fixture::fixedDelta:std::min(.05f,std::chrono::duration<float>(now-previous).count());previous=now;
-                context.viewport={0,0,width,height}; if(replay)replay->frame(context);session.begin(context);
+                const float delta=(replay || (battle && a.hidden))?engine::exploration_fixture::fixedDelta:std::min(.05f,std::chrono::duration<float>(now-previous).count());previous=now;
+                context.viewport={0,0,width,height}; if(replay)replay->frame(context);if(session)session->begin(context);
                 SDL_Event e{};while(SDL_PollEvent(&e)) {
                     if(e.type==SDL_QUIT)running=false;
                     if(e.type==SDL_WINDOWEVENT && e.window.windowID==context.windowId) {
@@ -120,25 +130,31 @@ int main(int argc,char** argv) {
                         if(e.key.keysym.sym==SDLK_ESCAPE)running=false;
                         if(!replay&&e.key.keysym.sym==SDLK_p)context.paused=!context.paused;
                     }
-                    session.event(context,e);
+                    if(session)session->event(context,e);
                 }
-                session.end(context);
+                if(session)session->end(context);
                 if(context.playing&&!context.paused) {
                     accumulator+=delta;int ticks=0;while(accumulator>=engine::exploration_fixture::fixedDelta&&ticks<4) {
-                        session.tick();accumulator-=engine::exploration_fixture::fixedDelta;++ticks;
+                        if(battle)++battleTicks;else session->tick();
+                        accumulator-=engine::exploration_fixture::fixedDelta;++ticks;
                     }
                     if(ticks==4)accumulator=0;
                 }
                 renderer.beginFrame(.035f,.05f,.085f,1);renderer.beginWorldSceneColorPass(width,height);
-                presentation.draw(renderer,session,width,height);renderer.endWorldSceneColorPass();renderer.endFrame();
-                if(frame==capture)engine::exploration_fixture::writeHandshake(a.handshake,"runtime",a.api,session,presentation,renderer,width,height,frame);
+                if(battle)battle->draw(renderer,battleTicks,width,height);
+                else presentation->draw(renderer,*session,width,height);
+                renderer.endWorldSceneColorPass();renderer.endFrame();
+                if(frame==capture) {
+                    if(battle)engine::exploration_fixture::writeBattleHandshake(a.handshake,"runtime",a.api,*battle,renderer,battleTicks,width,height,frame,{0,0,width,height});
+                    else engine::exploration_fixture::writeHandshake(a.handshake,"runtime",a.api,*session,*presentation,renderer,width,height,frame);
+                }
                 if(!renderer.handlesPresentation())graphics.window->swapBuffers();
-                if(!replay&&frame%30==0) {
+                if(!replay&&!battle&&frame%30==0) {
                     const std::string title="Exploration | WASD / left stick | Shift / L3 run | RMB / right stick orbit | wheel / bumpers zoom | R / Back reset | Tab / Start select pad | P pause";
-                    graphics.window->setTitle(title+(session.sensorActive()?" | Sensor active":""));
+                    graphics.window->setTitle(title+(session->sensorActive()?" | Sensor active":""));
                 }
             }
-            presentation.release();
+            if(battle)battle->release();else presentation->release();
         }
         renderer.shutdown();graphics.renderer.reset();graphics.window.reset();SDL_Quit();return 0;
     }catch(const std::exception& e){std::cerr<<"[Exploration] FAILED "<<e.what()<<'\n';SDL_Quit();return 1;}

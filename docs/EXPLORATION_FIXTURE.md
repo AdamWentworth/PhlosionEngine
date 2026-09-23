@@ -47,6 +47,27 @@ idle/blend/walk/run/ramp/wall captures at 16:9 and 21:9.
 Neither the final M2 scene gate nor the M3 double-battle gate is closed by this
 preview.
 
+The separate opt-in `outskirt-battle` case uses the recovered battle-field GLB
+and four labelled Wes stand-ins for provisional actor slots. It exercises the
+shared M3 battle camera with a wide four-actor shot, a two-actor blend, a cut,
+impact shake and recovery. The runtime and editor share the same fixed-tick
+camera sequence; the editor preview ID is `battle`. Set
+`PHLOSION_OUTSKIRT_BATTLE_GLB` to the private
+`output/outskirt_battle_engine.glb`, keep `PHLOSION_OUTSKIRT_WES_GLB` set, and
+run the runtime with `--case=outskirt-battle`. For the editor, set
+`PHLOSION_EXPLORATION_CASE=outskirt-battle` and launch with
+`--game-preview=battle`. The stand-ins do not represent the eventual Pokemon
+roster or battle rules. The private research runner
+`tools/colosseum/run_outskirt_battle_native.ps1` stages the project and checks
+both hosts on all three APIs and both target aspect ratios.
+
+The 60-capture native run verifies scene content, four wide-shot actor
+projections, camera state and pixel-identical runtime/editor viewport pairs.
+Its report currently fails two OpenGL/D3D12 comparisons at the 21:9 blend
+frame (MAE 1.0231/255 against the existing 1.0 limit). These frames are
+retained in the private depot for renderer diagnosis; battle visual parity is
+not yet qualified. The preview has no battle simulation, UI or VFX bindings.
+
 Configure `PHLOSION_BUILD_EXPLORATION_FIXTURE=ON`, then build Debug. The engine
 aggregate does not gain a collision/camera dependency. The sample links those
 modules explicitly. Geometry is ten tiny generated glTF cube materials loaded
