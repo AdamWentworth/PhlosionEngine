@@ -495,6 +495,27 @@ target. It does not change the current OpenGL-only text renderer. Actual fonts,
 native three-API text/HUD presentation and dialogue/subtitle integration remain
 open. The full 23-entry Debug CTest suite passed.
 
+### M3-F: runtime audio mixer (CPU qualified 2026-09-22)
+
+The [audio mixer foundation](AUDIO_MIXER.md) adds owned decoded PCM clips,
+four buses, looping, sample-time fades, mute, and spatial mono mixing. The
+standalone CPU contract passes. Device output, decoding/streaming, game cue
+bindings, and physical playback qualification remain open.
+
+### M3-G: SDL audio device adapter (dummy-device qualified 2026-09-22)
+
+The [opt-in SDL output](AUDIO_MIXER.md) queues bounded stereo PCM, advances the
+mixer through a null sink if no device opens, supports retry, and clears queued
+audio on stop/shutdown. Its dummy-driver contract passes. Physical speakers,
+game cues and end-to-end battle audio remain to be qualified.
+
+### M3-H: reusable effect host (CPU qualified 2026-09-22)
+
+PhlosionVFX's [effect host](../../PhlosionVFX/docs/EFFECT_HOST.md) adds bounded
+spawn IDs, moving-anchor attachment, expiry and stop-all cleanup. Its standalone
+contracts pass. The game must still bind battle/animation events and actor
+sockets to real effects; native attack-effect presentation remains open.
+
 ## Read this first
 
 **Design provenance.** The product direction below comes from a user-supplied
@@ -725,7 +746,7 @@ vehicle physics stay excluded.
 | Dynamic lights, sky/environment parameters, fog, time-of-day values | Not found in inspected scope | No light, sky, fog or environment time-of-day API in engine source; PBR tunables are fixed shared defaults in [WorldPbrShaderShared.h](../src/engine/render/WorldPbrShaderShared.h) | The recovered material splits these: the engine provides lights/environment/fog/interpolation, the game owns the world clock and presets. Exposure exists only as shader constants today |
 | Shadow maps | Not found in inspected scope | No shadow pass in engine source. A projected-shadow carrier does exist and is real: game-supplied RGBA texture, matrix, sampling scale and bias in [RenderBackendTypes.h](../src/engine/render/RenderBackendTypes.h) lines 168-180, consumed by all backends | Day/night and a city block need a shadow decision: build a shadow pass, integrate one, or extend the existing projected/baked carrier. The carrier's quality at city scale is Unverified |
 | Stylised material support (wet surfaces, cyberpunk looks) | Extension implemented; content Unverified | Project material profiles via [MATERIAL_PROFILES.md](MATERIAL_PROFILES.md) and [WorldMaterialProfile.h](../src/engine/render/WorldMaterialProfile.h) are implemented and tested (`world_material_profile_contract`) | No wet or cyberpunk material content exists or has been qualified; that is project authoring work with three-API visual checks |
-| Particles and VFX host | Partial | [ParticleSystem.h](../src/engine/vfx/ParticleSystem.h), [vfx_preview/](../src/engine/tools/vfx_preview); reusable effects in PhlosionVFX | CPU particle simulation at current consumer scale; rain, splashes and attack effects are unqualified |
+| Particles and VFX host | M3-H generic host; native effects partial | [ParticleSystem.h](../src/engine/vfx/ParticleSystem.h), [vfx_preview/](../src/engine/tools/vfx_preview), and PhlosionVFX's [effect host](../../PhlosionVFX/docs/EFFECT_HOST.md) with CPU spawn/attach/cleanup contracts | Game battle bindings and three-API native attack effects remain unqualified |
 | Post-processing and anti-aliasing | Partial | Tone mapping and exposure exist as shader constants (see above); [assets/shaders](../assets/shaders) contain no post-processing chain and no anti-aliasing | Missing: a configurable environment/post pipeline, render scale and AA. The Autochess roadmap lists AA and render scale as core roadmap items |
 | High-consumer qualification limits | Known, game-owned | [Autochess outstanding issues](../../../Games/PokemonAutochess/docs/OUTSTANDING_ISSUES.md) (`combat-target-focus` appearance guard, private content requirement, no controlled GPU CI gate), [tech debt](../../../Games/PokemonAutochess/docs/TECH_DEBT.md) (perf gate, preview smoke) | GPU qualification is local and manual today; expect the same for Cyberpunk until a runner exists |
 
@@ -733,8 +754,8 @@ vehicle physics stay excluded.
 
 | Capability | Status | Evidence | Gap for this work |
 | --- | --- | --- | --- |
-| Audio playback | Not found in inspected scope | Word-bounded engine search for `audio`, `sound`, `mixer`, `miniaudio`, `openal`, `fmod`, `wav`, `ogg`, `SDL_mixer`, `SDL_Audio` matched only `fmod` math calls; not in [vcpkg.json](../vcpkg.json) | No device, mixer, bus, streaming, looping, fades or spatial audio; the slice's step 4 requires audio |
-| Audio settings surface | Planned-only | Volume and mute fields in [EngineServices.h](../src/engine/core/EngineServices.h) (lines 75-79) | Fields exist without a backend, and the consumer only stores preferences |
+| Audio playback | M3-F/G mixer and SDL adapter foundations | [Audio mixer](AUDIO_MIXER.md) owns decoded PCM voices, buses, fades, looping, spatial mono mixing and bounded SDL output; CPU and dummy-device contracts pass | No decoding/streaming, battle cue bindings or physical playback qualification |
+| Audio settings surface | Mixer API available; host binding open | Volume and mute fields in [EngineServices.h](../src/engine/core/EngineServices.h) (lines 75-79), mixer master/bus gain and mute setters | Host preferences are not yet applied to the mixer; ambient has no service field |
 
 ### Player UI, text, dialogue, accessibility and localization
 
@@ -933,7 +954,10 @@ with crossfades, masked override layers, timed event collection and public glTF
 skin-palette integration. M3-B adds [parameter-driven state](ANIMATION_STATE_MACHINE.md).
 M3-C begins the [battle camera](BATTLE_CAMERA.md) with a CPU rig. M3-D adds
 [runtime UI focus routing](UI_FOCUS_NAVIGATION.md) on the CPU. M3-E begins
-[text layout and string IDs](UI_TEXT_LAYOUT.md) on the CPU.
+[text layout and string IDs](UI_TEXT_LAYOUT.md) on the CPU. M3-F adds the
+[runtime audio mixer](AUDIO_MIXER.md) on the CPU.
+M3-G adds opt-in SDL queued-device output and a no-device sink.
+M3-H adds a generic effect host in PhlosionVFX with spawn/attach/cleanup rules.
 Battle systems, roster qualification and the end-to-end exit gate remain.
 
 - blending, crossfade, layers, parameter-driven state and animation events,

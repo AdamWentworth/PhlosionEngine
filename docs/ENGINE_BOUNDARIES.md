@@ -45,6 +45,11 @@ string tables and computes bounded glyph placements from project-supplied font
 metrics. The engine does not own translations, font assets, dialogue rules or
 the battle HUD. Native drawing remains a separate presentation boundary.
 
+The [runtime audio mixer](AUDIO_MIXER.md) owns decoded PCM playback state,
+generic Music/Sfx/Ambient/Voice buses, fades, and spatial panning. Projects own
+sound assets, decoding/cooking policy, cue selection, and battle audio rules.
+The opt-in SDL adapter only opens and queues to an output device.
+
 The [exploration camera rig](EXPLORATION_CAMERA.md) owns follow/orbit math,
 camera-relative movement and static-geometry obstruction queries. Authored
 settings are separate from each rig's runtime state. Projects choose targets,

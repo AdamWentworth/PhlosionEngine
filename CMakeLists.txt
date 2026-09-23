@@ -245,6 +245,16 @@ target_link_libraries(engine_ui PUBLIC Phlosion::Input glm::glm)
 phlosion_apply_settings(engine_ui)
 add_library(Phlosion::UI ALIAS engine_ui)
 
+add_library(engine_audio STATIC src/engine/audio/AudioMixer.cpp)
+target_link_libraries(engine_audio PUBLIC glm::glm)
+phlosion_apply_settings(engine_audio)
+add_library(Phlosion::Audio ALIAS engine_audio)
+
+add_library(engine_audio_sdl STATIC src/engine/audio/SdlAudioOutput.cpp)
+target_link_libraries(engine_audio_sdl PUBLIC Phlosion::Audio SDL2::SDL2)
+phlosion_apply_settings(engine_audio_sdl)
+add_library(Phlosion::AudioSdl ALIAS engine_audio_sdl)
+
 add_library(engine_platform STATIC
     src/engine/platform/Window.cpp
     src/engine/input/SdlKeyMap.cpp
@@ -876,6 +886,18 @@ if (PHLOSION_BUILD_TESTS)
     phlosion_apply_settings(PhlosionUiTextTests)
     add_test(NAME PhlosionUiTextContracts COMMAND PhlosionUiTextTests)
     set_tests_properties(PhlosionUiTextContracts PROPERTIES TIMEOUT 120)
+
+    add_executable(PhlosionAudioMixerTests tests/TestAudioMixer.cpp)
+    target_link_libraries(PhlosionAudioMixerTests PRIVATE Phlosion::Audio)
+    phlosion_apply_settings(PhlosionAudioMixerTests)
+    add_test(NAME PhlosionAudioMixerContracts COMMAND PhlosionAudioMixerTests)
+    set_tests_properties(PhlosionAudioMixerContracts PROPERTIES TIMEOUT 120)
+
+    add_executable(PhlosionSdlAudioTests tests/TestSdlAudioOutput.cpp)
+    target_link_libraries(PhlosionSdlAudioTests PRIVATE Phlosion::AudioSdl)
+    phlosion_apply_settings(PhlosionSdlAudioTests)
+    add_test(NAME PhlosionSdlAudioContracts COMMAND PhlosionSdlAudioTests)
+    set_tests_properties(PhlosionSdlAudioContracts PROPERTIES TIMEOUT 120)
 
     add_executable(PhlosionCameraTests tests/TestExplorationCamera.cpp)
     target_link_libraries(PhlosionCameraTests PRIVATE Phlosion::Camera Phlosion::Input)

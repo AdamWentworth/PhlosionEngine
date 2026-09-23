@@ -26,6 +26,8 @@ No test in the current engine CTest suite needs a graphics context.
 | `PhlosionInputContracts` | Six SDL-free groups for named action mapping, button/axis transitions, rebinding, deadzones, controller identity/selection, focus/enable recovery, bounds and thread ownership |
 | `PhlosionUiFocusContracts` | Spatial focus, disabled/dynamic items, keyboard/synthetic-controller action composition, held repeat, modal gating/rearm, activation/cancel precedence, transactional failures and thread ownership |
 | `PhlosionUiTextContracts` | Strict UTF-8, transactional string-table replacement, fallback metrics, analytic wrapping/scaling, explicit line breaks, unsupported text and preserved output on failure |
+| `PhlosionAudioMixerContracts` | Owned PCM clips, numeric stereo mix, buses/mute, loop/end, sample-time fades, spatial pan/attenuation, cleanup, invalid input and owner-thread rules |
+| `PhlosionSdlAudioContracts` | SDL dummy-device startup/retry, null-sink progress, queue cap, stop/shutdown cleanup, subsystem references and owner-thread rules |
 | `PhlosionSdlInputContracts` | Three real SDL virtual-device groups for mapped-controller discovery, all 15 buttons/six axes, normalization, queued taps and event/poll duplicate observations, hotplug/disconnect, window focus filtering and subsystem/handle ownership |
 | `PhlosionCameraContracts` | Ten groups for exploration framing, delta/rate controls, follow/recovery damping, real sphere obstruction queries, validation/ownership, relative movement and repeated CPU input/character/camera composition |
 | `PhlosionBattleCameraContracts` | CPU battle camera framing at multiple aspects, impossible-shot rejection, cuts/blends/tracking, deterministic shake, reduced motion, reset, transactions and thread ownership |
@@ -94,6 +96,11 @@ native text/layout presentation or automatic gameplay action consumption.
 The [runtime UI text module](UI_TEXT_LAYOUT.md) also runs without a graphics
 context. Its synthetic metrics prove text-layout and fallback-selection math,
 not coverage of a real font, native glyph rasterization or cross-API images.
+
+The [runtime audio mixer](AUDIO_MIXER.md) has a standalone CPU contract. Its
+numeric samples prove mixing and lifecycle rules. The SDL adapter's dummy-driver
+contract proves queuing and failure cleanup, but not physical device playback
+or a game's cue bindings.
 
 The [battle camera](BATTLE_CAMERA.md) has a standalone CPU executable linked to
 Camera. It checks analytic perspective framing with independent projection,
@@ -194,6 +201,13 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-22, M3-F/G added the [runtime audio mixer and SDL output](AUDIO_MIXER.md).
+The complete Debug build and all 25 CTest entries passed, including numeric
+mixer and SDL dummy-device contracts. No physical output-device check or game
+battle cue integration has been recorded. PhlosionVFX's separate effect-host
+target and its two-contract Debug suite also passed; its renderer-neutral
+lifecycle does not establish native effect presentation.
 
 On 2026-09-22, the M3-E [runtime UI text foundation](UI_TEXT_LAYOUT.md) added
 strict UTF-8 string tables and measured glyph placement. Its standalone CPU
