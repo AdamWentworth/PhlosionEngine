@@ -11,7 +11,10 @@
 #include <cctype>
 #include <cfloat>
 #include <cmath>
+#include <cstring>
 #include <cstdio>
+#include <filesystem>
+#include <iostream>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -25,6 +28,7 @@
 #include <imgui_impl_opengl3.h>
 #include <imgui_impl_vulkan.h>
 #include <imgui_internal.h>
+#include <stb_image.h>
 
 #include "engine/render/D3D12RenderBackend.h"
 #include "engine/render/VulkanRenderBackend.h"
@@ -480,6 +484,92 @@ std::string text(std::string_view value) {
     return std::string(value.begin(), value.end());
 }
 
+ImVec4 brandColor(std::uint32_t hex, float alpha = 1.0f) {
+    return ImVec4(
+        static_cast<float>((hex >> 16u) & 0xffu) / 255.0f,
+        static_cast<float>((hex >> 8u) & 0xffu) / 255.0f,
+        static_cast<float>(hex & 0xffu) / 255.0f,
+        alpha);
+}
+
+std::filesystem::path editorBrandAsset(std::string_view name) {
+    char* base = SDL_GetBasePath();
+    if (!base) return {};
+    const auto path = std::filesystem::path(base) / "branding" / std::string(name);
+    SDL_free(base);
+    return path;
+}
+
+void setEditorWindowIcon(SDL_Window* window) {
+    const auto path = editorBrandAsset("phlosion-mark-64.png");
+    int width = 0;
+    int height = 0;
+    int components = 0;
+    stbi_set_flip_vertically_on_load_thread(false);
+    unsigned char* pixels = stbi_load(path.string().c_str(), &width, &height, &components, 4);
+    if (!pixels) {
+        std::cerr << "[Phlosion Editor] Missing window icon: " << path << '\n';
+        return;
+    }
+    SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormatFrom(
+        pixels, width, height, 32, width * 4, SDL_PIXELFORMAT_RGBA32);
+    if (surface) {
+        SDL_SetWindowIcon(window, surface);
+        SDL_FreeSurface(surface);
+    }
+    stbi_image_free(pixels);
+}
+
+bool addBrandLockup(ImFontAtlas* atlas, ImVec2& uvMin, ImVec2& uvMax) {
+    const auto path = editorBrandAsset("phlosion-lockup-cream-300.png");
+    int width = 0;
+    int height = 0;
+    int components = 0;
+    stbi_set_flip_vertically_on_load_thread(false);
+    unsigned char* pixels = stbi_load(path.string().c_str(), &width, &height, &components, 4);
+    if (!pixels || width != 300 || height != 115) {
+        std::cerr << "[Phlosion Editor] Missing or invalid brand lockup: " << path << '\n';
+        stbi_image_free(pixels);
+        return false;
+    }
+    const int index = atlas->AddCustomRectRegular(width, height);
+    unsigned char* atlasPixels = nullptr;
+    int atlasWidth = 0;
+    int atlasHeight = 0;
+    atlas->GetTexDataAsRGBA32(&atlasPixels, &atlasWidth, &atlasHeight);
+    const ImFontAtlasCustomRect* rect = atlas->GetCustomRectByIndex(index);
+    if (!atlasPixels || !rect->IsPacked()) {
+        stbi_image_free(pixels);
+        return false;
+    }
+    for (int row = 0; row < height; ++row) {
+        std::memcpy(
+            atlasPixels + (static_cast<std::size_t>(rect->Y + row) * atlasWidth + rect->X) * 4u,
+            pixels + static_cast<std::size_t>(row) * width * 4u,
+            static_cast<std::size_t>(width) * 4u);
+    }
+    atlas->TexPixelsUseColors = true;
+    atlas->CalcCustomRectUV(rect, &uvMin, &uvMax);
+    stbi_image_free(pixels);
+    return true;
+}
+
+void drawMenuBrand(bool lockupReady, ImVec2 uvMin, ImVec2 uvMax) {
+    if (lockupReady) {
+        const ImVec2 markUvMax(
+            uvMin.x + (uvMax.x - uvMin.x) * (115.0f / 300.0f),
+            uvMax.y);
+        ImGui::Image(
+            ImGui::GetIO().Fonts->TexID,
+            ImVec2(18.0f, 18.0f),
+            uvMin,
+            markUvMax);
+        ImGui::SameLine(0.0f, 6.0f);
+    }
+    ImGui::TextColored(brandColor(0xf7efd9), "Phlosion");
+    ImGui::SameLine(0.0f, 14.0f);
+}
+
 void applyPhlosionStyle() {
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
@@ -494,27 +584,40 @@ void applyPhlosionStyle() {
     style.ItemSpacing = ImVec2(8.0f, 6.0f);
 
     auto& colors = style.Colors;
-    colors[ImGuiCol_WindowBg] = ImVec4(0.045f, 0.052f, 0.061f, 0.97f);
-    colors[ImGuiCol_ChildBg] = ImVec4(0.055f, 0.063f, 0.073f, 0.94f);
-    colors[ImGuiCol_PopupBg] = ImVec4(0.050f, 0.058f, 0.067f, 0.98f);
-    colors[ImGuiCol_Border] = ImVec4(0.16f, 0.20f, 0.22f, 0.75f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.09f, 0.11f, 0.12f, 1.0f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.12f, 0.17f, 0.16f, 1.0f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.13f, 0.22f, 0.19f, 1.0f);
-    colors[ImGuiCol_TitleBg] = ImVec4(0.035f, 0.041f, 0.047f, 1.0f);
-    colors[ImGuiCol_TitleBgActive] = ImVec4(0.055f, 0.085f, 0.075f, 1.0f);
-    colors[ImGuiCol_MenuBarBg] = ImVec4(0.035f, 0.041f, 0.047f, 1.0f);
-    colors[ImGuiCol_Header] = ImVec4(0.11f, 0.28f, 0.22f, 0.85f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.14f, 0.38f, 0.29f, 0.90f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.16f, 0.46f, 0.34f, 1.0f);
-    colors[ImGuiCol_Button] = ImVec4(0.11f, 0.30f, 0.23f, 0.90f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.14f, 0.40f, 0.30f, 1.0f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.18f, 0.50f, 0.37f, 1.0f);
-    colors[ImGuiCol_Tab] = ImVec4(0.07f, 0.10f, 0.10f, 1.0f);
-    colors[ImGuiCol_TabHovered] = ImVec4(0.13f, 0.34f, 0.26f, 1.0f);
-    colors[ImGuiCol_TabSelected] = ImVec4(0.10f, 0.25f, 0.20f, 1.0f);
-    colors[ImGuiCol_DockingPreview] = ImVec4(0.18f, 0.64f, 0.43f, 0.70f);
-    colors[ImGuiCol_CheckMark] = ImVec4(0.30f, 0.88f, 0.57f, 1.0f);
+    colors[ImGuiCol_Text] = brandColor(0xf7efd9);
+    colors[ImGuiCol_TextDisabled] = brandColor(0x91a3b5);
+    colors[ImGuiCol_WindowBg] = brandColor(0x050b13);
+    colors[ImGuiCol_ChildBg] = brandColor(0x0b1826);
+    colors[ImGuiCol_PopupBg] = brandColor(0x0b1826);
+    colors[ImGuiCol_Border] = brandColor(0x284059);
+    colors[ImGuiCol_FrameBg] = brandColor(0x14273a);
+    colors[ImGuiCol_FrameBgHovered] = brandColor(0x203b55);
+    colors[ImGuiCol_FrameBgActive] = brandColor(0x284b6a);
+    colors[ImGuiCol_TitleBg] = brandColor(0x081421);
+    colors[ImGuiCol_TitleBgActive] = brandColor(0x0b1826);
+    colors[ImGuiCol_MenuBarBg] = brandColor(0x081421);
+    colors[ImGuiCol_ScrollbarBg] = brandColor(0x081421);
+    colors[ImGuiCol_ScrollbarGrab] = brandColor(0x284059);
+    colors[ImGuiCol_ScrollbarGrabHovered] = brandColor(0x365673);
+    colors[ImGuiCol_ScrollbarGrabActive] = brandColor(0x426a8c);
+    colors[ImGuiCol_Header] = brandColor(0x1b3b57);
+    colors[ImGuiCol_HeaderHovered] = brandColor(0x284b6a);
+    colors[ImGuiCol_HeaderActive] = brandColor(0x9d3b0d);
+    colors[ImGuiCol_Button] = brandColor(0x14273a);
+    colors[ImGuiCol_ButtonHovered] = brandColor(0x284b6a);
+    colors[ImGuiCol_ButtonActive] = brandColor(0x9d3b0d);
+    colors[ImGuiCol_Tab] = brandColor(0x0b1826);
+    colors[ImGuiCol_TabHovered] = brandColor(0x284b6a);
+    colors[ImGuiCol_TabSelected] = brandColor(0x1b3b57);
+    colors[ImGuiCol_TabSelectedOverline] = brandColor(0xff5a00);
+    colors[ImGuiCol_Separator] = brandColor(0x284059);
+    colors[ImGuiCol_SeparatorHovered] = brandColor(0xff5a00);
+    colors[ImGuiCol_SeparatorActive] = brandColor(0xff7b32);
+    colors[ImGuiCol_DockingPreview] = brandColor(0xff5a00, 0.70f);
+    colors[ImGuiCol_CheckMark] = brandColor(0xff5a00);
+    colors[ImGuiCol_SliderGrab] = brandColor(0xff5a00);
+    colors[ImGuiCol_SliderGrabActive] = brandColor(0xff7b32);
+    colors[ImGuiCol_NavCursor] = brandColor(0xffb41f);
 }
 
 const char* rendererPreferenceLabel(
@@ -686,6 +789,9 @@ struct EditorShell::Impl {
     RendererBackend rendererBackend =
         RendererBackend::OpenGL;
     bool ready = false;
+    bool brandLockupReady = false;
+    ImVec2 brandUvMin{};
+    ImVec2 brandUvMax{};
     bool firstLayout = true;
     int workflowTabsToFocus = 0;
     int selectedHierarchyItem = 0;
@@ -789,6 +895,9 @@ bool EditorShell::initialize(
         settingsIniPath ? settingsIniPath : "phlosion_editor.ini";
     io.IniFilename = impl_->settingsIniPath.c_str();
     applyPhlosionStyle();
+    setEditorWindowIcon(window);
+    impl_->brandLockupReady = addBrandLockup(
+        io.Fonts, impl_->brandUvMin, impl_->brandUvMax);
 
     const std::string_view backendId =
         renderer->backendId()
@@ -1122,6 +1231,10 @@ EditorShellActions EditorShell::drawProjectBrowser(
     ImGui::Begin("PhlosionProjectBrowserHost", nullptr, hostFlags);
     ImGui::PopStyleVar(3);
     if (ImGui::BeginMenuBar()) {
+        drawMenuBrand(
+            impl_->brandLockupReady,
+            impl_->brandUvMin,
+            impl_->brandUvMax);
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Open Project...", "Ctrl+O")) {
                 actions.openProject = true;
@@ -1152,7 +1265,7 @@ EditorShellActions EditorShell::drawProjectBrowser(
     const ImVec2 available = ImGui::GetContentRegionAvail();
     const ImVec2 cardSize(
         std::min(760.0f, std::max(420.0f, available.x - 80.0f)),
-        std::min(560.0f, std::max(320.0f, available.y - 80.0f)));
+        std::min(640.0f, std::max(320.0f, available.y - 80.0f)));
     ImGui::SetCursorPos(ImVec2(
         std::max(20.0f, (available.x - cardSize.x) * 0.5f),
         std::max(20.0f, (available.y - cardSize.y) * 0.5f)));
@@ -1164,34 +1277,48 @@ EditorShellActions EditorShell::drawProjectBrowser(
         ImVec2(28.0f, 24.0f));
     ImGui::PushStyleColor(
         ImGuiCol_ChildBg,
-        ImVec4(0.075f, 0.086f, 0.098f, 1.0f));
+        brandColor(0x0b1826));
     if (ImGui::BeginChild(
             "PhlosionProjectBrowserCard",
             cardSize,
             true,
             ImGuiWindowFlags_NoScrollbar)) {
-        ImGui::TextColored(
-            ImVec4(0.35f, 0.90f, 0.58f, 1.0f),
-            "PHLOSION");
-        ImGui::SameLine();
-        ImGui::TextDisabled("EDITOR");
+        if (impl_->brandLockupReady) {
+            const ImVec2 brandPosition = ImGui::GetCursorScreenPos();
+            ImGui::Image(
+                ImGui::GetIO().Fonts->TexID,
+                ImVec2(300.0f, 115.0f),
+                impl_->brandUvMin,
+                impl_->brandUvMax);
+            ImGui::GetWindowDrawList()->AddText(
+                ImVec2(brandPosition.x + 321.0f, brandPosition.y + 49.0f),
+                ImGui::GetColorU32(brandColor(0xff5a00)),
+                "EDITOR");
+        } else {
+            ImGui::TextColored(brandColor(0xff5a00), "PHLOSION EDITOR");
+        }
         ImGui::Spacing();
-        ImGui::SetWindowFontScale(1.45f);
-        ImGui::TextUnformatted("Create worlds. Open projects.");
+        ImGui::SetWindowFontScale(1.65f);
+        ImGui::TextUnformatted("Choose a project");
         ImGui::SetWindowFontScale(1.0f);
         ImGui::TextDisabled(
-            "The Engine owns this editor; each game remains a separate project.");
+            "Select a game to open its editor workspace.");
         ImGui::TextDisabled(
             "Renderer: %s",
             text(browser.backendName).c_str());
         ImGui::Spacing();
         ImGui::Spacing();
 
+        ImGui::PushStyleColor(ImGuiCol_Button, brandColor(0xff5a00));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, brandColor(0xff7b32));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, brandColor(0xd94800));
+        ImGui::PushStyleColor(ImGuiCol_Text, brandColor(0x050b13));
         if (ImGui::Button(
                 "Open Project...",
                 ImVec2(180.0f, 42.0f))) {
             actions.openProject = true;
         }
+        ImGui::PopStyleColor(4);
         ImGui::SameLine();
         ImGui::TextDisabled(
             "Choose a tracked phlosion.project.json");
@@ -1466,6 +1593,10 @@ EditorShellActions EditorShell::drawWorkspace(
         ImGuiDockNodeFlags_None);
 
     if (ImGui::BeginMenuBar()) {
+        drawMenuBrand(
+            impl_->brandLockupReady,
+            impl_->brandUvMin,
+            impl_->brandUvMax);
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Open Project...", "Ctrl+O")) {
                 actions.openProject = true;
@@ -3987,7 +4118,7 @@ EditorShellActions EditorShell::drawWorkspace(
         }
     }
     ImGui::TextColored(
-        ImVec4(0.35f, 0.90f, 0.58f, 1.0f),
+        brandColor(0xff5a00),
         "[Phlosion Editor]");
     ImGui::SameLine();
     ImGui::TextWrapped("%s", text(workspace.status).c_str());

@@ -450,12 +450,32 @@ if (PHLOSION_BUILD_EDITOR)
             PHLOSION_EDITOR_BUILD_CONFIGURATION="$<CONFIG>"
     )
     if (WIN32)
+        set(PHLOSION_EDITOR_ICON_RC
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/branding/phlosion-mark.ico")
+        configure_file(
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/editor/PhlosionEditor.rc.in"
+            "${CMAKE_CURRENT_BINARY_DIR}/generated/PhlosionEditor.rc"
+            @ONLY
+        )
+        target_sources(PhlosionEditor PRIVATE
+            "${CMAKE_CURRENT_BINARY_DIR}/generated/PhlosionEditor.rc")
         target_link_libraries(PhlosionEditor PRIVATE comdlg32)
     elseif (CMAKE_DL_LIBS)
         target_link_libraries(PhlosionEditor PRIVATE ${CMAKE_DL_LIBS})
     endif()
     set_target_properties(PhlosionEditor PROPERTIES
         VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+    add_custom_command(TARGET PhlosionEditor POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+            "$<TARGET_FILE_DIR:PhlosionEditor>/branding"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/editor/branding/phlosion-lockup-cream-300.png"
+            "$<TARGET_FILE_DIR:PhlosionEditor>/branding/phlosion-lockup-cream-300.png"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/editor/branding/phlosion-mark-64.png"
+            "$<TARGET_FILE_DIR:PhlosionEditor>/branding/phlosion-mark-64.png"
+        VERBATIM
     )
     phlosion_apply_settings(PhlosionEditor)
 

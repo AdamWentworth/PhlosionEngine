@@ -18,6 +18,32 @@ of the site's `public/brand/phlosion-mark.png`. The picker follows the site's
 dark palette (`#050b13`, `#0b1826`, cream `#f7efd9`, orange `#ff5a00`). These
 brand assets have the same ownership exception as the README lockups.
 
+The native editor uses resized copies of the same website assets in
+`src/engine/editor/branding/`: the cream horizontal lockup is 300 x 115 for the
+project browser and menu-bar mark, and the mark is 64 x 64 for the SDL window
+icon. The Windows executable embeds `tools/branding/phlosion-mark.ico` for
+Explorer and taskbar display. CMake copies the PNGs beside the editor executable
+at build time. Its shared ImGui skin uses the site's navy, cream, and orange
+palette; the project browser's Open Project action uses `#ff5a00`.
+
+The 2026-09-23 native editor branding check covered the project browser and the
+PokemonCyberpunk Outskirt battle workspace at matching frames on all three
+renderers:
+
+| Case | OpenGL | Vulkan | Direct3D 12 | Expected content |
+| --- | --- | --- | --- | --- |
+| Project browser | Pass | Pass | Pass | Site lockup, navy surfaces, orange Open Project button, native backend |
+| Outskirt workspace | Pass | Pass | Pass | Menu-bar mark, navy docked UI, battle HUD and VFX adapter |
+
+Local captures and the expected-content/image check are under
+`artifacts/editor-brand/`; the game workspace captures and handshakes are under
+PokemonCyberpunk's `artifacts/editor-setup/`. Excluding the renderer-name text
+and game viewport, the shared UI pixels matched exactly across the three APIs.
+The game viewport's OpenGL/Vulkan and OpenGL/D3D12 mean absolute errors were
+0.7080 and 0.8449, respectively, unchanged from the pre-branding captures.
+UI focus/text and engine contract tests passed. These local captures do not
+replace interaction checks in a visible editor window.
+
 `editor-project-preview.png` is an unchanged 1440 x 900 Direct3D 12 editor
 capture from 2026-09-19. It shows the engine hosting Pokemon Autochess's
 Flat Dirt Experiment and `Crowded Battle` setup while stopped in Game view.
