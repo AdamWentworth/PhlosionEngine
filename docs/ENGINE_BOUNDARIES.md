@@ -40,6 +40,11 @@ action names, text, drawing and the meaning of accept/cancel, and use its
 `blocksGameplay` result to gate their gameplay route. It does not define battle
 commands or dialogue content.
 
+The [runtime UI text layer](UI_TEXT_LAYOUT.md) validates project-supplied UTF-8
+string tables and computes bounded glyph placements from project-supplied font
+metrics. The engine does not own translations, font assets, dialogue rules or
+the battle HUD. Native drawing remains a separate presentation boundary.
+
 The [exploration camera rig](EXPLORATION_CAMERA.md) owns follow/orbit math,
 camera-relative movement and static-geometry obstruction queries. Authored
 settings are separate from each rig's runtime state. Projects choose targets,

@@ -25,6 +25,7 @@ No test in the current engine CTest suite needs a graphics context.
 | `PhlosionTriggerContracts` | Seven standalone real-geometry groups for discrete sensor Enter/Stay/Exit membership, precise overlap geometry, filters/metadata/order, teleport and failure preservation, removed/replaced sensors, character/world/thread ownership, capacity and repeated sequences |
 | `PhlosionInputContracts` | Six SDL-free groups for named action mapping, button/axis transitions, rebinding, deadzones, controller identity/selection, focus/enable recovery, bounds and thread ownership |
 | `PhlosionUiFocusContracts` | Spatial focus, disabled/dynamic items, keyboard/synthetic-controller action composition, held repeat, modal gating/rearm, activation/cancel precedence, transactional failures and thread ownership |
+| `PhlosionUiTextContracts` | Strict UTF-8, transactional string-table replacement, fallback metrics, analytic wrapping/scaling, explicit line breaks, unsupported text and preserved output on failure |
 | `PhlosionSdlInputContracts` | Three real SDL virtual-device groups for mapped-controller discovery, all 15 buttons/six axes, normalization, queued taps and event/poll duplicate observations, hotplug/disconnect, window focus filtering and subsystem/handle ownership |
 | `PhlosionCameraContracts` | Ten groups for exploration framing, delta/rate controls, follow/recovery damping, real sphere obstruction queries, validation/ownership, relative movement and repeated CPU input/character/camera composition |
 | `PhlosionBattleCameraContracts` | CPU battle camera framing at multiple aspects, impossible-shot rejection, cuts/blends/tracking, deterministic shake, reduced motion, reset, transactions and thread ownership |
@@ -89,6 +90,10 @@ The [runtime UI focus module](UI_FOCUS_NAVIGATION.md) has a standalone CPU
 executable linked to Input, without SDL or rendering. It checks keyboard and
 synthetic-controller action composition, but does not establish font coverage,
 native text/layout presentation or automatic gameplay action consumption.
+
+The [runtime UI text module](UI_TEXT_LAYOUT.md) also runs without a graphics
+context. Its synthetic metrics prove text-layout and fallback-selection math,
+not coverage of a real font, native glyph rasterization or cross-API images.
 
 The [battle camera](BATTLE_CAMERA.md) has a standalone CPU executable linked to
 Camera. It checks analytic perspective framing with independent projection,
@@ -189,6 +194,12 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-22, the M3-E [runtime UI text foundation](UI_TEXT_LAYOUT.md) added
+strict UTF-8 string tables and measured glyph placement. Its standalone CPU
+contract covers locale-table replacement, fallback metrics, wrapping, scaling,
+invalid text and output preservation. The full Debug build and all 23 CTest
+entries passed. No native text presentation claim is made.
 
 On 2026-09-22, the M3-D [runtime UI focus foundation](UI_FOCUS_NAVIGATION.md)
 passed the full 22-entry Debug CTest suite. After the final neutral-rearm

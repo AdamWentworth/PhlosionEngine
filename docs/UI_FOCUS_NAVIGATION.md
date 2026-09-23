@@ -34,8 +34,8 @@ selection, disabled/dynamic items, keyboard and synthetic-controller action
 composition, repeat timing, activation/cancel precedence, modal capture,
 rearming, invalid frames and thread ownership.
 
-This pass supplies no text layout or drawing. The existing `TextRenderer` still
-uses an OpenGL-only, byte-oriented glyph path, and `UIManager::drawCard` remains
-a stub. UTF-8 decoding, font coverage and fallback, wrapping, scaling, subtitle
-settings, native HUD presentation on all three APIs and game-specific dialogue
-and battle screens remain M3 work.
+The separate [M3-E text module](UI_TEXT_LAYOUT.md) supplies CPU layout and
+fallback selection. The existing `TextRenderer` still uses an OpenGL-only,
+byte-oriented glyph path, and `UIManager::drawCard` remains a stub. Actual font
+coverage, subtitle settings, native HUD presentation on all three APIs and
+game-specific dialogue and battle screens remain M3 work.

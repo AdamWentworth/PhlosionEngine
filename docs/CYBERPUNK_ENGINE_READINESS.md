@@ -487,6 +487,14 @@ UI contract passed again after the final rearm change. Text layout, cross-API
 drawing, battle HUD/dialogue integration and native image qualification remain
 open.
 
+### M3-E: runtime UI text foundation (CPU qualified 2026-09-22)
+
+The [text layout foundation](UI_TEXT_LAYOUT.md) adds validated UTF-8 string
+tables, measured wrapping/scaling and fallback-font selection in the CPU UI
+target. It does not change the current OpenGL-only text renderer. Actual fonts,
+native three-API text/HUD presentation and dialogue/subtitle integration remain
+open. The full 23-entry Debug CTest suite passed.
+
 ## Read this first
 
 **Design provenance.** The product direction below comes from a user-supplied
@@ -732,12 +740,12 @@ vehicle physics stay excluded.
 
 | Capability | Status | Evidence | Gap for this work |
 | --- | --- | --- | --- |
-| Text rendering | Partial | [TextRenderer.h](../src/engine/ui/TextRenderer.h): SDL_ttf glyph cache keyed by `unsigned char` | Single-byte glyph path: no UTF-8 decoding, fallback fonts, wrapping or shaping; dialogue needs robust text layout |
-| Immediate UI primitives | Partial; M3-D adds CPU focus routing | [UI focus](UI_FOCUS_NAVIGATION.md) handles named actions, directional focus, repeats and modal rearm; [UIManager.h](../src/engine/ui/UIManager.h) still marks `drawCard` as a stub | No text layout, widget drawing or native battle/dialogue HUD; gameplay gating uses the caller's `blocksGameplay` result |
+| Text rendering | M3-E CPU layout foundation; native path partial | [UI text](UI_TEXT_LAYOUT.md) validates UTF-8 and supplies wrapped, scaled codepoint positions with fallback-font indices; [TextRenderer.h](../src/engine/ui/TextRenderer.h) remains byte-oriented and OpenGL-only | Real font coverage, shaping and all-three-API text drawing/HUD qualification remain |
+| Immediate UI primitives | Partial; M3-D/E add CPU focus and text layout | [UI focus](UI_FOCUS_NAVIGATION.md) handles named actions, directional focus, repeats and modal rearm; [UI text](UI_TEXT_LAYOUT.md) computes glyph placement; [UIManager.h](../src/engine/ui/UIManager.h) still marks `drawCard` as a stub | No widget drawing or native battle/dialogue HUD; gameplay gating uses the caller's `blocksGameplay` result |
 | In-editor UI | Implemented | Dear ImGui docking in [EditorShell.h](../src/engine/editor/EditorShell.h), per [EDITOR_ARCHITECTURE.md](EDITOR_ARCHITECTURE.md) | Editor-only, not a shipping game UI stack |
-| Dialogue presentation hooks | Not found in inspected scope | No dialogue, typewriter or portrait API in engine source | Kept game-owned by the recovered plan; engine needs reliable text layout and UI input to support it |
+| Dialogue presentation hooks | Not found in inspected scope | No dialogue, typewriter or portrait API in engine source | Kept game-owned by the recovered plan; CPU text/focus foundations need native UI integration |
 | Accessibility (text scale, contrast, motion) | Planned-only | Listed as future menu items in the [Autochess graphics roadmap](../../../Games/PokemonAutochess/docs/DISPLAY_GRAPHICS_ROADMAP.md) | Not found in engine source |
-| Localization | Not found in inspected scope | Search for `localiz`, `locale`, `translat`, `utf8`, `unicode`: one asset-path comment in [AssetPackFormat.h](../src/engine/core/AssetPackFormat.h) | No string table, locale switching or font coverage |
+| Localization | Generic string ID table in M3-E | [UI text](UI_TEXT_LAYOUT.md) atomically replaces project-supplied ID-to-UTF-8 text values | Locale selection, formatting/pluralization, shipped fonts and content qualification remain project work |
 
 ### Scripting and reflection
 
@@ -924,7 +932,8 @@ Progress: M3-A adds an [asset-independent animation blend foundation](ANIMATION_
 with crossfades, masked override layers, timed event collection and public glTF
 skin-palette integration. M3-B adds [parameter-driven state](ANIMATION_STATE_MACHINE.md).
 M3-C begins the [battle camera](BATTLE_CAMERA.md) with a CPU rig. M3-D adds
-[runtime UI focus routing](UI_FOCUS_NAVIGATION.md) on the CPU.
+[runtime UI focus routing](UI_FOCUS_NAVIGATION.md) on the CPU. M3-E begins
+[text layout and string IDs](UI_TEXT_LAYOUT.md) on the CPU.
 Battle systems, roster qualification and the end-to-end exit gate remain.
 
 - blending, crossfade, layers, parameter-driven state and animation events,
