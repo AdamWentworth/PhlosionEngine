@@ -626,7 +626,7 @@ Vulkan and D3D12 at 16:9 and 21:9 (112 parity comparisons).
 The opt-in battle preview can draw cropped status-panel and command art from
 Colosseum's `fight_common.fsys/menu_048.gtx` sheet, decoded to a private PNG by
 the GameCube research recipes. Scripted health fills remain code-driven. The
-fixture loads the game-owned `PokemonCyberpunkPhlosion` module through a
+fixture loads the game-owned `PokemonCyberpunk` module through a
 versioned battle-preview hook. That module binds the impact marker to
 PhlosionVFX's `EffectHost` and shared all-backend submission path, rendering a
 temporary world-space glow and clearing it on stop, cancel, skip and exit.
