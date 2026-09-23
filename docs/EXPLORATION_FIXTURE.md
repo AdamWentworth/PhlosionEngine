@@ -32,12 +32,16 @@ $env:PHLOSION_EXPLORATION_CASE = 'outskirt'
 The project descriptor lives in the private depot. The plugin contains no
 private binary asset paths. The scene draws the recovered
 environment and Wes through the shared glTF renderer. Wes's source-confirmed
-idle/walk/run clip slots are chosen from character velocity. The fixture uses
-a provisional floor, stand/blocker and approach-trigger collider table; this
+idle/walk/run clip slots are chosen from character velocity. The fixture builds
+static triangle collision from four named recovered outdoor meshes: ground,
+paved forecourt, raised train ramp and train body. It rejects missing nodes or
+excessively degenerate geometry, and keeps authored train-side blockers and an
+approach trigger where the render mesh cannot supply gameplay collision. This
 is not extracted game collision. Source materials are converted to the engine's
 opaque material subset and 256-pixel images. The private research guide at
 `D:/Projects/Research/PokemonGCAssetResearch/docs/colosseum/OUTSKIRT_STAND.md`
-records source hashes, conversion limits and the 18 native idle/walk/run captures.
+records source hashes, conversion limits, collision audit and the native
+idle/walk/run/ramp/wall captures.
 Neither the final M2 scene gate nor the M3 double-battle gate is closed by this
 preview.
 

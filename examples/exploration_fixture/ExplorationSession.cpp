@@ -1,13 +1,69 @@
 #include "ExplorationSession.h"
 #include "engine/core/Environment.h"
+#include "engine/render/gltf/GltfSceneAsset.h"
 #include <glm/gtc/quaternion.hpp>
 #include <algorithm>
+#include <array>
 #include <stdexcept>
 
 namespace engine::exploration_fixture {
 namespace {
 void require(bool ok, const std::string& error) { if (!ok) throw std::runtime_error(error); }
 nlohmann::json vec(glm::vec3 v) { return {v.x, v.y, v.z}; }
+void addOutskirtSurfaceCollision(collision::CollisionWorld& world) {
+    using namespace render::gltf::scene;
+    const auto path = env::get("PHLOSION_OUTSKIRT_ENVIRONMENT_GLB");
+    require(path && !path->empty(), "Outskirt collision requires PHLOSION_OUTSKIRT_ENVIRONMENT_GLB");
+    std::shared_ptr<const GltfSceneAsset> asset;
+    std::string error;
+    const bool loaded = loadGltfSceneAsset(*path, asset, &error);
+    require(loaded, error);
+    GltfScenePose pose;
+    const bool sampled = sampleGltfScenePose(asset, 0, kBindPoseClip, pose, &error);
+    require(sampled, error);
+    // These separate recovered mesh nodes contain the ground, paved forecourt,
+    // raised train ramp and train body. Keep the provisional trigger authored.
+    constexpr std::array<const char*, 4> names{
+        "S1_out_mesh_1.001", "S1_out_mesh_007",
+        "S1_out_mesh_0.002", "S1_out_mesh_094"};
+    for (std::size_t meshIndex = 0; meshIndex < names.size(); ++meshIndex) {
+        const GltfScenePrimitive* selected = nullptr;
+        for (const auto& primitive : asset->primitives) {
+            if (asset->nodes.at(static_cast<std::size_t>(primitive.nodeIndex)).name == names[meshIndex]) {
+                require(selected == nullptr, std::string("duplicate Outskirt collision node: ") + names[meshIndex]);
+                selected = &primitive;
+            }
+        }
+        require(selected != nullptr, std::string("missing Outskirt collision node: ") + names[meshIndex]);
+        const glm::mat4& transform = pose.global.at(static_cast<std::size_t>(selected->nodeIndex));
+        std::vector<glm::vec3> vertices;
+        vertices.reserve(selected->vertices.size());
+        for (const auto& vertex : selected->vertices)
+            vertices.emplace_back(transform * glm::vec4(vertex.x, vertex.y, vertex.z, 1.0f));
+        std::vector<std::uint32_t> indices;
+        indices.reserve(selected->indices.size());
+        std::size_t degenerate = 0;
+        for (std::size_t index = 0; index < selected->indices.size(); index += 3) {
+            const auto a = selected->indices[index];
+            const auto b = selected->indices[index + 1];
+            const auto c = selected->indices[index + 2];
+            const glm::vec3 cross = glm::cross(vertices[b] - vertices[a], vertices[c] - vertices[a]);
+            if (glm::dot(cross, cross) <= 1.0e-12f) {
+                ++degenerate;
+                continue;
+            }
+            indices.insert(indices.end(), {a, b, c});
+        }
+        require(!indices.empty() && degenerate * 10 <= selected->indices.size() / 3,
+                std::string(names[meshIndex]) + ": excessive degenerate collision triangles (" +
+                std::to_string(degenerate) + ")");
+        collision::StaticColliderDesc desc;
+        desc.userData = meshIndex + 1;
+        collision::ColliderId collider;
+        const bool added = world.addTriangleMesh(desc, vertices, indices, collider, &error);
+        require(added, std::string(names[meshIndex]) + ": " + error);
+    }
+}
 }
 const std::vector<CourseBox>& course() {
     static const std::vector<CourseBox> boxes{
@@ -27,12 +83,12 @@ const std::vector<CourseBox>& course() {
     return boxes;
 }
 const std::vector<CourseBox>& outskirtCourse() {
-    // Provisional collision proxy in glTF Y-up coordinates, based on the
-    // recovered S1_out geometry. It is intentionally separate from the mesh.
+    // Gameplay trigger and train-side blockers stay authored. The center gap
+    // leaves the recovered ramp and cabin threshold traversable.
     static const std::vector<CourseBox> boxes{
-        {"forecourt", {0,-.25f,0}, {55,.25f,55}, 0, 0},
-        {"stand-and-train", {2.7f,2.0f,-3.2f}, {6.5f,2.0f,4.0f}, 0, 1},
-        {"approach", {-2,.2f,1.0f}, {1.5f,.2f,1.0f}, 0, 6, true}
+        {"approach", {-2,.2f,1.0f}, {1.5f,.2f,1.0f}, 0, 6, true},
+        {"train-right", {4.5f,1.5f,-3.15f}, {4.8f,1.5f,4.0f}, 0, 1},
+        {"train-left", {-3.2f,1.5f,-3.15f}, {.5f,1.5f,4.0f}, 0, 1}
     };
     return boxes;
 }
@@ -78,7 +134,8 @@ ExplorationSession::ExplorationSession(std::string name, bool automation, camera
     require(actions_.define({"look", ActionKind::Axis2D,{StickBinding{GamepadStick::Right}}},&error),error);
     require(actions_.define({"zoom", ActionKind::Axis1D,{ButtonBinding{GamepadButton::LeftShoulder,{-1,0}},ButtonBinding{GamepadButton::RightShoulder,{1,0}}}},&error),error);
     actions_.setEnabled(false);
-    std::uint64_t id = 1;
+    if (case_ == "outskirt") addOutskirtSurfaceCollision(world_);
+    std::uint64_t id = case_ == "outskirt" ? 100 : 1;
     for (const auto& box : case_ == "outskirt" ? outskirtCourse() : course()) {
         collision::StaticColliderDesc d; d.position = box.center; d.rotation = glm::angleAxis(box.pitch,glm::vec3(1,0,0)); d.sensor = box.sensor; d.userData = id++;
         collision::ColliderId collider; require(world_.addBox(d,box.half,collider,&error),error);
