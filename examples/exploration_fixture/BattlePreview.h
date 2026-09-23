@@ -1,6 +1,8 @@
 #pragma once
 
 #include "BattleSequence.h"
+#include "BattleHudAtlas.h"
+#include "BattleVfxPlugin.h"
 #include "engine/audio/AudioMixer.h"
 #include "engine/audio/SdlAudioOutput.h"
 #include "engine/camera/BattleCamera.h"
@@ -38,6 +40,8 @@ private:
     camera::BattleCameraRig camera_;
     camera::BattleCameraPose cameraPose_;
     BattleSequence sequence_;
+    BattleHudAtlas hudAtlas_;
+    BattleVfxPlugin vfxPlugin_;
     audio::AudioMixer mixer_;
     audio::SdlAudioOutput audioOutput_;
     std::shared_ptr<const audio::AudioClip> impactClip_;

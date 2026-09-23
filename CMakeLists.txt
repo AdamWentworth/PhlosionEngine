@@ -788,8 +788,10 @@ endif()
 
 if (PHLOSION_BUILD_EXPLORATION_FIXTURE)
     add_library(exploration_fixture STATIC
+        examples/exploration_fixture/BattleHudAtlas.cpp
         examples/exploration_fixture/BattlePreview.cpp
         examples/exploration_fixture/BattleSequence.cpp
+        examples/exploration_fixture/BattleVfxPlugin.cpp
         examples/exploration_fixture/ExplorationSession.cpp
         examples/exploration_fixture/ExplorationPresentation.cpp)
     target_include_directories(exploration_fixture PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/examples/exploration_fixture")

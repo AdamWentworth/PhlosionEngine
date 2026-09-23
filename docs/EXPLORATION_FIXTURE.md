@@ -73,8 +73,8 @@ through the SDL audio device. Hidden capture runs use the same mixer with a null
 sink; set `PHLOSION_BATTLE_AUDIO_OUTPUT=1` to exercise a hidden run with an SDL
 dummy device. If opening or queuing the device fails, playback continues through
 the null sink and logs the device error. Physical audibility still needs a
-listening check. The PhlosionVFX effect host, battle rules and a production HUD
-remain separate integration work. The private runner captures eight phases,
+listening check. Battle rules and a production HUD remain separate integration
+work. The private runner captures eight phases,
 including the three cleanup routes, at both target aspect ratios in runtime
 and editor.
 The 96 native captures pass expected actor, field, HUD, flash and cleanup
@@ -82,6 +82,23 @@ checks on OpenGL, Vulkan and D3D12. All 48 matching runtime/editor viewport
 pairs are pixel-identical; the 64 cross-API comparisons have maximum MAE
 0.892/255 against the unchanged 1.0 limit. The machine-readable report and
 images are in the private Outskirt depot.
+
+For the provisional Colosseum presentation, set `PHLOSION_BATTLE_HUD_PNG` to
+the private decoded `fight_common.fsys/menu_048.gtx` sheet (520×190 RGBA PNG).
+The preview crops source status-panel and A/B command art, then draws scripted
+health fills over it. Set `PHLOSION_BATTLE_VFX_PLUGIN` to the game-owned
+`CyberpunkBattleVfx.dll`; it maps the impact cue into PhlosionVFX's `EffectHost`
+and submits a temporary world-space glow through the shared VFX render path.
+The public fallback bars and flash remain available without these inputs.
+The private `run_battle_presentation_native.ps1` runner and verifier exercise
+runtime and editor, both aspect ratios, eight phases and all three APIs. The
+recovered sheet supplies framing only; names, HP numerals, localized command
+text, final characters and authored move effects remain game work.
+The 96-capture matrix passes 112 parity comparisons with maximum cross-API
+MAE 0.9675/255 (limit 1.0); all 48 runtime/editor viewport pairs are exact.
+The verifier checks the borrowed panel/command pixels, scripted health change,
+projected glow and cleanup. Without the private inputs, the previous OpenGL
+impact image is pixel-identical.
 
 Configure `PHLOSION_BUILD_EXPLORATION_FIXTURE=ON`, then build Debug. The engine
 aggregate does not gain a collision/camera dependency. The sample links those

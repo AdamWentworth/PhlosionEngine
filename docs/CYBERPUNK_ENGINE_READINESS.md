@@ -621,6 +621,26 @@ automatic exit with the dummy device, and missing-device fallback. The unchanged
 eight-phase native matrix passes all 96 runtime/editor captures on OpenGL,
 Vulkan and D3D12 at 16:9 and 21:9 (112 parity comparisons).
 
+### M3-M: recovered battle HUD and provisional VFX binding (2026-09-22)
+
+The opt-in battle preview can draw cropped status-panel and command art from
+Colosseum's `fight_common.fsys/menu_048.gtx` sheet, decoded to a private PNG by
+the GameCube research recipes. Scripted health fills remain code-driven. The
+fixture loads the game-owned `PokemonCyberpunkPhlosion` module through a
+versioned battle-preview hook. That module binds the impact marker to
+PhlosionVFX's `EffectHost` and shared all-backend submission path, rendering a
+temporary world-space glow and clearing it on stop, cancel, skip and exit.
+The unconfigured public fixture retains its debug bars and flash. The game
+module contains no extracted content. This pass does not add battle names,
+numerical HP, move selection, authored move effects or final characters.
+The private native matrix passes 96 runtime/editor captures and 112 parity
+comparisons across OpenGL, Vulkan and D3D12 at 16:9 and 21:9. All 48 matching
+runtime/editor viewports are pixel-identical; maximum cross-API MAE is
+0.9675/255 against the unchanged 1.0 limit. The verifier checks recovered HUD
+content, projected impact glow and cancel/skip/exit cleanup. The old no-asset
+OpenGL impact capture remains pixel-identical. The research guide records
+source provenance and the machine-readable report.
+
 ## Read this first
 
 **Design provenance.** The product direction below comes from a user-supplied
@@ -1068,6 +1088,8 @@ in the Outskirt preview. M3-J adds a native provisional battle-field camera
 preview with four actor stand-ins. M3-K adds a fixed-tick encounter cue
 sequence with temporary HUD, audio-mixer and flash bindings plus cleanup.
 M3-L connects its generated cue to the SDL output adapter in interactive hosts.
+M3-M adds the private recovered battle-HUD presentation and a game-owned
+PhlosionVFX impact adapter to the provisional encounter.
 Battle systems, roster qualification and the end-to-end exit gate remain.
 
 - blending, crossfade, layers, parameter-driven state and animation events,

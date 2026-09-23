@@ -54,7 +54,10 @@ std::array<camera::BattleCameraTarget, 4> targets() {
 }
 } // namespace
 
-BattlePreview::BattlePreview(bool audioOutput) : audioOutput_(mixer_) {
+BattlePreview::BattlePreview(bool audioOutput)
+    : hudAtlas_(env::get("PHLOSION_BATTLE_HUD_PNG").value_or("")),
+      vfxPlugin_(env::get("PHLOSION_BATTLE_VFX_PLUGIN").value_or("")),
+      audioOutput_(mixer_) {
     const auto fieldPath = env::get("PHLOSION_OUTSKIRT_BATTLE_GLB");
     const auto wesPath = env::get("PHLOSION_OUTSKIRT_WES_GLB");
     require(fieldPath && !fieldPath->empty() && wesPath && !wesPath->empty(),
@@ -113,10 +116,14 @@ void BattlePreview::dispatch(BattleCue cue) {
         require(mixer_.play(impactClip_, options, voice, &error), error);
     } else if (cue == BattleCue::ImpactEffect) {
         activeEffect_ = true;
+        vfxPlugin_.spawnImpact(slots[3].position.x, slots[3].position.y + .9f,
+                               slots[3].position.z);
     } else if (cue == BattleCue::EffectStop) {
         activeEffect_ = false;
+        vfxPlugin_.stopAll();
     } else if (cue == BattleCue::Cleanup) {
         audioOutput_.stopAll();
+        vfxPlugin_.stopAll();
         lastAudioPeak_ = 0.0f;
         camera_.reset();
         activeEffect_ = false;
@@ -127,6 +134,7 @@ void BattlePreview::dispatch(BattleCue cue) {
 void BattlePreview::reset() {
     sequence_.reset();
     audioOutput_.stopAll();
+    vfxPlugin_.stopAll();
     mixer_.reset();
     camera_.reset();
     activeEffect_ = false;
@@ -205,6 +213,7 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
             std::cerr << "[BattlePreview] Audio device lost; using null sink: " << error << '\n';
         }
         lastAudioPeak_ = audioOutput_.lastPeak();
+        vfxPlugin_.step(battleFixedDelta);
     }
     Camera3D camera(cameraPose_.verticalFovDegrees,
                     static_cast<float>(width) / height,
@@ -268,23 +277,48 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
                                                   options, stats, &error);
         require(drewActor, error);
     }
+    BattleVfxFrame effectFrame;
+    effectFrame.renderer = &renderer;
+    effectFrame.viewProjection = glm::value_ptr(viewProjection);
+    effectFrame.cameraPosition[0] = cameraPose_.position.x;
+    effectFrame.cameraPosition[1] = cameraPose_.position.y;
+    effectFrame.cameraPosition[2] = cameraPose_.position.z;
+    effectFrame.cameraRight[0] = cameraPose_.right.x;
+    effectFrame.cameraRight[1] = cameraPose_.right.y;
+    effectFrame.cameraRight[2] = cameraPose_.right.z;
+    effectFrame.cameraUp[0] = cameraPose_.up.x;
+    effectFrame.cameraUp[1] = cameraPose_.up.y;
+    effectFrame.cameraUp[2] = cameraPose_.up.z;
+    effectFrame.cameraForward[0] = cameraPose_.forward.x;
+    effectFrame.cameraForward[1] = cameraPose_.forward.y;
+    effectFrame.cameraForward[2] = cameraPose_.forward.z;
+    effectFrame.width = width;
+    effectFrame.height = height;
+    vfxPlugin_.render(effectFrame);
 }
 
 void BattlePreview::drawOverlay(IRenderBackend& renderer, int width, int height) const {
     if (!sequence_.state().hudVisible) return;
+    hudAtlas_.draw(renderer, width, height);
     std::array<IRenderBackend::DebugQuad, 10> quads{};
     std::size_t count = 0;
-    const float panelWidth = std::min(180.0f, width * .24f);
+    const float panelWidth = hudAtlas_.available() ? 150.0f : std::min(180.0f, width * .24f);
     for (std::size_t index = 0; index < slots.size(); ++index) {
-        const float x = index < 2 ? 12.0f : width - panelWidth - 12.0f;
-        const float y = height - 50.0f + (index % 2) * 18.0f;
-        quads[count++] = {x, y, panelWidth, 12.0f, .04f, .06f, .09f, 1.0f};
-        quads[count++] = {x + 3.0f, y + 3.0f,
-                          (panelWidth - 6.0f) * sequence_.state().health[index], 6.0f,
+        const float x = hudAtlas_.available()
+            ? (index % 2 == 0 ? 37.0f : width - 187.0f)
+            : (index < 2 ? 12.0f : width - panelWidth - 12.0f);
+        const float y = hudAtlas_.available()
+            ? (index < 2 ? height - 39.0f : 83.0f)
+            : height - 50.0f + (index % 2) * 18.0f;
+        const float pad = hudAtlas_.available() ? 2.0f : 3.0f;
+        quads[count++] = {x, y, panelWidth, hudAtlas_.available() ? 10.0f : 12.0f,
+                          .04f, .06f, .09f, 1.0f};
+        quads[count++] = {x + pad, y + pad,
+                          (panelWidth - pad * 2.0f) * sequence_.state().health[index], 6.0f,
                           index < 2 ? .15f : .8f, index < 2 ? .8f : .55f,
                           .25f, 1.0f};
     }
-    if (activeEffect_ && sequence_.state().effectVisible)
+    if (!vfxPlugin_.available() && activeEffect_ && sequence_.state().effectVisible)
         quads[count++] = {width * .5f + 80.0f, height * .5f - 45.0f,
                           14.0f, 14.0f, 1.0f, .75f, .2f, 1.0f};
     renderer.drawDebugQuads(quads.data(), count, width, height);
@@ -316,7 +350,9 @@ nlohmann::json BattlePreview::state(int tick, std::array<int, 4> viewport) const
                            {"cancelled", encounter.cancelled}, {"skipped", encounter.skipped},
                            {"hud_visible", encounter.hudVisible},
                            {"effect_visible", encounter.effectVisible},
-                           {"vfx_active", activeEffect_},
+                           {"vfx_active", vfxPlugin_.available()
+                                               ? vfxPlugin_.activeCount() > 0 : activeEffect_},
+                           {"vfx_adapter", vfxPlugin_.available()},
                            {"gesture_clip", encounter.gestureClip},
                            {"health", encounter.health},
                            {"audio_voices", mixer_.activeVoices()},
