@@ -24,6 +24,7 @@
 #include <glm/glm.hpp>
 
 #include "engine/render/ModelAnimationTypes.h"
+#include "engine/render/AnimationBlend.h"
 #include "engine/render/RenderBackendTypes.h"
 
 namespace engine { class IAssetStore; }
@@ -194,6 +195,14 @@ bool sampleGltfScenePose(const std::shared_ptr<const GltfSceneAsset>& asset,
                          int clipIndex,
                          GltfScenePose& out,
                          std::string* error = nullptr);
+
+// Blend sampled local poses, then rebuild the same mesh-relative skin palettes
+// consumed by drawGltfSceneAsset. A failed blend leaves `out` unchanged.
+bool sampleGltfSceneBlendedPose(
+    const std::shared_ptr<const GltfSceneAsset>& asset,
+    const engine::render::animation::PoseBlendRequest& request,
+    GltfScenePose& out,
+    std::string* error = nullptr);
 
 // True when the pose belongs to the given asset generation.
 bool gltfScenePoseMatchesAsset(const GltfSceneAsset& asset,

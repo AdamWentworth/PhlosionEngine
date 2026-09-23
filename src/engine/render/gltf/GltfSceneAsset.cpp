@@ -2374,15 +2374,59 @@ bool loadGltfSceneAsset(const engine::IAssetStore& store, const std::string& pat
     }
 }
 
+namespace {
+
+bool buildPosePalettes(const GltfSceneAsset& asset,
+                       GltfScenePose& pose,
+                       std::string* error) {
+    const auto fail = [&](std::string message) {
+        if (error != nullptr) {
+            *error = std::move(message);
+        }
+        return false;
+    };
+    for (const auto& matrix : pose.global) {
+        if (!finite(matrix)) return fail("sampled node transform is not finite");
+    }
+    pose.palettes.resize(asset.primitives.size());
+    for (std::size_t primitiveIndex = 0u;
+         primitiveIndex < asset.primitives.size();
+         ++primitiveIndex) {
+        const GltfScenePrimitive& primitive = asset.primitives[primitiveIndex];
+        if (primitive.skinIndex < 0) continue;
+        const auto& skin = asset.skins[static_cast<std::size_t>(primitive.skinIndex)];
+        const std::size_t nodeIndex = static_cast<std::size_t>(primitive.nodeIndex);
+        const glm::mat4& meshGlobal = pose.global[nodeIndex];
+        const float determinant = glm::determinant(meshGlobal);
+        if (!std::isfinite(determinant) || std::fabs(determinant) < 1e-12f)
+            return fail("the mesh node transform for primitive " +
+                        std::to_string(primitiveIndex) + " is not invertible");
+        const glm::mat4 inverseMesh = glm::inverse(meshGlobal);
+        std::vector<glm::mat4>& palette = pose.palettes[primitiveIndex];
+        palette.resize(skin.joints.size());
+        for (std::size_t joint = 0u; joint < skin.joints.size(); ++joint) {
+            const std::size_t jointNode = static_cast<std::size_t>(skin.joints[joint]);
+            const glm::mat4 matrix = inverseMesh * pose.global[jointNode] *
+                                     skin.inverseBind[joint];
+            if (!finite(matrix))
+                return fail("the skin palette for primitive " +
+                            std::to_string(primitiveIndex) + " joint " +
+                            std::to_string(joint) + " is not finite");
+            palette[joint] = matrix;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
 bool sampleGltfScenePose(const std::shared_ptr<const GltfSceneAsset>& asset,
                          float timeSec,
                          int clipIndex,
                          GltfScenePose& out,
                          std::string* error) {
     const auto fail = [&](std::string message) {
-        if (error != nullptr) {
-            *error = std::move(message);
-        }
+        if (error != nullptr) *error = std::move(message);
         return false;
     };
     if (!asset) {
@@ -2419,46 +2463,7 @@ bool sampleGltfScenePose(const std::shared_ptr<const GltfSceneAsset>& asset,
                                           pose.local,
                                           pose.global);
 
-    for (const auto& matrix : pose.global) {
-        if (!finite(matrix)) return fail("sampled node transform is not finite");
-    }
-
-    pose.palettes.resize(asset->primitives.size());
-    for (std::size_t primitiveIndex = 0u;
-         primitiveIndex < asset->primitives.size();
-         ++primitiveIndex) {
-        const GltfScenePrimitive& primitive = asset->primitives[primitiveIndex];
-        if (primitive.skinIndex < 0) {
-            continue;
-        }
-        const auto& skin =
-            asset->skins[static_cast<std::size_t>(primitive.skinIndex)];
-        const std::size_t nodeIndex =
-            static_cast<std::size_t>(primitive.nodeIndex);
-        const glm::mat4& meshGlobal = pose.global[nodeIndex];
-        const float determinant = glm::determinant(meshGlobal);
-        if (!std::isfinite(determinant) ||
-            std::fabs(determinant) < 1e-12f) {
-            return fail("the mesh node transform for primitive " +
-                        std::to_string(primitiveIndex) +
-                        " is not invertible");
-        }
-        const glm::mat4 inverseMesh = glm::inverse(meshGlobal);
-        std::vector<glm::mat4>& palette = pose.palettes[primitiveIndex];
-        palette.resize(skin.joints.size());
-        for (std::size_t joint = 0u; joint < skin.joints.size(); ++joint) {
-            const std::size_t jointNode =
-                static_cast<std::size_t>(skin.joints[joint]);
-            glm::mat4 matrix = inverseMesh * pose.global[jointNode] *
-                               skin.inverseBind[joint];
-            if (!finite(matrix)) {
-                return fail("the skin palette for primitive " +
-                            std::to_string(primitiveIndex) + " joint " +
-                            std::to_string(joint) + " is not finite");
-            }
-            palette[joint] = matrix;
-        }
-    }
+    if (!buildPosePalettes(*asset, pose, error)) return false;
 
     const auto finished = std::chrono::steady_clock::now();
     pose.sampleSeconds =
@@ -2467,6 +2472,35 @@ bool sampleGltfScenePose(const std::shared_ptr<const GltfSceneAsset>& asset,
     if (error != nullptr) {
         error->clear();
     }
+    return true;
+}
+
+bool sampleGltfSceneBlendedPose(
+    const std::shared_ptr<const GltfSceneAsset>& asset,
+    const engine::render::animation::PoseBlendRequest& request,
+    GltfScenePose& out,
+    std::string* error) {
+    if (!asset) {
+        if (error) *error = "cannot blend a pose without a glTF scene asset";
+        return false;
+    }
+    const auto started = std::chrono::steady_clock::now();
+    const engine::render::animation::PoseSource source{
+        asset->nodesDefault, asset->nodeChildren, asset->sceneRoots,
+        asset->skins, asset->animations, asset->nodeNames};
+    GltfScenePose pose;
+    if (!engine::render::animation::blendPose(
+            source, request, pose.local, pose.global, error)) return false;
+    pose.assetIdentity = asset->sourceIdentity;
+    pose.assetGeneration = asset->generation;
+    pose.clipIndex = request.baseClipIndex;
+    pose.timeSec = request.baseClipIndex == kBindPoseClip
+                       ? 0.0f : request.baseTimeSec;
+    if (!buildPosePalettes(*asset, pose, error)) return false;
+    pose.sampleSeconds = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - started).count();
+    out = std::move(pose);
+    if (error) error->clear();
     return true;
 }
 

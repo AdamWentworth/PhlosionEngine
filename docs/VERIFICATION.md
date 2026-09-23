@@ -31,7 +31,7 @@ No test in the current engine CTest suite needs a graphics context.
 | `PhlosionSdlExtensionValid` | Plugin probe accepts the sample's separate versioned SDL callback table |
 | `PhlosionSdlExtensionMalformed` | Plugin probe rejects a present truncated SDL callback table before reading callbacks |
 | `PhlosionSdlExtensionAbsent` | Plugin probe accepts the existing scene plugin through the unchanged legacy contract |
-| `PhlosionEngineContracts` | Thirty-two C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, real PNG/JPEG texture decoding and role fallbacks, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, model-cache sampler codec/version identity, owned CPU glTF scene validation/retention and renderer preflight, archive-backed glTF worker sessions, GPU resource-scope state/accounting, animation/material/integrated-scene content and lifecycle evidence guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
+| `PhlosionEngineContracts` | Thirty-three C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, real PNG/JPEG texture decoding and role fallbacks, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, M3 crossfades/masked override layers/timed events, model-cache sampler codec/version identity, owned CPU glTF scene validation/retention and renderer preflight, archive-backed glTF worker sessions, GPU resource-scope state/accounting, animation/material/integrated-scene content and lifecycle evidence guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
 | `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
 | `PhlosionMaterialDebugViewContract` | Material debug-view source contract |
@@ -176,6 +176,18 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-22, the M3-A [animation blend foundation](ANIMATION_BLEND.md)
+passed the full 20-entry configured CTest suite, including CPU pose/event
+contracts and an analytic blended glTF skin-palette check. The updated
+animation fixture's 42 native captures passed across the
+standalone runtime and actual editor on OpenGL, Vulkan and Direct3D 12. Its
+matrix reports zero failures in 42 expected-content entries, 42 pairwise
+renderer comparisons and 54 cross-case checks. The hermetic negative-evidence
+harness passed. Captures, handshakes, logs and matrix are retained locally in
+`artifacts/m3-a/native-20260922/`. This qualifies the public two-joint blend
+and existing skinning path on this workstation; roster characters, authored
+state graphs/events and battle integration remain unqualified.
 
 On 2026-09-22, Astra accepted the asset-independent implementation and automated
 qualification for [M2-F's public exploration course](agent-work/cyberpunk-m2-exploration/ACCEPTANCE.md)

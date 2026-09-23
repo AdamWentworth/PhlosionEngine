@@ -1,6 +1,7 @@
 #include "AnimationFixturePresentation.h"
 
 #include "engine/render/ModelPoseSampler.h"
+#include "engine/render/AnimationBlend.h"
 
 #include <nlohmann/json.hpp>
 
@@ -124,13 +125,19 @@ bool buildFixturePose(FixtureCase fixtureCase,
         rig.skins,
         rig.animations,
         rig.nodeNames};
-    samplePose(
-        source,
-        info.timeSec,
-        clipIndex,
-        pose.nodeLocals,
-        pose.nodeGlobals,
-        true);
+    if (fixtureCase == FixtureCase::CrossfadeQuarter) {
+        engine::render::animation::PoseBlendRequest blend;
+        blend.baseClipIndex = -1;
+        blend.targetClipIndex = clipIndex;
+        blend.targetTimeSec = info.timeSec;
+        blend.crossfadeWeight = 0.25f;
+        if (!engine::render::animation::blendPose(
+                source, blend, pose.nodeLocals, pose.nodeGlobals, outError))
+            return false;
+    } else {
+        samplePose(source, info.timeSec, clipIndex, pose.nodeLocals,
+                   pose.nodeGlobals, true);
+    }
 
     const SkinData& skin = rig.skins[static_cast<std::size_t>(rig.skinIndex)];
     if (skin.joints.empty() ||

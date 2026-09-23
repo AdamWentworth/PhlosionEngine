@@ -42,4 +42,10 @@ void samplePose(const PoseSource& source,
                 std::vector<glm::mat4>& outGlobal,
                 bool suppressHorizontalRootMotion = true);
 
+// Recompose a caller-owned local pose using the same hierarchy and segment
+// scale compensation rules as samplePose. Used after blending sampled locals.
+void composePose(const PoseSource& source,
+                 const std::vector<model_types::NodeTRS>& local,
+                 std::vector<glm::mat4>& outGlobal);
+
 } // namespace engine::render::animation

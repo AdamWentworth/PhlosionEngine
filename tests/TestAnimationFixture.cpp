@@ -46,8 +46,8 @@ using Check = bool (*)(std::string&);
 
 bool checkCaseCatalog(std::string& fail) {
     const auto& catalog = fixture::fixtureCaseCatalog();
-    if (catalog.size() != 6u) {
-        fail = "the animation fixture catalog must have six authored cases";
+    if (catalog.size() != 7u) {
+        fail = "the animation fixture catalog must have seven authored cases";
         return false;
     }
     std::vector<std::string> names;

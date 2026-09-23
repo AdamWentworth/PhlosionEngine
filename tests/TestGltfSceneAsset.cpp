@@ -341,6 +341,23 @@ bool test_gltf_scene_asset_contract(std::string& outFail) {
                "the pose did not record its clip and time")) {
         return false;
     }
+    engine::render::animation::PoseBlendRequest blend;
+    blend.baseClipIndex = kBindPoseClip;
+    blend.targetClipIndex = 0;
+    blend.targetTimeSec = AuthoredRig::kAnimatedTimeSec;
+    blend.crossfadeWeight = 0.5f;
+    GltfScenePose blendedPose;
+    if (!check(engine::render::gltf::scene::sampleGltfSceneBlendedPose(
+                   asset, blend, blendedPose, &error) &&
+                   nearlyEqual(blendedPose.palettes[0][1],
+                               gltf_scene_contract::authoredPalette(1, 0.5f),
+                               1e-4f) &&
+                   engine::render::gltf::scene::gltfScenePoseMatchesAsset(
+                       *asset, blendedPose),
+               "blended pose did not produce the authored half-turn palette: " +
+                   error)) {
+        return false;
+    }
     // Failed sampling preserves the caller's pose.
     GltfScenePose preserved = animatedPose;
     std::string sampleError;

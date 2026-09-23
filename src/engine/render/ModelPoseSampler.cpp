@@ -75,7 +75,6 @@ void samplePose(const PoseSource& source,
 {
     const auto& nodesDefault = source.nodesDefault;
     const auto& nodeChildren = source.nodeChildren;
-    const auto& sceneRoots = source.sceneRoots;
     const auto& skins = source.skins;
     const auto& animations = source.animations;
     const auto& nodeNames = source.nodeNames;
@@ -404,13 +403,31 @@ void samplePose(const PoseSource& source,
         }
     }
 
+    composePose(source, outLocal, outGlobal);
+}
+
+void composePose(const PoseSource& source,
+                 const std::vector<model_types::NodeTRS>& local,
+                 std::vector<glm::mat4>& outGlobal)
+{
+    const auto& nodeChildren = source.nodeChildren;
+    const auto& sceneRoots = source.sceneRoots;
+    const int nodeCount = static_cast<int>(local.size());
+    outGlobal.assign(local.size(), glm::mat4(1.0f));
+    std::vector<int> parent(local.size(), -1);
+    for (int p = 0; p < nodeCount; ++p) {
+        if (p >= static_cast<int>(nodeChildren.size())) continue;
+        for (int c : nodeChildren[p]) {
+            if (c >= 0 && c < nodeCount && parent[c] == -1) parent[c] = p;
+        }
+    }
     std::function<void(int, const glm::mat4&)> dfs = [&](int node, const glm::mat4& parentM) {
-        if (node < 0 || node >= (int)outLocal.size()) return;
-        glm::mat4 localM = trsToMat4(outLocal[node]);
+        if (node < 0 || node >= nodeCount) return;
+        glm::mat4 localM = trsToMat4(local[node]);
         const int parentNode = parent[static_cast<std::size_t>(node)];
-        if (outLocal[node].segmentScaleCompensate &&
+        if (local[node].segmentScaleCompensate &&
             parentNode >= 0 && parentNode < nodeCount) {
-            const glm::vec3 parentScale = outLocal[static_cast<std::size_t>(parentNode)].s;
+            const glm::vec3 parentScale = local[static_cast<std::size_t>(parentNode)].s;
             const glm::vec3 inverseParentScale(
                 std::abs(parentScale.x) > 1e-8f ? 1.0f / parentScale.x : 1.0f,
                 std::abs(parentScale.y) > 1e-8f ? 1.0f / parentScale.y : 1.0f,

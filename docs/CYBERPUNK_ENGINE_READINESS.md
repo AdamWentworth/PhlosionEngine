@@ -445,6 +445,19 @@ change. Actual character fitting, environment collision authoring,
 Outskirt Stand camera/routes/triggers and final scene qualification await the
 game assets. Public placeholder evidence cannot close those asset-specific gates.
 
+### M3-A: asset-independent animation blend foundation (qualified 2026-09-22)
+
+The [blend foundation](ANIMATION_BLEND.md) adds clip crossfades, masked override
+layers, ordered timed-event collection and public glTF pose/palette integration.
+The synthetic two-joint rig's new crossfade case passed 42 native captures in
+the runtime and real editor across OpenGL, Vulkan and Direct3D 12, with zero
+expected-content, pairwise parity or cross-case failures. CPU pose, palette and
+event contracts, all 20 configured CTest entries and the negative-evidence
+harness passed. The native matrix is
+retained under `artifacts/m3-a/native-20260922/`. Parameter-driven state,
+event authoring, battle camera/UI/audio/VFX and roster-specific qualification
+are still M3 work.
+
 ## Read this first
 
 **Design provenance.** The product direction below comes from a user-supplied
@@ -651,9 +664,9 @@ vehicle physics stay excluded.
 
 | Capability | Status | Evidence | Gap for this work |
 | --- | --- | --- | --- |
-| Skeletal animation sampling | Implemented; bounded verification | [ModelPoseSampler.cpp](../src/engine/render/ModelPoseSampler.cpp), [animation verification](ANIMATION_VERIFICATION.md); M1-G/H CPU contracts cover LINEAR/STEP/CUBICSPLINE T/R/S, hierarchy and loop/root-motion policies; native public-rig runtime/editor captures cover all three APIs | Per-instance CPU sampling; no blending graph or state machine. Private rigs and the legacy Model GPU draw path remain unqualified |
-| Blending, crossfade, layers, parameters | Not found in inspected scope | No animator type in engine source | Battle and exploration need it; completed by M3. The recovered roadmap treated it as a freeze blocker |
-| Animation events and notifies | Not found in inspected scope | No event hook in the animation API | Needed for footsteps, hit reactions and state transitions |
+| Skeletal animation sampling | Implemented; bounded verification | [ModelPoseSampler.cpp](../src/engine/render/ModelPoseSampler.cpp), [animation verification](ANIMATION_VERIFICATION.md); M1-G/H CPU contracts cover LINEAR/STEP/CUBICSPLINE T/R/S, hierarchy and loop/root-motion policies; native public-rig runtime/editor captures cover all three APIs | Per-instance CPU sampling; private rigs and the legacy Model GPU draw path remain unqualified |
+| Blending, crossfade, layers, parameters | Partial M3-A foundation | [Animation blend](ANIMATION_BLEND.md): CPU crossfade and masked override layers feed public glTF skin palettes and synthetic native fixture across three APIs | Parameter-driven state, additive layers, private roster and production transitions remain |
+| Animation events and notifies | Partial M3-A foundation | [Animation blend](ANIMATION_BLEND.md): bounded, ordered event collection across clip loops with CPU contracts | Authored metadata/cooking and lifecycle integration with VFX/audio/battle remain |
 | Sockets and attachment | Partial | Node lookups exist (`getNodeIndexByName`, `getNodeGlobalTransformByName` in [Model.h](../src/engine/render/Model.h)) | Attachment exists as a lookup primitive; a socket/attachment contract with ownership and updates does not |
 | Root motion | Partial | `sampleAnimatedPose(..., suppressHorizontalRootMotion)` in [Model.h](../src/engine/render/Model.h) | Suppression exists; controller consumption of root motion does not |
 | GPU skinning paths | Partial; bounded verification | M1-G/H [weighted public rig](ANIMATION_VERIFICATION.md) through OpenGL/Vulkan/D3D12 world-mesh-textured drawing in runtime and real editor preview | A production character pipeline, legacy Model drawing, instanced/indirect paths and performance still need independent qualification |
@@ -877,6 +890,11 @@ contract is the engine's.
 **M3 - Double battle.** Owner: Game + Engine + VFX. Prerequisite: M2. This
 milestone pulls in the animation runtime, battle camera rigs, runtime UI and
 audio:
+
+Progress: M3-A adds an [asset-independent animation blend foundation](ANIMATION_BLEND.md)
+with crossfades, masked override layers, timed event collection and public glTF
+skin-palette integration. The parameter-driven state runtime, battle systems,
+roster qualification and end-to-end exit gate remain.
 
 - blending, crossfade, layers, parameter-driven state and animation events,
   with the roster characters as fixtures;

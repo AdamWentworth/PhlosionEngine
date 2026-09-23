@@ -943,9 +943,9 @@ int runMatrix(const std::vector<std::string>& arguments) {
     if (entries.empty()) {
         return fail("manifest has no entries");
     }
-    if (requireComplete && entries.size() != 36u) {
+    if (requireComplete && entries.size() != 42u) {
         return fail(
-            "complete matrix requires 36 unique entries but the manifest has " +
+            "complete matrix requires 42 unique entries but the manifest has " +
             std::to_string(entries.size()));
     }
 
@@ -1050,7 +1050,8 @@ int runMatrix(const std::vector<std::string>& arguments) {
                  FixtureCase::LinearNearEndpoint,
                  FixtureCase::StepState,
                  FixtureCase::CubicMidpoint,
-                 FixtureCase::CubicEarly}) {
+                 FixtureCase::CubicEarly,
+                 FixtureCase::CrossfadeQuarter}) {
             for (const auto& [leftApi, rightApi] : apiPairs) {
                 const Entry* left = findEntry(host, leftApi, fixtureCase);
                 const Entry* right = findEntry(host, rightApi, fixtureCase);
@@ -1107,8 +1108,10 @@ int runMatrix(const std::vector<std::string>& arguments) {
                 findEntry(host, api, FixtureCase::CubicMidpoint);
             const Entry* cubicEarly =
                 findEntry(host, api, FixtureCase::CubicEarly);
+            const Entry* crossfade =
+                findEntry(host, api, FixtureCase::CrossfadeQuarter);
             if (!bind || !intermediate || !endpoint || !step ||
-                !cubicMidpoint || !cubicEarly) {
+                !cubicMidpoint || !cubicEarly || !crossfade) {
                 ++failureCount;
                 crossCase.push_back({
                     {"host", host},
@@ -1190,6 +1193,11 @@ int runMatrix(const std::vector<std::string>& arguments) {
                 *cubicEarly,
                 *cubicMidpoint,
                 kEndpointVsStepMinimum));
+            crossCase.push_back(record(
+                "bind_vs_crossfade_quarter",
+                *bind,
+                *crossfade,
+                kBindVsPosedMinimum));
         }
     }
 

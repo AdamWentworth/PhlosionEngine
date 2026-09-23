@@ -1,6 +1,6 @@
 # Animation fixture capture matrix runner.
 #
-# Captures six deterministic authored cases on each native API for both the
+# Captures seven deterministic authored cases on each native API for both the
 # standalone runtime host and the real Phlosion Editor project plugin, verifies
 # the process/capture/parity evidence, and validates the images into a
 # machine-readable matrix plus a contact sheet.
@@ -98,7 +98,8 @@ $cases = @(
     @{ Name = 'linear-near-endpoint'; Frame = 60 },
     @{ Name = 'step-state'; Frame = 90 },
     @{ Name = 'cubic-midpoint'; Frame = 120 },
-    @{ Name = 'cubic-early'; Frame = 150 }
+    @{ Name = 'cubic-early'; Frame = 150 },
+    @{ Name = 'crossfade-quarter'; Frame = 180 }
 )
 
 $artifactsRootPath = if ([System.IO.Path]::IsPathRooted($ArtifactsRoot)) {

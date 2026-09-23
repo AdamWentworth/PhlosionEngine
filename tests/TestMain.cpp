@@ -26,6 +26,7 @@ bool test_gltf_import_fixture_contract(std::string& outFail);
 bool test_gltf_scene_asset_contract(std::string& outFail);
 bool test_gltf_scene_renderer_contract(std::string& outFail);
 bool test_model_pose_sampler_contract(std::string& outFail);
+bool test_animation_blend_contract(std::string& outFail);
 bool test_model_cache_animation_contract(std::string& outFail);
 bool test_animation_fixture_contract(std::string& outFail);
 bool test_material_fixture_contract(std::string& outFail);
@@ -73,6 +74,7 @@ int main(int argc, char** argv) {
         {"gltf_scene_asset_contract", &test_gltf_scene_asset_contract},
         {"gltf_scene_renderer_contract", &test_gltf_scene_renderer_contract},
         {"model_pose_sampler_contract", &test_model_pose_sampler_contract},
+        {"animation_blend_contract", &test_animation_blend_contract},
         {"model_cache_animation_contract", &test_model_cache_animation_contract},
         {"animation_fixture_contract", &test_animation_fixture_contract},
         {"material_fixture_contract", &test_material_fixture_contract},

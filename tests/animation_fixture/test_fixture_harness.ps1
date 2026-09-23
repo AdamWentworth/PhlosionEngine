@@ -62,7 +62,8 @@ $cases = @(
     @{ name = 'linear-near-endpoint'; frame = 60 },
     @{ name = 'step-state'; frame = 90 },
     @{ name = 'cubic-midpoint'; frame = 120 },
-    @{ name = 'cubic-early'; frame = 150 }
+    @{ name = 'cubic-early'; frame = 150 },
+    @{ name = 'crossfade-quarter'; frame = 180 }
 )
 $captureFrames = @{ runtime = 6; editor = 8 }
 $approvedThresholds = [ordered]@{
@@ -234,12 +235,12 @@ function Copy-And-MutateManifest([string]$Name, [scriptblock]$Mutation) {
     return $path
 }
 
-# Positive coverage: the hermetic 36-entry Cartesian matrix must pass.
+# Positive coverage: the hermetic 42-entry Cartesian matrix must pass.
 Invoke-GuardMatrix -ManifestPath $baseManifestPath -Name 'positive' -ExpectSuccess $true | Out-Null
 
 $duplicatePath = Copy-And-MutateManifest 'duplicate' {
     param($document)
-    $document.entries = @($document.entries[0]) * 36
+    $document.entries = @($document.entries[0]) * 42
 }
 $duplicateResult = Invoke-GuardMatrix -ManifestPath $duplicatePath -Name 'duplicate' -ExpectSuccess $false
 Check-Fixture ((Get-GuardFailureText $duplicateResult) -match 'duplicate') `
@@ -247,10 +248,10 @@ Check-Fixture ((Get-GuardFailureText $duplicateResult) -match 'duplicate') `
 
 $missingPath = Copy-And-MutateManifest 'missing' {
     param($document)
-    $document.entries = @($document.entries[0..34])
+    $document.entries = @($document.entries[0..40])
 }
 $missingResult = Invoke-GuardMatrix -ManifestPath $missingPath -Name 'missing' -ExpectSuccess $false
-Check-Fixture ((Get-GuardFailureText $missingResult) -match '36|missing') `
+Check-Fixture ((Get-GuardFailureText $missingResult) -match '42|missing') `
     'incomplete manifest did not report the missing tuple'
 
 $unknownHostPath = Copy-And-MutateManifest 'unknown-host' {
@@ -572,7 +573,7 @@ foreach ($cubicEntry in @($cubicMidpointEntry, $cubicEarlyEntry)) {
     }
 }
 
-# After the targeted mutations are restored, the pristine 36-entry matrix must
+# After the targeted mutations are restored, the pristine 42-entry matrix must
 # pass again; otherwise a negative could have been caused by stale state.
 $pristineAfterLinearized = Invoke-GuardMatrix `
     -ManifestPath $baseManifestPath `
