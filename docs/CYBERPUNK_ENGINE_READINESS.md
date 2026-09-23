@@ -458,6 +458,17 @@ retained under `artifacts/m3-a/native-20260922/`. Parameter-driven state,
 event authoring, battle camera/UI/audio/VFX and roster-specific qualification
 are still M3 work.
 
+### M3-B: parameter-driven animation state (qualified 2026-09-22)
+
+The [state-machine pass](ANIMATION_STATE_MACHINE.md) adds typed parameters,
+authored transition priority, one-shot event timing and cancellation/reset
+behavior on top of the M3-A blend path. Its public rig has a state-driven
+crossfade case. All 20 CTest entries and the eight-case native matrix passed:
+48 runtime/editor captures, 48 pairwise renderer comparisons and 60 cross-case
+checks across OpenGL, Vulkan and Direct3D 12, with zero failures. Evidence is
+under `artifacts/m3-b/native-20260922/`. Roster, authoring and battle-system
+exit gates remain open.
+
 ## Read this first
 
 **Design provenance.** The product direction below comes from a user-supplied
@@ -665,8 +676,8 @@ vehicle physics stay excluded.
 | Capability | Status | Evidence | Gap for this work |
 | --- | --- | --- | --- |
 | Skeletal animation sampling | Implemented; bounded verification | [ModelPoseSampler.cpp](../src/engine/render/ModelPoseSampler.cpp), [animation verification](ANIMATION_VERIFICATION.md); M1-G/H CPU contracts cover LINEAR/STEP/CUBICSPLINE T/R/S, hierarchy and loop/root-motion policies; native public-rig runtime/editor captures cover all three APIs | Per-instance CPU sampling; private rigs and the legacy Model GPU draw path remain unqualified |
-| Blending, crossfade, layers, parameters | Partial M3-A foundation | [Animation blend](ANIMATION_BLEND.md): CPU crossfade and masked override layers feed public glTF skin palettes and synthetic native fixture across three APIs | Parameter-driven state, additive layers, private roster and production transitions remain |
-| Animation events and notifies | Partial M3-A foundation | [Animation blend](ANIMATION_BLEND.md): bounded, ordered event collection across clip loops with CPU contracts | Authored metadata/cooking and lifecycle integration with VFX/audio/battle remain |
+| Blending, crossfade, layers, parameters | Partial M3-A/B foundation | [Animation blend](ANIMATION_BLEND.md) and [state machine](ANIMATION_STATE_MACHINE.md): CPU crossfade, masked override layers and typed parameter transitions feed public glTF skin palettes and synthetic native fixture | Additive layers, private roster and production transition authoring remain |
+| Animation events and notifies | Partial M3-A/B foundation | Bounded ordered event collection plus state activation, one-shot hold and cancellation contracts | Authored metadata/cooking and lifecycle integration with VFX/audio/battle remain |
 | Sockets and attachment | Partial | Node lookups exist (`getNodeIndexByName`, `getNodeGlobalTransformByName` in [Model.h](../src/engine/render/Model.h)) | Attachment exists as a lookup primitive; a socket/attachment contract with ownership and updates does not |
 | Root motion | Partial | `sampleAnimatedPose(..., suppressHorizontalRootMotion)` in [Model.h](../src/engine/render/Model.h) | Suppression exists; controller consumption of root motion does not |
 | GPU skinning paths | Partial; bounded verification | M1-G/H [weighted public rig](ANIMATION_VERIFICATION.md) through OpenGL/Vulkan/D3D12 world-mesh-textured drawing in runtime and real editor preview | A production character pipeline, legacy Model drawing, instanced/indirect paths and performance still need independent qualification |
@@ -893,8 +904,8 @@ audio:
 
 Progress: M3-A adds an [asset-independent animation blend foundation](ANIMATION_BLEND.md)
 with crossfades, masked override layers, timed event collection and public glTF
-skin-palette integration. The parameter-driven state runtime, battle systems,
-roster qualification and end-to-end exit gate remain.
+skin-palette integration. M3-B adds [parameter-driven state](ANIMATION_STATE_MACHINE.md).
+Battle systems, roster qualification and the end-to-end exit gate remain.
 
 - blending, crossfade, layers, parameter-driven state and animation events,
   with the roster characters as fixtures;

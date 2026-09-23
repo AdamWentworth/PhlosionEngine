@@ -304,6 +304,7 @@ add_library(engine_render STATIC
     src/engine/render/ModelAnimation.cpp
     src/engine/render/ModelPoseSampler.cpp
     src/engine/render/AnimationBlend.cpp
+    src/engine/render/AnimationStateMachine.cpp
     src/engine/render/ModelCacheAnimation.cpp
     src/engine/render/ModelCache.cpp
     src/engine/render/RendererParityContract.cpp
@@ -911,6 +912,7 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestGltfSceneAssetRenderer.cpp
         tests/TestModelPoseSampler.cpp
         tests/TestAnimationBlend.cpp
+        tests/TestAnimationStateMachine.cpp
         tests/TestModelCacheAnimation.cpp
         tests/TestAnimationFixture.cpp
         tests/TestMaterialFixture.cpp

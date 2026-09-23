@@ -7,7 +7,7 @@ caller-owned skin palette to the native renderers:
 
 | File | Role |
 | --- | --- |
-| `AnimationFixtureCase.h/.cpp` | The seven authored cases: clip, sample time, logical frame, analytic tip angle and the LINEAR fallback angle the guard's cubic defect uses |
+| `AnimationFixtureCase.h/.cpp` | The eight authored cases: clip, sample time, logical frame, analytic tip angle and the LINEAR fallback angle the guard's cubic defect uses |
 | `AnimationFixtureRig.h/.cpp` | Two-joint rig, one skin, LINEAR, STEP and CUBICSPLINE rotation clips, bind strip vertices/indices, mesh transform and camera |
 | `AnimationFixturePresentation.h/.cpp` | Pose sampling, `inverse(mesh) * jointGlobal * inverseBind` palette, background/rig draws and the handshake document |
 | `AnimationFixtureRuntimeMain.cpp` | Standalone `AnimationFixtureRuntime` host (hidden native window, no backend fallback) |
@@ -19,7 +19,9 @@ palette pointer. Each host presents the bind pose first and then the requested
 case pose through the same geometry cache key and palette storage, so an
 unchanged or stale palette is visible in the capture. The `crossfade-quarter`
 case blends the bind pose with the cubic clip at 25% using the M3 CPU blend
-path, then submits the resulting palette through the same native path.
+path, then submits the resulting palette through the same native path. The
+`state-crossfade` case reaches a different blended pose through the parameter-
+driven state machine.
 
 Verification support lives outside this directory and is deliberately not a
 dependency of the sample:
@@ -35,4 +37,6 @@ CMake exposes the sample as `animation_fixture` and the verification support as
 sample; the guard and tests link both. See
 [`docs/ANIMATION_VERIFICATION.md`](../../docs/ANIMATION_VERIFICATION.md) for the
 original rig contract and provenance requirements, and
-[`docs/ANIMATION_BLEND.md`](../../docs/ANIMATION_BLEND.md) for the M3 case.
+[`docs/ANIMATION_BLEND.md`](../../docs/ANIMATION_BLEND.md) and
+[`docs/ANIMATION_STATE_MACHINE.md`](../../docs/ANIMATION_STATE_MACHINE.md)
+for the M3 cases.

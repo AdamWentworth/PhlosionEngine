@@ -943,9 +943,9 @@ int runMatrix(const std::vector<std::string>& arguments) {
     if (entries.empty()) {
         return fail("manifest has no entries");
     }
-    if (requireComplete && entries.size() != 42u) {
+    if (requireComplete && entries.size() != 48u) {
         return fail(
-            "complete matrix requires 42 unique entries but the manifest has " +
+            "complete matrix requires 48 unique entries but the manifest has " +
             std::to_string(entries.size()));
     }
 
@@ -1051,7 +1051,8 @@ int runMatrix(const std::vector<std::string>& arguments) {
                  FixtureCase::StepState,
                  FixtureCase::CubicMidpoint,
                  FixtureCase::CubicEarly,
-                 FixtureCase::CrossfadeQuarter}) {
+                 FixtureCase::CrossfadeQuarter,
+                 FixtureCase::StateCrossfade}) {
             for (const auto& [leftApi, rightApi] : apiPairs) {
                 const Entry* left = findEntry(host, leftApi, fixtureCase);
                 const Entry* right = findEntry(host, rightApi, fixtureCase);
@@ -1110,8 +1111,11 @@ int runMatrix(const std::vector<std::string>& arguments) {
                 findEntry(host, api, FixtureCase::CubicEarly);
             const Entry* crossfade =
                 findEntry(host, api, FixtureCase::CrossfadeQuarter);
+            const Entry* stateCrossfade =
+                findEntry(host, api, FixtureCase::StateCrossfade);
             if (!bind || !intermediate || !endpoint || !step ||
-                !cubicMidpoint || !cubicEarly || !crossfade) {
+                !cubicMidpoint || !cubicEarly || !crossfade ||
+                !stateCrossfade) {
                 ++failureCount;
                 crossCase.push_back({
                     {"host", host},
@@ -1198,6 +1202,11 @@ int runMatrix(const std::vector<std::string>& arguments) {
                 *bind,
                 *crossfade,
                 kBindVsPosedMinimum));
+            crossCase.push_back(record(
+                "linear_intermediate_vs_state_crossfade",
+                *intermediate,
+                *stateCrossfade,
+                kIntermediateVsEndpointMinimum));
         }
     }
 

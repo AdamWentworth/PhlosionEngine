@@ -2,6 +2,7 @@
 
 #include "engine/render/ModelPoseSampler.h"
 #include "engine/render/AnimationBlend.h"
+#include "engine/render/AnimationStateMachine.h"
 
 #include <nlohmann/json.hpp>
 
@@ -133,6 +134,27 @@ bool buildFixturePose(FixtureCase fixtureCase,
         blend.crossfadeWeight = 0.25f;
         if (!engine::render::animation::blendPose(
                 source, blend, pose.nodeLocals, pose.nodeGlobals, outError))
+            return false;
+    } else if (fixtureCase == FixtureCase::StateCrossfade) {
+        engine::render::animation::AnimationStateGraph graph;
+        graph.initialState = "linear";
+        graph.parameters = {{"battle", engine::render::animation::AnimationParameterType::Boolean,
+                             true, 0.0f}};
+        graph.states = {{"linear", rig.linearClipIndex, true, {}},
+                        {"cubic", rig.cubicClipIndex, true, {{"enter", 0.0f}}}};
+        graph.transitions = {{"linear", "cubic", "battle",
+                              engine::render::animation::AnimationConditionKind::True,
+                              0.0f, 4.0f}};
+        engine::render::animation::AnimationStateMachine machine;
+        engine::render::animation::AnimationStateFrame frame;
+        if (!machine.configure(source, graph, outError) ||
+            !machine.advance(1.0f, frame, outError)) return false;
+        if (!frame.transitioning || frame.state != "cubic" ||
+            frame.events.size() != 1u || frame.events[0].name != "enter" ||
+            std::abs(frame.pose.crossfadeWeight - 0.25f) > 1.0e-6f)
+            return fail(outError, "state fixture did not enter its authored crossfade");
+        if (!engine::render::animation::blendPose(
+                source, frame.pose, pose.nodeLocals, pose.nodeGlobals, outError))
             return false;
     } else {
         samplePose(source, info.timeSec, clipIndex, pose.nodeLocals,

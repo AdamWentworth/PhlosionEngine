@@ -17,6 +17,7 @@ enum class FixtureCase {
     CubicMidpoint,
     CubicEarly,
     CrossfadeQuarter,
+    StateCrossfade,
 };
 
 struct FixtureCaseInfo {
@@ -38,7 +39,7 @@ struct FixtureCaseInfo {
     float linearFallbackAngleDegrees = 0.0f;
 };
 
-const std::array<FixtureCaseInfo, 7>& fixtureCaseCatalog();
+const std::array<FixtureCaseInfo, 8>& fixtureCaseCatalog();
 
 const FixtureCaseInfo& fixtureCaseInfo(FixtureCase fixtureCase);
 const char* fixtureCaseName(FixtureCase fixtureCase);

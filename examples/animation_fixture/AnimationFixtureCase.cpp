@@ -12,7 +12,7 @@ namespace {
 // authored -120 degree key and a = 0.25 (t = 0.5 s) lands on
 // 2 * atan2(-0.541265877365274, 0.6875) = -76.4264214034764 degrees.
 // A LINEAR interpolation of the same keys would return -60 and -30 degrees.
-const std::array<FixtureCaseInfo, 7> kCatalog{{
+const std::array<FixtureCaseInfo, 8> kCatalog{{
     {FixtureCase::Bind,
      "bind",
      "linear",
@@ -69,11 +69,19 @@ const std::array<FixtureCaseInfo, 7> kCatalog{{
      180,
      -30.0f,
      -15.0f},
+    {FixtureCase::StateCrossfade,
+     "state-crossfade",
+     "cubic",
+     2,
+     1.0f,
+     210,
+     -56.25f,
+     -41.25f},
 }};
 
 } // namespace
 
-const std::array<FixtureCaseInfo, 7>& fixtureCaseCatalog() {
+const std::array<FixtureCaseInfo, 8>& fixtureCaseCatalog() {
     return kCatalog;
 }
 
