@@ -219,6 +219,7 @@ add_library(engine_core STATIC
     src/engine/assets/phlosion/PhlosionAssetGraphLoader.cpp
     src/engine/assets/phlosion/PhlosionArchiveSession.cpp
     src/engine/assets/phlosion/PhlosionAuthoredScene.cpp
+    src/engine/assets/phlosion/PhlosionCookedModelPackage.cpp
     src/engine/assets/phlosion/PhlosionEnvironmentPatch.cpp
     src/engine/assets/phlosion/PhlosionMeshAsset.cpp
     src/engine/assets/phlosion/PhlosionResourceContainer.cpp
@@ -974,6 +975,7 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestEditorGameplayReload.cpp
         tests/TestProjectDescriptor.cpp
         tests/TestPhlosionAuthoredScene.cpp
+        tests/TestPhlosionCookedModelPackage.cpp
         tests/TestPhlosionEnvironmentPatch.cpp
         tests/TestPhlosionMeshAsset.cpp
         tests/TestPhlosionResourceContainer.cpp

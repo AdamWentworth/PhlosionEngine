@@ -2,6 +2,7 @@
 #include <string>
 
 bool test_phlosion_resource_container_contract(std::string& outFail);
+bool test_phlosion_cooked_model_package_contract(std::string& outFail);
 bool test_phlosion_mesh_asset_contract(std::string& outFail);
 bool test_phlosion_authored_scene_contract(std::string& outFail);
 bool test_phlosion_environment_patch_contract(std::string& outFail);
@@ -51,6 +52,7 @@ int main(int argc, char** argv) {
     const TestCase tests[] = {
         {"world_material_profile_contract", &test_world_material_profile_contract},
         {"phlosion_resource_container_contract", &test_phlosion_resource_container_contract},
+        {"phlosion_cooked_model_package_contract", &test_phlosion_cooked_model_package_contract},
         {"phlosion_mesh_asset_contract", &test_phlosion_mesh_asset_contract},
         {"phlosion_authored_scene_contract", &test_phlosion_authored_scene_contract},
         {"phlosion_environment_patch_contract", &test_phlosion_environment_patch_contract},

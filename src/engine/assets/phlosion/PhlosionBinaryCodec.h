@@ -142,6 +142,12 @@ public:
         return true;
     }
 
+    bool skip(std::size_t byteCount) {
+        if (byteCount > remaining()) return false;
+        cursor_ += byteCount;
+        return true;
+    }
+
     std::size_t remaining() const noexcept {
         return cursor_ <= bytes_.size()
             ? bytes_.size() - cursor_
