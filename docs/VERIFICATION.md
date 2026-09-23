@@ -24,6 +24,7 @@ No test in the current engine CTest suite needs a graphics context.
 | `PhlosionCharacterContracts` | Ten standalone C++ groups against real Jolt geometry: fixed-tick analog movement, gravity/landing, walls/corners/thin sweeps, slopes/ceilings, stairs/floor following/ledges, recovery/teleport, filters/support removal, identities/capacity/threads, malformed inputs/transactional bounds and repeated authored sequences |
 | `PhlosionTriggerContracts` | Seven standalone real-geometry groups for discrete sensor Enter/Stay/Exit membership, precise overlap geometry, filters/metadata/order, teleport and failure preservation, removed/replaced sensors, character/world/thread ownership, capacity and repeated sequences |
 | `PhlosionInputContracts` | Six SDL-free groups for named action mapping, button/axis transitions, rebinding, deadzones, controller identity/selection, focus/enable recovery, bounds and thread ownership |
+| `PhlosionUiFocusContracts` | Spatial focus, disabled/dynamic items, keyboard/synthetic-controller action composition, held repeat, modal gating/rearm, activation/cancel precedence, transactional failures and thread ownership |
 | `PhlosionSdlInputContracts` | Three real SDL virtual-device groups for mapped-controller discovery, all 15 buttons/six axes, normalization, queued taps and event/poll duplicate observations, hotplug/disconnect, window focus filtering and subsystem/handle ownership |
 | `PhlosionCameraContracts` | Ten groups for exploration framing, delta/rate controls, follow/recovery damping, real sphere obstruction queries, validation/ownership, relative movement and repeated CPU input/character/camera composition |
 | `PhlosionBattleCameraContracts` | CPU battle camera framing at multiple aspects, impossible-shot rejection, cuts/blends/tracking, deterministic shake, reduced motion, reset, transactions and thread ownership |
@@ -83,6 +84,11 @@ geometry and kinematic characters. Mathematical 16:9/21:9 framing checks are
 separate from native image qualification; final radial sphere clearance is
 separate from swept camera motion or whole-frustum clearance. Host integration
 still requires the native runtime/editor scene checks below.
+
+The [runtime UI focus module](UI_FOCUS_NAVIGATION.md) has a standalone CPU
+executable linked to Input, without SDL or rendering. It checks keyboard and
+synthetic-controller action composition, but does not establish font coverage,
+native text/layout presentation or automatic gameplay action consumption.
 
 The [battle camera](BATTLE_CAMERA.md) has a standalone CPU executable linked to
 Camera. It checks analytic perspective framing with independent projection,
@@ -183,6 +189,13 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-22, the M3-D [runtime UI focus foundation](UI_FOCUS_NAVIGATION.md)
+passed the full 22-entry Debug CTest suite. After the final neutral-rearm
+adjustment, the full build and affected UI contract passed again. The module
+routes named keyboard/controller actions through stable focus IDs, repeat,
+modal capture and neutral rearm. No UI rendering path changed;
+native battle HUD/dialogue images and text qualification remain open.
 
 On 2026-09-22, the M3-C [battle camera foundation](BATTLE_CAMERA.md) passed the
 full 21-entry configured Debug CTest suite after a complete build. Its new CPU

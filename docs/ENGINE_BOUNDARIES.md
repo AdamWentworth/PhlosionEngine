@@ -34,6 +34,12 @@ and frame scheduling. The optional SDL Game-input extension supplies editor host
 context and callbacks without changing InputEvent or the main plugin ABI.
 Plugins that omit it retain their legacy input route.
 
+The [runtime UI focus layer](UI_FOCUS_NAVIGATION.md) owns generic directional
+focus, action routing and modal rearm. Projects supply focusable rectangles,
+action names, text, drawing and the meaning of accept/cancel, and use its
+`blocksGameplay` result to gate their gameplay route. It does not define battle
+commands or dialogue content.
+
 The [exploration camera rig](EXPLORATION_CAMERA.md) owns follow/orbit math,
 camera-relative movement and static-geometry obstruction queries. Authored
 settings are separate from each rig's runtime state. Projects choose targets,

@@ -237,6 +237,11 @@ target_link_libraries(engine_input PUBLIC glm::glm)
 phlosion_apply_settings(engine_input)
 add_library(Phlosion::Input ALIAS engine_input)
 
+add_library(engine_ui STATIC src/engine/ui/UiFocusNavigation.cpp)
+target_link_libraries(engine_ui PUBLIC Phlosion::Input glm::glm)
+phlosion_apply_settings(engine_ui)
+add_library(Phlosion::UI ALIAS engine_ui)
+
 add_library(engine_platform STATIC
     src/engine/platform/Window.cpp
     src/engine/input/SdlKeyMap.cpp
@@ -856,6 +861,12 @@ if (PHLOSION_BUILD_TESTS)
     phlosion_apply_settings(PhlosionInputTests)
     add_test(NAME PhlosionInputContracts COMMAND PhlosionInputTests)
     set_tests_properties(PhlosionInputContracts PROPERTIES TIMEOUT 120)
+
+    add_executable(PhlosionUiFocusTests tests/TestUiFocusNavigation.cpp)
+    target_link_libraries(PhlosionUiFocusTests PRIVATE Phlosion::UI)
+    phlosion_apply_settings(PhlosionUiFocusTests)
+    add_test(NAME PhlosionUiFocusContracts COMMAND PhlosionUiFocusTests)
+    set_tests_properties(PhlosionUiFocusContracts PROPERTIES TIMEOUT 120)
 
     add_executable(PhlosionCameraTests tests/TestExplorationCamera.cpp)
     target_link_libraries(PhlosionCameraTests PRIVATE Phlosion::Camera Phlosion::Input)

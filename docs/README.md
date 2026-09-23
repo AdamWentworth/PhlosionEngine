@@ -33,6 +33,7 @@ game-specific authoring and visual qualification stay with the consuming project
 | [Kinematic characters](CHARACTER_CONTROLLER.md) | Fixed-tick walk/run, gravity, grounding, slopes, stairs, floor following, recovery and safe teleport with standalone CPU contracts |
 | [Character trigger events](CHARACTER_TRIGGERS.md) | Explicit discrete sensor Enter/Stay/Exit samples, independent filters, copied metadata and lifecycle rules |
 | [Named input actions](INPUT_ACTIONS.md) | SDL-free action state, rebinding, deadzones, controller selection and focus recovery, plus the opt-in SDL adapter |
+| [Runtime UI focus](UI_FOCUS_NAVIGATION.md) | Renderer-free menu/dialogue focus, named-action routing, controller repeat and modal rearm |
 | [Exploration camera](EXPLORATION_CAMERA.md) | Authored framing settings, follow/orbit state, camera-relative movement, collision-aware distance and CPU composition with input/characters |
 | [M2 asset handoff](M2_ASSET_HANDOFF.md) | Character fitting, environment collision/spawn/trigger/camera data and the final asset-specific scene gate |
 | [glTF scene assets](GLTF_SCENE_ASSETS.md) | Owned CPU scene snapshots, validated import, pose sampling and a reusable world-renderer adapter |

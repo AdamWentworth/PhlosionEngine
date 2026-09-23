@@ -478,6 +478,15 @@ presentation path. The full 21-entry Debug CTest suite passed, including the
 new camera contract. Synthetic runtime/editor and final-asset camera captures
 remain necessary for the M3 exit gate.
 
+### M3-D: runtime UI focus and action routing (CPU qualified 2026-09-22)
+
+The [UI focus foundation](UI_FOCUS_NAVIGATION.md) adds directional focus,
+keyboard/controller action routing, repeat timing, modal gameplay capture and
+neutral rearm after focus loss. All 22 Debug CTest entries passed; the affected
+UI contract passed again after the final rearm change. Text layout, cross-API
+drawing, battle HUD/dialogue integration and native image qualification remain
+open.
+
 ## Read this first
 
 **Design provenance.** The product direction below comes from a user-supplied
@@ -724,7 +733,7 @@ vehicle physics stay excluded.
 | Capability | Status | Evidence | Gap for this work |
 | --- | --- | --- | --- |
 | Text rendering | Partial | [TextRenderer.h](../src/engine/ui/TextRenderer.h): SDL_ttf glyph cache keyed by `unsigned char` | Single-byte glyph path: no UTF-8 decoding, fallback fonts, wrapping or shaping; dialogue needs robust text layout |
-| Immediate UI primitives | Partial | [UIManager.h](../src/engine/ui/UIManager.h) (`drawCard` marked stub), [Rect.h](../src/engine/ui/Rect.h) | No layout, widget set, focus/controller navigation or input routing; the slice needs dialogue and battle HUD |
+| Immediate UI primitives | Partial; M3-D adds CPU focus routing | [UI focus](UI_FOCUS_NAVIGATION.md) handles named actions, directional focus, repeats and modal rearm; [UIManager.h](../src/engine/ui/UIManager.h) still marks `drawCard` as a stub | No text layout, widget drawing or native battle/dialogue HUD; gameplay gating uses the caller's `blocksGameplay` result |
 | In-editor UI | Implemented | Dear ImGui docking in [EditorShell.h](../src/engine/editor/EditorShell.h), per [EDITOR_ARCHITECTURE.md](EDITOR_ARCHITECTURE.md) | Editor-only, not a shipping game UI stack |
 | Dialogue presentation hooks | Not found in inspected scope | No dialogue, typewriter or portrait API in engine source | Kept game-owned by the recovered plan; engine needs reliable text layout and UI input to support it |
 | Accessibility (text scale, contrast, motion) | Planned-only | Listed as future menu items in the [Autochess graphics roadmap](../../../Games/PokemonAutochess/docs/DISPLAY_GRAPHICS_ROADMAP.md) | Not found in engine source |
@@ -914,7 +923,8 @@ audio:
 Progress: M3-A adds an [asset-independent animation blend foundation](ANIMATION_BLEND.md)
 with crossfades, masked override layers, timed event collection and public glTF
 skin-palette integration. M3-B adds [parameter-driven state](ANIMATION_STATE_MACHINE.md).
-M3-C begins the [battle camera](BATTLE_CAMERA.md) with a CPU rig.
+M3-C begins the [battle camera](BATTLE_CAMERA.md) with a CPU rig. M3-D adds
+[runtime UI focus routing](UI_FOCUS_NAVIGATION.md) on the CPU.
 Battle systems, roster qualification and the end-to-end exit gate remain.
 
 - blending, crossfade, layers, parameter-driven state and animation events,
