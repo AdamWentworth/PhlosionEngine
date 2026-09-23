@@ -11,6 +11,13 @@ Keep their colors, transparency and aspect ratio. The README `<picture>` selects
 the cream wordmark for dark mode and blue for light mode. The engine name is
 typeset separately; these files are the shared brand, not a new engine logo.
 
+The Windows project picker uses an unchanged copy of the site's
+`public/brand/phlosion-lockup-horizontal-cream.png` under `tools/branding/`.
+Its `phlosion-mark.ico` window and shortcut icon is a 256-pixel format conversion
+of the site's `public/brand/phlosion-mark.png`. The picker follows the site's
+dark palette (`#050b13`, `#0b1826`, cream `#f7efd9`, orange `#ff5a00`). These
+brand assets have the same ownership exception as the README lockups.
+
 `editor-project-preview.png` is an unchanged 1440 x 900 Direct3D 12 editor
 capture from 2026-09-19. It shows the engine hosting Pokemon Autochess's
 Flat Dirt Experiment and `Crowded Battle` setup while stopped in Game view.

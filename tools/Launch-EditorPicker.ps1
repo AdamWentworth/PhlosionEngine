@@ -50,69 +50,160 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
+$brandRoot = Join-Path $PSScriptRoot 'branding'
+$lockupPath = Join-Path $brandRoot 'phlosion-lockup-horizontal-cream.png'
+$iconPath = Join-Path $brandRoot 'phlosion-mark.ico'
+foreach ($path in @($lockupPath, $iconPath)) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing Phlosion brand asset: $path" }
+}
+$palette = @{
+    Background = [System.Drawing.ColorTranslator]::FromHtml('#050b13')
+    Header = [System.Drawing.ColorTranslator]::FromHtml('#081421')
+    Surface = [System.Drawing.ColorTranslator]::FromHtml('#0b1826')
+    Raised = [System.Drawing.ColorTranslator]::FromHtml('#14273a')
+    Line = [System.Drawing.ColorTranslator]::FromHtml('#284059')
+    Text = [System.Drawing.ColorTranslator]::FromHtml('#f7efd9')
+    Secondary = [System.Drawing.ColorTranslator]::FromHtml('#c5d2df')
+    Muted = [System.Drawing.ColorTranslator]::FromHtml('#91a3b5')
+    Orange = [System.Drawing.ColorTranslator]::FromHtml('#ff5a00')
+    OrangeHover = [System.Drawing.ColorTranslator]::FromHtml('#ff7b32')
+    Amber = [System.Drawing.ColorTranslator]::FromHtml('#ffb41f')
+}
+
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Phlosion Editor'
 $form.StartPosition = 'CenterScreen'
-$form.ClientSize = New-Object System.Drawing.Size(680, 390)
-$form.MinimumSize = New-Object System.Drawing.Size(580, 340)
+$form.ClientSize = New-Object System.Drawing.Size(760, 500)
+$form.FormBorderStyle = 'FixedSingle'
+$form.MaximizeBox = $false
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+$form.BackColor = $palette.Background
+$brandIcon = New-Object System.Drawing.Icon($iconPath)
+$form.Icon = $brandIcon
+
+$header = New-Object System.Windows.Forms.Panel
+$header.BackColor = $palette.Header
+$header.Location = New-Object System.Drawing.Point(0, 0)
+$header.Size = New-Object System.Drawing.Size(760, 134)
+$form.Controls.Add($header)
+
+$lockup = New-Object System.Windows.Forms.PictureBox
+$lockup.Image = [System.Drawing.Image]::FromFile($lockupPath)
+$lockup.SizeMode = 'Zoom'
+$lockup.BackColor = $palette.Header
+$lockup.Location = New-Object System.Drawing.Point(30, 11)
+$lockup.Size = New-Object System.Drawing.Size(267, 105)
+$header.Controls.Add($lockup)
+
+$editorLabel = New-Object System.Windows.Forms.Label
+$editorLabel.Text = 'EDITOR'
+$editorLabel.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 14)
+$editorLabel.ForeColor = $palette.Orange
+$editorLabel.BackColor = $palette.Header
+$editorLabel.Location = New-Object System.Drawing.Point(312, 55)
+$editorLabel.AutoSize = $true
+$header.Controls.Add($editorLabel)
+
+$headerLine = New-Object System.Windows.Forms.Panel
+$headerLine.BackColor = $palette.Line
+$headerLine.Location = New-Object System.Drawing.Point(0, 133)
+$headerLine.Size = New-Object System.Drawing.Size(760, 1)
+$header.Controls.Add($headerLine)
 
 $heading = New-Object System.Windows.Forms.Label
 $heading.Text = 'Choose a project'
-$heading.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 18)
-$heading.Location = New-Object System.Drawing.Point(24, 20)
+$heading.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 20)
+$heading.ForeColor = $palette.Text
+$heading.Location = New-Object System.Drawing.Point(31, 151)
 $heading.AutoSize = $true
 $form.Controls.Add($heading)
 
 $description = New-Object System.Windows.Forms.Label
-$description.Text = 'Open a Phlosion game project to start its editor.'
-$description.Location = New-Object System.Drawing.Point(26, 62)
+$description.Text = 'Select a game to open its editor workspace.'
+$description.ForeColor = $palette.Secondary
+$description.Location = New-Object System.Drawing.Point(33, 195)
 $description.AutoSize = $true
 $form.Controls.Add($description)
 
-$list = New-Object System.Windows.Forms.ListView
-$list.View = 'Details'
-$list.FullRowSelect = $true
-$list.HideSelection = $false
-$list.MultiSelect = $false
-$list.Anchor = 'Top,Bottom,Left,Right'
-$list.Location = New-Object System.Drawing.Point(24, 98)
-$list.Size = New-Object System.Drawing.Size(632, 216)
-[void]$list.Columns.Add('Project', 215)
-[void]$list.Columns.Add('Location', 392)
+$list = New-Object System.Windows.Forms.ListBox
+$list.DrawMode = 'OwnerDrawFixed'
+$list.ItemHeight = 72
+$list.IntegralHeight = $false
+$list.BorderStyle = 'None'
+$list.BackColor = $palette.Background
+$list.ForeColor = $palette.Text
+$list.Location = New-Object System.Drawing.Point(28, 226)
+$list.Size = New-Object System.Drawing.Size(704, 185)
+$itemNameFont = New-Object System.Drawing.Font('Segoe UI Semibold', 11)
+$itemPathFont = New-Object System.Drawing.Font('Segoe UI', 8.5)
 foreach ($project in $projects) {
-    $item = New-Object System.Windows.Forms.ListViewItem($project.Name)
-    [void]$item.SubItems.Add((Split-Path -Parent $project.Descriptor))
-    $item.Tag = $project
-    [void]$list.Items.Add($item)
+    [void]$list.Items.Add($project)
 }
-if ($list.Items.Count -gt 0) { $list.Items[0].Selected = $true }
+if ($list.Items.Count -gt 0) { $list.SelectedIndex = 0 }
+$list.Add_DrawItem({
+    param($sender, $event)
+    if ($event.Index -lt 0) { return }
+    $project = $sender.Items[$event.Index]
+    $selected = ($event.State -band [System.Windows.Forms.DrawItemState]::Selected) -ne 0
+    $background = New-Object System.Drawing.SolidBrush($(if ($selected) { $palette.Raised } else { $palette.Surface }))
+    $card = New-Object System.Drawing.Rectangle(($event.Bounds.X + 5), ($event.Bounds.Y + 3), ($event.Bounds.Width - 10), ($event.Bounds.Height - 6))
+    $event.Graphics.FillRectangle($background, $card)
+    $background.Dispose()
+    $border = New-Object System.Drawing.Pen($(if ($selected) { $palette.Orange } else { $palette.Line }))
+    $event.Graphics.DrawRectangle($border, $card)
+    $border.Dispose()
+    if ($selected) {
+        $accent = New-Object System.Drawing.SolidBrush($palette.Orange)
+        $event.Graphics.FillRectangle($accent, $card.X, $card.Y, 4, $card.Height)
+        $accent.Dispose()
+    }
+    $nameRect = New-Object System.Drawing.Rectangle(($card.X + 20), ($card.Y + 11), ($card.Width - 36), 23)
+    $pathRect = New-Object System.Drawing.Rectangle(($card.X + 20), ($card.Y + 38), ($card.Width - 36), 20)
+    $flags = [System.Windows.Forms.TextFormatFlags]::Left -bor [System.Windows.Forms.TextFormatFlags]::EndEllipsis -bor [System.Windows.Forms.TextFormatFlags]::NoPrefix
+    [System.Windows.Forms.TextRenderer]::DrawText($event.Graphics, $project.Name, $itemNameFont, $nameRect, $palette.Text, $flags)
+    [System.Windows.Forms.TextRenderer]::DrawText($event.Graphics, (Split-Path -Parent $project.Descriptor), $itemPathFont, $pathRect, $palette.Muted, $flags)
+})
 $form.Controls.Add($list)
+
+$footerLine = New-Object System.Windows.Forms.Panel
+$footerLine.BackColor = $palette.Line
+$footerLine.Location = New-Object System.Drawing.Point(0, 427)
+$footerLine.Size = New-Object System.Drawing.Size(760, 1)
+$form.Controls.Add($footerLine)
 
 $status = New-Object System.Windows.Forms.Label
 $status.Text = if ($projects.Count -gt 0) {
-    'Projects in the Games folder appear here automatically.'
+    'Game projects in your Games folder appear here automatically.'
 } else {
     'Browse to a phlosion.project.json to open a project.'
 }
-$status.Anchor = 'Bottom,Left,Right'
-$status.Location = New-Object System.Drawing.Point(25, 326)
-$status.Size = New-Object System.Drawing.Size(390, 25)
+$status.ForeColor = $palette.Muted
+$status.Location = New-Object System.Drawing.Point(32, 453)
+$status.Size = New-Object System.Drawing.Size(430, 28)
 $form.Controls.Add($status)
 
 $openButton = New-Object System.Windows.Forms.Button
 $openButton.Text = 'Open Project'
-$openButton.Anchor = 'Bottom,Right'
-$openButton.Location = New-Object System.Drawing.Point(530, 324)
-$openButton.Size = New-Object System.Drawing.Size(126, 32)
+$openButton.FlatStyle = 'Flat'
+$openButton.FlatAppearance.BorderSize = 0
+$openButton.FlatAppearance.MouseOverBackColor = $palette.OrangeHover
+$openButton.BackColor = $palette.Orange
+$openButton.ForeColor = $palette.Background
+$openButton.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 10)
+$openButton.Location = New-Object System.Drawing.Point(610, 446)
+$openButton.Size = New-Object System.Drawing.Size(124, 36)
 $form.Controls.Add($openButton)
 $form.AcceptButton = $openButton
 
 $browseButton = New-Object System.Windows.Forms.Button
 $browseButton.Text = 'Browse...'
-$browseButton.Anchor = 'Bottom,Right'
-$browseButton.Location = New-Object System.Drawing.Point(416, 324)
-$browseButton.Size = New-Object System.Drawing.Size(104, 32)
+$browseButton.FlatStyle = 'Flat'
+$browseButton.FlatAppearance.BorderColor = $palette.Line
+$browseButton.FlatAppearance.MouseOverBackColor = $palette.Raised
+$browseButton.BackColor = $palette.Surface
+$browseButton.ForeColor = $palette.Text
+$browseButton.Location = New-Object System.Drawing.Point(496, 446)
+$browseButton.Size = New-Object System.Drawing.Size(104, 36)
 $form.Controls.Add($browseButton)
 
 $timer = New-Object System.Windows.Forms.Timer
@@ -197,8 +288,8 @@ $timer.Add_Tick({
 })
 
 $openProject = {
-    if ($list.SelectedItems.Count -gt 0) {
-        Start-ProjectEditor -Project $list.SelectedItems[0].Tag
+    if ($list.SelectedIndex -ge 0) {
+        Start-ProjectEditor -Project $list.SelectedItem
     }
 }
 $openButton.Add_Click($openProject)
@@ -220,4 +311,8 @@ if ($SmokeTest) {
 }
 [void]$form.ShowDialog()
 $timer.Dispose()
+$lockup.Image.Dispose()
+$brandIcon.Dispose()
+$itemNameFont.Dispose()
+$itemPathFont.Dispose()
 $form.Dispose()
