@@ -469,6 +469,15 @@ checks across OpenGL, Vulkan and Direct3D 12, with zero failures. Evidence is
 under `artifacts/m3-b/native-20260922/`. Roster, authoring and battle-system
 exit gates remain open.
 
+### M3-C: asset-independent battle camera (CPU qualified 2026-09-22)
+
+The [battle camera foundation](BATTLE_CAMERA.md) adds multi-target perspective
+framing, authored cuts, eased blends, deterministic shake and reduced-motion
+cleanup in the renderer-neutral camera target. This pass changes no native
+presentation path. The full 21-entry Debug CTest suite passed, including the
+new camera contract. Synthetic runtime/editor and final-asset camera captures
+remain necessary for the M3 exit gate.
+
 ## Read this first
 
 **Design provenance.** The product direction below comes from a user-supplied
@@ -630,7 +639,7 @@ it is proven" means consumer usage, not engine verification.
 | Keyboard and mouse input | Actions and bounded native exploration routing qualified through M2-F | [Input contracts](INPUT_ACTIONS.md) plus the [public course](EXPLORATION_FIXTURE.md): keys, RMB orbit, wheel zoom, focus/text/pause gates and fixed-tick delivery | General text/IME input and final game integration remain; existing plugins opt in explicitly |
 | Gamepad / controller | Mapped adapter and synthetic runtime/editor integration qualified through M2-F; basic physical D3D12 controls exercised | [SDL action adapter](INPUT_ACTIONS.md), public-course virtual-device select/hotplug/rearm, and recorded Xbox 360 Controller manual sessions | Manual editor toolbar checks deferred; physical SDL detach not corroborated; prompts, haptics and other hardware/driver coverage remain |
 | Named action mapping, rebinding, context layers | Actions, in-memory rebinding and sample host integration implemented; context layers remain absent | [InputActions](INPUT_ACTIONS.md) and [course scheduling](EXPLORATION_FIXTURE.md) preserve taps/deltas through zero-tick frames and consume them once across catch-up ticks | Context priority/consumption, binding capture UI and persistence remain |
-| Camera | CPU rig and native public-course framing qualified through M2-F | [Exploration camera](EXPLORATION_CAMERA.md): follow/orbit, collision boom, relative movement, reset and separate authored settings; both native hosts/APIs/aspects | Final-asset framing, authored scene zones, battle rigs, blends and shake remain unqualified |
+| Camera | Exploration CPU/native path qualified through M2-F; M3-C battle rig CPU foundation | [Exploration camera](EXPLORATION_CAMERA.md) plus [battle camera](BATTLE_CAMERA.md): multi-target framing, cuts, eased blends, shake and reset | Battle runtime/editor images, final-asset framing and authored scene zones remain unqualified |
 | Cursor capture and pointer policy | Bounded viewport-local exploration policy qualified in M2-F | RMB starts inside the active image; gates/releases clear drag and deltas; wheel respects image hover without global relative mouse mode | Broader cursor modes and battle pointer policy remain |
 
 ### Runtime, ECS, jobs and time
@@ -905,6 +914,7 @@ audio:
 Progress: M3-A adds an [asset-independent animation blend foundation](ANIMATION_BLEND.md)
 with crossfades, masked override layers, timed event collection and public glTF
 skin-palette integration. M3-B adds [parameter-driven state](ANIMATION_STATE_MACHINE.md).
+M3-C begins the [battle camera](BATTLE_CAMERA.md) with a CPU rig.
 Battle systems, roster qualification and the end-to-end exit gate remain.
 
 - blending, crossfade, layers, parameter-driven state and animation events,

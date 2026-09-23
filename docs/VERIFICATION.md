@@ -26,6 +26,7 @@ No test in the current engine CTest suite needs a graphics context.
 | `PhlosionInputContracts` | Six SDL-free groups for named action mapping, button/axis transitions, rebinding, deadzones, controller identity/selection, focus/enable recovery, bounds and thread ownership |
 | `PhlosionSdlInputContracts` | Three real SDL virtual-device groups for mapped-controller discovery, all 15 buttons/six axes, normalization, queued taps and event/poll duplicate observations, hotplug/disconnect, window focus filtering and subsystem/handle ownership |
 | `PhlosionCameraContracts` | Ten groups for exploration framing, delta/rate controls, follow/recovery damping, real sphere obstruction queries, validation/ownership, relative movement and repeated CPU input/character/camera composition |
+| `PhlosionBattleCameraContracts` | CPU battle camera framing at multiple aspects, impossible-shot rejection, cuts/blends/tracking, deterministic shake, reduced motion, reset, transactions and thread ownership |
 | `PhlosionExplorationContracts` | Optional public course: SDL extension validation, viewport/input gates, zero/multiple-tick cadence, bounded replay, real movement/sensors/camera/NPC composition, safe recovery and SDL lifetime ownership |
 | `PhlosionExplorationEvidenceContracts` | Optional course's independent state and ray/box pixel oracles, malformed state/content rejection and pristine recovery; no graphics context |
 | `PhlosionSdlExtensionValid` | Plugin probe accepts the sample's separate versioned SDL callback table |
@@ -82,6 +83,12 @@ geometry and kinematic characters. Mathematical 16:9/21:9 framing checks are
 separate from native image qualification; final radial sphere clearance is
 separate from swept camera motion or whole-frustum clearance. Host integration
 still requires the native runtime/editor scene checks below.
+
+The [battle camera](BATTLE_CAMERA.md) has a standalone CPU executable linked to
+Camera. It checks analytic perspective framing with independent projection,
+cuts, moving-target blends, shake containment, reduced motion and transactional
+failures. It changes no native presentation path; runtime/editor camera images
+remain a separate M3 qualification gate.
 
 The optional [public exploration course](EXPLORATION_FIXTURE.md) adds the five
 entries above when its fixture, editor, tests and existing scene fixture are
@@ -176,6 +183,14 @@ measurement remain local; this workflow does not certify other operating systems
 every GPU/driver, all project content or every editor scenario.
 
 ## Recorded evidence
+
+On 2026-09-22, the M3-C [battle camera foundation](BATTLE_CAMERA.md) passed the
+full 21-entry configured Debug CTest suite after a complete build. Its new CPU
+contract covers multi-aspect target fitting, impossible shots, moving targets,
+interrupted and opposite-side blends, bounded shake that keeps edge targets in
+frame, reduced-motion cleanup and owner-thread behavior. No runtime or editor
+camera rendering changed, so this is CPU qualification only. Synthetic native
+battle-camera presentation and final roster/environment shots remain open.
 
 On 2026-09-22, the M3-B [parameter-driven animation state](ANIMATION_STATE_MACHINE.md)
 passed the full 20-entry configured CTest suite (34 C++ contracts), including

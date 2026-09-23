@@ -202,7 +202,10 @@ target_link_libraries(engine_collision PUBLIC glm::glm PRIVATE Jolt::Jolt)
 phlosion_apply_settings(engine_collision)
 add_library(Phlosion::Collision ALIAS engine_collision)
 
-add_library(engine_camera STATIC src/engine/camera/ExplorationCamera.cpp)
+add_library(engine_camera STATIC
+    src/engine/camera/ExplorationCamera.cpp
+    src/engine/camera/BattleCamera.cpp
+)
 target_link_libraries(engine_camera PUBLIC Phlosion::Collision glm::glm)
 phlosion_apply_settings(engine_camera)
 add_library(Phlosion::Camera ALIAS engine_camera)
@@ -859,6 +862,12 @@ if (PHLOSION_BUILD_TESTS)
     phlosion_apply_settings(PhlosionCameraTests)
     add_test(NAME PhlosionCameraContracts COMMAND PhlosionCameraTests)
     set_tests_properties(PhlosionCameraContracts PROPERTIES TIMEOUT 120)
+
+    add_executable(PhlosionBattleCameraTests tests/TestBattleCamera.cpp)
+    target_link_libraries(PhlosionBattleCameraTests PRIVATE Phlosion::Camera)
+    phlosion_apply_settings(PhlosionBattleCameraTests)
+    add_test(NAME PhlosionBattleCameraContracts COMMAND PhlosionBattleCameraTests)
+    set_tests_properties(PhlosionBattleCameraContracts PROPERTIES TIMEOUT 120)
 
     add_executable(PhlosionSdlInputTests tests/TestSdlActionInput.cpp)
     target_link_libraries(PhlosionSdlInputTests PRIVATE engine_platform)
