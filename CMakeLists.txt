@@ -811,6 +811,7 @@ if (PHLOSION_BUILD_EXPLORATION_FIXTURE)
     add_library(exploration_fixture STATIC
         examples/exploration_fixture/BattleHudAtlas.cpp
         examples/exploration_fixture/BattlePreview.cpp
+        examples/exploration_fixture/BattleRulesOverlay.cpp
         examples/exploration_fixture/BattleSequence.cpp
         examples/exploration_fixture/BattleVfxPlugin.cpp
         examples/exploration_fixture/ExplorationSession.cpp

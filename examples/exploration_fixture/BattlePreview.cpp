@@ -2,6 +2,7 @@
 
 #include "engine/core/Environment.h"
 #include "engine/render/Camera3D.h"
+#include "BattleRulesOverlay.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -238,6 +239,35 @@ BattlePreview::BattlePreview(bool audioOutput)
     require(audio::AudioClip::create(audio::sampleRate, 1u, tone, impactClip_, &error), error);
     if (audioOutput && !audioOutput_.start(&error))
         std::cerr << "[BattlePreview] Audio device unavailable; using null sink: " << error << '\n';
+    const auto rulesPath = env::get("PHLOSION_BATTLE_RULES_PLUGIN");
+    const auto rulesConfig = env::get("PHLOSION_BATTLE_RULES_JSON");
+    require(static_cast<bool>(rulesPath) == static_cast<bool>(rulesConfig),
+            "Battle rules need both plugin and JSON config");
+    if (rulesPath) {
+#ifdef _WIN32
+        rulesLibrary_ = LoadLibraryExW(fs::path(*rulesPath).wstring().c_str(), nullptr,
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+#else
+        rulesLibrary_ = SDL_LoadObject(rulesPath->c_str());
+#endif
+        require(rulesLibrary_ != nullptr, "Could not load battle rules plugin: " + *rulesPath);
+#ifdef _WIN32
+        const auto symbol = GetProcAddress(static_cast<HMODULE>(rulesLibrary_),
+                                           "phlosionBattleRulesPluginCreate");
+#else
+        const auto symbol = SDL_LoadFunction(rulesLibrary_, "phlosionBattleRulesPluginCreate");
+#endif
+        require(symbol != nullptr, "Battle rules plugin entry point missing");
+        const auto create = reinterpret_cast<CreateBattleRulesPlugin>(symbol);
+        require(create(battleRulesPluginAbi, rulesConfig->c_str(), &rulesApi_) &&
+                rulesApi_.abi == battleRulesPluginAbi &&
+                rulesApi_.size == sizeof(BattleRulesPluginApi) && rulesApi_.context &&
+                rulesApi_.destroy && rulesApi_.reset && rulesApi_.navigate &&
+                rulesApi_.confirm && rulesApi_.back && rulesApi_.select &&
+                rulesApi_.step && rulesApi_.abort && rulesApi_.complete &&
+                rulesApi_.stateJson && rulesApi_.lastError,
+                "Battle rules plugin could not initialize");
+    }
     if (env::get("PHLOSION_EXPLORATION_AUTOMATION").value_or("0") == "1") {
         cameraProbe_ = env::get("PHLOSION_BATTLE_CAMERA_PROBE").value_or("0") == "1";
         if (cameraProbe_) {
@@ -260,6 +290,14 @@ BattlePreview::BattlePreview(bool audioOutput)
 BattlePreview::~BattlePreview() {
     cancel();
     release();
+    if (rulesApi_.context) rulesApi_.destroy(rulesApi_.context);
+    if (rulesLibrary_) {
+#ifdef _WIN32
+        FreeLibrary(static_cast<HMODULE>(rulesLibrary_));
+#else
+        SDL_UnloadObject(rulesLibrary_);
+#endif
+    }
     if (battlePokemonLibrary_) {
         if (battlePokemonApi_.context && battlePokemonApi_.destroy)
             battlePokemonApi_.destroy(battlePokemonApi_.context);
@@ -306,6 +344,7 @@ void BattlePreview::dispatch(BattleCue cue) {
 }
 
 void BattlePreview::reset() {
+    if (usesRules()) { rulesApi_.reset(rulesApi_.context); rulesTick_ = 0; }
     sequence_.reset();
     audioOutput_.stopAll();
     vfxPlugin_.stopAll();
@@ -374,11 +413,47 @@ void BattlePreview::navigationFrame(float deltaSeconds) {
 }
 
 void BattlePreview::cancel() {
+    if (usesRules()) { rulesApi_.abort(rulesApi_.context); return; }
     for (const auto cue : sequence_.cancel()) dispatch(cue);
 }
 
 void BattlePreview::skip() {
+    if (usesRules()) { menuConfirm(); return; }
     for (const auto cue : sequence_.skip()) dispatch(cue);
+}
+
+void BattlePreview::menuNavigate(int delta) {
+    if (usesRules()) rulesApi_.navigate(rulesApi_.context, delta);
+}
+void BattlePreview::menuConfirm() {
+    if (usesRules()) rulesApi_.confirm(rulesApi_.context);
+}
+void BattlePreview::menuBack() {
+    if (usesRules() && !rulesApi_.back(rulesApi_.context)) cancel();
+}
+void BattlePreview::menuSelect(int index) {
+    if (usesRules()) rulesApi_.select(rulesApi_.context, index);
+}
+void BattlePreview::menuClick(int x, int y, int width, int height) {
+    if (!usesRules() || width <= 0 || height <= 0) return;
+    const float menuWidth = std::min(440.0f, static_cast<float>(width) - 28.0f);
+    const float menuX = (width - menuWidth) * .5f;
+    const float menuY = height - 237.0f;
+    if (x < menuX + 8 || x >= menuX + menuWidth - 8) return;
+    for (int index = 0; index < 5; ++index) {
+        const float rowY = menuY + 42.0f + index * 23.0f;
+        if (y >= rowY - 4 && y < rowY + 16) {
+            menuSelect(index);
+            return;
+        }
+    }
+}
+nlohmann::json BattlePreview::rulesState() const {
+    if (!usesRules()) return nullptr;
+    const char* value = rulesApi_.stateJson(rulesApi_.context);
+    require(value != nullptr, std::string("Battle rules state failed: ") +
+            rulesApi_.lastError(rulesApi_.context));
+    return nlohmann::json::parse(value);
 }
 
 void BattlePreview::frameCamera(int tick, float aspect) {
@@ -399,7 +474,7 @@ void BattlePreview::frameCamera(int tick, float aspect) {
     const bool opened = camera_.cut(wideShot, wide, aspect, cameraPose_, &error);
     require(opened, error);
     phase_ = "wide";
-    for (int current = 1; current <= tick; ++current) {
+    for (int current = 1; current <= (usesRules() ? 0 : tick); ++current) {
         if (current == 30) {
             const bool blended = camera_.blendTo(shot(-.48f, .25f, 42.0f), first,
                                                  aspect, .5f, cameraPose_, &error);
@@ -438,7 +513,7 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
     }
     require(dynamic_cast<IWorldResourceScope*>(&renderer) == scopes_,
             "Battle renderer changed without release");
-    if (sequence_.state().active)
+    if (usesRules() || sequence_.state().active)
         frameCamera(tick, static_cast<float>(width) / height);
     if (cameraProbe_ && cameraProbeAllowed && !cameraProbeApplied_ &&
         tick >= 5 && width * 9 == height * cameraProbeAspectNumerator_) {
@@ -468,7 +543,13 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
         cameraPose_ = freeCamera_.pose(static_cast<float>(width) / height);
     std::string error;
     require(mixer_.setListener(cameraPose_.position, cameraPose_.right, &error), error);
-    while (sequence_.state().active && sequence_.state().tick < tick) {
+    while (usesRules() && rulesTick_ < tick) {
+        rulesApi_.step(rulesApi_.context);
+        ++rulesTick_;
+        const char* issue = rulesApi_.lastError(rulesApi_.context);
+        require(!issue || !*issue, std::string("Battle rules failed: ") + issue);
+    }
+    while (!usesRules() && sequence_.state().active && sequence_.state().tick < tick) {
         for (const auto cue : sequence_.advance()) dispatch(cue);
         if (sequence_.state().tick == automationActionTick_) {
             if (automationAction_ == "cancel") cancel();
@@ -481,6 +562,7 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
         lastAudioPeak_ = audioOutput_.lastPeak();
         vfxPlugin_.step(battleFixedDelta);
     }
+    const auto rulesFrame = usesRules() ? rulesState() : nlohmann::json();
     Camera3D camera(cameraPose_.verticalFovDegrees,
                     static_cast<float>(width) / height,
                     cameraPose_.nearPlane, cameraPose_.farPlane);
@@ -513,7 +595,7 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
             const float sampleTime = std::fmod(tick * battleFixedDelta + index * .17f,
                                                 model->animations[idleClip].durationSec);
             bool sampled = false;
-            if (index == 4u && sequence_.state().active && tick >= 110 && tick < 119) {
+            if (!usesRules() && index == 4u && sequence_.state().active && tick >= 110 && tick < 119) {
                 render::animation::PoseBlendRequest recovery;
                 recovery.baseClipIndex = castGestureClip_;
                 recovery.baseTimeSec = std::fmod((tick - 60) * battleFixedDelta,
@@ -522,7 +604,7 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
                 recovery.targetTimeSec = sampleTime;
                 recovery.crossfadeWeight = (tick - 109) / 9.0f;
                 sampled = sampleGltfSceneBlendedPose(model, recovery, actorPoses[index], &error);
-            } else if (index == 4u && sequence_.state().gestureClip == 8) {
+            } else if (!usesRules() && index == 4u && sequence_.state().gestureClip == 8) {
                 render::animation::PoseBlendRequest gesture;
                 gesture.baseClipIndex = idleClip;
                 gesture.baseTimeSec = sampleTime;
@@ -539,6 +621,7 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
         }
         for (std::size_t index = 0; index < castActors_.size(); ++index) {
             if (!castActors_[index].nativeObject.empty()) continue;
+            if (usesRules() && index < 4 && rulesFrame["party"][index]["hp"].get<int>() == 0) continue;
             const auto& actor = castActors_[index];
             const glm::mat4 placement = glm::translate(glm::mat4(1.0f), actor.position) *
                 glm::rotate(glm::mat4(1.0f), actor.yawRadians,
@@ -552,6 +635,7 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
         for (std::size_t index = 0; index < castActors_.size(); ++index) {
             const auto& actor = castActors_[index];
             if (actor.nativeObject.empty()) continue;
+            if (usesRules() && index < 4 && rulesFrame["party"][index]["hp"].get<int>() == 0) continue;
             render::BattlePokemonFrame frame;
             frame.renderer = &renderer;
             frame.assetId = actor.slot.c_str();
@@ -630,10 +714,15 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
     effectFrame.cameraForward[2] = cameraPose_.forward.z;
     effectFrame.width = width;
     effectFrame.height = height;
-    vfxPlugin_.render(effectFrame);
+    if (!usesRules()) vfxPlugin_.render(effectFrame);
 }
 
 void BattlePreview::drawOverlay(IRenderBackend& renderer, int width, int height) const {
+    if (usesRules()) {
+        hudAtlas_.draw(renderer, width, height);
+        drawBattleRulesOverlay(renderer, rulesState(), width, height);
+        return;
+    }
     if (!sequence_.state().hudVisible) return;
     hudAtlas_.draw(renderer, width, height);
     std::array<IRenderBackend::DebugQuad, 10> quads{};
@@ -706,7 +795,8 @@ nlohmann::json BattlePreview::state(int tick, std::array<int, 4> viewport) const
     const auto& encounter = sequence_.state();
     camera::BattleCameraPose rigPose;
     const bool cameraActive = camera_.pose(rigPose);
-    return {{"tick", tick}, {"phase", phase_}, {"viewport", viewport},
+    nlohmann::json result = {{"tick", tick}, {"phase", phase_}, {"viewport", viewport},
+            {"rules", rulesState()}, {"interactive", usesRules()},
             {"camera_mode", freeCamera_.active() ? "free" : "scripted"},
             {"encounter", {{"tick", encounter.tick}, {"active", encounter.active},
                            {"camera_active", cameraActive},
@@ -732,6 +822,27 @@ nlohmann::json BattlePreview::state(int tick, std::array<int, 4> viewport) const
                          {"blend", cameraPose_.blendProgress},
                          {"shake", vec(cameraPose_.shakeOffset)}}},
             {"actors", actors}};
+    if (usesRules()) {
+        const auto& rules = result["rules"];
+        result["phase"] = "interactive";
+        result["camera_mode"] = freeCamera_.active() ? "free" : "wide";
+        auto& status = result["encounter"];
+        status["tick"] = rulesTick_;
+        status["active"] = !rules["complete"].get<bool>();
+        status["cancelled"] = rules["outcome"] == "aborted";
+        status["skipped"] = false;
+        status["hud_visible"] = true;
+        status["effect_visible"] = false;
+        status["vfx_active"] = false;
+        status["gesture_clip"] = 0;
+        status["audio_voices"] = 0;
+        status["audio_peak"] = 0.0f;
+        status["health"] = nlohmann::json::array();
+        for (const auto& member : rules["party"])
+            status["health"].push_back(static_cast<float>(member["hp"].get<int>()) /
+                                        member["max_hp"].get<int>());
+    }
+    return result;
 }
 
 void writeBattleHandshake(const std::string& path, const char* host,

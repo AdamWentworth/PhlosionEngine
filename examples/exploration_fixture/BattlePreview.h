@@ -4,6 +4,7 @@
 #include "BattleHudAtlas.h"
 #include "BattlePreviewFreeCamera.h"
 #include "BattleVfxPlugin.h"
+#include "BattleRulesPlugin.h"
 #include "engine/render/BattlePokemonPlugin.h"
 #include "engine/audio/AudioMixer.h"
 #include "engine/audio/SdlAudioOutput.h"
@@ -31,12 +32,19 @@ public:
     void reset();
     void cancel();
     void skip();
+    bool usesRules() const noexcept { return rulesApi_.context != nullptr; }
+    void menuNavigate(int delta);
+    void menuConfirm();
+    void menuBack();
+    void menuSelect(int index);
+    void menuClick(int x, int y, int width, int height);
     void release();
     void setNavigationEnabled(bool enabled);
     void navigationEvent(const SDL_Event& event, Uint32 windowId, bool pointerInside);
     void navigationFrame(float deltaSeconds);
     bool usesAuthoredCast() const noexcept { return castEnabled_; }
-    bool complete() const noexcept { return !sequence_.state().active; }
+    bool complete() const noexcept { return usesRules() ? rulesApi_.complete(rulesApi_.context)
+                                                         : !sequence_.state().active; }
     nlohmann::json imports() const;
     nlohmann::json state(int tick, std::array<int, 4> viewport) const;
 
@@ -58,6 +66,7 @@ private:
     };
     void frameCamera(int tick, float aspect);
     void dispatch(BattleCue cue);
+    nlohmann::json rulesState() const;
 
     std::shared_ptr<const render::gltf::scene::GltfSceneAsset> field_, wes_;
     std::array<CastActor, 6> castActors_{};
@@ -85,6 +94,9 @@ private:
     BattleSequence sequence_;
     BattleHudAtlas hudAtlas_;
     BattleVfxPlugin vfxPlugin_;
+    void* rulesLibrary_ = nullptr;
+    BattleRulesPluginApi rulesApi_{};
+    int rulesTick_ = 0;
     audio::AudioMixer mixer_;
     audio::SdlAudioOutput audioOutput_;
     std::shared_ptr<const audio::AudioClip> impactClip_;

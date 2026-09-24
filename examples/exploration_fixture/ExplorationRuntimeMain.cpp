@@ -136,7 +136,8 @@ int main(int argc,char** argv) {
                 ++frame; const auto now=std::chrono::steady_clock::now();
                 const float delta=(replay || (battle && a.hidden))?engine::exploration_fixture::fixedDelta:std::min(.05f,std::chrono::duration<float>(now-previous).count());previous=now;
                 context.viewport={0,0,width,height}; if(replay)replay->frame(context);if(session&&!battle)session->begin(context);
-                if(battle)battle->setNavigationEnabled(context.windowFocused);
+                if(battle)battle->setNavigationEnabled(context.windowFocused&&
+                    (!battle->usesRules()||!context.paused));
                 SDL_Event e{};while(SDL_PollEvent(&e)) {
                     if(e.type==SDL_QUIT)running=false;
                     if(e.type==SDL_WINDOWEVENT && e.window.windowID==context.windowId) {
@@ -146,18 +147,31 @@ int main(int argc,char** argv) {
                     }
                     if(e.type==SDL_KEYDOWN && !e.key.repeat && e.key.windowID==context.windowId) {
                         if(e.key.keysym.sym==SDLK_ESCAPE) {
-                            if(battle){if(context.windowFocused)battle->cancel();}else running=false;
+                            if(battle){if(context.windowFocused&&(!battle->usesRules()||!context.paused))
+                                (battle->usesRules()?battle->menuBack():battle->cancel());}else running=false;
                         }
-                        if(battle&&context.windowFocused&&e.key.repeat==0&&e.key.keysym.sym==SDLK_SPACE)battle->skip();
-                        if(battle&&context.windowFocused&&e.key.repeat==0&&e.key.keysym.sym==SDLK_r){battle->reset();battleTicks=0;}
+                        if(battle&&context.windowFocused&&!context.paused&&
+                           (e.key.keysym.sym==SDLK_SPACE||e.key.keysym.sym==SDLK_RETURN))battle->skip();
+                        if(battle&&battle->usesRules()&&context.windowFocused&&!context.paused) {
+                            if(e.key.keysym.sym==SDLK_UP)battle->menuNavigate(-1);
+                            if(e.key.keysym.sym==SDLK_DOWN)battle->menuNavigate(1);
+                        }
+                        if(battle&&context.windowFocused&&(!battle->usesRules()||!context.paused)&&
+                           e.key.repeat==0&&e.key.keysym.sym==SDLK_r){battle->reset();battleTicks=0;}
                         if(!replay&&e.key.keysym.sym==SDLK_p)context.paused=!context.paused;
                     }
-                    if(battle&&context.windowFocused&&e.type==SDL_CONTROLLERBUTTONDOWN) {
-                        if(e.cbutton.button==SDL_CONTROLLER_BUTTON_B)battle->cancel();
+                    if(battle&&context.windowFocused&&!context.paused&&e.type==SDL_CONTROLLERBUTTONDOWN) {
+                        if(e.cbutton.button==SDL_CONTROLLER_BUTTON_B)(battle->usesRules()?battle->menuBack():battle->cancel());
                         if(e.cbutton.button==SDL_CONTROLLER_BUTTON_A)battle->skip();
+                        if(battle->usesRules()&&e.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_UP)battle->menuNavigate(-1);
+                        if(battle->usesRules()&&e.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_DOWN)battle->menuNavigate(1);
                     }
+                    if(battle&&battle->usesRules()&&context.windowFocused&&!context.paused&&
+                       e.type==SDL_MOUSEBUTTONDOWN&&e.button.button==SDL_BUTTON_LEFT)
+                        battle->menuClick(e.button.x,e.button.y,width,height);
                     if(battle) {
-                        battle->setNavigationEnabled(context.windowFocused);
+                        battle->setNavigationEnabled(context.windowFocused&&
+                            (!battle->usesRules()||!context.paused));
                         const bool inside = e.type==SDL_MOUSEBUTTONDOWN || e.type==SDL_MOUSEBUTTONUP
                             ? e.button.x>=0&&e.button.y>=0&&e.button.x<width&&e.button.y<height
                             : e.type==SDL_MOUSEMOTION
@@ -175,7 +189,8 @@ int main(int argc,char** argv) {
                             if (battle) {
                                 if (battle->complete()) {
                                     const auto state=battle->state(battleTicks,{0,0,width,height});
-                                    lastOutcome=state["encounter"]["cancelled"].get<bool>() ? "cancelled" :
+                                    lastOutcome=battle->usesRules() ? state["rules"]["outcome"].get<std::string>() :
+                                        state["encounter"]["cancelled"].get<bool>() ? "cancelled" :
                                         state["encounter"]["skipped"].get<bool>() ? "skipped" : "completed";
                                     battle->release();battle.reset();battleTicks=0;session->suspendInput();
                                 } else ++battleTicks;

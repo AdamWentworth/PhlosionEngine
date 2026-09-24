@@ -69,7 +69,7 @@ public:
     }
     const char* status() const noexcept override {
         if (encounterMode_) return "Outskirt: WASD / left stick move; Shift / L3 run; E / A talk to Willie nearby. "
-            "Battle: WASD / RMB free camera; Space / A skip; Escape / B leave; R reset.";
+            "Battle: arrows / D-pad choose, Enter / A confirm, Escape / B back; WASD / RMB camera; R reset.";
         if (battleMode_ && battle_ && battle_->usesAuthoredCast())
             return "Battle camera: WASD move, Q/E down/up, RMB look, Shift fast, "
                    "wheel dolly, R reset.";
@@ -115,7 +115,8 @@ public:
             if (battle_) {
                 if (battle_->complete()) {
                     const auto state = battle_->state(battleTicks_, battleViewport_);
-                    lastOutcome_ = state["encounter"]["cancelled"].get<bool>() ? "cancelled" :
+                    lastOutcome_ = battle_->usesRules() ? state["rules"]["outcome"].get<std::string>() :
+                        state["encounter"]["cancelled"].get<bool>() ? "cancelled" :
                         state["encounter"]["skipped"].get<bool>() ? "skipped" : "completed";
                     battle_->release();battle_.reset();battleTicks_=0;cameraUpdateTime_={};
                     session_->suspendInput();
@@ -152,23 +153,48 @@ public:
     void begin(const editor::EditorSdlGameInputContext& c){
         if(battle_){
             battleViewport_={c.viewport.x,c.viewport.y,c.viewport.width,c.viewport.height};
-            battle_->setNavigationEnabled(battleNavigationEnabled(c));
+            battle_->setNavigationEnabled(battleNavigationEnabled(c) &&
+                (!battle_->usesRules() || editor::gameInputEnabled(c)));
         }
         else session_->begin(c);
     }
     void event(const editor::EditorSdlGameInputContext& c,const SDL_Event& e){
         if(session_ && !battle_){session_->event(c,e);return;}
         if(!battle_)return;
-        battle_->setNavigationEnabled(battleNavigationEnabled(c));
+        battle_->setNavigationEnabled(battleNavigationEnabled(c) &&
+            (!battle_->usesRules() || editor::gameInputEnabled(c)));
         const bool inside = e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP
             ? editor::gamePointerInside(c,e.button.x,e.button.y)
             : e.type == SDL_MOUSEMOTION
                 ? editor::gamePointerInside(c,e.motion.x,e.motion.y)
                 : c.viewportHovered;
         battle_->navigationEvent(e,c.windowId,inside);
-        if(battleNavigationEnabled(c)&&e.type==SDL_KEYDOWN&&e.key.repeat==0&&
-           e.key.keysym.sym==SDLK_r){resetGamePreview();return;}
+        if(battleNavigationEnabled(c)&&(!battle_->usesRules()||editor::gameInputEnabled(c))&&
+           e.type==SDL_KEYDOWN&&e.key.repeat==0&&
+           e.key.keysym.sym==SDLK_r){
+            if(battle_->usesRules()){battle_->reset();battleTicks_=0;cameraUpdateTime_={};}
+            else resetGamePreview();
+            return;
+        }
         if(!editor::gameInputEnabled(c))return;
+        if(battle_->usesRules()) {
+            if(e.type==SDL_MOUSEBUTTONDOWN&&e.button.button==SDL_BUTTON_LEFT&&inside)
+                battle_->menuClick(e.button.x-c.viewport.x,e.button.y-c.viewport.y,
+                                   c.viewport.width,c.viewport.height);
+            if(e.type==SDL_KEYDOWN&&e.key.repeat==0) {
+                if(e.key.keysym.sym==SDLK_UP)battle_->menuNavigate(-1);
+                if(e.key.keysym.sym==SDLK_DOWN)battle_->menuNavigate(1);
+                if(e.key.keysym.sym==SDLK_RETURN||e.key.keysym.sym==SDLK_SPACE)battle_->menuConfirm();
+                if(e.key.keysym.sym==SDLK_ESCAPE)battle_->menuBack();
+            }
+            if(e.type==SDL_CONTROLLERBUTTONDOWN) {
+                if(e.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_UP)battle_->menuNavigate(-1);
+                if(e.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_DOWN)battle_->menuNavigate(1);
+                if(e.cbutton.button==SDL_CONTROLLER_BUTTON_A)battle_->menuConfirm();
+                if(e.cbutton.button==SDL_CONTROLLER_BUTTON_B)battle_->menuBack();
+            }
+            return;
+        }
         if(e.type==SDL_KEYDOWN&&e.key.repeat==0){
             if(e.key.keysym.sym==SDLK_ESCAPE)battle_->cancel();
             if(e.key.keysym.sym==SDLK_SPACE)battle_->skip();
@@ -180,7 +206,8 @@ public:
     }
     void end(const editor::EditorSdlGameInputContext& c){
         if(session_ && !battle_)session_->end(c);
-        if(battle_)battle_->setNavigationEnabled(battleNavigationEnabled(c));
+        if(battle_)battle_->setNavigationEnabled(battleNavigationEnabled(c) &&
+            (!battle_->usesRules() || editor::gameInputEnabled(c)));
     }
 private:
     std::unique_ptr<exploration_fixture::ExplorationSession> session_;
