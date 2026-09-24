@@ -1,6 +1,7 @@
 #include "engine/assets/phlosion/PhlosionCookedModelPackage.h"
 #include "engine/assets/phlosion/PhlosionBinaryCodec.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -139,29 +140,57 @@ bool test_phlosion_cooked_model_package_contract(std::string& outFail) {
     }
 
     // Private game content is optional for a clean engine build. Set this
-    // variable locally to exercise the actual four published SV packages.
+    // variable locally to exercise the published Cyberpunk SV packages.
     const char* modelRoot = std::getenv("PHLOSION_TEST_COOKED_MODEL_DIR");
     if (modelRoot && *modelRoot) {
-        std::size_t packages = 0u;
+        struct ExpectedModel {
+            std::string objectId;
+            std::size_t vertices;
+            std::size_t animations;
+        };
+        const std::vector<ExpectedModel> expected{
+            {"0196_Espeon_SV", 9002u, 77u},
+            {"0196_Espeon_SV_Shiny", 9002u, 77u},
+            {"0197_Umbreon_SV", 5472u, 77u},
+            {"0197_Umbreon_SV_Shiny", 5472u, 77u},
+            {"0261_Poochyena_SV", 5258u, 49u},
+            {"0261_Poochyena_SV_Shiny", 5258u, 49u},
+            {"0262_Mightyena_SV", 8548u, 53u},
+            {"0262_Mightyena_SV_Shiny", 8548u, 53u},
+        };
+        std::vector<std::size_t> seen(expected.size(), 0u);
         for (const auto& entry : fs::recursive_directory_iterator(modelRoot)) {
             if (!entry.is_regular_file() || entry.path().extension() != ".phlo") {
                 continue;
             }
             phlosion::CookedModelPackage gameModel;
-            if (!phlosion::loadCookedModelPackage(entry.path(), gameModel, &error) ||
-                gameModel.animationCount != 77u ||
-                gameModel.clips.size() != 77u ||
-                !((gameModel.objectId.rfind("0196_", 0u) == 0u &&
-                       gameModel.vertexCount == 9002u) ||
-                  (gameModel.objectId.rfind("0197_", 0u) == 0u &&
-                       gameModel.vertexCount == 5472u))) {
+            if (!phlosion::loadCookedModelPackage(entry.path(), gameModel, &error)) {
                 outFail = "Engine could not read " + entry.path().string() + ": " + error;
                 return false;
             }
-            ++packages;
+            bool matched = false;
+            for (std::size_t index = 0u; index < expected.size(); ++index) {
+                const auto& item = expected[index];
+                if (gameModel.objectId != item.objectId) continue;
+                if (gameModel.vertexCount != item.vertices ||
+                    gameModel.animationCount != item.animations ||
+                    gameModel.clips.size() != item.animations ||
+                    ++seen[index] != 1u) {
+                    outFail = "Unexpected cooked model metadata: " + item.objectId;
+                    return false;
+                }
+                matched = true;
+                break;
+            }
+            if (!matched) {
+                outFail = "Unexpected cooked model package: " + gameModel.objectId;
+                return false;
+            }
         }
-        if (packages != 4u) {
-            outFail = "Expected four local SV cooked model packages.";
+        if (std::any_of(seen.begin(), seen.end(), [](std::size_t count) {
+                return count != 1u;
+            })) {
+            outFail = "Expected eight distinct local SV cooked model packages.";
             return false;
         }
     }
