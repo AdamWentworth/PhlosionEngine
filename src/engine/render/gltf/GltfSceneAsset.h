@@ -36,8 +36,9 @@ using engine::render::backend::WorldMeshVertex;
 // Explicit bind-pose clip index for sampleGltfScenePose.
 inline constexpr int kBindPoseClip = -1;
 
-// Bounded subset limit: four weights per vertex and at most 64 joints per skin.
-inline constexpr std::size_t kMaxSkinJoints = 64u;
+// Bounded subset limit: four weights per vertex and at most 128 joints per skin.
+// The native world renderers all support 128 palette matrices.
+inline constexpr std::size_t kMaxSkinJoints = 128u;
 
 struct GltfSceneLoadOptions {
     std::size_t maxNodes = 8192u;

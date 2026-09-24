@@ -28,14 +28,32 @@ public:
     void cancel();
     void skip();
     void release();
+    bool usesAuthoredCast() const noexcept { return castEnabled_; }
     nlohmann::json imports() const;
     nlohmann::json state(int tick, std::array<int, 4> viewport) const;
 
 private:
+    struct CastActor {
+        std::string slot;
+        std::string model;
+        std::string displayName;
+        glm::vec3 position{0.0f};
+        glm::vec3 modelOffset{0.0f};
+        float yawRadians = 0.0f;
+        float scale = 1.0f;
+        float focusHeight = 0.9f;
+        std::string idleAnimation;
+        std::string gestureAnimation;
+    };
     void frameCamera(int tick, float aspect);
     void dispatch(BattleCue cue);
 
     std::shared_ptr<const render::gltf::scene::GltfSceneAsset> field_, wes_;
+    std::array<CastActor, 6> castActors_{};
+    std::array<std::shared_ptr<const render::gltf::scene::GltfSceneAsset>, 6> castModels_{};
+    std::array<int, 6> castIdleClips_{};
+    int castGestureClip_ = -1;
+    bool castEnabled_ = false;
     render::gltf::scene::GltfScenePose fieldPose_;
     camera::BattleCameraRig camera_;
     camera::BattleCameraPose cameraPose_;

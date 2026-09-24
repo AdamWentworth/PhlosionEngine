@@ -33,7 +33,8 @@ public:
             std::size_t assetIndex=0;
             for(const auto& item : battle_ ? battle_->imports() : presentation_->imports()) {
                 result.materialCount += item.at("materials").get<std::uint32_t>();
-                const std::uint32_t instances=battle_ && assetIndex==1 ? 4u : 1u;
+                const std::uint32_t instances =
+                    battle_ && !battle_->usesAuthoredCast() && assetIndex == 1 ? 4u : 1u;
                 result.drawClassCount += item.at("primitives").get<std::uint32_t>()*instances;
                 result.visibleTriangleCount += item.at("indices").get<std::uint64_t>()/3*instances;
                 ++assetIndex;
@@ -42,10 +43,22 @@ public:
         }
         return {.sceneCount=1,.materialCount=10,.drawClassCount=14,.visibleTriangleCount=168};
     }
-    const char* status() const noexcept override {return battleMode_ ? "Provisional Outskirt battle camera and four Wes actor stand-ins." : "WASD / left stick move; Shift / L3 run; RMB / right stick orbit; wheel / bumpers zoom; R / Back reset; Tab / Start select pad.";}
+    const char* status() const noexcept override {
+        if (battleMode_ && battle_ && battle_->usesAuthoredCast())
+            return "Wes and Umbreon/Espeon face Rider Willie and Zigzagoon/Poochyena.";
+        if (battleMode_)
+            return "Provisional Outskirt battle camera and four Wes actor stand-ins.";
+        return "WASD / left stick move; Shift / L3 run; RMB / right stick orbit; "
+               "wheel / bumpers zoom; R / Back reset; Tab / Start select pad.";
+    }
     std::size_t gamePreviewCount() const noexcept override {return 1;}
     editor::EditorProjectGamePreview gamePreview(std::size_t) const noexcept override {
-        if(battleMode_)return {"battle","Outskirt battle (provisional)","Samples",status(),"fixture/scene"};
+        if (battleMode_) {
+            const bool cast = battle_ && battle_->usesAuthoredCast();
+            return {"battle", cast ? "Wes vs Rider Willie (temporary)" :
+                    "Outskirt battle (provisional)",
+                    cast ? "Prototypes" : "Samples", status(), "fixture/scene"};
+        }
         if(session_ && session_->caseName()=="outskirt")return {"exploration","Outskirt Stand (provisional)","Samples",status(),"fixture/scene"};
         return {"exploration","Public exploration course","Samples",status(),"fixture/scene"};
     }

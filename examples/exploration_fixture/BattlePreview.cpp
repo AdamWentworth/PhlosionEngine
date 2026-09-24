@@ -5,7 +5,9 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -13,6 +15,7 @@
 namespace engine::exploration_fixture {
 namespace {
 using namespace render::gltf::scene;
+namespace fs = std::filesystem;
 
 struct ActorSlot {
     const char* name;
@@ -46,8 +49,8 @@ camera::BattleCameraShot shot(float yaw, float pitch, float fov) {
     return value;
 }
 
-std::array<camera::BattleCameraTarget, 4> targets() {
-    std::array<camera::BattleCameraTarget, 4> result{};
+std::array<camera::BattleCameraTarget, 6> targets() {
+    std::array<camera::BattleCameraTarget, 6> result{};
     for (std::size_t index = 0; index < slots.size(); ++index)
         result[index] = {slots[index].position + glm::vec3(0.0f, .9f, 0.0f), .9f};
     return result;
@@ -60,20 +63,82 @@ BattlePreview::BattlePreview(bool audioOutput)
       audioOutput_(mixer_) {
     const auto fieldPath = env::get("PHLOSION_OUTSKIRT_BATTLE_GLB");
     const auto wesPath = env::get("PHLOSION_OUTSKIRT_WES_GLB");
-    require(fieldPath && !fieldPath->empty() && wesPath && !wesPath->empty(),
-            "Battle preview requires PHLOSION_OUTSKIRT_BATTLE_GLB and PHLOSION_OUTSKIRT_WES_GLB");
+    const auto castScene = env::get("PHLOSION_BATTLE_SCENE_JSON");
+    const auto castRoot = env::get("PHLOSION_BATTLE_CAST_ROOT");
+    require(fieldPath && !fieldPath->empty(),
+            "Battle preview requires PHLOSION_OUTSKIRT_BATTLE_GLB");
+    require(static_cast<bool>(castScene) == static_cast<bool>(castRoot),
+            "Battle cast needs both PHLOSION_BATTLE_SCENE_JSON and PHLOSION_BATTLE_CAST_ROOT");
     std::string error;
     const bool loadedField = loadGltfSceneAsset(*fieldPath, field_, &error);
     require(loadedField, error);
     const bool posedField = sampleGltfScenePose(field_, 0.0f, kBindPoseClip,
                                                 fieldPose_, &error);
     require(posedField, error);
-    const bool loadedWes = loadGltfSceneAsset(*wesPath, wes_, &error);
-    require(loadedWes, error);
-    require(wes_->animations.size() > 8u &&
-            wes_->animations[1].durationSec > 0.0f &&
-            wes_->animations[8].durationSec > 0.0f,
-            "Battle preview needs Wes's idle and gesture clips");
+    if (castScene) {
+        std::ifstream input(*castScene);
+        require(static_cast<bool>(input), "Cannot open battle cast scene: " + *castScene);
+        nlohmann::json document;
+        input >> document;
+        require(document.at("schema") == "pokemon-cyberpunk-outskirt-battle-preview-v1" &&
+                document.at("actors").is_array() && document.at("actors").size() == 6u,
+                "Battle cast scene must contain six ordered actors");
+        constexpr std::array<const char*, 6> expectedSlots{
+            "ally-left", "ally-right", "opponent-left", "opponent-right",
+            "ally-trainer", "opponent-trainer"};
+        for (std::size_t index = 0; index < castActors_.size(); ++index) {
+            const auto& authored = document["actors"][index];
+            auto& actor = castActors_[index];
+            actor.slot = authored.at("slot").get<std::string>();
+            require(actor.slot == expectedSlots[index], "Unexpected battle cast slot: " + actor.slot);
+            actor.model = authored.at("model").get<std::string>();
+            actor.displayName = authored.at("display_name").get<std::string>();
+            const auto position = authored.at("position").get<std::array<float, 3>>();
+            actor.position = {position[0], position[1], position[2]};
+            const auto offset = authored.value("model_offset", std::array<float, 3>{0.0f, 0.0f, 0.0f});
+            actor.modelOffset = {offset[0], offset[1], offset[2]};
+            actor.yawRadians = glm::radians(authored.at("yaw_degrees").get<float>());
+            actor.scale = authored.value("scale", 1.0f);
+            actor.focusHeight = authored.at("focus_height").get<float>();
+            actor.idleAnimation = authored.at("idle_animation").get<std::string>();
+            actor.gestureAnimation = authored.value("gesture_animation", std::string{});
+            require(std::isfinite(actor.position.x) && std::isfinite(actor.position.y) &&
+                    std::isfinite(actor.position.z) && std::isfinite(actor.yawRadians) &&
+                    std::isfinite(actor.modelOffset.x) && std::isfinite(actor.modelOffset.y) &&
+                    std::isfinite(actor.modelOffset.z) && std::isfinite(actor.scale) &&
+                    actor.scale > 0.0f && actor.scale < 4.0f &&
+                    actor.focusHeight > 0.0f && actor.focusHeight < 4.0f,
+                    "Invalid battle cast placement");
+            const fs::path relative(actor.model);
+            require(!relative.empty() && !relative.is_absolute() &&
+                    std::find(relative.begin(), relative.end(), fs::path("..")) == relative.end(),
+                    "Battle cast model must be relative to the private cast root");
+            const auto path = (fs::path(*castRoot) / relative).string();
+            require(loadGltfSceneAsset(path, castModels_[index], &error), error);
+            auto findClip = [&](const std::string& name) {
+                const auto& animations = castModels_[index]->animations;
+                const auto found = std::find_if(animations.begin(), animations.end(),
+                    [&](const auto& clip) { return clip.name == name && clip.durationSec > 0.0f; });
+                require(found != animations.end(), "Missing battle cast clip " + name);
+                return static_cast<int>(found - animations.begin());
+            };
+            castIdleClips_[index] = findClip(actor.idleAnimation);
+            if (!actor.gestureAnimation.empty()) {
+                require(index == 4u, "Only the ally trainer can drive the preview gesture");
+                castGestureClip_ = findClip(actor.gestureAnimation);
+            }
+        }
+        require(castGestureClip_ >= 0, "Battle cast needs Wes's gesture animation");
+        castEnabled_ = true;
+    } else {
+        require(wesPath && !wesPath->empty(),
+                "Battle preview requires PHLOSION_OUTSKIRT_WES_GLB");
+        require(loadGltfSceneAsset(*wesPath, wes_, &error), error);
+        require(wes_->animations.size() > 8u &&
+                wes_->animations[1].durationSec > 0.0f &&
+                wes_->animations[8].durationSec > 0.0f,
+                "Battle preview needs Wes's idle and gesture clips");
+    }
     std::array<float, 9600> tone{};
     for (std::size_t index = 0; index < tone.size(); ++index) {
         const float time = static_cast<float>(index) / audio::sampleRate;
@@ -111,13 +176,13 @@ void BattlePreview::dispatch(BattleCue cue) {
         audio::AudioPlayOptions options;
         options.bus = audio::AudioBus::Sfx;
         options.spatial = true;
-        options.emitterPosition = slots[3].position;
+        options.emitterPosition = castEnabled_ ? castActors_[3].position : slots[3].position;
         std::string error;
         require(mixer_.play(impactClip_, options, voice, &error), error);
     } else if (cue == BattleCue::ImpactEffect) {
         activeEffect_ = true;
-        vfxPlugin_.spawnImpact(slots[3].position.x, slots[3].position.y + .9f,
-                               slots[3].position.z);
+        const auto target = castEnabled_ ? castActors_[3].position : slots[3].position;
+        vfxPlugin_.spawnImpact(target.x, target.y + .9f, target.z);
     } else if (cue == BattleCue::EffectStop) {
         activeEffect_ = false;
         vfxPlugin_.stopAll();
@@ -152,11 +217,18 @@ void BattlePreview::skip() {
 
 void BattlePreview::frameCamera(int tick, float aspect) {
     std::string error;
-    const auto all = targets();
+    auto all = targets();
+    if (castEnabled_) {
+        for (std::size_t index = 0; index < castActors_.size(); ++index)
+            all[index] = {castActors_[index].position +
+                          glm::vec3(0.0f, castActors_[index].focusHeight, 0.0f),
+                          castActors_[index].focusHeight};
+    }
     const std::array<camera::BattleCameraTarget, 2> first{all[0], all[2]};
     const std::array<camera::BattleCameraTarget, 2> second{all[1], all[3]};
+    const std::span<const camera::BattleCameraTarget> wide(all.data(), castEnabled_ ? 6u : 4u);
     camera_.reset();
-    const bool opened = camera_.cut(shot(.10f, .38f, 48.0f), all, aspect,
+    const bool opened = camera_.cut(shot(.10f, .38f, 48.0f), wide, aspect,
                                     cameraPose_, &error);
     require(opened, error);
     phase_ = "wide";
@@ -178,7 +250,7 @@ void BattlePreview::frameCamera(int tick, float aspect) {
             require(shaken, error);
             phase_ = "impact";
         }
-        const auto active = current < 30 ? std::span<const camera::BattleCameraTarget>(all)
+        const auto active = current < 30 ? wide
                            : current < 60 ? std::span<const camera::BattleCameraTarget>(first)
                                           : std::span<const camera::BattleCameraTarget>(second);
         const bool stepped = camera_.step(active, aspect, battleFixedDelta,
@@ -237,45 +309,90 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
     const bool drewField = drawGltfSceneAsset(renderer, *field_, fieldPose_,
                                                options, stats, &error);
     require(drewField, error);
-    const float duration = wes_->animations[1].durationSec;
-    // Keep each skin palette alive at a distinct address until all actor draws finish.
-    std::array<GltfScenePose, 4> actorPoses;
-    for (std::size_t index = 0; index < slots.size(); ++index) {
-        const float sampleTime = std::fmod(tick * battleFixedDelta + index * .17f,
-                                           duration);
-        bool sampled = false;
-        if (index == 1 && sequence_.state().active && tick >= 110 && tick < 119) {
-            render::animation::PoseBlendRequest recovery;
-            recovery.baseClipIndex = 8;
-            recovery.baseTimeSec = std::fmod((tick - 60) * battleFixedDelta,
-                                             wes_->animations[8].durationSec);
-            recovery.targetClipIndex = 1;
-            recovery.targetTimeSec = sampleTime;
-            recovery.crossfadeWeight = (tick - 109) / 9.0f;
-            sampled = sampleGltfSceneBlendedPose(wes_, recovery, actorPoses[index], &error);
-        } else if (index == 1 && sequence_.state().gestureClip == 8) {
-            render::animation::PoseBlendRequest gesture;
-            gesture.baseClipIndex = 1;
-            gesture.baseTimeSec = sampleTime;
-            gesture.targetClipIndex = 8;
-            gesture.targetTimeSec = std::fmod((tick - 60) * battleFixedDelta,
-                                               wes_->animations[8].durationSec);
-            gesture.crossfadeWeight = std::min(1.0f, (tick - 59) / 9.0f);
-            sampled = sampleGltfSceneBlendedPose(wes_, gesture, actorPoses[index], &error);
-        } else {
-            sampled = sampleGltfScenePose(wes_, sampleTime, 1,
-                                          actorPoses[index], &error);
+    if (castEnabled_) {
+        // Each draw needs its own live palette until the backend submits the frame.
+        std::array<GltfScenePose, 6> actorPoses;
+        for (std::size_t index = 0; index < castActors_.size(); ++index) {
+            const auto& model = castModels_[index];
+            const int idleClip = castIdleClips_[index];
+            const float sampleTime = std::fmod(tick * battleFixedDelta + index * .17f,
+                                                model->animations[idleClip].durationSec);
+            bool sampled = false;
+            if (index == 4u && sequence_.state().active && tick >= 110 && tick < 119) {
+                render::animation::PoseBlendRequest recovery;
+                recovery.baseClipIndex = castGestureClip_;
+                recovery.baseTimeSec = std::fmod((tick - 60) * battleFixedDelta,
+                    model->animations[castGestureClip_].durationSec);
+                recovery.targetClipIndex = idleClip;
+                recovery.targetTimeSec = sampleTime;
+                recovery.crossfadeWeight = (tick - 109) / 9.0f;
+                sampled = sampleGltfSceneBlendedPose(model, recovery, actorPoses[index], &error);
+            } else if (index == 4u && sequence_.state().gestureClip == 8) {
+                render::animation::PoseBlendRequest gesture;
+                gesture.baseClipIndex = idleClip;
+                gesture.baseTimeSec = sampleTime;
+                gesture.targetClipIndex = castGestureClip_;
+                gesture.targetTimeSec = std::fmod((tick - 60) * battleFixedDelta,
+                    model->animations[castGestureClip_].durationSec);
+                gesture.crossfadeWeight = std::min(1.0f, (tick - 59) / 9.0f);
+                sampled = sampleGltfSceneBlendedPose(model, gesture, actorPoses[index], &error);
+            } else {
+                sampled = sampleGltfScenePose(model, sampleTime, idleClip,
+                                              actorPoses[index], &error);
+            }
+            require(sampled, error);
         }
-        require(sampled, error);
-    }
-    for (std::size_t index = 0; index < slots.size(); ++index) {
-        const glm::mat4 placement = glm::translate(glm::mat4(1.0f), slots[index].position) *
-            glm::rotate(glm::mat4(1.0f), index < 2 ? 0.0f : 3.14159265f,
-                        glm::vec3(0.0f, 1.0f, 0.0f));
-        std::copy_n(glm::value_ptr(placement), 16, options.instanceTransform.begin());
-        const bool drewActor = drawGltfSceneAsset(renderer, *wes_, actorPoses[index],
-                                                  options, stats, &error);
-        require(drewActor, error);
+        for (std::size_t index = 0; index < castActors_.size(); ++index) {
+            const auto& actor = castActors_[index];
+            const glm::mat4 placement = glm::translate(glm::mat4(1.0f), actor.position) *
+                glm::rotate(glm::mat4(1.0f), actor.yawRadians,
+                            glm::vec3(0.0f, 1.0f, 0.0f)) *
+                glm::scale(glm::mat4(1.0f), glm::vec3(actor.scale)) *
+                glm::translate(glm::mat4(1.0f), actor.modelOffset);
+            std::copy_n(glm::value_ptr(placement), 16, options.instanceTransform.begin());
+            require(drawGltfSceneAsset(renderer, *castModels_[index], actorPoses[index],
+                                       options, stats, &error), error);
+        }
+    } else {
+        const float duration = wes_->animations[1].durationSec;
+        // Keep each skin palette alive at a distinct address until all actor draws finish.
+        std::array<GltfScenePose, 4> actorPoses;
+        for (std::size_t index = 0; index < slots.size(); ++index) {
+            const float sampleTime = std::fmod(tick * battleFixedDelta + index * .17f,
+                                               duration);
+            bool sampled = false;
+            if (index == 1 && sequence_.state().active && tick >= 110 && tick < 119) {
+                render::animation::PoseBlendRequest recovery;
+                recovery.baseClipIndex = 8;
+                recovery.baseTimeSec = std::fmod((tick - 60) * battleFixedDelta,
+                                                 wes_->animations[8].durationSec);
+                recovery.targetClipIndex = 1;
+                recovery.targetTimeSec = sampleTime;
+                recovery.crossfadeWeight = (tick - 109) / 9.0f;
+                sampled = sampleGltfSceneBlendedPose(wes_, recovery, actorPoses[index], &error);
+            } else if (index == 1 && sequence_.state().gestureClip == 8) {
+                render::animation::PoseBlendRequest gesture;
+                gesture.baseClipIndex = 1;
+                gesture.baseTimeSec = sampleTime;
+                gesture.targetClipIndex = 8;
+                gesture.targetTimeSec = std::fmod((tick - 60) * battleFixedDelta,
+                                                   wes_->animations[8].durationSec);
+                gesture.crossfadeWeight = std::min(1.0f, (tick - 59) / 9.0f);
+                sampled = sampleGltfSceneBlendedPose(wes_, gesture, actorPoses[index], &error);
+            } else {
+                sampled = sampleGltfScenePose(wes_, sampleTime, 1,
+                                              actorPoses[index], &error);
+            }
+            require(sampled, error);
+        }
+        for (std::size_t index = 0; index < slots.size(); ++index) {
+            const glm::mat4 placement = glm::translate(glm::mat4(1.0f), slots[index].position) *
+                glm::rotate(glm::mat4(1.0f), index < 2 ? 0.0f : 3.14159265f,
+                            glm::vec3(0.0f, 1.0f, 0.0f));
+            std::copy_n(glm::value_ptr(placement), 16, options.instanceTransform.begin());
+            require(drawGltfSceneAsset(renderer, *wes_, actorPoses[index],
+                                       options, stats, &error), error);
+        }
     }
     BattleVfxFrame effectFrame;
     effectFrame.renderer = &renderer;
@@ -326,21 +443,37 @@ void BattlePreview::drawOverlay(IRenderBackend& renderer, int width, int height)
 
 nlohmann::json BattlePreview::imports() const {
     nlohmann::json result = nlohmann::json::array();
-    for (const auto& asset : {field_, wes_})
+    auto append = [&](const auto& asset) {
         result.push_back({{"identity", asset->sourceIdentity},
                           {"primitives", asset->stats.primitiveCount},
                           {"vertices", asset->stats.vertexCount},
                           {"indices", asset->stats.indexCount},
                           {"materials", asset->stats.materialCount},
                           {"clips", asset->stats.clipCount}});
+    };
+    append(field_);
+    if (castEnabled_) {
+        for (const auto& asset : castModels_) append(asset);
+    } else {
+        append(wes_);
+    }
     return result;
 }
 
 nlohmann::json BattlePreview::state(int tick, std::array<int, 4> viewport) const {
     nlohmann::json actors = nlohmann::json::array();
-    for (const auto& actor : slots)
-        actors.push_back({{"slot", actor.name}, {"position", vec(actor.position)},
-                          {"stand_in", "wes"}});
+    if (castEnabled_) {
+        for (const auto& actor : castActors_)
+            actors.push_back({{"slot", actor.slot}, {"display_name", actor.displayName},
+                              {"model", actor.model}, {"position", vec(actor.position)},
+                              {"yaw_radians", actor.yawRadians},
+                              {"scale", actor.scale}, {"model_offset", vec(actor.modelOffset)},
+                              {"focus_height", actor.focusHeight}});
+    } else {
+        for (const auto& actor : slots)
+            actors.push_back({{"slot", actor.name}, {"position", vec(actor.position)},
+                              {"stand_in", "wes"}});
+    }
     const auto& encounter = sequence_.state();
     camera::BattleCameraPose rigPose;
     const bool cameraActive = camera_.pose(rigPose);
