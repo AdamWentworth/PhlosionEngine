@@ -3,6 +3,7 @@
 #include "engine/input/SdlGameInput.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
+#include <optional>
 
 namespace engine::exploration_fixture {
 struct CourseBox {
@@ -20,6 +21,15 @@ camera::ExplorationCameraSettings cameraSettings();
 camera::ExplorationCameraSettings configuredCameraSettings();
 inline constexpr int targetTick = 120;
 inline constexpr float fixedDelta = 1.0f / 60;
+
+struct OutskirtEncounterScene {
+    glm::vec3 playerSpawn{-2.0f, 0.9f, 3.0f};
+    glm::vec3 willieSpawn{-5.0f, 0.9f, 3.0f};
+    float willieYawRadians = 0.0f;
+    float interactionRadius = 2.0f;
+    std::string willieModel;
+    std::string willieIdleAnimation;
+};
 
 class ExplorationSession {
 public:
@@ -40,6 +50,10 @@ public:
     int resets() const { return resets_; }
     const std::string& caseName() const { return case_; }
     const camera::ExplorationCameraSettings& settings() const { return rig_.settings(); }
+    const OutskirtEncounterScene* encounterScene() const { return encounterScene_ ? &*encounterScene_ : nullptr; }
+    bool canInteract() const;
+    bool takeEncounterRequest();
+    void suspendInput();
 private:
     void record(const char* kind);
     void npcTick();
@@ -58,6 +72,8 @@ private:
     int inputFrames_ = 0;
     int enters_ = 0, stays_ = 0, exits_ = 0;
     bool sensorActive_ = false;
+    bool encounterRequested_ = false;
+    std::optional<OutskirtEncounterScene> encounterScene_;
     float aspect_ = 16.0f / 9;
     std::ofstream trace_;
 };

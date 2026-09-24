@@ -1,4 +1,5 @@
 #include "ExplorationPresentation.h"
+#include "BattlePreview.h"
 #include "engine/core/IAssetStore.h"
 #include "engine/core/Environment.h"
 #include "engine/render/Camera3D.h"
@@ -33,7 +34,8 @@ glm::mat4 viewProjection(const camera::ExplorationCameraPose& p,int width,int he
     Camera3D camera(p.verticalFovDegrees,static_cast<float>(width)/static_cast<float>(height),p.nearPlane,p.farPlane);
     camera.setPosition(p.position); camera.lookAt(p.lookTarget,p.up); return camera.getProjectionMatrix()*camera.getViewMatrix();
 }
-ExplorationPresentation::ExplorationPresentation(bool outskirt) : outskirtMode_(outskirt) {
+ExplorationPresentation::ExplorationPresentation(bool outskirt, const OutskirtEncounterScene* encounter)
+    : outskirtMode_(outskirt), faceMovement_(encounter != nullptr) {
     if (outskirtMode_) {
         const auto environment = engine::env::get("PHLOSION_OUTSKIRT_ENVIRONMENT_GLB");
         const auto character = engine::env::get("PHLOSION_OUTSKIRT_WES_GLB");
@@ -43,6 +45,14 @@ ExplorationPresentation::ExplorationPresentation(bool outskirt) : outskirtMode_(
         require(loadGltfSceneAsset(*environment, outskirt_, &error), error);
         require(sampleGltfScenePose(outskirt_, 0, kBindPoseClip, outskirtPose_, &error), error);
         require(loadGltfSceneAsset(*character, wes_, &error), error);
+        if (encounter) {
+            require(loadGltfSceneAsset(encounter->willieModel, willie_, &error), error);
+            for (std::size_t i = 0; i < willie_->animations.size(); ++i)
+                if (willie_->animations[i].name == encounter->willieIdleAnimation)
+                    willieIdleClip_ = static_cast<int>(i);
+            require(willieIdleClip_ >= 0, "Willie idle animation missing from encounter model");
+            willieYawRadians_ = encounter->willieYawRadians;
+        }
         require(wes_->animations.size() >= 4, "Wes preview needs idle, walk and run clips");
         using namespace render::animation;
         const PoseSource source{wes_->nodesDefault, wes_->nodeChildren,
@@ -100,12 +110,14 @@ void ExplorationPresentation::release() {
 nlohmann::json ExplorationPresentation::imports() const {
     nlohmann::json j=nlohmann::json::array();
     if (outskirtMode_) {
-        for (const auto& a : {outskirt_, wes_})
+        for (const auto& a : {outskirt_, wes_, willie_}) {
+            if (!a) continue;
             j.push_back({{"identity", a->sourceIdentity}, {"primitives", a->stats.primitiveCount},
                          {"vertices", a->stats.vertexCount}, {"indices", a->stats.indexCount},
                          {"materials", a->stats.materialCount},
                          {"geometry_bytes", a->stats.retainedGeometryBytes},
                          {"clips", a->stats.clipCount}});
+        }
     } else {
         for(const auto& a:assets_) j.push_back({{"identity",a->sourceIdentity},{"primitives",a->primitives.size()},{"vertices",a->primitives.front().vertices.size()},{"geometry_bytes",a->stats.retainedGeometryBytes}});
     }
@@ -154,6 +166,7 @@ void ExplorationPresentation::draw(IRenderBackend& renderer,const ExplorationSes
         } else if (wesLastReset_ != s.resets() || s.ticks() < wesLastTick_) {
             wesMachine_.reset();
             wesFrame_ = {};
+            wesFacingRadians_ = 0.0f;
             wesLastReset_ = s.resets();
             wesLastTick_ = s.ticks();
         }
@@ -165,10 +178,25 @@ void ExplorationPresentation::draw(IRenderBackend& renderer,const ExplorationSes
         }
         GltfScenePose pose;
         require(sampleGltfSceneBlendedPose(wes_, wesFrame_.pose, pose, &error), error);
+        if (faceMovement_ && speed > .1f)
+            wesFacingRadians_ = std::atan2(velocity.x, velocity.z);
         const glm::mat4 placement = glm::translate(glm::mat4(1),
-            glm::vec3(center.x, center.y - .9f, center.z));
+            glm::vec3(center.x, center.y - .9f, center.z)) *
+            glm::rotate(glm::mat4(1), faceMovement_ ? wesFacingRadians_ : 0.0f,
+                        glm::vec3(0, 1, 0));
         std::copy_n(glm::value_ptr(placement), 16, options.instanceTransform.begin());
         require(drawGltfSceneAsset(renderer, *wes_, pose, options, stats, &error), error);
+        if (willie_) {
+            GltfScenePose williePose;
+            require(sampleGltfScenePose(willie_, s.ticks() * fixedDelta,
+                                        willieIdleClip_, williePose, &error), error);
+            const glm::vec3 npc = s.npc().center;
+            const glm::mat4 williePlacement = glm::translate(glm::mat4(1),
+                glm::vec3(npc.x, npc.y - .9f, npc.z)) *
+                glm::rotate(glm::mat4(1), willieYawRadians_, glm::vec3(0, 1, 0));
+            std::copy_n(glm::value_ptr(williePlacement), 16, options.instanceTransform.begin());
+            require(drawGltfSceneAsset(renderer, *willie_, williePose, options, stats, &error), error);
+        }
         return;
     }
     auto draw=[&](glm::vec3 center,glm::vec3 half,float pitch,int color) {
@@ -194,5 +222,23 @@ void writeHandshake(const std::string& path,const char* host,const std::string& 
     const auto animation = presentation.animationState();
     if (!animation.is_null()) j["animation"] = animation;
     std::ofstream out(path); if(!out)throw std::runtime_error("Cannot write exploration handshake");out<<j.dump(2);
+}
+void writeEncounterHandshake(const std::string& path, const char* host, const std::string& requested,
+    const ExplorationSession& session, const ExplorationPresentation& presentation,
+    const BattlePreview* battle, int battleTick, int encounterCount, const std::string& lastOutcome,
+    IRenderBackend& renderer, int width, int height, int renderFrame, std::array<int,4> viewport) {
+    if (path.empty()) return;
+    nlohmann::json result{{"schema", "phlosion-outskirt-encounter-v1"}, {"host", host},
+        {"requested_api", requested}, {"api", renderer.backendId()},
+        {"gpu", renderer.activeGpuName()}, {"gpu_discrete", renderer.activeGpuIsDiscrete()},
+        {"width", width}, {"height", height}, {"render_frame", renderFrame},
+        {"mode", battle ? "battle" : "overworld"}, {"encounter_count", encounterCount},
+        {"last_outcome", lastOutcome}, {"exploration", session.state()},
+        {"animation", presentation.animationState()},
+        {"imports", battle ? battle->imports() : presentation.imports()}};
+    if (battle) result["battle"] = battle->state(battleTick, viewport);
+    std::ofstream out(path);
+    if (!out) throw std::runtime_error("Cannot write Outskirt encounter handshake");
+    out << result.dump(2);
 }
 } // namespace engine::exploration_fixture

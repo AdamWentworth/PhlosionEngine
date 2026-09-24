@@ -95,7 +95,7 @@ int main(int argc,char** argv) {
         auto graphics=createGraphics(a); auto& renderer=*graphics.renderer;
         renderer.setVSyncEnabled(!a.hidden);
         if(a.api!=renderer.backendId())throw std::runtime_error("Unexpected renderer fallback");
-        if (a.caseName == "outskirt-battle") {
+        if (a.caseName == "outskirt-battle" || a.caseName == "outskirt-encounter") {
             const auto projectRoot = engine::env::get("PHLOSION_BATTLE_POKEMON_ROOT");
             const auto materialPath = engine::env::get("PHLOSION_BATTLE_WORLD_MATERIAL_PROFILE");
             if (projectRoot && !materialPath)
@@ -111,6 +111,7 @@ int main(int argc,char** argv) {
             std::unique_ptr<engine::input::SdlInputReplay> replay;
             if(!a.replay.empty())replay=std::make_unique<engine::input::SdlInputReplay>(a.replay);
             const bool battleMode = a.caseName == "outskirt-battle";
+            const bool encounterMode = a.caseName == "outskirt-encounter";
             if (battleMode && replay) throw std::runtime_error("Battle preview does not accept an input replay");
             std::unique_ptr<engine::exploration_fixture::ExplorationSession> session;
             std::unique_ptr<engine::exploration_fixture::ExplorationPresentation> presentation;
@@ -120,19 +121,21 @@ int main(int argc,char** argv) {
             else {
                 session = std::make_unique<engine::exploration_fixture::ExplorationSession>(a.caseName,replay!=nullptr,engine::exploration_fixture::configuredCameraSettings());
                 session->setTrace(a.trace);
-                presentation = std::make_unique<engine::exploration_fixture::ExplorationPresentation>(a.caseName == "outskirt");
+                presentation = std::make_unique<engine::exploration_fixture::ExplorationPresentation>(
+                    a.caseName == "outskirt" || encounterMode, session->encounterScene());
             }
             engine::editor::EditorSdlGameInputContext context;context.windowId=SDL_GetWindowID(graphics.window->getSDLWindow());
             context.windowFocused=(SDL_GetWindowFlags(graphics.window->getSDLWindow())&SDL_WINDOW_INPUT_FOCUS)!=0;
             context.activeGameViewport=true;context.viewportFocused=true;context.viewportHovered=true;context.playing=true;
-            bool running=true;int frame=0,battleTicks=0;float accumulator=0;auto previous=std::chrono::steady_clock::now();
+            bool running=true;int frame=0,battleTicks=0,encounterCount=0;std::string lastOutcome="none";
+            float accumulator=0;auto previous=std::chrono::steady_clock::now();
             if (battle && !a.hidden)
                 graphics.window->setTitle("Outskirt Battle | WASD move | Q/E down/up | RMB look | Shift fast | wheel dolly | R reset | P pause");
             const int capture=std::stoi(engine::env::get("PHLOSION_BACKEND_SCREENSHOT_FRAME").value_or("160"));
             while(running && (a.frames==0||frame<a.frames)) {
                 ++frame; const auto now=std::chrono::steady_clock::now();
                 const float delta=(replay || (battle && a.hidden))?engine::exploration_fixture::fixedDelta:std::min(.05f,std::chrono::duration<float>(now-previous).count());previous=now;
-                context.viewport={0,0,width,height}; if(replay)replay->frame(context);if(session)session->begin(context);
+                context.viewport={0,0,width,height}; if(replay)replay->frame(context);if(session&&!battle)session->begin(context);
                 if(battle)battle->setNavigationEnabled(context.windowFocused);
                 SDL_Event e{};while(SDL_PollEvent(&e)) {
                     if(e.type==SDL_QUIT)running=false;
@@ -162,13 +165,30 @@ int main(int argc,char** argv) {
                                 : true;
                         battle->navigationEvent(e,context.windowId,inside);
                     }
-                    if(session)session->event(context,e);
+                    if(session&&!battle)session->event(context,e);
                 }
-                if(session)session->end(context);
+                if(session&&!battle)session->end(context);
                 if(battle)battle->navigationFrame(delta);
                 if(context.playing&&!context.paused) {
                     accumulator+=delta;int ticks=0;while(accumulator>=engine::exploration_fixture::fixedDelta&&ticks<4) {
-                        if(battle)++battleTicks;else session->tick();
+                        if (encounterMode) {
+                            if (battle) {
+                                if (battle->complete()) {
+                                    const auto state=battle->state(battleTicks,{0,0,width,height});
+                                    lastOutcome=state["encounter"]["cancelled"].get<bool>() ? "cancelled" :
+                                        state["encounter"]["skipped"].get<bool>() ? "skipped" : "completed";
+                                    battle->release();battle.reset();battleTicks=0;session->suspendInput();
+                                } else ++battleTicks;
+                            } else {
+                                session->tick();
+                                if (session->takeEncounterRequest()) {
+                                    presentation->release();
+                                    battle=std::make_unique<engine::exploration_fixture::BattlePreview>(
+                                        !a.hidden || engine::env::get("PHLOSION_BATTLE_AUDIO_OUTPUT").value_or("0")=="1");
+                                    ++encounterCount;battleTicks=0;session->suspendInput();
+                                }
+                            }
+                        } else if(battle)++battleTicks;else session->tick();
                         accumulator-=engine::exploration_fixture::fixedDelta;++ticks;
                     }
                     if(ticks==4)accumulator=0;
@@ -180,16 +200,23 @@ int main(int argc,char** argv) {
                 if(battle)battle->drawOverlay(renderer,width,height);
                 renderer.endFrame();
                 if(frame==capture) {
-                    if(battle)engine::exploration_fixture::writeBattleHandshake(a.handshake,"runtime",a.api,*battle,renderer,battleTicks,width,height,frame,{0,0,width,height});
+                    if(encounterMode)engine::exploration_fixture::writeEncounterHandshake(a.handshake,"runtime",a.api,
+                        *session,*presentation,battle.get(),battleTicks,encounterCount,lastOutcome,
+                        renderer,width,height,frame,{0,0,width,height});
+                    else if(battle)engine::exploration_fixture::writeBattleHandshake(a.handshake,"runtime",a.api,*battle,renderer,battleTicks,width,height,frame,{0,0,width,height});
                     else engine::exploration_fixture::writeHandshake(a.handshake,"runtime",a.api,*session,*presentation,renderer,width,height,frame);
                 }
                 if(!renderer.handlesPresentation())graphics.window->swapBuffers();
-                if(!replay&&!battle&&frame%30==0) {
-                    const std::string title="Exploration | WASD / left stick | Shift / L3 run | RMB / right stick orbit | wheel / bumpers zoom | R / Back reset | Tab / Start select pad | P pause";
-                    graphics.window->setTitle(title+(session->sensorActive()?" | Sensor active":""));
+                if(!replay&&!battle&&!battleMode&&frame%30==0) {
+                    const std::string title=encounterMode
+                        ? "Outskirt Stand | WASD / left stick move | Shift / L3 run | E / A talk to Willie | P pause"
+                        : "Exploration | WASD / left stick | Shift / L3 run | RMB / right stick orbit | wheel / bumpers zoom | R / Back reset | Tab / Start select pad | P pause";
+                    graphics.window->setTitle(title+(encounterMode ? (session->canInteract()?" | Talk: E / A":"") :
+                        (session->sensorActive()?" | Sensor active":"")));
                 }
             }
-            if(battle)battle->release();else presentation->release();
+            if(battle)battle->release();
+            if(presentation)presentation->release();
         }
         renderer.shutdown();graphics.renderer.reset();graphics.window.reset();SDL_Quit();return 0;
     }catch(const std::exception& e){std::cerr<<"[Exploration] FAILED "<<e.what()<<'\n';SDL_Quit();return 1;}

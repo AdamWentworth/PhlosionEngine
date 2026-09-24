@@ -18,12 +18,14 @@ public:
         automation_=env::get("PHLOSION_EXPLORATION_AUTOMATION").value_or("0")=="1";
         const auto caseName=env::get("PHLOSION_EXPLORATION_CASE").value_or("walk");
         battleMode_=caseName=="outskirt-battle";
+        encounterMode_=caseName=="outskirt-encounter";
         if(battleMode_) battle_=std::make_unique<exploration_fixture::BattlePreview>(
             !automation_ || env::get("PHLOSION_BATTLE_AUDIO_OUTPUT").value_or("0")=="1");
         else {
             session_=std::make_unique<exploration_fixture::ExplorationSession>(caseName,automation_,exploration_fixture::configuredCameraSettings());
             session_->setTrace(env::get("PHLOSION_EXPLORATION_TRACE").value_or(""));
-            presentation_=std::make_unique<exploration_fixture::ExplorationPresentation>(session_->caseName()=="outskirt");
+            presentation_=std::make_unique<exploration_fixture::ExplorationPresentation>(
+                session_->caseName()=="outskirt" || encounterMode_, session_->encounterScene());
         }
         if(outError)outError->clear();
         return true;
@@ -50,7 +52,7 @@ public:
         else presentation_->draw(*c.renderer,*session_,c.surfaceWidth,c.surfaceHeight);
     }
     editor::EditorProjectStats stats() const override {
-        if(battle_ || (session_ && session_->caseName()=="outskirt")) {
+        if(battle_ || (session_ && (session_->caseName()=="outskirt" || encounterMode_))) {
             editor::EditorProjectStats result{.sceneCount=1};
             std::size_t assetIndex=0;
             for(const auto& item : battle_ ? battle_->imports() : presentation_->imports()) {
@@ -66,6 +68,8 @@ public:
         return {.sceneCount=1,.materialCount=10,.drawClassCount=14,.visibleTriangleCount=168};
     }
     const char* status() const noexcept override {
+        if (encounterMode_) return "Outskirt: WASD / left stick move; Shift / L3 run; E / A talk to Willie nearby. "
+            "Battle: WASD / RMB free camera; Space / A skip; Escape / B leave; R reset.";
         if (battleMode_ && battle_ && battle_->usesAuthoredCast())
             return "Battle camera: WASD move, Q/E down/up, RMB look, Shift fast, "
                    "wheel dolly, R reset.";
@@ -76,6 +80,8 @@ public:
     }
     std::size_t gamePreviewCount() const noexcept override {return 1;}
     editor::EditorProjectGamePreview gamePreview(std::size_t) const noexcept override {
+        if (encounterMode_) return {"exploration","Outskirt Stand: Wes and Rider Willie (temporary)",
+            "Prototypes",status(),"fixture/scene"};
         if (battleMode_) {
             const bool cast = battle_ && battle_->usesAuthoredCast();
             return {"battle", cast ? "Wes vs Rider Willie (temporary)" :
@@ -96,10 +102,35 @@ public:
         if(outError)*outError="The temporary exploration fixture does not render cooked model previews.";
         return false;
     }
-    void resetGamePreview() override {if(battle_){battle_->reset();battleTicks_=0;cameraUpdateTime_={};}else session_->reset();}
+    void resetGamePreview() override {
+        if (encounterMode_) {
+            if (battle_) { battle_->release(); battle_.reset(); }
+            session_->reset(); battleTicks_=0;cameraUpdateTime_={};lastOutcome_="reset";
+        } else if(battle_){battle_->reset();battleTicks_=0;cameraUpdateTime_={};}
+        else session_->reset();
+    }
     void fixedUpdateGamePreview(float dt) override {
         if(std::abs(dt-exploration_fixture::fixedDelta)>.00001f)throw std::runtime_error("Fixture requires 60 Hz ticks");
-        if(battle_)++battleTicks_;else session_->tick();
+        if (encounterMode_) {
+            if (battle_) {
+                if (battle_->complete()) {
+                    const auto state = battle_->state(battleTicks_, battleViewport_);
+                    lastOutcome_ = state["encounter"]["cancelled"].get<bool>() ? "cancelled" :
+                        state["encounter"]["skipped"].get<bool>() ? "skipped" : "completed";
+                    battle_->release();battle_.reset();battleTicks_=0;cameraUpdateTime_={};
+                    session_->suspendInput();
+                } else ++battleTicks_;
+            } else {
+                session_->tick();
+                if (session_->takeEncounterRequest()) {
+                    presentation_->release();
+                    battle_=std::make_unique<exploration_fixture::BattlePreview>(
+                        !automation_ || env::get("PHLOSION_BATTLE_AUDIO_OUTPUT").value_or("0")=="1");
+                    ++encounterCount_;battleTicks_=0;cameraUpdateTime_={};
+                    session_->suspendInput();
+                }
+            }
+        } else if(battle_)++battleTicks_;else session_->tick();
     }
     void renderGamePreview(const editor::EditorProjectRenderContext& c) override {
         if(!c.renderer)return;++frames_;c.renderer->beginWorldSceneColorPass(c.surfaceWidth,c.surfaceHeight);
@@ -109,7 +140,10 @@ public:
         if(battle_)battle_->drawOverlay(*c.renderer,c.surfaceWidth,c.surfaceHeight);
         const int capture=std::stoi(env::get("PHLOSION_BACKEND_SCREENSHOT_FRAME").value_or("160"));
         if(frames_==capture) {
-            if(battle_)exploration_fixture::writeBattleHandshake(env::get("PHLOSION_EXPLORATION_HANDSHAKE").value_or(""),"editor",
+            if(encounterMode_)exploration_fixture::writeEncounterHandshake(env::get("PHLOSION_EXPLORATION_HANDSHAKE").value_or(""),"editor",
+                env::get("PHLOSION_EXPLORATION_API").value_or(c.renderer->backendId()),*session_,*presentation_,
+                battle_.get(),battleTicks_,encounterCount_,lastOutcome_,*c.renderer,c.surfaceWidth,c.surfaceHeight,frames_,battleViewport_);
+            else if(battle_)exploration_fixture::writeBattleHandshake(env::get("PHLOSION_EXPLORATION_HANDSHAKE").value_or(""),"editor",
                 env::get("PHLOSION_EXPLORATION_API").value_or(c.renderer->backendId()),*battle_,*c.renderer,battleTicks_,c.surfaceWidth,c.surfaceHeight,frames_,battleViewport_);
             else exploration_fixture::writeHandshake(env::get("PHLOSION_EXPLORATION_HANDSHAKE").value_or(""),"editor",
                 env::get("PHLOSION_EXPLORATION_API").value_or(c.renderer->backendId()),*session_,*presentation_,*c.renderer,c.surfaceWidth,c.surfaceHeight,frames_);
@@ -123,7 +157,7 @@ public:
         else session_->begin(c);
     }
     void event(const editor::EditorSdlGameInputContext& c,const SDL_Event& e){
-        if(session_){session_->event(c,e);return;}
+        if(session_ && !battle_){session_->event(c,e);return;}
         if(!battle_)return;
         battle_->setNavigationEnabled(battleNavigationEnabled(c));
         const bool inside = e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP
@@ -145,7 +179,7 @@ public:
         }
     }
     void end(const editor::EditorSdlGameInputContext& c){
-        if(session_)session_->end(c);
+        if(session_ && !battle_)session_->end(c);
         if(battle_)battle_->setNavigationEnabled(battleNavigationEnabled(c));
     }
 private:
@@ -153,8 +187,9 @@ private:
     std::unique_ptr<exploration_fixture::ExplorationPresentation> presentation_;
     std::unique_ptr<exploration_fixture::BattlePreview> battle_;
     std::array<int,4> battleViewport_{0,0,0,0};
-    bool automation_=false,ready_=false,selected_=false,battleMode_=false;
-    int frames_=0,battleTicks_=0;
+    bool automation_=false,ready_=false,selected_=false,battleMode_=false,encounterMode_=false;
+    int frames_=0,battleTicks_=0,encounterCount_=0;
+    std::string lastOutcome_="none";
     std::chrono::steady_clock::time_point cameraUpdateTime_{};
 };
 editor::IEditorProjectRuntime* create(){return new Runtime;}

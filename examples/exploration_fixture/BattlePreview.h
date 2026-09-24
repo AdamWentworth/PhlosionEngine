@@ -36,6 +36,7 @@ public:
     void navigationEvent(const SDL_Event& event, Uint32 windowId, bool pointerInside);
     void navigationFrame(float deltaSeconds);
     bool usesAuthoredCast() const noexcept { return castEnabled_; }
+    bool complete() const noexcept { return !sequence_.state().active; }
     nlohmann::json imports() const;
     nlohmann::json state(int tick, std::array<int, 4> viewport) const;
 

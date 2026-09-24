@@ -4,12 +4,41 @@
 #include <glm/gtc/quaternion.hpp>
 #include <algorithm>
 #include <array>
+#include <fstream>
 #include <stdexcept>
 
 namespace engine::exploration_fixture {
 namespace {
 void require(bool ok, const std::string& error) { if (!ok) throw std::runtime_error(error); }
 nlohmann::json vec(glm::vec3 v) { return {v.x, v.y, v.z}; }
+OutskirtEncounterScene loadEncounterScene() {
+    const auto path = env::get("PHLOSION_OUTSKIRT_ENCOUNTER_JSON");
+    require(path && !path->empty(), "Outskirt encounter requires PHLOSION_OUTSKIRT_ENCOUNTER_JSON");
+    std::ifstream file(*path);
+    require(bool(file), "Cannot read Outskirt encounter scene: " + *path);
+    const auto scene = nlohmann::json::parse(file);
+    require(scene.at("schema") == "pokemon-cyberpunk-outskirt-encounter-v1", "Unexpected Outskirt encounter schema");
+    OutskirtEncounterScene result;
+    auto position = [](const nlohmann::json& value) {
+        require(value.is_array() && value.size() == 3, "Encounter position needs three coordinates");
+        return glm::vec3(value[0].get<float>(), value[1].get<float>(), value[2].get<float>());
+    };
+    result.playerSpawn = position(scene.at("wes_spawn"));
+    result.willieSpawn = position(scene.at("willie_spawn"));
+    result.willieYawRadians = glm::radians(scene.at("willie_yaw_degrees").get<float>());
+    result.interactionRadius = scene.at("interaction_radius").get<float>();
+    result.willieModel = scene.at("willie_model").get<std::string>();
+    result.willieIdleAnimation = scene.at("willie_idle_animation").get<std::string>();
+    require(std::isfinite(result.interactionRadius) && result.interactionRadius > 0.5f && result.interactionRadius < 5.0f,
+            "Invalid Outskirt interaction radius");
+    require(std::isfinite(result.playerSpawn.x) && std::isfinite(result.playerSpawn.y) && std::isfinite(result.playerSpawn.z) &&
+            std::isfinite(result.willieSpawn.x) && std::isfinite(result.willieSpawn.y) && std::isfinite(result.willieSpawn.z) &&
+            std::isfinite(result.willieYawRadians), "Invalid Outskirt placement");
+    const auto root = env::get("PHLOSION_BATTLE_CAST_ROOT");
+    require(root && !root->empty(), "Outskirt encounter requires PHLOSION_BATTLE_CAST_ROOT");
+    result.willieModel = *root + "/" + result.willieModel;
+    return result;
+}
 void addOutskirtSurfaceCollision(collision::CollisionWorld& world) {
     using namespace render::gltf::scene;
     const auto path = env::get("PHLOSION_OUTSKIRT_ENVIRONMENT_GLB");
@@ -97,6 +126,7 @@ const std::vector<std::string>& cases() {
 }
 const std::vector<std::string>& supplementalCases() {static const std::vector<std::string> names{"steep","ledge-drop"};return names;}
 glm::vec3 caseSpawn(const std::string& n) {
+    if (n == "outskirt-encounter") return {-2,.9f,3};
     if (n == "outskirt") return {-2,.9f,3};
     if (n == "steep") return {-8,.9f,-1};
     if (n == "ledge-drop") return {5,1.705f,-3};
@@ -131,17 +161,21 @@ ExplorationSession::ExplorationSession(std::string name, bool automation, camera
         KeyBinding{InputEvent::Key::S,{0,1}},KeyBinding{InputEvent::Key::A,{-1,0}},KeyBinding{InputEvent::Key::D,{1,0}},StickBinding{GamepadStick::Left}}}, &error),error);
     require(actions_.define({"run", ActionKind::Button, {KeyBinding{InputEvent::Key::LShift},ButtonBinding{GamepadButton::LeftStick}}},&error),error);
     require(actions_.define({"reset", ActionKind::Button,{KeyBinding{InputEvent::Key::R},ButtonBinding{GamepadButton::Back}}},&error),error);
+    require(actions_.define({"interact", ActionKind::Button,{KeyBinding{InputEvent::Key::E},ButtonBinding{GamepadButton::South}}},&error),error);
     require(actions_.define({"look", ActionKind::Axis2D,{StickBinding{GamepadStick::Right}}},&error),error);
     require(actions_.define({"zoom", ActionKind::Axis1D,{ButtonBinding{GamepadButton::LeftShoulder,{-1,0}},ButtonBinding{GamepadButton::RightShoulder,{1,0}}}},&error),error);
     actions_.setEnabled(false);
-    if (case_ == "outskirt") addOutskirtSurfaceCollision(world_);
-    std::uint64_t id = case_ == "outskirt" ? 100 : 1;
-    for (const auto& box : case_ == "outskirt" ? outskirtCourse() : course()) {
+    if (case_ == "outskirt-encounter") encounterScene_ = loadEncounterScene();
+    const bool outskirt = case_ == "outskirt" || encounterScene_.has_value();
+    if (outskirt) addOutskirtSurfaceCollision(world_);
+    std::uint64_t id = outskirt ? 100 : 1;
+    for (const auto& box : outskirt ? outskirtCourse() : course()) {
         collision::StaticColliderDesc d; d.position = box.center; d.rotation = glm::angleAxis(box.pitch,glm::vec3(1,0,0)); d.sensor = box.sensor; d.userData = id++;
         collision::ColliderId collider; require(world_.addBox(d,box.half,collider,&error),error);
     }
-    require(world_.createCharacter({},caseSpawn(case_),playerId_,&error),error);
-    require(world_.createCharacter({}, case_ == "outskirt" ? glm::vec3(-5,.9f,3) : glm::vec3(-1,.9f,3),npcId_,&error),error);
+    require(world_.createCharacter({},encounterScene_ ? encounterScene_->playerSpawn : caseSpawn(case_),playerId_,&error),error);
+    require(world_.createCharacter({}, encounterScene_ ? encounterScene_->willieSpawn :
+        case_ == "outskirt" ? glm::vec3(-5,.9f,3) : glm::vec3(-1,.9f,3),npcId_,&error),error);
     reset(false); resets_ = 0;
 }
 void ExplorationSession::setTrace(const std::string& path) {
@@ -163,16 +197,18 @@ void ExplorationSession::reset(bool safe) {
     if (input_) { input_->takeLookDelta(); input_->takeZoomDelta(); }
     // Recreate characters to clear their trigger history; immutable authored rig settings survive.
     world_.removeCharacter(playerId_); world_.removeCharacter(npcId_);
-    require(world_.createCharacter({},safe && case_ != "outskirt" ? caseSpawn("walk") : caseSpawn(case_),playerId_,&error),error);
-    require(world_.createCharacter({}, case_ == "outskirt" ? glm::vec3(-5,.9f,3) : glm::vec3(-1,.9f,3),npcId_,&error),error);
+    require(world_.createCharacter({},encounterScene_ ? encounterScene_->playerSpawn :
+        safe && case_ != "outskirt" ? caseSpawn("walk") : caseSpawn(case_),playerId_,&error),error);
+    require(world_.createCharacter({}, encounterScene_ ? encounterScene_->willieSpawn :
+        case_ == "outskirt" ? glm::vec3(-5,.9f,3) : glm::vec3(-1,.9f,3),npcId_,&error),error);
     require(world_.characterState(playerId_,playerState_,&error),error);
     require(world_.characterState(npcId_,npcState_,&error),error);
     require(rig_.reset(playerState_.center,aspect_,pose_,&world_,&error),error);
-    sensorActive_ = false; npcStall_ = 0; npcWait_ = 0; ++resets_;
+    sensorActive_ = false; encounterRequested_ = false; npcStall_ = 0; npcWait_ = 0; ++resets_;
     record("reset");
 }
 void ExplorationSession::npcTick() {
-    if (case_ == "outskirt") return;
+    if (case_ == "outskirt" || encounterScene_) return;
     std::string error;
     if (npcWait_ > 0) {
         if (--npcWait_ == 0) { require(world_.teleportCharacter(npcId_,{-1,.9f,3},&error),error); ++npcRetries_; }
@@ -188,12 +224,13 @@ void ExplorationSession::npcTick() {
 }
 void ExplorationSession::tick() {
     if (!input_) return;
-    if (automation_ && ticks_ >= targetTick) return;
+    if (automation_ && !encounterScene_ && ticks_ >= targetTick) return;
     actions_.advanceFrame(); ++ticks_;
     if (action("reset").pressed) { reset(); record("tick"); return; }
     glm::vec2 movement; std::string error;
     require(camera::cameraRelativeMove(action("move").value,pose_.yawRadians,movement,&error),error);
     require(world_.stepCharacter(playerId_,{movement,action("run").down},playerState_,&error),error);
+    if (encounterScene_ && action("interact").pressed && canInteract()) encounterRequested_ = true;
     if (playerState_.center.y < -8) {reset();record("tick");return;}
     collision::CharacterTriggerSample sample; require(world_.sampleCharacterTriggers(playerId_,sample,{},&error),error);
     sensorActive_ = !sample.overlaps.empty();
@@ -218,7 +255,8 @@ nlohmann::json ExplorationSession::state() const {
     return {{"tick",ticks_},{"input_frame",inputFrames_},{"case",case_},{"player",vec(playerState_.center)},{"velocity",vec(playerState_.velocity)},
         {"ground",static_cast<int>(playerState_.groundState)},{"support",playerState_.support ? playerState_.support->userData : 0},
         {"npc",vec(npcState_.center)},{"npc_blocked",npcBlocked_},{"npc_retries",npcRetries_},
-        {"sensor",sensorActive_},{"enter",enters_},{"stay",stays_},{"exit",exits_},{"resets",resets_},
+        {"sensor",sensorActive_},{"can_interact",canInteract()},{"encounter_requested",encounterRequested_},
+        {"enter",enters_},{"stay",stays_},{"exit",exits_},{"resets",resets_},
         {"camera",{{"position",vec(pose_.position)},{"pivot",vec(pose_.pivot)},{"yaw",pose_.yawRadians},{"pitch",pose_.pitchRadians},
             {"desired",pose_.desiredDistance},{"distance",pose_.actualDistance},{"obstructed",pose_.obstructed},{"aspect",pose_.aspectRatio}}},
         {"viewport",{context_.viewport.x,context_.viewport.y,context_.viewport.width,context_.viewport.height}},
@@ -228,6 +266,18 @@ nlohmann::json ExplorationSession::state() const {
             {"synthetic",context_.synthetic},{"background_controller_input",SDL_GetHintBoolean(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS,SDL_FALSE)==SDL_TRUE},
             {"selected",selected},{"devices",devices}}}};
 }
+bool ExplorationSession::canInteract() const {
+    if (!encounterScene_) return false;
+    const glm::vec2 delta(playerState_.center.x - npcState_.center.x,
+                          playerState_.center.z - npcState_.center.z);
+    return glm::dot(delta, delta) <= encounterScene_->interactionRadius * encounterScene_->interactionRadius;
+}
+bool ExplorationSession::takeEncounterRequest() {
+    const bool requested = encounterRequested_;
+    encounterRequested_ = false;
+    return requested;
+}
+void ExplorationSession::suspendInput() { actions_.setEnabled(false); }
 void ExplorationSession::record(const char* kind) { if (trace_) { auto s = state(); s["kind"] = kind; trace_ << s.dump() << '\n'; trace_.flush(); } }
 
 nlohmann::json replayScript(const std::string& name) {
