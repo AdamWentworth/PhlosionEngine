@@ -394,8 +394,9 @@ void BattlePreview::frameCamera(int tick, float aspect) {
     const std::array<camera::BattleCameraTarget, 2> second{all[1], all[3]};
     const std::span<const camera::BattleCameraTarget> wide(all.data(), castEnabled_ ? 6u : 4u);
     camera_.reset();
-    const bool opened = camera_.cut(shot(.10f, .38f, 48.0f), wide, aspect,
-                                    cameraPose_, &error);
+    auto wideShot = shot(.10f, castEnabled_ ? .25f : .38f, 48.0f);
+    if (castEnabled_) wideShot.focusOffset.y = -.4f;
+    const bool opened = camera_.cut(wideShot, wide, aspect, cameraPose_, &error);
     require(opened, error);
     phase_ = "wide";
     for (int current = 1; current <= tick; ++current) {
