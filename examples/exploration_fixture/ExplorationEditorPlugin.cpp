@@ -184,12 +184,16 @@ public:
             if(e.type==SDL_KEYDOWN&&e.key.repeat==0) {
                 if(e.key.keysym.sym==SDLK_UP)battle_->menuNavigate(-1);
                 if(e.key.keysym.sym==SDLK_DOWN)battle_->menuNavigate(1);
+                if(e.key.keysym.sym==SDLK_LEFT)battle_->menuNavigate(-2);
+                if(e.key.keysym.sym==SDLK_RIGHT)battle_->menuNavigate(2);
                 if(e.key.keysym.sym==SDLK_RETURN||e.key.keysym.sym==SDLK_SPACE)battle_->menuConfirm();
                 if(e.key.keysym.sym==SDLK_ESCAPE)battle_->menuBack();
             }
             if(e.type==SDL_CONTROLLERBUTTONDOWN) {
                 if(e.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_UP)battle_->menuNavigate(-1);
                 if(e.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_DOWN)battle_->menuNavigate(1);
+                if(e.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_LEFT)battle_->menuNavigate(-2);
+                if(e.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_RIGHT)battle_->menuNavigate(2);
                 if(e.cbutton.button==SDL_CONTROLLER_BUTTON_A)battle_->menuConfirm();
                 if(e.cbutton.button==SDL_CONTROLLER_BUTTON_B)battle_->menuBack();
             }

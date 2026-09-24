@@ -93,6 +93,7 @@ private:
     int cameraProbeAspectNumerator_ = 0;
     BattleSequence sequence_;
     BattleHudAtlas hudAtlas_;
+    std::string portraitRoot_;
     BattleVfxPlugin vfxPlugin_;
     void* rulesLibrary_ = nullptr;
     BattleRulesPluginApi rulesApi_{};

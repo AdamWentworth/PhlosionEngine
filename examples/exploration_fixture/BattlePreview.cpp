@@ -267,6 +267,14 @@ BattlePreview::BattlePreview(bool audioOutput)
                 rulesApi_.step && rulesApi_.abort && rulesApi_.complete &&
                 rulesApi_.stateJson && rulesApi_.lastError,
                 "Battle rules plugin could not initialize");
+        portraitRoot_ = env::get("PHLOSION_BATTLE_PORTRAIT_DIR").value_or("");
+        require(!portraitRoot_.empty(), "Battle rules need PHLOSION_BATTLE_PORTRAIT_DIR");
+        const auto initialRules = rulesState();
+        for (const auto& member : initialRules.at("party")) {
+            const auto path = fs::path(portraitRoot_) /
+                member.at("portrait").get<std::string>();
+            require(fs::is_regular_file(path), "Missing Colosseum battle portrait: " + path.string());
+        }
     }
     if (env::get("PHLOSION_EXPLORATION_AUTOMATION").value_or("0") == "1") {
         cameraProbe_ = env::get("PHLOSION_BATTLE_CAMERA_PROBE").value_or("0") == "1";
@@ -436,17 +444,8 @@ void BattlePreview::menuSelect(int index) {
 }
 void BattlePreview::menuClick(int x, int y, int width, int height) {
     if (!usesRules() || width <= 0 || height <= 0) return;
-    const float menuWidth = std::min(440.0f, static_cast<float>(width) - 28.0f);
-    const float menuX = (width - menuWidth) * .5f;
-    const float menuY = height - 237.0f;
-    if (x < menuX + 8 || x >= menuX + menuWidth - 8) return;
-    for (int index = 0; index < 5; ++index) {
-        const float rowY = menuY + 42.0f + index * 23.0f;
-        if (y >= rowY - 4 && y < rowY + 16) {
-            menuSelect(index);
-            return;
-        }
-    }
+    const int option = battleRulesOptionAt(rulesState(), x, y, width, height);
+    if (option >= 0) menuSelect(option);
 }
 nlohmann::json BattlePreview::rulesState() const {
     if (!usesRules()) return nullptr;
@@ -719,8 +718,8 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
 
 void BattlePreview::drawOverlay(IRenderBackend& renderer, int width, int height) const {
     if (usesRules()) {
-        hudAtlas_.draw(renderer, width, height);
-        drawBattleRulesOverlay(renderer, rulesState(), width, height);
+        drawBattleRulesOverlay(renderer, rulesState(), width, height,
+                               hudAtlas_.path(), portraitRoot_);
         return;
     }
     if (!sequence_.state().hudVisible) return;

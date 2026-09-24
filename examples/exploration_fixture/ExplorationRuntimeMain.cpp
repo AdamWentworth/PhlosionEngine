@@ -155,6 +155,8 @@ int main(int argc,char** argv) {
                         if(battle&&battle->usesRules()&&context.windowFocused&&!context.paused) {
                             if(e.key.keysym.sym==SDLK_UP)battle->menuNavigate(-1);
                             if(e.key.keysym.sym==SDLK_DOWN)battle->menuNavigate(1);
+                            if(e.key.keysym.sym==SDLK_LEFT)battle->menuNavigate(-2);
+                            if(e.key.keysym.sym==SDLK_RIGHT)battle->menuNavigate(2);
                         }
                         if(battle&&context.windowFocused&&(!battle->usesRules()||!context.paused)&&
                            e.key.repeat==0&&e.key.keysym.sym==SDLK_r){battle->reset();battleTicks=0;}
@@ -165,6 +167,8 @@ int main(int argc,char** argv) {
                         if(e.cbutton.button==SDL_CONTROLLER_BUTTON_A)battle->skip();
                         if(battle->usesRules()&&e.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_UP)battle->menuNavigate(-1);
                         if(battle->usesRules()&&e.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_DOWN)battle->menuNavigate(1);
+                        if(battle->usesRules()&&e.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_LEFT)battle->menuNavigate(-2);
+                        if(battle->usesRules()&&e.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_RIGHT)battle->menuNavigate(2);
                     }
                     if(battle&&battle->usesRules()&&context.windowFocused&&!context.paused&&
                        e.type==SDL_MOUSEBUTTONDOWN&&e.button.button==SDL_BUTTON_LEFT)

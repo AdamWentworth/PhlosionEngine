@@ -55,8 +55,6 @@ void BattleHudAtlas::draw(IRenderBackend& renderer, int width, int height) const
         sprite(path_, right, 32, panelWidth, panelHeight, 111, 31, 151, 58),
         sprite(path_, 12, bottom, panelWidth, panelHeight, 111, 31, 151, 58),
         sprite(path_, right, bottom, panelWidth, panelHeight, 111, 31, 151, 58),
-        sprite(path_, (width - 279.0f) * .5f, height - 42.0f,
-               279, 34, 88, 121, 279, 34),
     };
     renderer.drawDebugSprites(sprites.data(), sprites.size(), width, height);
 }

@@ -12,6 +12,7 @@ class BattleHudAtlas {
 public:
     explicit BattleHudAtlas(const std::string& path);
     bool available() const noexcept { return !rgba_.empty(); }
+    const std::string& path() const noexcept { return path_; }
     void draw(IRenderBackend& renderer, int width, int height) const;
 
 private:

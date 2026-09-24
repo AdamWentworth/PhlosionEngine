@@ -1,7 +1,9 @@
 #define SDL_MAIN_HANDLED
 #include "ExplorationPresentation.h"
+#include "BattleRulesOverlay.h"
 #include "engine/editor/EditorProjectPlugin.h"
 #include "engine/input/SdlInputReplay.h"
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <limits>
@@ -22,6 +24,31 @@ void extension() {
     CHECK(editor::kEditorProjectPluginAbiVersion==34);
 }
 editor::EditorSdlGameInputContext context() {return {42,true,true,true,false,true,true,false,true,{20,30,640,360}};}
+void battleHudHitboxes() {
+    nlohmann::json state={{"screen","command"},{"options",nlohmann::json::array({
+        {{"label","FIGHT"}},{{"label","POKEMON"}},{{"label","ITEM"}},{{"label","CALL"}}
+    })}};
+    for(const auto [width,height]:{std::pair{832,468},std::pair{840,360}}) {
+        const float s=std::min({1.0f,height/400.0f,width/640.0f});
+        const float left=38*s, top=height-118*s;
+        for(int index=0;index<4;++index) {
+            const int x=static_cast<int>(left+(index/2 ? 190 : 49)*s);
+            const int y=static_cast<int>(top+(index%2 ? 62 : 23)*s);
+            CHECK(exploration_fixture::battleRulesOptionAt(state,x,y,width,height)==index);
+        }
+        CHECK(exploration_fixture::battleRulesOptionAt(state,width/2,20,width,height)==-1);
+        state["screen"]="target";
+        state["options"]=nlohmann::json::array({{{"label","ZIGZAGOON"}},{{"label","POOCHYENA"}}});
+        CHECK(exploration_fixture::battleRulesOptionAt(state,static_cast<int>(left+49*s),
+              static_cast<int>(top+48*s),width,height)==0);
+        CHECK(exploration_fixture::battleRulesOptionAt(state,static_cast<int>(left+190*s),
+              static_cast<int>(top+48*s),width,height)==1);
+        state["screen"]="command";
+        state["options"]=nlohmann::json::array({
+            {{"label","FIGHT"}},{{"label","POKEMON"}},{{"label","ITEM"}},{{"label","CALL"}}
+        });
+    }
+}
 void policy() {
     for(int w:{1,7,63,641,1200})for(int h:{1,9,100,361,800})for(auto ratio:{glm::ivec2(16,9),glm::ivec2(21,9)}) {
         const auto r=editor::fitGameViewport(w,h,ratio.x,ratio.y);
@@ -102,6 +129,7 @@ void malformed(const std::filesystem::path& dir) {
 }
 int main(int argc,char** argv) {
     try {
+        battleHudHitboxes();
         CHECK(SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER|SDL_INIT_EVENTS)==0);
         const int ambientDevices=SDL_NumJoysticks();
         const auto dir=argc>1?std::filesystem::path(argv[1]):std::filesystem::temp_directory_path()/("phlosion-exploration-"+std::to_string(SDL_GetPerformanceCounter()));
