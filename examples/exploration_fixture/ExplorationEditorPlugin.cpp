@@ -3,8 +3,14 @@
 #include "engine/core/Environment.h"
 #include "engine/editor/EditorProjectPlugin.h"
 
+#include <chrono>
+
 namespace {
 using namespace engine;
+bool battleNavigationEnabled(const editor::EditorSdlGameInputContext& c) {
+    return c.windowFocused && c.activeGameViewport && c.viewportFocused &&
+           !c.textEditing && c.viewport.width > 0 && c.viewport.height > 0;
+}
 class Runtime final : public editor::IEditorProjectRuntime {
 public:
     bool open(const editor::EditorProjectOpenContext&,std::string* outError) override {
@@ -30,10 +36,17 @@ public:
         }
     }
     void prewarm(IRenderBackend& renderer,const editor::EditorProjectCameraContext&) override {renderer.prewarmWorldRenderAssets();}
-    void update(float) override {}
+    void update(float) override {
+        if (!battle_) return;
+        const auto now = std::chrono::steady_clock::now();
+        const float delta = cameraUpdateTime_ == std::chrono::steady_clock::time_point{}
+            ? 0.0f : std::chrono::duration<float>(now - cameraUpdateTime_).count();
+        cameraUpdateTime_ = now;
+        battle_->navigationFrame(delta);
+    }
     void render(const editor::EditorProjectRenderContext& c) override {
         if(!c.renderer)return;
-        if(battle_)battle_->draw(*c.renderer,battleTicks_,c.surfaceWidth,c.surfaceHeight);
+        if(battle_)battle_->draw(*c.renderer,battleTicks_,c.surfaceWidth,c.surfaceHeight,false);
         else presentation_->draw(*c.renderer,*session_,c.surfaceWidth,c.surfaceHeight);
     }
     editor::EditorProjectStats stats() const override {
@@ -54,7 +67,8 @@ public:
     }
     const char* status() const noexcept override {
         if (battleMode_ && battle_ && battle_->usesAuthoredCast())
-            return "Wes and Umbreon/Espeon face Rider Willie and Zigzagoon/Poochyena.";
+            return "Battle camera: WASD move, Q/E down/up, RMB look, Shift fast, "
+                   "wheel dolly, R reset.";
         if (battleMode_)
             return "Provisional Outskirt battle camera and four Wes actor stand-ins.";
         return "WASD / left stick move; Shift / L3 run; RMB / right stick orbit; "
@@ -82,7 +96,7 @@ public:
         if(outError)*outError="The temporary exploration fixture does not render cooked model previews.";
         return false;
     }
-    void resetGamePreview() override {if(battle_){battle_->reset();battleTicks_=0;}else session_->reset();}
+    void resetGamePreview() override {if(battle_){battle_->reset();battleTicks_=0;cameraUpdateTime_={};}else session_->reset();}
     void fixedUpdateGamePreview(float dt) override {
         if(std::abs(dt-exploration_fixture::fixedDelta)>.00001f)throw std::runtime_error("Fixture requires 60 Hz ticks");
         if(battle_)++battleTicks_;else session_->tick();
@@ -102,23 +116,38 @@ public:
         }
     }
     void begin(const editor::EditorSdlGameInputContext& c){
-        if(battle_)battleViewport_={c.viewport.x,c.viewport.y,c.viewport.width,c.viewport.height};
+        if(battle_){
+            battleViewport_={c.viewport.x,c.viewport.y,c.viewport.width,c.viewport.height};
+            battle_->setNavigationEnabled(battleNavigationEnabled(c));
+        }
         else session_->begin(c);
     }
     void event(const editor::EditorSdlGameInputContext& c,const SDL_Event& e){
         if(session_){session_->event(c,e);return;}
-        if(!battle_||!editor::gameInputEnabled(c))return;
+        if(!battle_)return;
+        battle_->setNavigationEnabled(battleNavigationEnabled(c));
+        const bool inside = e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP
+            ? editor::gamePointerInside(c,e.button.x,e.button.y)
+            : e.type == SDL_MOUSEMOTION
+                ? editor::gamePointerInside(c,e.motion.x,e.motion.y)
+                : c.viewportHovered;
+        battle_->navigationEvent(e,c.windowId,inside);
+        if(battleNavigationEnabled(c)&&e.type==SDL_KEYDOWN&&e.key.repeat==0&&
+           e.key.keysym.sym==SDLK_r){resetGamePreview();return;}
+        if(!editor::gameInputEnabled(c))return;
         if(e.type==SDL_KEYDOWN&&e.key.repeat==0){
             if(e.key.keysym.sym==SDLK_ESCAPE)battle_->cancel();
             if(e.key.keysym.sym==SDLK_SPACE)battle_->skip();
-            if(e.key.keysym.sym==SDLK_r)resetGamePreview();
         }
         if(e.type==SDL_CONTROLLERBUTTONDOWN){
             if(e.cbutton.button==SDL_CONTROLLER_BUTTON_B)battle_->cancel();
             if(e.cbutton.button==SDL_CONTROLLER_BUTTON_A)battle_->skip();
         }
     }
-    void end(const editor::EditorSdlGameInputContext& c){if(session_)session_->end(c);}
+    void end(const editor::EditorSdlGameInputContext& c){
+        if(session_)session_->end(c);
+        if(battle_)battle_->setNavigationEnabled(battleNavigationEnabled(c));
+    }
 private:
     std::unique_ptr<exploration_fixture::ExplorationSession> session_;
     std::unique_ptr<exploration_fixture::ExplorationPresentation> presentation_;
@@ -126,6 +155,7 @@ private:
     std::array<int,4> battleViewport_{0,0,0,0};
     bool automation_=false,ready_=false,selected_=false,battleMode_=false;
     int frames_=0,battleTicks_=0;
+    std::chrono::steady_clock::time_point cameraUpdateTime_{};
 };
 editor::IEditorProjectRuntime* create(){return new Runtime;}
 void destroy(editor::IEditorProjectRuntime* r){delete r;}

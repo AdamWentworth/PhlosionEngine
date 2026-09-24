@@ -126,11 +126,14 @@ int main(int argc,char** argv) {
             context.windowFocused=(SDL_GetWindowFlags(graphics.window->getSDLWindow())&SDL_WINDOW_INPUT_FOCUS)!=0;
             context.activeGameViewport=true;context.viewportFocused=true;context.viewportHovered=true;context.playing=true;
             bool running=true;int frame=0,battleTicks=0;float accumulator=0;auto previous=std::chrono::steady_clock::now();
+            if (battle && !a.hidden)
+                graphics.window->setTitle("Outskirt Battle | WASD move | Q/E down/up | RMB look | Shift fast | wheel dolly | R reset | P pause");
             const int capture=std::stoi(engine::env::get("PHLOSION_BACKEND_SCREENSHOT_FRAME").value_or("160"));
             while(running && (a.frames==0||frame<a.frames)) {
                 ++frame; const auto now=std::chrono::steady_clock::now();
                 const float delta=(replay || (battle && a.hidden))?engine::exploration_fixture::fixedDelta:std::min(.05f,std::chrono::duration<float>(now-previous).count());previous=now;
                 context.viewport={0,0,width,height}; if(replay)replay->frame(context);if(session)session->begin(context);
+                if(battle)battle->setNavigationEnabled(context.windowFocused);
                 SDL_Event e{};while(SDL_PollEvent(&e)) {
                     if(e.type==SDL_QUIT)running=false;
                     if(e.type==SDL_WINDOWEVENT && e.window.windowID==context.windowId) {
@@ -150,9 +153,19 @@ int main(int argc,char** argv) {
                         if(e.cbutton.button==SDL_CONTROLLER_BUTTON_B)battle->cancel();
                         if(e.cbutton.button==SDL_CONTROLLER_BUTTON_A)battle->skip();
                     }
+                    if(battle) {
+                        battle->setNavigationEnabled(context.windowFocused);
+                        const bool inside = e.type==SDL_MOUSEBUTTONDOWN || e.type==SDL_MOUSEBUTTONUP
+                            ? e.button.x>=0&&e.button.y>=0&&e.button.x<width&&e.button.y<height
+                            : e.type==SDL_MOUSEMOTION
+                                ? e.motion.x>=0&&e.motion.y>=0&&e.motion.x<width&&e.motion.y<height
+                                : true;
+                        battle->navigationEvent(e,context.windowId,inside);
+                    }
                     if(session)session->event(context,e);
                 }
                 if(session)session->end(context);
+                if(battle)battle->navigationFrame(delta);
                 if(context.playing&&!context.paused) {
                     accumulator+=delta;int ticks=0;while(accumulator>=engine::exploration_fixture::fixedDelta&&ticks<4) {
                         if(battle)++battleTicks;else session->tick();

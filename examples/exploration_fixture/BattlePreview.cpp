@@ -35,6 +35,10 @@ constexpr std::array<ActorSlot, 4> slots{{
     {"opponent-right", {-0.8f, 0.0f, 2.0f}},
 }};
 
+enum NavigationKey : std::size_t {
+    Forward, Backward, Left, Right, Down, Up, Fast
+};
+
 void require(bool passed, const std::string& error) {
     if (!passed) throw std::runtime_error(error);
 }
@@ -235,6 +239,13 @@ BattlePreview::BattlePreview(bool audioOutput)
     if (audioOutput && !audioOutput_.start(&error))
         std::cerr << "[BattlePreview] Audio device unavailable; using null sink: " << error << '\n';
     if (env::get("PHLOSION_EXPLORATION_AUTOMATION").value_or("0") == "1") {
+        cameraProbe_ = env::get("PHLOSION_BATTLE_CAMERA_PROBE").value_or("0") == "1";
+        if (cameraProbe_) {
+            const auto aspect = env::get("PHLOSION_BATTLE_CAMERA_PROBE_ASPECT").value_or("");
+            require(aspect == "16x9" || aspect == "21x9",
+                    "Battle camera probe needs a 16x9 or 21x9 aspect");
+            cameraProbeAspectNumerator_ = aspect == "16x9" ? 16 : 21;
+        }
         automationAction_ = env::get("PHLOSION_BATTLE_ACTION").value_or("");
         if (!automationAction_.empty()) {
             require(automationAction_ == "cancel" || automationAction_ == "skip",
@@ -300,9 +311,66 @@ void BattlePreview::reset() {
     vfxPlugin_.stopAll();
     mixer_.reset();
     camera_.reset();
+    freeCamera_.reset();
+    navigationKeys_.fill(false);
+    pendingLook_ = {};
+    pendingDolly_ = 0.0f;
+    navigationSeconds_ = 0.0f;
+    rightMouseDown_ = false;
+    cameraProbeApplied_ = false;
     activeEffect_ = false;
     lastAudioPeak_ = 0.0f;
     phase_ = "wide";
+}
+
+void BattlePreview::setNavigationEnabled(bool enabled) {
+    navigationEnabled_ = enabled;
+    if (!enabled) {
+        navigationKeys_.fill(false);
+        rightMouseDown_ = false;
+        pendingLook_ = {};
+        pendingDolly_ = 0.0f;
+        navigationSeconds_ = 0.0f;
+    }
+}
+
+void BattlePreview::navigationEvent(const SDL_Event& event, Uint32 windowId,
+                                    bool pointerInside) {
+    if (!navigationEnabled_) return;
+    if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) &&
+        event.key.windowID == windowId) {
+        const bool down = event.type == SDL_KEYDOWN;
+        switch (event.key.keysym.sym) {
+        case SDLK_w: navigationKeys_[Forward] = down; break;
+        case SDLK_s: navigationKeys_[Backward] = down; break;
+        case SDLK_a: navigationKeys_[Left] = down; break;
+        case SDLK_d: navigationKeys_[Right] = down; break;
+        case SDLK_q: navigationKeys_[Down] = down; break;
+        case SDLK_e: navigationKeys_[Up] = down; break;
+        case SDLK_LSHIFT:
+        case SDLK_RSHIFT: navigationKeys_[Fast] = down; break;
+        default: break;
+        }
+    } else if ((event.type == SDL_MOUSEBUTTONDOWN ||
+                event.type == SDL_MOUSEBUTTONUP) &&
+               event.button.windowID == windowId &&
+               event.button.button == SDL_BUTTON_RIGHT) {
+        rightMouseDown_ = event.type == SDL_MOUSEBUTTONDOWN && pointerInside;
+    } else if (event.type == SDL_MOUSEMOTION &&
+               event.motion.windowID == windowId && rightMouseDown_ &&
+               pointerInside) {
+        pendingLook_ += glm::vec2(event.motion.xrel, -event.motion.yrel) * .006f;
+        pendingLook_ = glm::clamp(pendingLook_, glm::vec2(-.4f), glm::vec2(.4f));
+    } else if (event.type == SDL_MOUSEWHEEL &&
+               event.wheel.windowID == windowId && pointerInside) {
+        pendingDolly_ = glm::clamp(pendingDolly_ +
+            static_cast<float>(event.wheel.y), -8.0f, 8.0f);
+    }
+}
+
+void BattlePreview::navigationFrame(float deltaSeconds) {
+    if (navigationEnabled_)
+        navigationSeconds_ = glm::clamp(deltaSeconds, 0.0f, 0.05f);
 }
 
 void BattlePreview::cancel() {
@@ -358,8 +426,9 @@ void BattlePreview::frameCamera(int tick, float aspect) {
     }
 }
 
-void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int height) {
-    if (tick < 0 || tick > 3600 || width <= 0 || height <= 0) throw std::runtime_error("Invalid battle preview frame");
+void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int height,
+                         bool cameraProbeAllowed) {
+    if (tick < 0 || width <= 0 || height <= 0) throw std::runtime_error("Invalid battle preview frame");
     if (!scope_) {
         scopes_ = dynamic_cast<IWorldResourceScope*>(&renderer);
         require(scopes_ != nullptr, "Managed battle resources required");
@@ -370,6 +439,32 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
             "Battle renderer changed without release");
     if (sequence_.state().active)
         frameCamera(tick, static_cast<float>(width) / height);
+    if (cameraProbe_ && cameraProbeAllowed && !cameraProbeApplied_ &&
+        tick >= 5 && width * 9 == height * cameraProbeAspectNumerator_) {
+        BattleFreeCameraInput probe;
+        probe.look = {.12f, -.03f};
+        probe.dolly = .7f;
+        freeCamera_.step(cameraPose_, probe, 0.0f);
+        cameraProbeApplied_ = true;
+    }
+    BattleFreeCameraInput navigation;
+    if (navigationEnabled_) {
+        navigation.move = {static_cast<float>(navigationKeys_[Right]) -
+                               static_cast<float>(navigationKeys_[Left]),
+                           static_cast<float>(navigationKeys_[Up]) -
+                               static_cast<float>(navigationKeys_[Down]),
+                           static_cast<float>(navigationKeys_[Forward]) -
+                               static_cast<float>(navigationKeys_[Backward])};
+        navigation.look = pendingLook_;
+        navigation.dolly = pendingDolly_;
+        navigation.fast = navigationKeys_[Fast];
+    }
+    freeCamera_.step(cameraPose_, navigation, navigationSeconds_);
+    pendingLook_ = {};
+    pendingDolly_ = 0.0f;
+    navigationSeconds_ = 0.0f;
+    if (freeCamera_.active())
+        cameraPose_ = freeCamera_.pose(static_cast<float>(width) / height);
     std::string error;
     require(mixer_.setListener(cameraPose_.position, cameraPose_.right, &error), error);
     while (sequence_.state().active && sequence_.state().tick < tick) {
@@ -611,6 +706,7 @@ nlohmann::json BattlePreview::state(int tick, std::array<int, 4> viewport) const
     camera::BattleCameraPose rigPose;
     const bool cameraActive = camera_.pose(rigPose);
     return {{"tick", tick}, {"phase", phase_}, {"viewport", viewport},
+            {"camera_mode", freeCamera_.active() ? "free" : "scripted"},
             {"encounter", {{"tick", encounter.tick}, {"active", encounter.active},
                            {"camera_active", cameraActive},
                            {"cancelled", encounter.cancelled}, {"skipped", encounter.skipped},

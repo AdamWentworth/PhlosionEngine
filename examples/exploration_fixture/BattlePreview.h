@@ -2,6 +2,7 @@
 
 #include "BattleSequence.h"
 #include "BattleHudAtlas.h"
+#include "BattlePreviewFreeCamera.h"
 #include "BattleVfxPlugin.h"
 #include "engine/render/BattlePokemonPlugin.h"
 #include "engine/audio/AudioMixer.h"
@@ -10,6 +11,7 @@
 #include "engine/render/gltf/GltfSceneRenderer.h"
 
 #include <array>
+#include <SDL.h>
 #include <nlohmann/json.hpp>
 
 namespace engine::exploration_fixture {
@@ -23,12 +25,16 @@ public:
     BattlePreview(const BattlePreview&) = delete;
     BattlePreview& operator=(const BattlePreview&) = delete;
 
-    void draw(IRenderBackend& renderer, int tick, int width, int height);
+    void draw(IRenderBackend& renderer, int tick, int width, int height,
+              bool cameraProbeAllowed = true);
     void drawOverlay(IRenderBackend& renderer, int width, int height) const;
     void reset();
     void cancel();
     void skip();
     void release();
+    void setNavigationEnabled(bool enabled);
+    void navigationEvent(const SDL_Event& event, Uint32 windowId, bool pointerInside);
+    void navigationFrame(float deltaSeconds);
     bool usesAuthoredCast() const noexcept { return castEnabled_; }
     nlohmann::json imports() const;
     nlohmann::json state(int tick, std::array<int, 4> viewport) const;
@@ -65,6 +71,16 @@ private:
     render::gltf::scene::GltfScenePose fieldPose_;
     camera::BattleCameraRig camera_;
     camera::BattleCameraPose cameraPose_;
+    BattlePreviewFreeCamera freeCamera_;
+    std::array<bool, 7> navigationKeys_{};
+    glm::vec2 pendingLook_{0.0f};
+    float pendingDolly_ = 0.0f;
+    float navigationSeconds_ = 0.0f;
+    bool navigationEnabled_ = false;
+    bool rightMouseDown_ = false;
+    bool cameraProbe_ = false;
+    bool cameraProbeApplied_ = false;
+    int cameraProbeAspectNumerator_ = 0;
     BattleSequence sequence_;
     BattleHudAtlas hudAtlas_;
     BattleVfxPlugin vfxPlugin_;
