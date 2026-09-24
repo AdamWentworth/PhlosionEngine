@@ -228,15 +228,17 @@ function Start-ProjectEditor {
             $stamp = [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff')
             $logBase = Join-Path $logDirectory "$($Project.ProjectId)-$stamp"
             $script:launchLog = $logBase
-            $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$($Project.Launcher)`"")
+            $setup = Join-Path $PSScriptRoot 'Run-ProjectSetup.ps1'
+            $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                "`"$setup`"", '-Launcher', "`"$($Project.Launcher)`"",
+                '-LogBase', "`"$logBase`"")
             if ((Get-Command -Name $Project.Launcher).Parameters.ContainsKey('Detached')) {
                 $arguments += '-Detached'
             }
+            # Windows PowerShell loses ExitCode on Start-Process with redirected streams.
             $script:launchProcess = Start-Process -FilePath 'powershell.exe' `
                 -ArgumentList $arguments -WorkingDirectory (Split-Path -Parent $Project.Descriptor) `
-                -WindowStyle Hidden -PassThru `
-                -RedirectStandardOutput "$logBase.out.log" `
-                -RedirectStandardError "$logBase.err.log"
+                -WindowStyle Hidden -PassThru
             $script:launchStarted = [DateTime]::UtcNow
             $script:launchName = $Project.Name
             $timer.Start()
@@ -270,7 +272,7 @@ $timer.Add_Tick({
     $exitCode = $script:launchProcess.ExitCode
     $script:launchProcess.Dispose()
     $script:launchProcess = $null
-    if ($exitCode -eq 0) { $form.Close(); return }
+    if ($null -ne $exitCode -and $exitCode -eq 0) { $form.Close(); return }
     $errorLog = "$script:launchLog.err.log"
     $outputLog = "$script:launchLog.out.log"
     $detail = if (Test-Path -LiteralPath $errorLog) {
@@ -283,8 +285,9 @@ $timer.Add_Tick({
     $browseButton.Enabled = $true
     $list.Enabled = $true
     $status.Text = 'Could not start the editor.'
+    $exitDescription = if ($null -eq $exitCode) { 'without a readable exit code' } else { "with code $exitCode" }
     [void][System.Windows.Forms.MessageBox]::Show(
-        "Project setup exited $exitCode.`n$detail`nLogs: $script:launchLog", 'Phlosion Editor')
+        "Project setup exited $exitDescription.`n$detail`nLogs: $script:launchLog", 'Phlosion Editor')
 })
 
 $openProject = {
