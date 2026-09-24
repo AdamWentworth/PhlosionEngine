@@ -7,7 +7,8 @@ namespace {
 using namespace engine;
 class Runtime final : public editor::IEditorProjectRuntime {
 public:
-    bool open(const editor::EditorProjectOpenContext&,std::string*) override {
+    bool open(const editor::EditorProjectOpenContext&,std::string* outError) override {
+        try {
         automation_=env::get("PHLOSION_EXPLORATION_AUTOMATION").value_or("0")=="1";
         const auto caseName=env::get("PHLOSION_EXPLORATION_CASE").value_or("walk");
         battleMode_=caseName=="outskirt-battle";
@@ -18,7 +19,15 @@ public:
             session_->setTrace(env::get("PHLOSION_EXPLORATION_TRACE").value_or(""));
             presentation_=std::make_unique<exploration_fixture::ExplorationPresentation>(session_->caseName()=="outskirt");
         }
+        if(outError)outError->clear();
         return true;
+        } catch(const std::exception& exception) {
+            if(outError)*outError=exception.what();
+            battle_.reset();
+            session_.reset();
+            presentation_.reset();
+            return false;
+        }
     }
     void prewarm(IRenderBackend& renderer,const editor::EditorProjectCameraContext&) override {renderer.prewarmWorldRenderAssets();}
     void update(float) override {}

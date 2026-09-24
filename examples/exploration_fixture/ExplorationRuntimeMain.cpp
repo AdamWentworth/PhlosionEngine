@@ -95,6 +95,17 @@ int main(int argc,char** argv) {
         auto graphics=createGraphics(a); auto& renderer=*graphics.renderer;
         renderer.setVSyncEnabled(!a.hidden);
         if(a.api!=renderer.backendId())throw std::runtime_error("Unexpected renderer fallback");
+        if (a.caseName == "outskirt-battle") {
+            const auto projectRoot = engine::env::get("PHLOSION_BATTLE_POKEMON_ROOT");
+            const auto materialPath = engine::env::get("PHLOSION_BATTLE_WORLD_MATERIAL_PROFILE");
+            if (projectRoot && !materialPath)
+                throw std::runtime_error("Native battle Pokemon need the project material profile");
+            if (materialPath) {
+                if (!projectRoot) throw std::runtime_error("Battle material profile needs the project root");
+                renderer.setWorldMaterialProfile(engine::render::loadWorldMaterialProfile(
+                    *projectRoot, *materialPath));
+            }
+        }
         int width=a.width,height=a.height;renderer.onResize(width,height);renderer.prewarmWorldRenderAssets();
         {
             std::unique_ptr<engine::input::SdlInputReplay> replay;

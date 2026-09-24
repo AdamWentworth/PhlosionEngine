@@ -5,6 +5,12 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <SDL_loadso.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <Windows.h>
+#endif
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -65,6 +71,7 @@ BattlePreview::BattlePreview(bool audioOutput)
     const auto wesPath = env::get("PHLOSION_OUTSKIRT_WES_GLB");
     const auto castScene = env::get("PHLOSION_BATTLE_SCENE_JSON");
     const auto castRoot = env::get("PHLOSION_BATTLE_CAST_ROOT");
+    const auto pokemonRoot = env::get("PHLOSION_BATTLE_POKEMON_ROOT");
     require(fieldPath && !fieldPath->empty(),
             "Battle preview requires PHLOSION_OUTSKIRT_BATTLE_GLB");
     require(static_cast<bool>(castScene) == static_cast<bool>(castRoot),
@@ -91,7 +98,26 @@ BattlePreview::BattlePreview(bool audioOutput)
             auto& actor = castActors_[index];
             actor.slot = authored.at("slot").get<std::string>();
             require(actor.slot == expectedSlots[index], "Unexpected battle cast slot: " + actor.slot);
-            actor.model = authored.at("model").get<std::string>();
+            actor.model = authored.value("model", authored.value("native_object", std::string{}));
+            if (authored.contains("native_object")) {
+                actor.nativeObject = authored.at("native_object").get<std::string>();
+                actor.nativeSha256 = authored.at("native_sha256").get<std::string>();
+                actor.nativeStats = authored.at("native_stats");
+                require(actor.nativeSha256.size() == 64u,
+                        "Native battle Pokemon needs a SHA-256 identity");
+                for (const char* key : {"primitives", "vertices", "indices", "materials", "clips"})
+                    require(actor.nativeStats.at(key).get<std::uint32_t>() > 0u,
+                            std::string("Invalid native battle model stat: ") + key);
+                require(pokemonRoot && !pokemonRoot->empty(),
+                        "Native battle Pokemon need PHLOSION_BATTLE_POKEMON_ROOT");
+                const fs::path nativeRelative(actor.nativeObject);
+                require(!nativeRelative.empty() && !nativeRelative.is_absolute() &&
+                        std::find(nativeRelative.begin(), nativeRelative.end(), fs::path("..")) == nativeRelative.end(),
+                        "Native battle Pokemon path must be relative");
+                actor.nativeObject = (fs::path(*pokemonRoot) / nativeRelative).string();
+                require(fs::is_regular_file(actor.nativeObject),
+                        "Missing native battle Pokemon: " + actor.nativeObject);
+            }
             actor.displayName = authored.at("display_name").get<std::string>();
             const auto position = authored.at("position").get<std::array<float, 3>>();
             actor.position = {position[0], position[1], position[2]};
@@ -109,26 +135,86 @@ BattlePreview::BattlePreview(bool audioOutput)
                     actor.scale > 0.0f && actor.scale < 4.0f &&
                     actor.focusHeight > 0.0f && actor.focusHeight < 4.0f,
                     "Invalid battle cast placement");
-            const fs::path relative(actor.model);
-            require(!relative.empty() && !relative.is_absolute() &&
-                    std::find(relative.begin(), relative.end(), fs::path("..")) == relative.end(),
-                    "Battle cast model must be relative to the private cast root");
-            const auto path = (fs::path(*castRoot) / relative).string();
-            require(loadGltfSceneAsset(path, castModels_[index], &error), error);
-            auto findClip = [&](const std::string& name) {
-                const auto& animations = castModels_[index]->animations;
-                const auto found = std::find_if(animations.begin(), animations.end(),
-                    [&](const auto& clip) { return clip.name == name && clip.durationSec > 0.0f; });
-                require(found != animations.end(), "Missing battle cast clip " + name);
-                return static_cast<int>(found - animations.begin());
-            };
-            castIdleClips_[index] = findClip(actor.idleAnimation);
-            if (!actor.gestureAnimation.empty()) {
-                require(index == 4u, "Only the ally trainer can drive the preview gesture");
-                castGestureClip_ = findClip(actor.gestureAnimation);
+            if (actor.nativeObject.empty()) {
+                const fs::path relative(actor.model);
+                require(!relative.empty() && !relative.is_absolute() &&
+                        std::find(relative.begin(), relative.end(), fs::path("..")) == relative.end(),
+                        "Battle cast model must be relative to the private cast root");
+                const auto path = (fs::path(*castRoot) / relative).string();
+                require(loadGltfSceneAsset(path, castModels_[index], &error), error);
+                auto findClip = [&](const std::string& name) {
+                    const auto& animations = castModels_[index]->animations;
+                    const auto found = std::find_if(animations.begin(), animations.end(),
+                        [&](const auto& clip) { return clip.name == name && clip.durationSec > 0.0f; });
+                    require(found != animations.end(), "Missing battle cast clip " + name);
+                    return static_cast<int>(found - animations.begin());
+                };
+                castIdleClips_[index] = findClip(actor.idleAnimation);
+                if (!actor.gestureAnimation.empty()) {
+                    require(index == 4u, "Only the ally trainer can drive the preview gesture");
+                    castGestureClip_ = findClip(actor.gestureAnimation);
+                }
             }
         }
         require(castGestureClip_ >= 0, "Battle cast needs Wes's gesture animation");
+        if (std::any_of(castActors_.begin(), castActors_.end(),
+                        [](const CastActor& actor) { return !actor.nativeObject.empty(); })) {
+            const auto pluginPath = env::get("PHLOSION_BATTLE_POKEMON_PLUGIN");
+            require(pluginPath && !pluginPath->empty(),
+                    "Native battle Pokemon need PHLOSION_BATTLE_POKEMON_PLUGIN");
+#ifdef _WIN32
+            // LoadLibraryEx searches next to the staged plugin for its native
+            // dependencies; SDL_LoadObject uses the process search path.
+            battlePokemonLibrary_ = LoadLibraryExW(
+                fs::path(*pluginPath).wstring().c_str(), nullptr,
+                LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+            const auto loadError = GetLastError();
+#else
+            battlePokemonLibrary_ = SDL_LoadObject(pluginPath->c_str());
+#endif
+            if (!battlePokemonLibrary_) {
+#ifdef _WIN32
+                throw std::runtime_error("Battle Pokemon plugin load failed (Windows " +
+                    std::to_string(loadError) + "): " + *pluginPath);
+#else
+                throw std::runtime_error("Battle Pokemon plugin load failed: " +
+                    *pluginPath + ": " + SDL_GetError());
+#endif
+            }
+#ifdef _WIN32
+            const auto symbol = GetProcAddress(
+                static_cast<HMODULE>(battlePokemonLibrary_),
+                "phlosionBattlePokemonPluginCreate");
+#else
+            const auto symbol = SDL_LoadFunction(battlePokemonLibrary_,
+                "phlosionBattlePokemonPluginCreate");
+#endif
+            if (!symbol) {
+#ifdef _WIN32
+                FreeLibrary(static_cast<HMODULE>(battlePokemonLibrary_));
+#else
+                SDL_UnloadObject(battlePokemonLibrary_);
+#endif
+                battlePokemonLibrary_ = nullptr;
+                throw std::runtime_error("Battle Pokemon plugin entry point missing");
+            }
+            const auto create = reinterpret_cast<render::CreateBattlePokemonPlugin>(symbol);
+            const bool created = create(render::battlePokemonPluginAbi, &battlePokemonApi_);
+            if (!created || battlePokemonApi_.abi != render::battlePokemonPluginAbi ||
+                battlePokemonApi_.size != sizeof(render::BattlePokemonPluginApi) ||
+                !battlePokemonApi_.context || !battlePokemonApi_.render ||
+                !battlePokemonApi_.lastError || !battlePokemonApi_.destroy) {
+                if (battlePokemonApi_.context && battlePokemonApi_.destroy)
+                    battlePokemonApi_.destroy(battlePokemonApi_.context);
+#ifdef _WIN32
+                FreeLibrary(static_cast<HMODULE>(battlePokemonLibrary_));
+#else
+                SDL_UnloadObject(battlePokemonLibrary_);
+#endif
+                battlePokemonLibrary_ = nullptr;
+                throw std::runtime_error("Battle Pokemon plugin ABI mismatch");
+            }
+        }
         castEnabled_ = true;
     } else {
         require(wesPath && !wesPath->empty(),
@@ -160,7 +246,19 @@ BattlePreview::BattlePreview(bool audioOutput)
     }
 }
 
-BattlePreview::~BattlePreview() { cancel(); release(); }
+BattlePreview::~BattlePreview() {
+    cancel();
+    release();
+    if (battlePokemonLibrary_) {
+        if (battlePokemonApi_.context && battlePokemonApi_.destroy)
+            battlePokemonApi_.destroy(battlePokemonApi_.context);
+#ifdef _WIN32
+        FreeLibrary(static_cast<HMODULE>(battlePokemonLibrary_));
+#else
+        SDL_UnloadObject(battlePokemonLibrary_);
+#endif
+    }
+}
 
 void BattlePreview::release() {
     if (scopes_ && scope_) {
@@ -310,9 +408,10 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
                                                options, stats, &error);
     require(drewField, error);
     if (castEnabled_) {
-        // Each draw needs its own live palette until the backend submits the frame.
-        std::array<GltfScenePose, 6> actorPoses;
+        // Backends may read skin palettes after this call returns.
+        auto& actorPoses = castPoses_;
         for (std::size_t index = 0; index < castActors_.size(); ++index) {
+            if (!castActors_[index].nativeObject.empty()) continue;
             const auto& model = castModels_[index];
             const int idleClip = castIdleClips_[index];
             const float sampleTime = std::fmod(tick * battleFixedDelta + index * .17f,
@@ -343,6 +442,7 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
             require(sampled, error);
         }
         for (std::size_t index = 0; index < castActors_.size(); ++index) {
+            if (!castActors_[index].nativeObject.empty()) continue;
             const auto& actor = castActors_[index];
             const glm::mat4 placement = glm::translate(glm::mat4(1.0f), actor.position) *
                 glm::rotate(glm::mat4(1.0f), actor.yawRadians,
@@ -353,10 +453,33 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
             require(drawGltfSceneAsset(renderer, *castModels_[index], actorPoses[index],
                                        options, stats, &error), error);
         }
+        for (std::size_t index = 0; index < castActors_.size(); ++index) {
+            const auto& actor = castActors_[index];
+            if (actor.nativeObject.empty()) continue;
+            render::BattlePokemonFrame frame;
+            frame.renderer = &renderer;
+            frame.assetId = actor.slot.c_str();
+            frame.phloPath = actor.nativeObject.c_str();
+            frame.animation = actor.idleAnimation.c_str();
+            frame.animationTime = tick * battleFixedDelta + index * .17f;
+            std::copy_n(glm::value_ptr(actor.position), 3, frame.position);
+            frame.yawRadians = actor.yawRadians;
+            frame.scale = actor.scale;
+            std::copy_n(glm::value_ptr(cameraPose_.position), 3, frame.cameraPosition);
+            std::copy_n(glm::value_ptr(cameraPose_.lookTarget), 3, frame.cameraTarget);
+            std::copy_n(glm::value_ptr(cameraPose_.up), 3, frame.cameraUp);
+            frame.verticalFovDegrees = cameraPose_.verticalFovDegrees;
+            frame.nearPlane = cameraPose_.nearPlane;
+            frame.farPlane = cameraPose_.farPlane;
+            frame.width = width;
+            frame.height = height;
+            if (!battlePokemonApi_.render(battlePokemonApi_.context, &frame))
+                throw std::runtime_error(std::string("Native battle Pokemon render failed: ") +
+                    battlePokemonApi_.lastError(battlePokemonApi_.context));
+        }
     } else {
         const float duration = wes_->animations[1].durationSec;
-        // Keep each skin palette alive at a distinct address until all actor draws finish.
-        std::array<GltfScenePose, 4> actorPoses;
+        auto& actorPoses = standInPoses_;
         for (std::size_t index = 0; index < slots.size(); ++index) {
             const float sampleTime = std::fmod(tick * battleFixedDelta + index * .17f,
                                                duration);
@@ -453,7 +576,15 @@ nlohmann::json BattlePreview::imports() const {
     };
     append(field_);
     if (castEnabled_) {
-        for (const auto& asset : castModels_) append(asset);
+        for (std::size_t index = 0; index < castModels_.size(); ++index) {
+            if (castModels_[index]) append(castModels_[index]);
+            else {
+                auto entry = castActors_[index].nativeStats;
+                entry["identity"] = "phlo:" + castActors_[index].nativeSha256;
+                entry["format"] = "native-phlo";
+                result.push_back(std::move(entry));
+            }
+        }
     } else {
         append(wes_);
     }
@@ -466,6 +597,8 @@ nlohmann::json BattlePreview::state(int tick, std::array<int, 4> viewport) const
         for (const auto& actor : castActors_)
             actors.push_back({{"slot", actor.slot}, {"display_name", actor.displayName},
                               {"model", actor.model}, {"position", vec(actor.position)},
+                              {"presentation", actor.nativeObject.empty()
+                                  ? "gltf" : "native-phlo"},
                               {"yaw_radians", actor.yawRadians},
                               {"scale", actor.scale}, {"model_offset", vec(actor.modelOffset)},
                               {"focus_height", actor.focusHeight}});

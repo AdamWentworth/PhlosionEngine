@@ -3,6 +3,7 @@
 #include "BattleSequence.h"
 #include "BattleHudAtlas.h"
 #include "BattleVfxPlugin.h"
+#include "engine/render/BattlePokemonPlugin.h"
 #include "engine/audio/AudioMixer.h"
 #include "engine/audio/SdlAudioOutput.h"
 #include "engine/camera/BattleCamera.h"
@@ -36,6 +37,9 @@ private:
     struct CastActor {
         std::string slot;
         std::string model;
+        std::string nativeObject;
+        std::string nativeSha256;
+        nlohmann::json nativeStats;
         std::string displayName;
         glm::vec3 position{0.0f};
         glm::vec3 modelOffset{0.0f};
@@ -51,7 +55,11 @@ private:
     std::shared_ptr<const render::gltf::scene::GltfSceneAsset> field_, wes_;
     std::array<CastActor, 6> castActors_{};
     std::array<std::shared_ptr<const render::gltf::scene::GltfSceneAsset>, 6> castModels_{};
+    std::array<render::gltf::scene::GltfScenePose, 6> castPoses_{};
+    std::array<render::gltf::scene::GltfScenePose, 4> standInPoses_{};
     std::array<int, 6> castIdleClips_{};
+    void* battlePokemonLibrary_ = nullptr;
+    render::BattlePokemonPluginApi battlePokemonApi_{};
     int castGestureClip_ = -1;
     bool castEnabled_ = false;
     render::gltf::scene::GltfScenePose fieldPose_;
