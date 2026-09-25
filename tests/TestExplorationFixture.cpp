@@ -29,7 +29,7 @@ void battleHudHitboxes() {
         {{"label","FIGHT"}},{{"label","POKEMON"}},{{"label","ITEM"}},{{"label","CALL"}}
     })}};
     for(const auto [width,height]:{std::pair{832,468},std::pair{840,360}}) {
-        const float s=std::min(height/338.0f,width/600.0f);
+        const float s=std::min({1.0f,height/400.0f,width/640.0f});
         const float left=38*s, top=height-121*s;
         for(int index=0;index<4;++index) {
             const int x=static_cast<int>(left+(index/2 ? 180 : 49)*s);

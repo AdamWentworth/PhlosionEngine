@@ -107,8 +107,8 @@ struct Rect { float x, y, w, h; };
 struct Layout {
     float s, width, height;
     explicit Layout(int w, int h)
-        : s(std::min(static_cast<float>(h) / 338.0f,
-                     static_cast<float>(w) / 600.0f)),
+        : s(std::min({1.0f, static_cast<float>(h) / 400.0f,
+                     static_cast<float>(w) / 640.0f})),
           width(static_cast<float>(w)), height(static_cast<float>(h)) {}
     Rect status(int index) const {
         const float x = (index == 0 || index == 2 ? 38.0f : 15.0f) * s;
