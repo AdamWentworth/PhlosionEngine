@@ -29,7 +29,7 @@ void battleHudHitboxes() {
         {{"label","FIGHT"}},{{"label","POKEMON"}},{{"label","ITEM"}},{{"label","CALL"}}
     })}};
     for(const auto [width,height]:{std::pair{832,468},std::pair{840,360}}) {
-        const float s=std::min({1.0f,height/400.0f,width/640.0f});
+        const float s=std::min(height/338.0f,width/600.0f);
         const float left=38*s, top=height-121*s;
         for(int index=0;index<4;++index) {
             const int x=static_cast<int>(left+(index/2 ? 180 : 49)*s);
@@ -46,22 +46,22 @@ void battleHudHitboxes() {
             {{"label","Zigzagoon 52/52"}},{{"label","Poochyena 55/55"}}
         });
         CHECK(exploration_fixture::battleRulesOptionAt(state,
-              static_cast<int>(width-38*s-150*s-57*s+27*s),
-              static_cast<int>(53*s-2*s+28*s),width,height)==0);
+              static_cast<int>(width-38*s-150*s-56*s+28*s),
+              static_cast<int>(53*s-4*s+28*s),width,height)==0);
         CHECK(exploration_fixture::battleRulesOptionAt(state,
-              static_cast<int>(width-15*s-150*s-57*s+27*s),
-              static_cast<int>(115*s-2*s+28*s),width,height)==1);
+              static_cast<int>(width-15*s-150*s-56*s+28*s),
+              static_cast<int>(121*s-4*s+28*s),width,height)==1);
         CHECK(exploration_fixture::battleRulesOptionAt(state,static_cast<int>(left+49*s),
               static_cast<int>(top+48*s),width,height)==-1);
         state["options"]=nlohmann::json::array({
             {{"label","Umbreon 83/83"}},{{"label","Espeon 85/85"}}
         });
         CHECK(exploration_fixture::battleRulesOptionAt(state,
-              static_cast<int>((38+150+4+27)*s),
-              static_cast<int>(53*s-2*s+28*s),width,height)==0);
+              static_cast<int>((38+150+28)*s),
+              static_cast<int>(53*s-4*s+28*s),width,height)==0);
         CHECK(exploration_fixture::battleRulesOptionAt(state,
-              static_cast<int>((15+150+4+27)*s),
-              static_cast<int>(115*s-2*s+28*s),width,height)==1);
+              static_cast<int>((15+150+28)*s),
+              static_cast<int>(121*s-4*s+28*s),width,height)==1);
         state["screen"]="command";
         state["options"]=nlohmann::json::array({
             {{"label","FIGHT"}},{{"label","POKEMON"}},{{"label","ITEM"}},{{"label","CALL"}}

@@ -107,18 +107,18 @@ struct Rect { float x, y, w, h; };
 struct Layout {
     float s, width, height;
     explicit Layout(int w, int h)
-        : s(std::min({1.0f, static_cast<float>(h) / 400.0f,
-                     static_cast<float>(w) / 640.0f})),
+        : s(std::min(static_cast<float>(h) / 338.0f,
+                     static_cast<float>(w) / 600.0f)),
           width(static_cast<float>(w)), height(static_cast<float>(h)) {}
     Rect status(int index) const {
         const float x = (index == 0 || index == 2 ? 38.0f : 15.0f) * s;
-        const float y = (index == 0 || index == 2 ? 53.0f : 115.0f) * s;
+        const float y = (index == 0 || index == 2 ? 53.0f : 121.0f) * s;
         return {index < 2 ? x : width - x - 150.0f*s, y, 150.0f*s, 52.0f*s};
     }
     Rect portrait(int index) const {
         const auto bar = status(index);
-        return {index < 2 ? bar.x + bar.w + 4.0f*s : bar.x - 57.0f*s,
-                bar.y - 2.0f*s, 54.0f*s, 56.0f*s};
+        return {index < 2 ? bar.x + bar.w : bar.x - 56.0f*s,
+                bar.y - 4.0f*s, 56.0f*s, 56.0f*s};
     }
     Rect title() const { return {38.0f*s, height - 155.0f*s, 236.0f*s, 36.0f*s}; }
     Rect menu() const { return {38.0f*s, height - 121.0f*s, 280.0f*s, 82.0f*s}; }
@@ -175,7 +175,8 @@ struct FontAtlas {
 
 void textLabel(std::vector<Quad>& quads, const FontAtlas& font,
                const std::string& value,
-               float x, float y, Color color, float scale, int maxChars) {
+               float x, float y, Color color, float scale, int maxChars,
+               float heightScale = 1.0f, bool bold = false) {
     if (font.path.empty()) {
         fallbackTextLabel(quads, value, x, y, color, scale, maxChars);
         return;
@@ -188,7 +189,8 @@ void textLabel(std::vector<Quad>& quads, const FontAtlas& font,
         const int index = c - 32;
         if (c != ' ') {
             const int glyphWidth = std::max(1, static_cast<int>(std::round(24.0f * glyphScale)));
-            const int glyphHeight = glyphWidth;
+            const int glyphHeight = std::max(1, static_cast<int>(std::round(
+                24.0f * glyphScale * heightScale)));
             const int atlasX = (index % 21) * 24;
             const int atlasY = (index / 21) * 24;
             const auto drawGlyph = [&](Color tint, float offset) {
@@ -211,6 +213,7 @@ void textLabel(std::vector<Quad>& quads, const FontAtlas& font,
                 }
             };
             drawGlyph(shadow, 1.0f);
+            if (bold) drawGlyph(color, 1.0f);
             drawGlyph(color, 0.0f);
         }
         x += (font.advances[index] + 1.0f) * glyphScale;
@@ -414,10 +417,11 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
         const bool active = i == highlighted && screen != "resolving" && screen != "target";
         const auto path = (std::filesystem::path(portraitRoot) /
                            party[i].at("portrait").get<std::string>()).string();
+        const float faceSize = 42.0f*s;
         sprites.push_back(faceSprite(path,
-            {portrait.x + (portrait.w - 42.0f)*.5f,
-             portrait.y + (portrait.h - 42.0f)*.5f,
-             42.0f, 42.0f}, i < 2));
+            {portrait.x + (portrait.w - faceSize)*.5f,
+             portrait.y + (portrait.h - faceSize)*.5f,
+             faceSize, faceSize}, i < 2));
         if (!portraitFrameAtlasPath.empty())
             sprites.push_back(portraitFrameSprite(portraitFrameAtlasPath, portrait));
         else portraitFrame(underlay, portrait, active, s);
@@ -443,46 +447,51 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
     for (int i = 0; i < 4; ++i) {
         const auto bar = layout.status(i);
         const auto& p = party[i];
+        box(quads, bar.x + 4*s, bar.y + 22*s, 142*s, 12*s,
+            {.01f,.025f,.035f,1});
         const auto name = upperAscii(p.at("name").get<std::string>());
-        const auto nameScale = fittedTextScale(font, name, 1.85f*s, 86.0f*s);
-        textLabel(quads, font, name, bar.x + 9*s, bar.y + 6*s,
-                  ink, nameScale, static_cast<int>(name.size()));
+        const auto nameScale = fittedTextScale(font, name, 1.55f*s, 86.0f*s);
+        textLabel(quads, font, name, bar.x + 9*s, bar.y + 3*s,
+                  ink, nameScale, static_cast<int>(name.size()), 1.55f);
         genderSymbol(quads, p.at("gender").get<std::string>(),
-                     bar.x + 10*s + textWidth(font, name, nameScale), bar.y + 7*s, s);
-        textLabel(quads, font, "LV", bar.x + 110*s, bar.y + 7*s,
-                  {.94f,.82f,.37f,1}, 1.75f*s, 2);
+                     bar.x + 9*s + textWidth(font, name, nameScale), bar.y + 7*s, s);
+        textLabel(quads, font, "Lv", bar.x + 102*s, bar.y + 4*s,
+                  {.94f,.82f,.37f,1}, 1.6f*s, 2, 1.45f);
         const auto level = std::to_string(p.at("level").get<int>());
-        const float levelScale = 1.65f*s;
+        const float levelScale = 1.55f*s;
         textLabel(quads, font, level,
                   bar.x + 143*s - textWidth(font, level, levelScale), bar.y + 7*s,
-                  ink, levelScale, 3);
+                  ink, levelScale, 3, 1.4f, true);
         const int hp = p.at("hp").get<int>();
         const int maxHp = p.at("max_hp").get<int>();
-        textLabel(quads, font, "HP", bar.x + 7*s, bar.y + 21*s,
-                  {.82f,.35f,.27f,1}, 1.6f*s, 2);
-        box(quads, bar.x + 28*s, bar.y + 24*s, 116*s, 8*s,
+        textLabel(quads, font, "HP", bar.x + 7*s, bar.y + 16*s,
+                  {.82f,.35f,.27f,1}, 1.5f*s, 2, 1.3f, true);
+        box(quads, bar.x + 27*s, bar.y + 22*s, 118*s, 11*s,
             {.01f,.02f,.03f,1});
-        box(quads, bar.x + 30*s, bar.y + 26*s, 112*s, 4*s,
+        box(quads, bar.x + 29*s, bar.y + 24*s, 114*s, 7*s,
             {.34f,.42f,.42f,1});
-        if (hp > 0) box(quads, bar.x + 30*s, bar.y + 26*s,
-                        112.0f*s*hp/maxHp, 4*s,
+        if (hp > 0) box(quads, bar.x + 29*s, bar.y + 24*s,
+                        114.0f*s*hp/maxHp, 7*s,
                         hp * 4 <= maxHp ? Color{.93f,.30f,.30f,1} :
                         hp * 2 <= maxHp ? Color{.98f,.75f,.19f,1} :
-                                            Color{.22f,.79f,.48f,1});
+                                            Color{.02f,.78f,.20f,1});
         if (i < 2) {
-            textLabel(quads, font, std::to_string(hp) + " / " + std::to_string(maxHp),
-                      bar.x + 42*s, bar.y + 34*s, ink, 1.8f*s, 10);
-            textLabel(quads, font, "EXP", bar.x + 3*s, bar.y + 49*s,
-                      {.96f,.73f,.26f,1}, 1.3f*s, 3);
-            box(quads, bar.x + 29*s, bar.y + 52*s, 116*s, 7*s,
-                {.53f,.61f,.62f,1});
-            box(quads, bar.x + 31*s, bar.y + 54*s, 112*s, 3*s,
-                {.015f,.025f,.035f,1});
+            const auto hpCount = std::to_string(hp) + " / " + std::to_string(maxHp);
+            const float hpScale = fittedTextScale(font, hpCount, 2.45f*s, 106*s);
+            textLabel(quads, font, hpCount,
+                      bar.x + 40*s, bar.y + 29*s,
+                      ink, hpScale, 10, .9f, true);
+            box(quads, bar.x + 27*s, bar.y + 50*s, 119*s, 7*s,
+                {.51f,.58f,.59f,1});
+            box(quads, bar.x + 29*s, bar.y + 51*s, 115*s, 5*s,
+                {.01f,.02f,.025f,1});
             const int expPercent = p.value("exp_percent", 0);
             if (expPercent > 0)
-                box(quads, bar.x + 32*s, bar.y + 54*s,
-                    110.0f*s*expPercent/100, 3*s,
-                    {.25f,.40f,.94f,1});
+                box(quads, bar.x + 30*s, bar.y + 52*s,
+                    113.0f*s*expPercent/100, 3*s,
+                    {.16f,.28f,1.0f,1});
+            textLabel(quads, font, "EXP", bar.x + 3*s, bar.y + 45*s,
+                      {.96f,.77f,.28f,1}, 1.3f*s, 3, 1.1f, true);
         }
     }
     if (screen != "resolving" && screen != "target" &&
