@@ -30,10 +30,10 @@ void battleHudHitboxes() {
     })}};
     for(const auto [width,height]:{std::pair{832,468},std::pair{840,360}}) {
         const float s=std::min({1.0f,height/400.0f,width/640.0f});
-        const float left=38*s, top=height-118*s;
+        const float left=38*s, top=height-121*s;
         for(int index=0;index<4;++index) {
-            const int x=static_cast<int>(left+(index/2 ? 190 : 49)*s);
-            const int y=static_cast<int>(top+(index%2 ? 62 : 23)*s);
+            const int x=static_cast<int>(left+(index/2 ? 180 : 49)*s);
+            const int y=static_cast<int>(top+(index%2 ? 59 : 27)*s);
             CHECK(exploration_fixture::battleRulesOptionAt(state,x,y,width,height)==index);
         }
         CHECK(exploration_fixture::battleRulesOptionAt(state,width/2,20,width,height)==-1);
@@ -46,22 +46,22 @@ void battleHudHitboxes() {
             {{"label","Zigzagoon 52/52"}},{{"label","Poochyena 55/55"}}
         });
         CHECK(exploration_fixture::battleRulesOptionAt(state,
-              static_cast<int>(width-38*s-174*s-62*s+29*s),
-              static_cast<int>(45*s-2*s+31*s),width,height)==0);
+              static_cast<int>(width-38*s-150*s-57*s+27*s),
+              static_cast<int>(53*s-2*s+28*s),width,height)==0);
         CHECK(exploration_fixture::battleRulesOptionAt(state,
-              static_cast<int>(width-15*s-174*s-62*s+29*s),
-              static_cast<int>(116*s-2*s+31*s),width,height)==1);
+              static_cast<int>(width-15*s-150*s-57*s+27*s),
+              static_cast<int>(115*s-2*s+28*s),width,height)==1);
         CHECK(exploration_fixture::battleRulesOptionAt(state,static_cast<int>(left+49*s),
               static_cast<int>(top+48*s),width,height)==-1);
         state["options"]=nlohmann::json::array({
             {{"label","Umbreon 83/83"}},{{"label","Espeon 85/85"}}
         });
         CHECK(exploration_fixture::battleRulesOptionAt(state,
-              static_cast<int>((38+174+4+29)*s),
-              static_cast<int>(45*s-2*s+31*s),width,height)==0);
+              static_cast<int>((38+150+4+27)*s),
+              static_cast<int>(53*s-2*s+28*s),width,height)==0);
         CHECK(exploration_fixture::battleRulesOptionAt(state,
-              static_cast<int>((15+174+4+29)*s),
-              static_cast<int>(116*s-2*s+31*s),width,height)==1);
+              static_cast<int>((15+150+4+27)*s),
+              static_cast<int>(115*s-2*s+28*s),width,height)==1);
         state["screen"]="command";
         state["options"]=nlohmann::json::array({
             {{"label","FIGHT"}},{{"label","POKEMON"}},{{"label","ITEM"}},{{"label","CALL"}}
