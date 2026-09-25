@@ -60,15 +60,9 @@ void D3D12RenderBackend::createSpritePipeline() {
         "Texture2D gTex : register(t0);"
         "SamplerState gSamp : register(s0);"
         "struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD; float4 col : COLOR; };"
-        "float3 linearToSrgb(float3 c) {"
-        "  c = max(c, float3(0.0f, 0.0f, 0.0f));"
-        "  float3 lo = c * 12.92f;"
-        "  float3 hi = 1.055f * pow(c, 1.0f / 2.4f) - 0.055f;"
-        "  return lerp(lo, hi, step(float3(0.0031308f, 0.0031308f, 0.0031308f), c));"
-        "}"
         "float4 main(PSIn i) : SV_TARGET {"
         "  float4 tex = gTex.Sample(gSamp, i.uv);"
-        "  float3 rgb = linearToSrgb(tex.rgb * saturate(i.col.rgb));"
+        "  float3 rgb = tex.rgb * saturate(i.col.rgb);"
         "  float a = saturate(tex.a * i.col.a);"
         "  return float4(rgb, a);"
         "}";
@@ -120,12 +114,13 @@ void D3D12RenderBackend::createSpritePipeline() {
     rootParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     D3D12_STATIC_SAMPLER_DESC sampler{};
-    sampler.Filter = D3D12_FILTER_ANISOTROPIC;
+    // Debug sprites use the same bilinear, single-level sampling as OpenGL.
+    sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
     sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    sampler.MipLODBias = -0.35f;
-    sampler.MaxAnisotropy = 16;
+    sampler.MipLODBias = 0.0f;
+    sampler.MaxAnisotropy = 1;
     sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
     sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
     sampler.MinLOD = 0.0f;

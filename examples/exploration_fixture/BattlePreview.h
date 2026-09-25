@@ -96,6 +96,7 @@ private:
     std::string portraitRoot_;
     std::string battleFontAtlas_;
     std::string portraitFrameAtlas_;
+    std::string statusDetailAtlas_;
     BattleVfxPlugin vfxPlugin_;
     void* rulesLibrary_ = nullptr;
     BattleRulesPluginApi rulesApi_{};

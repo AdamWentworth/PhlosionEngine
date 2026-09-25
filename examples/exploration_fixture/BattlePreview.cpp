@@ -275,6 +275,9 @@ BattlePreview::BattlePreview(bool audioOutput)
         portraitFrameAtlas_ = env::get("PHLOSION_BATTLE_PORTRAIT_FRAME_PNG").value_or("");
         require(!portraitFrameAtlas_.empty() && fs::is_regular_file(portraitFrameAtlas_),
                 "Battle rules need PHLOSION_BATTLE_PORTRAIT_FRAME_PNG");
+        statusDetailAtlas_ = env::get("PHLOSION_BATTLE_STATUS_DETAILS_PNG").value_or("");
+        require(!statusDetailAtlas_.empty() && fs::is_regular_file(statusDetailAtlas_),
+                "Battle rules need PHLOSION_BATTLE_STATUS_DETAILS_PNG");
         const auto initialRules = rulesState();
         for (const auto& member : initialRules.at("party")) {
             const auto path = fs::path(portraitRoot_) /
@@ -725,8 +728,8 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
 void BattlePreview::drawOverlay(IRenderBackend& renderer, int width, int height) const {
     if (usesRules()) {
         drawBattleRulesOverlay(renderer, rulesState(), width, height,
-                               hudAtlas_.path(), portraitRoot_, battleFontAtlas_,
-                               portraitFrameAtlas_);
+                               portraitRoot_, battleFontAtlas_,
+                               portraitFrameAtlas_, statusDetailAtlas_);
         return;
     }
     if (!sequence_.state().hudVisible) return;

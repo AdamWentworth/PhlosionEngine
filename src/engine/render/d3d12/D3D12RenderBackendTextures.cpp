@@ -248,8 +248,8 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureFallbackSpriteTextu
                                                               2,
                                                               kGlClampToEdge,
                                                               kGlClampToEdge,
-                                                              true,
-                                                              true,
+                                                              false,
+                                                              false,
                                                               texture.resource)) {
         return nullptr;
     }
@@ -312,7 +312,7 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureSpriteTexture(const
                                                                           kGlClampToEdge,
                                                                           kGlClampToEdge,
                                                                           false,
-                                                                          true,
+                                                                          false,
                                                                           texture.resource);
     if (!ok) {
         SpriteTexture failed;
@@ -451,7 +451,7 @@ void D3D12RenderBackend::prewarmDebugSpriteTextures(const char* const* texturePa
         request.wrapS = kGlClampToEdge;
         request.wrapT = kGlClampToEdge;
         request.generateMipChain = false;
-        request.srgbColorData = true;
+        request.srgbColorData = false;
         request.descriptorIndex = upload.descriptorIndex;
         request.outTexture = &upload.resource;
         requests.push_back(request);

@@ -105,20 +105,31 @@ void label(std::vector<Quad>& quads, std::string value, float x, float y,
 struct Rect { float x, y, w, h; };
 
 struct Layout {
-    float s, width, height;
+    float s, statusScale, width, height;
     explicit Layout(int w, int h)
         : s(std::min({1.0f, static_cast<float>(h) / 400.0f,
                      static_cast<float>(w) / 640.0f})),
+          statusScale(std::min({1.0f, static_cast<float>(h) / 480.0f,
+                                static_cast<float>(w) / 640.0f})),
           width(static_cast<float>(w)), height(static_cast<float>(h)) {}
+    Rect statusOrigin(int index) const {
+        const float x = (index == 0 ? 37.0f : index == 1 ? 13.0f :
+                         index == 2 ? 378.0f : 402.0f);
+        const float y = (index == 0 || index == 2 ? 48.0f : 114.0f);
+        return {index < 2 ? x*statusScale : width - (640.0f-x)*statusScale,
+                y*statusScale, 0, 0};
+    }
     Rect status(int index) const {
-        const float x = (index == 0 || index == 2 ? 38.0f : 15.0f) * s;
-        const float y = (index == 0 || index == 2 ? 53.0f : 121.0f) * s;
-        return {index < 2 ? x : width - x - 150.0f*s, y, 150.0f*s, 52.0f*s};
+        const auto origin = statusOrigin(index);
+        return {origin.x + (index < 2 ? 3.0f : 60.0f)*statusScale,
+                origin.y + 6.0f*statusScale,
+                162.0f*statusScale, 50.0f*statusScale};
     }
     Rect portrait(int index) const {
-        const auto bar = status(index);
-        return {index < 2 ? bar.x + bar.w : bar.x - 56.0f*s,
-                bar.y - 4.0f*s, 56.0f*s, 56.0f*s};
+        const auto origin = statusOrigin(index);
+        return {origin.x + (index < 2 ? 165.0f : 2.0f)*statusScale,
+                origin.y + 2.0f*statusScale,
+                58.0f*statusScale, 58.0f*statusScale};
     }
     Rect title() const { return {38.0f*s, height - 155.0f*s, 236.0f*s, 36.0f*s}; }
     Rect menu() const { return {38.0f*s, height - 121.0f*s, 280.0f*s, 82.0f*s}; }
@@ -235,28 +246,6 @@ float fittedTextScale(const FontAtlas& font, const std::string& value,
     return width > availableWidth ? preferred * availableWidth / width : preferred;
 }
 
-void genderSymbol(std::vector<Quad>& quads, const std::string& gender,
-                  float x, float y, float s) {
-    const Color color = gender == "female" ? Color{.91f,.18f,.35f,1} :
-                                              Color{.17f,.57f,.96f,1};
-    constexpr std::array<int, 7> widths{3,5,7,7,7,5,3};
-    for (int row = 0; row < 7; ++row) {
-        const int inset = (7 - widths[row]) / 2;
-        box(quads, x + inset*s, y + (row + 2)*s, s, s, color);
-        box(quads, x + (6 - inset)*s, y + (row + 2)*s, s, s, color);
-    }
-    box(quads, x + 2*s, y + 2*s, 3*s, s, color);
-    box(quads, x + 2*s, y + 8*s, 3*s, s, color);
-    if (gender == "female") {
-        box(quads, x + 3*s, y + 9*s, s, 4*s, color);
-        box(quads, x + s, y + 11*s, 5*s, s, color);
-    } else {
-        box(quads, x + 6*s, y, 4*s, s, color);
-        box(quads, x + 9*s, y, s, 4*s, color);
-        box(quads, x + 6*s, y + 2*s, 2*s, s, color);
-    }
-}
-
 void softMessagePanel(std::vector<Quad>& quads, Rect rect, float scale) {
     const int height = static_cast<int>(std::round(rect.h));
     const float fade = 9.0f * scale;
@@ -280,13 +269,16 @@ void softMessagePanel(std::vector<Quad>& quads, Rect rect, float scale) {
     }
 }
 
-IRenderBackend::DebugSprite atlasSprite(const std::string& path, Rect rect) {
+IRenderBackend::DebugSprite croppedSprite(const std::string& path, Rect rect,
+                                          Rect crop, float atlasWidth,
+                                          float atlasHeight) {
     IRenderBackend::DebugSprite sprite;
     sprite.x = std::round(rect.x); sprite.y = std::round(rect.y);
     sprite.w = std::round(rect.x + rect.w) - sprite.x;
     sprite.h = std::round(rect.y + rect.h) - sprite.y;
-    sprite.u0 = 111.0f / 520.0f; sprite.v0 = 31.0f / 190.0f;
-    sprite.u1 = 262.0f / 520.0f; sprite.v1 = 89.0f / 190.0f;
+    sprite.u0 = crop.x / atlasWidth; sprite.v0 = crop.y / atlasHeight;
+    sprite.u1 = (crop.x + crop.w) / atlasWidth;
+    sprite.v1 = (crop.y + crop.h) / atlasHeight;
     sprite.texturePath = path;
     return sprite;
 }
@@ -306,14 +298,7 @@ IRenderBackend::DebugSprite faceSprite(const std::string& path, Rect rect,
 }
 
 IRenderBackend::DebugSprite portraitFrameSprite(const std::string& path, Rect rect) {
-    IRenderBackend::DebugSprite sprite;
-    sprite.x = std::round(rect.x); sprite.y = std::round(rect.y);
-    sprite.w = std::round(rect.x + rect.w) - sprite.x;
-    sprite.h = std::round(rect.y + rect.h) - sprite.y;
-    sprite.u0 = 3.0f / 256.0f; sprite.v0 = 2.0f / 128.0f;
-    sprite.u1 = 62.0f / 256.0f; sprite.v1 = 60.0f / 128.0f;
-    sprite.texturePath = path;
-    return sprite;
+    return croppedSprite(path, rect, {3,2,58,58}, 256, 128);
 }
 
 void commandPanel(std::vector<Quad>& quads, Rect rect, float s) {
@@ -331,17 +316,6 @@ void commandPanel(std::vector<Quad>& quads, Rect rect, float s) {
         {.82f,.86f,.83f,.50f});
     box(quads, rect.x + 8*s, rect.y + rect.h - 8*s, rect.w - 16*s, s,
         {.03f,.06f,.07f,.85f});
-}
-
-void portraitFrame(std::vector<Quad>& quads, Rect rect, bool active, float s) {
-    box(quads, rect.x + 2*s, rect.y + 3*s, rect.w, rect.h,
-        {.02f,.025f,.03f,.72f});
-    box(quads, rect.x, rect.y, rect.w, rect.h,
-        active ? Color{.67f,.20f,.19f,1} : Color{.61f,.67f,.67f,1});
-    box(quads, rect.x + 3*s, rect.y + 3*s, rect.w - 6*s, rect.h - 6*s,
-        active ? Color{.30f,.04f,.05f,1} : Color{.17f,.22f,.24f,1});
-    box(quads, rect.x + 6*s, rect.y + 6*s, rect.w - 12*s, rect.h - 12*s,
-        {.02f,.035f,.04f,1});
 }
 
 int targetPartyIndex(const nlohmann::json& state, int optionIndex) {
@@ -390,10 +364,11 @@ void partyBalls(std::vector<Quad>& quads, float x, float y, float s) {
 } // namespace
 
 void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& state,
-                            int width, int height, const std::string& atlasPath,
+                            int width, int height,
                             const std::string& portraitRoot,
                             const std::string& fontAtlasPath,
-                            const std::string& portraitFrameAtlasPath) {
+                            const std::string& portraitFrameAtlasPath,
+                            const std::string& statusDetailAtlasPath) {
     if (width <= 0 || height <= 0) return;
     const Layout layout(width, height);
     const auto s = layout.s;
@@ -407,24 +382,58 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
     const int target = screen == "target" ?
         targetPartyIndex(state, state.at("cursor").get<int>()) : -1;
     std::vector<IRenderBackend::DebugSprite> sprites;
-    sprites.reserve(14);
+    sprites.reserve(48);
     for (int i = 0; i < 4; ++i) {
+        const auto origin = layout.statusOrigin(i);
         const auto bar = layout.status(i);
         const auto portrait = layout.portrait(i);
-        if (!atlasPath.empty()) sprites.push_back(atlasSprite(atlasPath, bar));
-        else box(underlay, bar.x, bar.y, bar.w, bar.h,
-                 {.06f,.11f,.13f,.95f});
+        const auto t = layout.statusScale;
+        const auto& p = party[i];
+        box(underlay, bar.x+3*t, bar.y+3*t, bar.w-6*t, bar.h-6*t,
+            {.06f,.11f,.15f,1});
+        sprites.push_back(croppedSprite(portraitFrameAtlasPath, bar,
+                                        {61,7,162,50}, 256, 128));
         const bool active = i == highlighted && screen != "resolving" && screen != "target";
         const auto path = (std::filesystem::path(portraitRoot) /
                            party[i].at("portrait").get<std::string>()).string();
-        const float faceSize = 42.0f*s;
+        const float faceSize = 42.0f*t;
         sprites.push_back(faceSprite(path,
-            {portrait.x + (portrait.w - faceSize)*.5f,
-             portrait.y + (portrait.h - faceSize)*.5f,
+            {origin.x + (i < 2 ? 173.0f : 10.0f)*t,
+             origin.y + 10.0f*t,
              faceSize, faceSize}, i < 2));
-        if (!portraitFrameAtlasPath.empty())
-            sprites.push_back(portraitFrameSprite(portraitFrameAtlasPath, portrait));
-        else portraitFrame(underlay, portrait, active, s);
+        sprites.push_back(portraitFrameSprite(portraitFrameAtlasPath, portrait));
+        if (active)
+            sprites.push_back(croppedSprite(statusDetailAtlasPath,
+                {portrait.x-t, portrait.y-t, 60*t, 60*t},
+                {64,67,60,60}, 256, 239));
+        const float rowX = origin.x + (i < 2 ? 6.0f : 63.0f)*t;
+        sprites.push_back(croppedSprite(statusDetailAtlasPath,
+            {rowX, origin.y+26*t, 156*t, 11*t},
+            {2,22,156,11}, 256, 239));
+        sprites.push_back(croppedSprite(statusDetailAtlasPath,
+            {origin.x+(i < 2 ? 111.0f : 166.0f)*t,
+             origin.y+14*t, 14*t, 9*t},
+            {181,26,14,9}, 256, 239));
+        const int hp = p.at("hp").get<int>();
+        const int maxHp = p.at("max_hp").get<int>();
+        if (hp > 0 && maxHp > 0) {
+            const Rect gauge = {origin.x+(i < 2 ? 33.0f : 90.0f)*t,
+                origin.y+28*t, 126.0f*t*hp/maxHp, 7*t};
+            const float gaugeX = hp*4 <= maxHp ? 64.0f : hp*2 <= maxHp ? 32.0f : 0.0f;
+            sprites.push_back(croppedSprite(statusDetailAtlasPath, gauge,
+                {gaugeX,36,31,7}, 256, 239));
+        }
+        if (i < 2) {
+            sprites.push_back(croppedSprite(statusDetailAtlasPath,
+                {origin.x+7*t, origin.y+56*t, 154*t, 8*t},
+                {2,12,154,8}, 256, 239));
+            const int expPercent = std::clamp(p.value("exp_percent", 0), 0, 100);
+            if (expPercent > 0)
+                sprites.push_back(croppedSprite(statusDetailAtlasPath,
+                    {origin.x+33*t, origin.y+58*t,
+                     126.0f*t*expPercent/100.0f, 4*t},
+                    {96,34,31,4}, 256, 239));
+        }
     }
     const auto title = layout.title();
     const auto menu = layout.menu();
@@ -437,74 +446,54 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
         commandPanel(underlay, title, s);
         commandPanel(underlay, menu, s);
     }
-    partyBalls(underlay, layout.status(0).x, layout.status(0).y - 17*s, s);
-    partyBalls(underlay, width - 122*s, layout.status(2).y - 17*s, s);
+    partyBalls(underlay, layout.statusOrigin(0).x, 34*layout.statusScale,
+               layout.statusScale);
+    partyBalls(underlay, width - 114*layout.statusScale,
+               34*layout.statusScale, layout.statusScale);
     renderer.drawDebugQuads(underlay.data(), underlay.size(), width, height);
     renderer.drawDebugSprites(sprites.data(), sprites.size(), width, height);
 
     std::vector<Quad> quads;
     quads.reserve(16000);
     for (int i = 0; i < 4; ++i) {
-        const auto bar = layout.status(i);
+        const auto origin = layout.statusOrigin(i);
+        const float t = layout.statusScale;
         const auto& p = party[i];
-        box(quads, bar.x + 4*s, bar.y + 22*s, 142*s, 12*s,
-            {.01f,.025f,.035f,1});
         const auto name = upperAscii(p.at("name").get<std::string>());
-        const auto nameScale = fittedTextScale(font, name, 1.55f*s, 86.0f*s);
-        textLabel(quads, font, name, bar.x + 9*s, bar.y + 3*s,
-                  ink, nameScale, static_cast<int>(name.size()), 1.55f);
-        genderSymbol(quads, p.at("gender").get<std::string>(),
-                     bar.x + 9*s + textWidth(font, name, nameScale), bar.y + 7*s, s);
-        textLabel(quads, font, "Lv", bar.x + 102*s, bar.y + 4*s,
-                  {.94f,.82f,.37f,1}, 1.6f*s, 2, 1.45f);
-        const auto level = std::to_string(p.at("level").get<int>());
-        const float levelScale = 1.55f*s;
-        textLabel(quads, font, level,
-                  bar.x + 143*s - textWidth(font, level, levelScale), bar.y + 7*s,
-                  ink, levelScale, 3, 1.4f, true);
-        const int hp = p.at("hp").get<int>();
-        const int maxHp = p.at("max_hp").get<int>();
-        textLabel(quads, font, "HP", bar.x + 7*s, bar.y + 16*s,
-                  {.82f,.35f,.27f,1}, 1.5f*s, 2, 1.3f, true);
-        box(quads, bar.x + 27*s, bar.y + 22*s, 118*s, 11*s,
-            {.01f,.02f,.03f,1});
-        box(quads, bar.x + 29*s, bar.y + 24*s, 114*s, 7*s,
-            {.34f,.42f,.42f,1});
-        if (hp > 0) box(quads, bar.x + 29*s, bar.y + 24*s,
-                        114.0f*s*hp/maxHp, 7*s,
-                        hp * 4 <= maxHp ? Color{.93f,.30f,.30f,1} :
-                        hp * 2 <= maxHp ? Color{.98f,.75f,.19f,1} :
-                                            Color{.02f,.78f,.20f,1});
-        if (i < 2) {
-            const auto hpCount = std::to_string(hp) + " / " + std::to_string(maxHp);
-            const float hpScale = fittedTextScale(font, hpCount, 2.45f*s, 106*s);
-            textLabel(quads, font, hpCount,
-                      bar.x + 40*s, bar.y + 29*s,
-                      ink, hpScale, 10, .9f, true);
-            box(quads, bar.x + 27*s, bar.y + 50*s, 119*s, 7*s,
-                {.51f,.58f,.59f,1});
-            box(quads, bar.x + 29*s, bar.y + 51*s, 115*s, 5*s,
-                {.01f,.02f,.025f,1});
-            const int expPercent = p.value("exp_percent", 0);
-            if (expPercent > 0)
-                box(quads, bar.x + 30*s, bar.y + 52*s,
-                    113.0f*s*expPercent/100, 3*s,
-                    {.16f,.28f,1.0f,1});
-            textLabel(quads, font, "EXP", bar.x + 3*s, bar.y + 45*s,
-                      {.96f,.77f,.28f,1}, 1.3f*s, 3, 1.1f, true);
+        const float fontScale = (18.0f/7.0f)*t;
+        const auto nameScale = fittedTextScale(font, name, fontScale, 83.0f*t);
+        const float nameX = origin.x + (i < 2 ? 12.0f : 69.0f)*t;
+        textLabel(quads, font, name, nameX, origin.y + 6*t,
+                  ink, nameScale, static_cast<int>(name.size()));
+        const auto gender = p.at("gender").get<std::string>();
+        if (gender == "male" || gender == "female") {
+            // Colosseum's status callback measures the name, then draws a
+            // message-font symbol. The atlas stores those source glyphs in
+            // two otherwise unused ASCII cells.
+            textLabel(quads, font, gender == "male" ? "{" : "}",
+                      nameX + textWidth(font, name, nameScale) - 2*t,
+                      origin.y + 6*t,
+                      gender == "male" ? Color{.06f,.43f,.9f,1} :
+                                         Color{.91f,.12f,.28f,1},
+                      fontScale, 1);
         }
-    }
-    if (screen != "resolving" && screen != "target" &&
-        highlighted >= 0 && highlighted < 4) {
-        const auto portrait = layout.portrait(highlighted);
-        box(quads, portrait.x + 4*s, portrait.y - 2*s,
-            portrait.w - 8*s, 2*s, selected);
-        box(quads, portrait.x + 4*s, portrait.y + portrait.h,
-            portrait.w - 8*s, 2*s, selected);
-        box(quads, portrait.x - 2*s, portrait.y + 4*s,
-            2*s, portrait.h - 8*s, selected);
-        box(quads, portrait.x + portrait.w, portrait.y + 4*s,
-            2*s, portrait.h - 8*s, selected);
+        const auto level = std::to_string(p.at("level").get<int>());
+        textLabel(quads, font, level,
+                  origin.x + (i < 2 ? 154.0f : 211.0f)*t -
+                      textWidth(font, level, fontScale), origin.y + 7*t,
+                  ink, fontScale, 3);
+        if (i < 2) {
+            const auto hp = std::to_string(p.at("hp").get<int>());
+            const auto maxHp = std::to_string(p.at("max_hp").get<int>());
+            textLabel(quads, font, hp,
+                      origin.x + 58*t - textWidth(font, hp, fontScale),
+                      origin.y + 33*t, ink, fontScale, 3);
+            textLabel(quads, font, "/", origin.x + 65*t,
+                      origin.y + 33*t, ink, fontScale, 1);
+            textLabel(quads, font, maxHp,
+                      origin.x + 111*t - textWidth(font, maxHp, fontScale),
+                      origin.y + 33*t, ink, fontScale, 3);
+        }
     }
     const std::string heading = screen == "command" || screen == "move"
         ? party[state.at("actor").get<int>()].at("name").get<std::string>()
