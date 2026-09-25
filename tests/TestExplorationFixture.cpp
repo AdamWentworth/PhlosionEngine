@@ -38,11 +38,30 @@ void battleHudHitboxes() {
         }
         CHECK(exploration_fixture::battleRulesOptionAt(state,width/2,20,width,height)==-1);
         state["screen"]="target";
-        state["options"]=nlohmann::json::array({{{"label","ZIGZAGOON"}},{{"label","POOCHYENA"}}});
+        state["party"]=nlohmann::json::array({
+            {{"name","Umbreon"}},{{"name","Espeon"}},
+            {{"name","Zigzagoon"}},{{"name","Poochyena"}}
+        });
+        state["options"]=nlohmann::json::array({
+            {{"label","Zigzagoon 52/52"}},{{"label","Poochyena 55/55"}}
+        });
+        CHECK(exploration_fixture::battleRulesOptionAt(state,
+              static_cast<int>(width-38*s-174*s-62*s+29*s),
+              static_cast<int>(45*s-2*s+31*s),width,height)==0);
+        CHECK(exploration_fixture::battleRulesOptionAt(state,
+              static_cast<int>(width-15*s-174*s-62*s+29*s),
+              static_cast<int>(116*s-2*s+31*s),width,height)==1);
         CHECK(exploration_fixture::battleRulesOptionAt(state,static_cast<int>(left+49*s),
-              static_cast<int>(top+48*s),width,height)==0);
-        CHECK(exploration_fixture::battleRulesOptionAt(state,static_cast<int>(left+190*s),
-              static_cast<int>(top+48*s),width,height)==1);
+              static_cast<int>(top+48*s),width,height)==-1);
+        state["options"]=nlohmann::json::array({
+            {{"label","Umbreon 83/83"}},{{"label","Espeon 85/85"}}
+        });
+        CHECK(exploration_fixture::battleRulesOptionAt(state,
+              static_cast<int>((38+174+4+29)*s),
+              static_cast<int>(45*s-2*s+31*s),width,height)==0);
+        CHECK(exploration_fixture::battleRulesOptionAt(state,
+              static_cast<int>((15+174+4+29)*s),
+              static_cast<int>(116*s-2*s+31*s),width,height)==1);
         state["screen"]="command";
         state["options"]=nlohmann::json::array({
             {{"label","FIGHT"}},{{"label","POKEMON"}},{{"label","ITEM"}},{{"label","CALL"}}

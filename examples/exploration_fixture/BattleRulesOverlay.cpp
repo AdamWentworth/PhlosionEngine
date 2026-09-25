@@ -132,9 +132,6 @@ struct Layout {
             return {m.x + (column ? 158.0f : 17.0f)*s,
                     m.y + (row ? 50.0f : 11.0f)*s, 135.0f*s, 32.0f*s};
         }
-        if (screen == "target")
-            return {m.x + (index ? 158.0f : 17.0f)*s, m.y + 30.0f*s,
-                    135.0f*s, 37.0f*s};
         return {m.x + 17.0f*s, m.y + (8.0f + index*20.0f)*s,
                 280.0f*s, 21.0f*s};
     }
@@ -254,12 +251,16 @@ IRenderBackend::DebugSprite atlasSprite(const std::string& path, Rect rect) {
     return sprite;
 }
 
-IRenderBackend::DebugSprite faceSprite(const std::string& path, Rect rect) {
+IRenderBackend::DebugSprite faceSprite(const std::string& path, Rect rect,
+                                       bool flipHorizontal) {
     IRenderBackend::DebugSprite sprite;
     sprite.x = std::round(rect.x); sprite.y = std::round(rect.y);
     sprite.w = std::round(rect.w);
     sprite.h = std::round(rect.h);
-    sprite.u0 = 0; sprite.v0 = 0; sprite.u1 = 1; sprite.v1 = 1;
+    sprite.u0 = flipHorizontal ? 1.0f : 0.0f;
+    sprite.v0 = 0;
+    sprite.u1 = flipHorizontal ? 0.0f : 1.0f;
+    sprite.v1 = 1;
     sprite.texturePath = path;
     return sprite;
 }
@@ -273,6 +274,29 @@ void portraitFrame(std::vector<Quad>& quads, Rect rect, bool active, float s) {
         active ? Color{.30f,.04f,.05f,1} : Color{.17f,.22f,.24f,1});
     box(quads, rect.x + 6*s, rect.y + 6*s, rect.w - 12*s, rect.h - 12*s,
         {.02f,.035f,.04f,1});
+}
+
+int targetPartyIndex(const nlohmann::json& state, int optionIndex) {
+    const auto& options = state.at("options");
+    if (optionIndex < 0 || optionIndex >= static_cast<int>(options.size())) return -1;
+    const auto choice = options[optionIndex].at("label").get<std::string>();
+    const auto& party = state.at("party");
+    for (int i = 0; i < static_cast<int>(party.size()); ++i) {
+        const auto name = party[i].at("name").get<std::string>();
+        if (choice.compare(0, name.size(), name) == 0 &&
+            (choice.size() == name.size() || choice[name.size()] == ' ')) return i;
+    }
+    return -1;
+}
+
+void targetArrow(std::vector<Quad>& quads, Rect portrait, bool ally, float s) {
+    const float x = ally ? portrait.x + portrait.w + 3*s : portrait.x - 17*s;
+    const float y = portrait.y + (portrait.h - 15*s)*.5f;
+    for (int row = 0; row < 15; ++row) {
+        const int extent = 7 - std::abs(row - 7);
+        box(quads, x + (ally ? 11 - extent : 0)*s, y + row*s,
+            (4 + extent)*s, s, selected);
+    }
 }
 
 void partyBalls(std::vector<Quad>& quads, float x, float y, float s) {
@@ -310,18 +334,9 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
     underlay.reserve(48);
     const auto& party = state.at("party");
     const std::string screen = state.at("screen").get<std::string>();
-    int highlighted = state.at("actor").get<int>();
-    if (screen == "target") {
-        const auto& choices = state.at("options");
-        const int cursor = state.at("cursor").get<int>();
-        if (cursor >= 0 && cursor < static_cast<int>(choices.size())) {
-            const std::string choice = choices[cursor].at("label").get<std::string>();
-            for (int i = 0; i < 4; ++i) {
-                const std::string name = party[i].at("name").get<std::string>();
-                if (choice.rfind(name, 0) == 0) { highlighted = i; break; }
-            }
-        }
-    }
+    const int highlighted = state.at("actor").get<int>();
+    const int target = screen == "target" ?
+        targetPartyIndex(state, state.at("cursor").get<int>()) : -1;
     std::vector<IRenderBackend::DebugSprite> sprites;
     sprites.reserve(10);
     for (int i = 0; i < 4; ++i) {
@@ -331,19 +346,21 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
         else box(underlay, bar.x, bar.y, bar.w, bar.h,
                  {.06f,.11f,.13f,.95f});
         portraitFrame(underlay, portrait,
-                      i == highlighted && screen != "resolving", s);
+                      i == highlighted && screen != "resolving" && screen != "target", s);
         const auto path = (std::filesystem::path(portraitRoot) /
                            party[i].at("portrait").get<std::string>()).string();
         sprites.push_back(faceSprite(path,
             {portrait.x + (portrait.w - 42.0f)*.5f,
              portrait.y + (portrait.h - 42.0f)*.5f,
-             42.0f, 42.0f}));
+             42.0f, 42.0f}, i < 2));
     }
     const auto title = layout.title();
     const auto menu = layout.menu();
     if (screen == "resolving") {
         softMessagePanel(underlay,
             {25.0f*s, height - 112.0f*s, 242.0f*s, 102.0f*s}, s);
+    } else if (screen == "target") {
+        // Colosseum leaves the field clear while the portrait arrow chooses a target.
     } else if (!atlasPath.empty()) {
         sprites.push_back(atlasSprite(atlasPath, title));
         sprites.push_back(atlasSprite(atlasPath, menu));
@@ -395,7 +412,7 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
     const std::string heading = screen == "command" || screen == "move"
         ? party[state.at("actor").get<int>()].at("name").get<std::string>()
         : screen == "resolving" ? "BATTLE" : state.at("title").get<std::string>();
-    if (screen != "resolving")
+    if (screen != "resolving" && screen != "target")
         textLabel(quads, font, upperAscii(heading), title.x + 14*s, title.y + 11*s,
                   ink, 2.0f*s, 18);
     if (screen == "resolving") {
@@ -430,7 +447,7 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
         }
     }
     const auto& options = state.at("options");
-    for (int i = 0; i < static_cast<int>(options.size()) && i < 5; ++i) {
+    for (int i = 0; screen != "target" && i < static_cast<int>(options.size()) && i < 5; ++i) {
         const auto slot = layout.option(screen, i);
         const bool enabled = options[i].at("enabled").get<bool>();
         const bool active = i == state.at("cursor").get<int>();
@@ -440,9 +457,6 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
         if (screen == "command") {
             if (i == 1) value = "PKMN";
             if (i == 2) value = "ITEMS";
-        } else if (screen == "target") {
-            const auto space = value.find(' ');
-            if (space != std::string::npos) value.resize(space);
         } else if (screen == "move" && i < 4) {
             const auto& move = party[state.at("actor").get<int>()].at("moves").at(i);
             value = move.at("name").get<std::string>();
@@ -453,10 +467,10 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
         }
         textLabel(quads, font, upperAscii(value), slot.x + 22*s, slot.y + 5*s,
                   enabled ? ink : muted,
-                  (screen == "move" ? 1.45f :
-                   screen == "target" ? 1.65f : 1.8f)*s,
+                  (screen == "move" ? 1.45f : 1.8f)*s,
                   screen == "move" ? 13 : 15);
     }
+    if (target >= 0) targetArrow(quads, layout.portrait(target), target < 2, s);
     for (std::size_t first = 0; first < quads.size(); first += 3500)
         renderer.drawDebugQuads(quads.data() + first,
                                 std::min<std::size_t>(3500, quads.size() - first),
@@ -470,7 +484,10 @@ int battleRulesOptionAt(const nlohmann::json& state, int x, int y,
     const std::string screen = state.at("screen").get<std::string>();
     const auto& options = state.at("options");
     for (int index = 0; index < static_cast<int>(options.size()) && index < 5; ++index) {
-        const auto rect = layout.option(screen, index);
+        const int target = screen == "target" ? targetPartyIndex(state, index) : -1;
+        if (screen == "target" && target < 0) continue;
+        const auto rect = screen == "target" ? layout.portrait(target) :
+                          layout.option(screen, index);
         if (x >= rect.x && x < rect.x + rect.w &&
             y >= rect.y && y < rect.y + rect.h) return index;
     }
