@@ -269,6 +269,9 @@ BattlePreview::BattlePreview(bool audioOutput)
                 "Battle rules plugin could not initialize");
         portraitRoot_ = env::get("PHLOSION_BATTLE_PORTRAIT_DIR").value_or("");
         require(!portraitRoot_.empty(), "Battle rules need PHLOSION_BATTLE_PORTRAIT_DIR");
+        battleFontAtlas_ = env::get("PHLOSION_BATTLE_FONT_PNG").value_or("");
+        require(!battleFontAtlas_.empty() && fs::exists(battleFontAtlas_),
+                "Battle rules need PHLOSION_BATTLE_FONT_PNG");
         const auto initialRules = rulesState();
         for (const auto& member : initialRules.at("party")) {
             const auto path = fs::path(portraitRoot_) /
@@ -719,7 +722,7 @@ void BattlePreview::draw(IRenderBackend& renderer, int tick, int width, int heig
 void BattlePreview::drawOverlay(IRenderBackend& renderer, int width, int height) const {
     if (usesRules()) {
         drawBattleRulesOverlay(renderer, rulesState(), width, height,
-                               hudAtlas_.path(), portraitRoot_);
+                               hudAtlas_.path(), portraitRoot_, battleFontAtlas_);
         return;
     }
     if (!sequence_.state().hudVisible) return;

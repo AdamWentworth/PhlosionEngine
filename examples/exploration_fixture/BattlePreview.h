@@ -94,6 +94,7 @@ private:
     BattleSequence sequence_;
     BattleHudAtlas hudAtlas_;
     std::string portraitRoot_;
+    std::string battleFontAtlas_;
     BattleVfxPlugin vfxPlugin_;
     void* rulesLibrary_ = nullptr;
     BattleRulesPluginApi rulesApi_{};

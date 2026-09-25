@@ -1,11 +1,16 @@
 #include "BattleRulesOverlay.h"
 
+#include <stb_image.h>
+
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <string>
+#include <stdexcept>
+#include <unordered_map>
 #include <vector>
 
 namespace engine::exploration_fixture {
@@ -17,6 +22,12 @@ constexpr Color ink{.94f, .96f, 1.0f, 1.0f};
 constexpr Color selected{.86f, .11f, .08f, 1.0f};
 constexpr Color muted{.48f, .53f, .60f, 1.0f};
 constexpr Color shadow{.015f, .025f, .035f, 1.0f};
+
+std::string upperAscii(std::string value) {
+    for (char& c : value)
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    return value;
+}
 
 Rows glyph(char c) {
     switch (static_cast<char>(std::toupper(static_cast<unsigned char>(c)))) {
@@ -129,10 +140,107 @@ struct Layout {
     }
 };
 
-void textLabel(std::vector<Quad>& quads, const std::string& value,
+void fallbackTextLabel(std::vector<Quad>& quads, const std::string& value,
                float x, float y, Color color, float scale, int maxChars) {
     label(quads, value, x + scale*.5f, y + scale*.5f, shadow, scale, maxChars);
     label(quads, value, x, y, color, scale, maxChars);
+}
+
+struct FontAtlas {
+    std::string path;
+    std::array<int, 96> advances{};
+    std::vector<unsigned char> alpha;
+    explicit FontAtlas(const std::string& png) : path(png) {
+        std::ifstream file(std::filesystem::path(png).parent_path() / "manifest.json");
+        nlohmann::json manifest;
+        if (!(file >> manifest) ||
+            std::filesystem::path(manifest.at("atlas").get<std::string>()).filename() !=
+                std::filesystem::path(png).filename() ||
+            manifest.at("cell") != nlohmann::json::array({24, 24}) ||
+            manifest.at("columns") != 21 ||
+            manifest.at("texture_size") != nlohmann::json::array({512, 512}) ||
+            manifest.at("first_codepoint") != 32 ||
+            manifest.at("advances_ascii").size() != advances.size())
+            throw std::runtime_error("Invalid GameCube battle font manifest");
+        for (std::size_t i = 0; i < advances.size(); ++i)
+            advances[i] = manifest.at("advances_ascii").at(i).get<int>();
+        int width = 0, height = 0, channels = 0;
+        unsigned char* rgba = stbi_load(png.c_str(), &width, &height, &channels, 4);
+        if (!rgba || width != 512 || height != 512) {
+            stbi_image_free(rgba);
+            throw std::runtime_error("Invalid GameCube battle font atlas: " + png);
+        }
+        alpha.resize(512 * 512);
+        for (std::size_t i = 0; i < alpha.size(); ++i) alpha[i] = rgba[i * 4 + 3];
+        stbi_image_free(rgba);
+    }
+};
+
+void textLabel(std::vector<Quad>& quads, const FontAtlas& font,
+               const std::string& value,
+               float x, float y, Color color, float scale, int maxChars) {
+    if (font.path.empty()) {
+        fallbackTextLabel(quads, value, x, y, color, scale, maxChars);
+        return;
+    }
+    const float glyphScale = scale * (7.0f / 18.0f);
+    int count = 0;
+    for (unsigned char c : value) {
+        if (count++ >= maxChars) break;
+        if (c < 32 || c > 127) continue;
+        const int index = c - 32;
+        if (c != ' ') {
+            const int glyphWidth = std::max(1, static_cast<int>(std::round(24.0f * glyphScale)));
+            const int glyphHeight = glyphWidth;
+            const int atlasX = (index % 21) * 24;
+            const int atlasY = (index / 21) * 24;
+            const auto drawGlyph = [&](Color tint, float offset) {
+                for (int row = 0; row < glyphHeight; ++row) {
+                    const int sampleY = atlasY + row * 24 / glyphHeight;
+                    for (int col = 0; col < glyphWidth;) {
+                        const int sampleX = atlasX + col * 24 / glyphWidth;
+                        const unsigned char opacity = font.alpha[sampleY * 512 + sampleX];
+                        if (!opacity) { ++col; continue; }
+                        const int start = col;
+                        do {
+                            ++col;
+                        } while (col < glyphWidth &&
+                            font.alpha[sampleY * 512 + atlasX + col * 24 / glyphWidth] == opacity);
+                        box(quads, std::round(x + offset) + start,
+                            std::round(y + offset) + row,
+                            static_cast<float>(col - start), 1.0f,
+                            {tint.r, tint.g, tint.b, tint.a * opacity / 255.0f});
+                    }
+                }
+            };
+            drawGlyph(shadow, 1.0f);
+            drawGlyph(color, 0.0f);
+        }
+        x += (font.advances[index] + 1.0f) * glyphScale;
+    }
+}
+
+void softMessagePanel(std::vector<Quad>& quads, Rect rect, float scale) {
+    const int height = static_cast<int>(std::round(rect.h));
+    const float fade = 9.0f * scale;
+    const float radius = 13.0f * scale;
+    for (int row = 0; row < height; ++row) {
+        const float dy = std::min(row + .5f, height - row - .5f);
+        const float vertical = std::min(1.0f, dy / fade);
+        const float corner = dy < radius ?
+            radius - std::sqrt(std::max(0.0f, radius * radius -
+                                       (radius - dy) * (radius - dy))) : 0.0f;
+        for (int edge = 0; edge < 9; ++edge) {
+            const float opacity = .72f * vertical * (edge + .5f) / 9.0f;
+            box(quads, rect.x + corner + edge * scale, rect.y + row,
+                scale, 1.0f, {0, 0, 0, opacity});
+            box(quads, rect.x + rect.w - corner - (edge + 1) * scale,
+                rect.y + row, scale, 1.0f, {0, 0, 0, opacity});
+        }
+        box(quads, rect.x + corner + fade, rect.y + row,
+            rect.w - 2.0f * (corner + fade), 1.0f,
+            {0, 0, 0, .72f * vertical});
+    }
 }
 
 IRenderBackend::DebugSprite atlasSprite(const std::string& path, Rect rect) {
@@ -149,8 +257,8 @@ IRenderBackend::DebugSprite atlasSprite(const std::string& path, Rect rect) {
 IRenderBackend::DebugSprite faceSprite(const std::string& path, Rect rect) {
     IRenderBackend::DebugSprite sprite;
     sprite.x = std::round(rect.x); sprite.y = std::round(rect.y);
-    sprite.w = std::round(rect.x + rect.w) - sprite.x;
-    sprite.h = std::round(rect.y + rect.h) - sprite.y;
+    sprite.w = std::round(rect.w);
+    sprite.h = std::round(rect.h);
     sprite.u0 = 0; sprite.v0 = 0; sprite.u1 = 1; sprite.v1 = 1;
     sprite.texturePath = path;
     return sprite;
@@ -191,10 +299,13 @@ void partyBalls(std::vector<Quad>& quads, float x, float y, float s) {
 
 void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& state,
                             int width, int height, const std::string& atlasPath,
-                            const std::string& portraitRoot) {
+                            const std::string& portraitRoot,
+                            const std::string& fontAtlasPath) {
     if (width <= 0 || height <= 0) return;
     const Layout layout(width, height);
     const auto s = layout.s;
+    static std::unordered_map<std::string, FontAtlas> fonts;
+    const auto& font = fonts.try_emplace(fontAtlasPath, fontAtlasPath).first->second;
     std::vector<Quad> underlay;
     underlay.reserve(48);
     const auto& party = state.at("party");
@@ -230,7 +341,10 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
     }
     const auto title = layout.title();
     const auto menu = layout.menu();
-    if (!atlasPath.empty()) {
+    if (screen == "resolving") {
+        softMessagePanel(underlay,
+            {25.0f*s, height - 112.0f*s, 242.0f*s, 102.0f*s}, s);
+    } else if (!atlasPath.empty()) {
         sprites.push_back(atlasSprite(atlasPath, title));
         sprites.push_back(atlasSprite(atlasPath, menu));
     } else {
@@ -245,18 +359,18 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
     renderer.drawDebugSprites(sprites.data(), sprites.size(), width, height);
 
     std::vector<Quad> quads;
-    quads.reserve(3200);
+    quads.reserve(16000);
     for (int i = 0; i < 4; ++i) {
         const auto bar = layout.status(i);
         const auto& p = party[i];
-        textLabel(quads, p.at("name").get<std::string>(),
+        textLabel(quads, font, upperAscii(p.at("name").get<std::string>()),
                   bar.x + 9*s, bar.y + 6*s, ink, 1.85f*s, 11);
-        textLabel(quads, "LV " + std::to_string(p.at("level").get<int>()),
+        textLabel(quads, font, "LV " + std::to_string(p.at("level").get<int>()),
                   bar.x + 125*s, bar.y + 7*s,
                   {.94f,.82f,.37f,1}, 1.6f*s, 5);
         const int hp = p.at("hp").get<int>();
         const int maxHp = p.at("max_hp").get<int>();
-        textLabel(quads, "HP", bar.x + 8*s, bar.y + 28*s,
+        textLabel(quads, font, "HP", bar.x + 8*s, bar.y + 28*s,
                   {.82f,.35f,.27f,1}, 1.6f*s, 2);
         box(quads, bar.x + 37*s, bar.y + 29*s, 129*s, 9*s,
             {.01f,.02f,.03f,1});
@@ -268,9 +382,9 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
                         hp * 2 <= maxHp ? Color{.98f,.75f,.19f,1} :
                                             Color{.22f,.79f,.48f,1});
         if (i < 2) {
-            textLabel(quads, std::to_string(hp) + " / " + std::to_string(maxHp),
+            textLabel(quads, font, std::to_string(hp) + " / " + std::to_string(maxHp),
                       bar.x + 48*s, bar.y + 43*s, ink, 1.55f*s, 10);
-            textLabel(quads, "EXP", bar.x + 3*s, bar.y + 60*s,
+            textLabel(quads, font, "EXP", bar.x + 3*s, bar.y + 60*s,
                       {.96f,.73f,.26f,1}, 1.2f*s, 3);
             box(quads, bar.x + 31*s, bar.y + 62*s, 137*s, 5*s,
                 {.01f,.02f,.03f,1});
@@ -281,17 +395,38 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
     const std::string heading = screen == "command" || screen == "move"
         ? party[state.at("actor").get<int>()].at("name").get<std::string>()
         : screen == "resolving" ? "BATTLE" : state.at("title").get<std::string>();
-    textLabel(quads, heading, title.x + 14*s, title.y + 11*s,
-              ink, 2.0f*s, 18);
+    if (screen != "resolving")
+        textLabel(quads, font, upperAscii(heading), title.x + 14*s, title.y + 11*s,
+                  ink, 2.0f*s, 18);
     if (screen == "resolving") {
-        std::string remaining = state.at("message").get<std::string>();
-        for (int line = 0; line < 3 && !remaining.empty(); ++line) {
-            std::size_t split = remaining.size() > 29 ? remaining.rfind(' ', 29) :
-                                std::string::npos;
-            if (split == std::string::npos || split < 10) split = remaining.size();
-            textLabel(quads, remaining.substr(0, split), menu.x + 16*s,
-                      menu.y + (15.0f + 25.0f*line)*s, ink, 1.6f*s, 29);
-            remaining.erase(0, std::min(remaining.size(), split + 1));
+        std::string message = upperAscii(state.at("message").get<std::string>());
+        std::vector<std::string> lines;
+        const auto used = message.find(" USED ");
+        const auto on = message.find(" ON ", used == std::string::npos ? 0 : used + 6);
+        const auto missed = message.find(" - MISSED", used == std::string::npos ? 0 : used + 6);
+        if (used != std::string::npos && (on != std::string::npos || missed != std::string::npos)) {
+            const auto moveEnd = on != std::string::npos ? on : missed;
+            lines.push_back(message.substr(0, used) + " used");
+            lines.push_back(message.substr(used + 6, moveEnd - used - 6) + "!");
+            if (missed != std::string::npos) lines.push_back("But it missed!");
+            else if (message.find(" - NO EFFECT") != std::string::npos)
+                lines.push_back("It had no effect...");
+            else if (message.find(" FAINTED") != std::string::npos)
+                lines.push_back(message.substr(on + 4, message.find(" - ", on) - on - 4) +
+                                " fainted!");
+        } else {
+            for (int line = 0; line < 3 && !message.empty(); ++line) {
+                std::size_t split = message.size() > 23 ? message.rfind(' ', 23) :
+                                    std::string::npos;
+                if (split == std::string::npos || split < 8) split = message.size();
+                lines.push_back(message.substr(0, split));
+                message.erase(0, std::min(message.size(), split + 1));
+            }
+        }
+        for (std::size_t line = 0; line < lines.size() && line < 3; ++line) {
+            textLabel(quads, font, lines[line],
+                      43.0f*s, height - (96.0f - 27.0f*line)*s,
+                      ink, 2.35f*s, 25);
         }
     }
     const auto& options = state.at("options");
@@ -299,7 +434,7 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
         const auto slot = layout.option(screen, i);
         const bool enabled = options[i].at("enabled").get<bool>();
         const bool active = i == state.at("cursor").get<int>();
-        if (active) textLabel(quads, ">>", slot.x, slot.y + 5*s,
+        if (active) textLabel(quads, font, ">>", slot.x, slot.y + 5*s,
                               selected, 1.8f*s, 2);
         std::string value = options[i].at("label").get<std::string>();
         if (screen == "command") {
@@ -311,18 +446,21 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
         } else if (screen == "move" && i < 4) {
             const auto& move = party[state.at("actor").get<int>()].at("moves").at(i);
             value = move.at("name").get<std::string>();
-            textLabel(quads, "PP " + std::to_string(move.at("pp").get<int>()) +
+            textLabel(quads, font, "PP " + std::to_string(move.at("pp").get<int>()) +
                       "/" + std::to_string(move.at("max_pp").get<int>()),
                       slot.x + 22*s, slot.y + 19*s,
                       {.85f,.89f,.89f,1}, 1.0f*s, 14);
         }
-        textLabel(quads, value, slot.x + 22*s, slot.y + 5*s,
+        textLabel(quads, font, upperAscii(value), slot.x + 22*s, slot.y + 5*s,
                   enabled ? ink : muted,
                   (screen == "move" ? 1.45f :
                    screen == "target" ? 1.65f : 1.8f)*s,
                   screen == "move" ? 13 : 15);
     }
-    renderer.drawDebugQuads(quads.data(), quads.size(), width, height);
+    for (std::size_t first = 0; first < quads.size(); first += 3500)
+        renderer.drawDebugQuads(quads.data() + first,
+                                std::min<std::size_t>(3500, quads.size() - first),
+                                width, height);
 }
 
 int battleRulesOptionAt(const nlohmann::json& state, int x, int y,
