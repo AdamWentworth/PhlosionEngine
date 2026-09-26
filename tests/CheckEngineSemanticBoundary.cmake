@@ -5,7 +5,12 @@ endif()
 file(GLOB_RECURSE _engine_boundary_files
     LIST_DIRECTORIES false
     "${PHLOSION_ROOT}/src/*"
-    "${PHLOSION_ROOT}/assets/shaders/*")
+    "${PHLOSION_ROOT}/assets/shaders/*"
+    "${PHLOSION_ROOT}/examples/*"
+    "${PHLOSION_ROOT}/tests/*.cpp"
+    "${PHLOSION_ROOT}/tests/*.h"
+    "${PHLOSION_ROOT}/tools/*.cpp"
+    "${PHLOSION_ROOT}/tools/*.h")
 list(APPEND _engine_boundary_files
     "${PHLOSION_ROOT}/CMakeLists.txt")
 
@@ -13,7 +18,12 @@ set(_violations "")
 foreach(_file IN LISTS _engine_boundary_files)
     file(READ "${_file}" _content)
     string(TOLOWER "${_content}" _lower)
-    if (_lower MATCHES "pokemon|autochess|gamefreak|lgpe|route[ _-]*1|pac_|evaluatefieldgroundsurface|evaluatefieldcliffsurface|fieldtreeshader|fieldgrassshader|fieldgroundshader|fieldcliffshader|gastly|charmander|tailfire|ikcharacter|nativesss|nativefresneleffect|nativeeyeclearcoat|zaui|zaik|zasourcestage|svlocalprobe|svlocalspecularprobe|zalocalreflectionprobe|z-a")
+    string(TOLOWER "${_file}" _path_lower)
+    if (_lower MATCHES "pokemon|autochess|gamefreak|lgpe|route[ _-]*1|pac_|evaluatefieldgroundsurface|evaluatefieldcliffsurface|fieldtreeshader|fieldgrassshader|fieldgroundshader|fieldcliffshader|gastly|charmander|tailfire|ikcharacter|nativesss|nativefresneleffect|nativeeyeclearcoat|zaui|zaik|zasourcestage|svlocalprobe|svlocalspecularprobe|zalocalreflectionprobe|z-a|outskirt|cyberpunk|colosseum|espeon|umbreon|bulbasaur"
+            OR _path_lower MATCHES "pokemon|autochess|outskirt|cyberpunk|colosseum")
+        list(APPEND _violations "${_file}")
+    endif()
+    if (_lower MATCHES "(^|[^a-z0-9_])(wes|willie)([^a-z0-9_]|$)")
         list(APPEND _violations "${_file}")
     endif()
     if (_lower MATCHES "(^|[^a-z0-9_])(boardrenderer|battlefeed|healthbarrenderer|healthbardata|growlvfx|scratchvfx|combatdecision|shopms|roundms|combatms|movementluams|sessionbackdroptilesenabled)([^a-z0-9_]|$)"
@@ -23,6 +33,10 @@ foreach(_file IN LISTS _engine_boundary_files)
 endforeach()
 
 foreach(_removed_path IN ITEMS
+    "${PHLOSION_ROOT}/examples/exploration_fixture"
+    "${PHLOSION_ROOT}/tools/exploration_fixture"
+    "${PHLOSION_ROOT}/tests/exploration_fixture"
+    "${PHLOSION_ROOT}/src/engine/render/BattlePokemonPlugin.h"
     "${PHLOSION_ROOT}/src/engine/assets/lgpe"
     "${PHLOSION_ROOT}/src/engine/ui/Card.h"
     "${PHLOSION_ROOT}/src/engine/ui/Card.cpp"

@@ -68,7 +68,7 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
                 .transform = AuthoredSceneTransform{},
                 .meshPatch = MeshPatchBinding{
                     .assetPath =
-                        "environment/route1/ledge-corner.patch.json"}}}};
+                        "environment/sample/ledge-corner.patch.json"}}}};
     std::string error;
     if (!validateAuthoredSceneDocument(source, &error)) {
         outFail = "valid document failed: " + error;
@@ -101,7 +101,7 @@ bool test_phlosion_authored_scene_contract(std::string& outFail) {
              ->suppressOverlappingVegetation ||
         !decoded.nodes[4].meshPatch ||
         decoded.nodes[4].meshPatch->assetPath !=
-            "environment/route1/ledge-corner.patch.json") {
+            "environment/sample/ledge-corner.patch.json") {
         outFail = "document fields changed during round trip";
         return false;
     }

@@ -1,7 +1,7 @@
 // tests/TestGltfSceneAsset.cpp
 //
 // CPU contracts for the reusable glTF scene path introduced for the
-// cyberpunk-m1 integration phase: real-file import, per-node primitive
+// Real-file integration: per-node primitive
 // bindings, material source preservation and factor separation, bind and
 // animated palettes, unsupported-subset diagnostics, bounded arithmetic,
 // failure-preserved publication and retained ownership after the source is

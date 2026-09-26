@@ -41,7 +41,6 @@ option(PHLOSION_BUILD_MATERIAL_FIXTURE
 option(PHLOSION_BUILD_SCENE_FIXTURE
     "Build the glTF scene fixture hosts, guard and editor plugin"
     ${_phlosion_tests_default})
-option(PHLOSION_BUILD_EXPLORATION_FIXTURE "Build the playable exploration course and native qualification tools" OFF)
 option(PHLOSION_OPTIMIZE_RENDER_HOTPATHS_IN_DEBUG
     "Compile selected renderer hot paths with optimization in Debug"
     ON)
@@ -516,7 +515,7 @@ add_library(Phlosion::Runtime ALIAS engine_runtime)
 add_library(Phlosion::EditorCore ALIAS engine_editor_core)
 add_library(Phlosion::VfxPreview ALIAS engine_tools_vfx_preview)
 
-if (PHLOSION_BUILD_PUBLIC_ASSET_FIXTURE OR PHLOSION_BUILD_SCENE_FIXTURE OR PHLOSION_BUILD_TESTS OR PHLOSION_BUILD_EXPLORATION_FIXTURE)
+if (PHLOSION_BUILD_PUBLIC_ASSET_FIXTURE OR PHLOSION_BUILD_SCENE_FIXTURE OR PHLOSION_BUILD_TESTS)
     add_library(public_asset_fixture STATIC
         examples/public_asset_fixture/FixtureData.cpp
         examples/public_asset_fixture/FixtureSession.cpp
@@ -732,7 +731,7 @@ if (PHLOSION_BUILD_MATERIAL_FIXTURE)
     endif()
 endif()
 
-if (PHLOSION_BUILD_SCENE_FIXTURE OR PHLOSION_BUILD_TESTS OR PHLOSION_BUILD_EXPLORATION_FIXTURE)
+if (PHLOSION_BUILD_SCENE_FIXTURE OR PHLOSION_BUILD_TESTS)
     add_library(scene_fixture STATIC
         examples/scene_fixture/SceneFixtureCase.cpp
         examples/scene_fixture/SceneFixtureAssets.cpp
@@ -807,65 +806,6 @@ if (PHLOSION_BUILD_SCENE_FIXTURE)
     endif()
 endif()
 
-if (PHLOSION_BUILD_EXPLORATION_FIXTURE)
-    add_library(exploration_fixture STATIC
-        examples/exploration_fixture/BattleHudAtlas.cpp
-        examples/exploration_fixture/BattlePreview.cpp
-        examples/exploration_fixture/BattleRulesOverlay.cpp
-        examples/exploration_fixture/BattleSequence.cpp
-        examples/exploration_fixture/BattleVfxPlugin.cpp
-        examples/exploration_fixture/ExplorationSession.cpp
-        examples/exploration_fixture/ExplorationPresentation.cpp)
-    target_include_directories(exploration_fixture PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/examples/exploration_fixture")
-    target_link_libraries(exploration_fixture PUBLIC Engine Phlosion::Camera Phlosion::AudioSdl engine_sdl_replay)
-    phlosion_apply_settings(exploration_fixture)
-    add_executable(ExplorationFixtureRuntime examples/exploration_fixture/ExplorationRuntimeMain.cpp)
-    target_link_libraries(ExplorationFixtureRuntime PRIVATE exploration_fixture)
-    phlosion_apply_settings(ExplorationFixtureRuntime)
-    add_executable(ExplorationFixtureGuard tools/exploration_fixture/ExplorationGuard.cpp)
-    target_link_libraries(ExplorationFixtureGuard PRIVATE exploration_fixture scene_fixture_verification)
-    phlosion_apply_settings(ExplorationFixtureGuard)
-    # The independent ray oracle examines every interior sample across 96
-    # images. Keep Debug symbols/assertions and warning policy, optimize its
-    # CPU-only arithmetic just as other expensive verification hot paths.
-    if (MSVC)
-        target_compile_options(ExplorationFixtureGuard PRIVATE "$<$<CONFIG:Debug>:/O2>")
-        set_source_files_properties(tools/exploration_fixture/ExplorationGuard.cpp PROPERTIES MSVC_RUNTIME_CHECKS "")
-    endif()
-    if (PHLOSION_BUILD_EDITOR)
-        add_library(ExplorationFixtureEditorPlugin MODULE examples/exploration_fixture/ExplorationEditorPlugin.cpp)
-        target_link_libraries(ExplorationFixtureEditorPlugin PRIVATE exploration_fixture engine_editor_core)
-        target_compile_definitions(ExplorationFixtureEditorPlugin PRIVATE PHLOSION_EDITOR_BUILD_CONFIGURATION="$<CONFIG>")
-        set_target_properties(ExplorationFixtureEditorPlugin PROPERTIES PREFIX "")
-        phlosion_apply_settings(ExplorationFixtureEditorPlugin)
-    endif()
-    if (PHLOSION_BUILD_TESTS)
-        add_executable(PhlosionBattleSequenceTests tests/TestBattleSequence.cpp)
-        target_link_libraries(PhlosionBattleSequenceTests PRIVATE exploration_fixture)
-        phlosion_apply_settings(PhlosionBattleSequenceTests)
-        add_test(NAME PhlosionBattleSequenceContracts COMMAND PhlosionBattleSequenceTests)
-        add_executable(PhlosionExplorationTests tests/TestExplorationFixture.cpp)
-        target_link_libraries(PhlosionExplorationTests PRIVATE exploration_fixture)
-        phlosion_apply_settings(PhlosionExplorationTests)
-        add_test(NAME PhlosionExplorationContracts COMMAND PhlosionExplorationTests)
-        set_tests_properties(PhlosionExplorationContracts PROPERTIES TIMEOUT 120)
-        add_test(NAME PhlosionExplorationEvidenceContracts COMMAND ExplorationFixtureGuard selftest "${CMAKE_CURRENT_BINARY_DIR}/exploration-evidence-tests")
-        set_tests_properties(PhlosionExplorationEvidenceContracts PROPERTIES TIMEOUT 120 ENVIRONMENT "SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1")
-        if (PHLOSION_BUILD_EDITOR)
-            add_library(MalformedSdlExtensionPlugin MODULE tests/TestEditorSdlExtensionPlugin.cpp)
-            target_link_libraries(MalformedSdlExtensionPlugin PRIVATE Engine engine_editor_core)
-            target_compile_definitions(MalformedSdlExtensionPlugin PRIVATE PHLOSION_EDITOR_BUILD_CONFIGURATION="$<CONFIG>")
-            phlosion_apply_settings(MalformedSdlExtensionPlugin)
-            add_test(NAME PhlosionSdlExtensionValid COMMAND PhlosionEditorPluginProbe $<TARGET_FILE:ExplorationFixtureEditorPlugin>)
-            add_test(NAME PhlosionSdlExtensionMalformed COMMAND PhlosionEditorPluginProbe $<TARGET_FILE:MalformedSdlExtensionPlugin>)
-            set_tests_properties(PhlosionSdlExtensionMalformed PROPERTIES WILL_FAIL TRUE)
-            if (PHLOSION_BUILD_SCENE_FIXTURE)
-                add_test(NAME PhlosionSdlExtensionAbsent COMMAND PhlosionEditorPluginProbe $<TARGET_FILE:SceneFixtureEditorPlugin>)
-            endif()
-        endif()
-    endif()
-endif()
-
 if (PHLOSION_OPTIMIZE_RENDER_HOTPATHS_IN_DEBUG)
     if (MSVC)
         string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
@@ -895,6 +835,29 @@ if (PHLOSION_OPTIMIZE_RENDER_HOTPATHS_IN_DEBUG)
                 "$<$<CONFIG:Debug>:-O2>")
         endif()
     endforeach()
+endif()
+
+if (PHLOSION_BUILD_TESTS AND PHLOSION_BUILD_EDITOR)
+    add_library(ValidSdlExtensionPlugin MODULE tests/TestEditorSdlExtensionPlugin.cpp)
+    target_link_libraries(ValidSdlExtensionPlugin PRIVATE Engine engine_editor_core)
+    target_compile_definitions(ValidSdlExtensionPlugin PRIVATE
+        PHLOSION_EDITOR_BUILD_CONFIGURATION="$<CONFIG>"
+        PHLOSION_TEST_VALID_SDL_EXTENSION=1)
+    phlosion_apply_settings(ValidSdlExtensionPlugin)
+    add_library(MalformedSdlExtensionPlugin MODULE tests/TestEditorSdlExtensionPlugin.cpp)
+    target_link_libraries(MalformedSdlExtensionPlugin PRIVATE Engine engine_editor_core)
+    target_compile_definitions(MalformedSdlExtensionPlugin PRIVATE
+        PHLOSION_EDITOR_BUILD_CONFIGURATION="$<CONFIG>")
+    phlosion_apply_settings(MalformedSdlExtensionPlugin)
+    add_test(NAME PhlosionSdlExtensionValid
+        COMMAND PhlosionEditorPluginProbe $<TARGET_FILE:ValidSdlExtensionPlugin>)
+    add_test(NAME PhlosionSdlExtensionMalformed
+        COMMAND PhlosionEditorPluginProbe $<TARGET_FILE:MalformedSdlExtensionPlugin>)
+    set_tests_properties(PhlosionSdlExtensionMalformed PROPERTIES WILL_FAIL TRUE)
+    if (PHLOSION_BUILD_SCENE_FIXTURE)
+        add_test(NAME PhlosionSdlExtensionAbsent
+            COMMAND PhlosionEditorPluginProbe $<TARGET_FILE:SceneFixtureEditorPlugin>)
+    endif()
 endif()
 
 if (PHLOSION_BUILD_TESTS)

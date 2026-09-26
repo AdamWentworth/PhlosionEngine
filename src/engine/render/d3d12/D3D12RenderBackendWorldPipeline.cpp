@@ -706,7 +706,7 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
                                      D3D12_TEXTURE_ADDRESS_MODE addressU,
                                      D3D12_TEXTURE_ADDRESS_MODE addressV) {
         D3D12_STATIC_SAMPLER_DESC s{};
-        // The default LOD improves native Outskirt texture parity while retaining anisotropy.
+        // The default LOD keeps cross-backend texture detail consistent while retaining anisotropy.
         s.Filter = D3D12_FILTER_ANISOTROPIC;
         s.AddressU = addressU;
         s.AddressV = addressV;

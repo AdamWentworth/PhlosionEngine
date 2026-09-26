@@ -31,13 +31,11 @@ No test in the current engine CTest suite needs a graphics context.
 | `PhlosionSdlInputContracts` | Three real SDL virtual-device groups for mapped-controller discovery, all 15 buttons/six axes, normalization, queued taps and event/poll duplicate observations, hotplug/disconnect, window focus filtering and subsystem/handle ownership |
 | `PhlosionCameraContracts` | Ten groups for exploration framing, delta/rate controls, follow/recovery damping, real sphere obstruction queries, validation/ownership, relative movement and repeated CPU input/character/camera composition |
 | `PhlosionBattleCameraContracts` | CPU battle camera framing at multiple aspects, impossible-shot rejection, cuts/blends/tracking, deterministic shake, reduced motion, reset, transactions and thread ownership |
-| `PhlosionExplorationContracts` | Optional public course: SDL extension validation, viewport/input gates, zero/multiple-tick cadence, bounded replay, real movement/sensors/camera/NPC composition, safe recovery and SDL lifetime ownership |
-| `PhlosionExplorationEvidenceContracts` | Optional course's independent state and ray/box pixel oracles, malformed state/content rejection and pristine recovery; no graphics context |
-| `PhlosionSdlExtensionValid` | Plugin probe accepts the sample's separate versioned SDL callback table |
+| `PhlosionSdlExtensionValid` | Plugin probe accepts a source-neutral versioned SDL callback table |
 | `PhlosionSdlExtensionMalformed` | Plugin probe rejects a present truncated SDL callback table before reading callbacks |
 | `PhlosionSdlExtensionAbsent` | Plugin probe accepts the existing scene plugin through the unchanged legacy contract |
 | `PhlosionEngineContracts` | Thirty-four C++ contracts: material profiles, containers, typed static meshes, scenes, environment patches, asynchronous asset loading, the dependency-aware asset graph session, staged scene/prefab archive activation, public archive/render-fixture data and image guards, existing glTF scene/skeleton/clip import, material metadata, real PNG/JPEG texture decoding and role fallbacks, temporary-fixture ownership, shared LINEAR/STEP/CUBICSPLINE pose sampling, M3 crossfades/masked override layers/timed events/parameter-driven state, model-cache sampler codec/version identity, owned CPU glTF scene validation/retention and renderer preflight, archive-backed glTF worker sessions, GPU resource-scope state/accounting, animation/material/integrated-scene content and lifecycle evidence guards, descriptors, renderer preference, camera pan, plugin ABI, preview routing, reload and performance accounting |
-| `PhlosionEngineSemanticBoundary` | Removed game systems, identifiers, materials and former source paths cannot return to engine code/shaders |
+| `PhlosionEngineSemanticBoundary` | Game names, content, and former source paths cannot return to engine source, examples, tests, tools or shaders |
 | `PhlosionPackedNormalContract` | Shared packed-normal source contract |
 | `PhlosionMaterialDebugViewContract` | Material debug-view source contract |
 | `PhlosionReviewLightingProfileContract` | Generic review-lighting source contract |

@@ -13,14 +13,14 @@ bool test_phlosion_resource_container_contract(std::string& outFail) {
     source.schemaVersion = 3u;
     source.flags = 9u;
     source.manifestJson =
-        R"json({"asset_id":"characters/bulbasaur","root_type":"CharacterPrefab"})json";
+        R"json({"asset_id":"characters/sample","root_type":"CharacterPrefab"})json";
     source.dependencies = {
         Dependency{
-            "characters/bulbasaur/body",
+            "characters/sample/body",
             0x123456789abcdef0ull,
             kDependencyRequired},
         Dependency{
-            "materials/lgpe/pokemon_skin",
+            "materials/sample/surface",
             0u,
             0u}};
     source.chunks = {
@@ -58,7 +58,7 @@ bool test_phlosion_resource_container_contract(std::string& outFail) {
         return false;
     }
     if (decoded.dependencies[0].assetId !=
-            "characters/bulbasaur/body" ||
+            "characters/sample/body" ||
         decoded.dependencies[0].expectedContentHash !=
             0x123456789abcdef0ull ||
         decoded.dependencies[1].flags != 0u) {

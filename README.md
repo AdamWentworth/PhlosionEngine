@@ -174,9 +174,9 @@ Use [exploration camera rigs](docs/EXPLORATION_CAMERA.md) through
 targets, camera controls and timing; the resulting pose and lens values can feed
 the existing render-side `Camera3D`.
 
-The exploration course combines these interfaces into a playable sample. Enable
-`PHLOSION_BUILD_EXPLORATION_FIXTURE` using the [build instructions](docs/DEVELOPMENT.md#public-exploration-course).
-Actual game assets and scene fitting remain the consuming project's responsibility.
+PokemonCyberpunk's [exploration preview](docs/EXPLORATION_FIXTURE.md) combines
+these interfaces into a playable sample. Its runtime, editor plugin, content,
+and capture tools build from the game repository.
 
 ## Verification
 

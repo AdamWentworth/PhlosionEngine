@@ -1,5 +1,11 @@
 # Cyberpunk engine readiness audit
 
+This is a dated milestone audit. The exploration course, Outskirt preview,
+runtime/editor plugin, and native capture tools have since moved to the
+PokemonCyberpunk repository. Current ownership and commands are in
+[engine boundaries](ENGINE_BOUNDARIES.md) and the game's
+[preview qualification guide](../../../Games/PokemonCyberpunk/docs/PREVIEW_QUALIFICATION.md).
+
 Status: Engine-facing M1 complete; M2 walkable Outskirt Stand gate qualified with provisional recovered content; M3 in progress
 Date: 2026-09-26 (original audit 2026-09-20)
 Owner: Astra (scope, architecture, acceptance)

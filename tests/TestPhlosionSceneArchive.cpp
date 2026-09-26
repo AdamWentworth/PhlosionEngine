@@ -13,19 +13,19 @@ bool test_phlosion_scene_archive_contract(std::string& outFail) {
     std::vector<SceneArchiveFile> files;
     files.push_back(
         SceneArchiveFile{
-            "cache/lgpe/test/scene.json",
+            "cache/sample/test/scene.json",
             std::vector<std::uint8_t>(
                 sceneJson.begin(),
                 sceneJson.end())});
     files.push_back(
         SceneArchiveFile{
-            "cache/lgpe/test/geometry.bin",
+            "cache/sample/test/geometry.bin",
             {0u, 1u, 2u, 3u, 255u}});
 
     std::vector<std::uint8_t> encoded;
     std::string error;
     if (!engine::assets::phlosion::encodeSceneArchive(
-            "route1-test",
+            "sample-scene",
             std::move(files),
             encoded,
             &error)) {
@@ -38,9 +38,9 @@ bool test_phlosion_scene_archive_contract(std::string& outFail) {
         outFail = "load failed: " + error;
         return false;
     }
-    if (store.sceneId() != "route1-test" ||
+    if (store.sceneId() != "sample-scene" ||
         store.fileCount() != 2u ||
-        !store.exists("cache/lgpe/test/scene.json") ||
+        !store.exists("cache/sample/test/scene.json") ||
         store.exists("../scene.json")) {
         outFail = "archive identity or virtual path contract changed";
         return false;
@@ -48,11 +48,11 @@ bool test_phlosion_scene_archive_contract(std::string& outFail) {
     std::string decodedJson;
     std::vector<std::uint8_t> decodedGeometry;
     if (!store.readText(
-            "cache/lgpe/test/scene.json",
+            "cache/sample/test/scene.json",
             decodedJson,
             &error) ||
         !store.readBytes(
-            "cache/lgpe/test/geometry.bin",
+            "cache/sample/test/geometry.bin",
             decodedGeometry,
             &error) ||
         decodedJson != sceneJson ||
@@ -81,8 +81,8 @@ bool test_phlosion_scene_archive_contract(std::string& outFail) {
             {1u, 2u, 3u, 4u}});
     encoded.clear();
     if (!engine::assets::phlosion::encodePrefabArchive(
-            "route1/flower02",
-            "LgpeEnvironment",
+            "sample/flower02",
+            "SampleEnvironment",
             R"({"canonical_root":"canonical","motion":"wind"})",
             std::move(files),
             encoded,
@@ -92,8 +92,8 @@ bool test_phlosion_scene_archive_contract(std::string& outFail) {
     }
     engine::assets::phlosion::PrefabArchiveStore prefab;
     if (!prefab.loadBytes(encoded, &error) ||
-        prefab.prefabId() != "route1/flower02" ||
-        prefab.prefabKind() != "LgpeEnvironment" ||
+        prefab.prefabId() != "sample/flower02" ||
+        prefab.prefabKind() != "SampleEnvironment" ||
         prefab.fileCount() != 2u ||
         prefab.metadataJson().find("canonical_root") ==
             std::string::npos) {
@@ -113,18 +113,18 @@ bool test_phlosion_scene_archive_contract(std::string& outFail) {
 
     encoded.clear();
     if (!engine::assets::phlosion::encodePrefabArchive(
-            "route1/tree001",
-            "LgpeEnvironment",
+            "sample/tree001",
+            "SampleEnvironment",
             R"({"canonical_storage":"scene_dependency"})",
             {},
             {engine::assets::phrc::Dependency{
-                "scenes/route1.phscene",
+                "scenes/sample.phscene",
                 0x1234u,
                 engine::assets::phrc::kDependencyRequired}},
             encoded,
             &error) ||
         !prefab.loadBytes(encoded, &error) ||
-        prefab.prefabId() != "route1/tree001" ||
+        prefab.prefabId() != "sample/tree001" ||
         prefab.fileCount() != 0u) {
         outFail =
             "dependency-backed prefab archive did not round-trip: " +

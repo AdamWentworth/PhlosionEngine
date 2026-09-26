@@ -12,39 +12,39 @@ bool test_editor_game_preview_routing_contract(
     constexpr std::array previews{
         GamePreviewRoute{"main-menu", ""},
         GamePreviewRoute{
-            "route1-planning-classic",
-            "routes/route1"},
+            "district-planning",
+            "districts/central"},
         GamePreviewRoute{
-            "route1-battle-classic",
-            "routes/route1"},
+            "district-action",
+            "districts/central"},
         GamePreviewRoute{
-            "route1-5-planning-classic",
-            "routes/route1-5"},
+            "harbor-planning",
+            "districts/harbor"},
     };
 
-    const auto route1 = preferredGamePreviewRoute(
+    const auto central = preferredGamePreviewRoute(
         previews,
-        "routes/route1",
+        "districts/central",
         "main-menu");
     const auto retainedBattle = preferredGamePreviewRoute(
         previews,
-        "routes/route1",
-        "route1-battle-classic");
-    const auto route1_5 = preferredGamePreviewRoute(
+        "districts/central",
+        "district-action");
+    const auto harbor = preferredGamePreviewRoute(
         previews,
-        "routes/route1-5",
-        "route1-planning-classic");
+        "districts/harbor",
+        "district-planning");
     const auto reference = preferredGamePreviewRoute(
         previews,
-        "reference/route1",
+        "reference/central",
         "main-menu");
     const auto empty = preferredGamePreviewRoute(
         {},
-        "routes/route1",
+        "districts/central",
         "main-menu");
 
-    if (route1 != 1u || retainedBattle != 2u ||
-        route1_5 != 3u || reference != 0u || empty) {
+    if (central != 1u || retainedBattle != 2u ||
+        harbor != 3u || reference != 0u || empty) {
         outFail =
             "Game-preview routing should prefer the active scene's first "
             "preview, retain an active preview for that scene, and fall "

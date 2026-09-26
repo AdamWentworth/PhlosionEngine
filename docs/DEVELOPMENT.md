@@ -86,20 +86,12 @@ For isolated automation, use `--hidden`, `--frames=<count>` and
 `--state-directory=<temporary-directory>`. See [editor performance](EDITOR_PERFORMANCE.md)
 for captures, metrics and recording conventions.
 
-## Public exploration course
+## Exploration integration
 
-The asset-independent [exploration sample](EXPLORATION_FIXTURE.md) is opt-in:
-
-```powershell
-cmake --preset vs2026 -B build-presentation -DPHLOSION_BUILD_EXPLORATION_FIXTURE=ON
-cmake --build build-presentation --config Debug --parallel 4
-.\build-presentation\Debug\ExplorationFixtureRuntime.exe --api=d3d12
-```
-
-It composes collision, character movement, sensor events, actions and camera
-framing, with a matching editor Game plugin. The guide covers controls, authored
-settings, isolated replay and native qualification. The fixture option defaults
-off and does not add Collision or Camera to the Engine aggregate.
+The game-owned [exploration preview](EXPLORATION_FIXTURE.md) composes collision,
+character movement, sensor events, actions, and camera framing with an editor
+Game plugin. Build and qualify it from PokemonCyberpunk. This engine retains the
+source-neutral APIs and SDL extension contract tests.
 
 ## Consume the engine
 

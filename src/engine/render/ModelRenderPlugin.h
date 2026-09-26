@@ -6,11 +6,12 @@
 
 namespace engine::render {
 
-inline constexpr std::uint32_t battlePokemonPluginAbi = 1;
+inline constexpr std::uint32_t modelRenderPluginAbi = 1;
+inline constexpr char modelRenderPluginEntryPoint[] = "phlosionModelRenderPluginCreate";
 
-// The temporary battle fixture calls the same cooked-model renderer used by
-// the editor's asset inspector. Strings and frame pointers live for the call.
-struct BattlePokemonFrame {
+// Project renderers may present cooked models outside the asset inspector.
+// Strings and frame pointers live for the call.
+struct ModelRenderFrame {
     IRenderBackend* renderer = nullptr;
     const char* assetId = nullptr;
     const char* phloPath = nullptr;
@@ -29,16 +30,16 @@ struct BattlePokemonFrame {
     int height = 0;
 };
 
-struct BattlePokemonPluginApi {
+struct ModelRenderPluginApi {
     std::uint32_t abi = 0;
     std::uint32_t size = 0;
     void* context = nullptr;
-    bool (*render)(void*, const BattlePokemonFrame*) noexcept = nullptr;
+    bool (*render)(void*, const ModelRenderFrame*) noexcept = nullptr;
     const char* (*lastError)(void*) noexcept = nullptr;
     void (*destroy)(void*) noexcept = nullptr;
 };
 
-using CreateBattlePokemonPlugin =
-    bool (*)(std::uint32_t, BattlePokemonPluginApi*) noexcept;
+using CreateModelRenderPlugin =
+    bool (*)(std::uint32_t, ModelRenderPluginApi*) noexcept;
 
 } // namespace engine::render

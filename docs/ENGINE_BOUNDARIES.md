@@ -5,6 +5,9 @@ content rules, imported-source adapters, scene catalog, and editor extensions.
 Opening a car-racing or shooter project must not initialize, expose, or require
 Pokemon Autochess systems.
 
+The [2026-09-26 boundary audit](ENGINE_GAME_BOUNDARY_AUDIT.md) records the
+Outskirt preview migration and the source-neutral model-render ABI.
+
 ## What every game receives
 
 - platform, window, input, logging, environment, and asset-store primitives;
@@ -58,11 +61,12 @@ then apply returned pose/lens values to the renderer. `Phlosion::Camera` links
 the CPU Collision module and does not choose game input names or migrate the
 runtime/editor camera paths.
 
-The authored course, bindings, NPC route and traversal cases live in
-`examples/exploration_fixture`; their guards and capture tools live in
-`tools/exploration_fixture`. Generic SDL replay and viewport/input policy contain
-no course names or game content. Replay is opt-in automation; its synthetic
-focus and virtual controllers do not establish physical-device qualification.
+The authored exploration course, bindings, NPC route, and traversal cases now
+live in PokemonCyberpunk's `src/game/preview`; its guards and capture tools live
+in that game's `tools/preview`. Generic SDL replay and viewport/input policy
+contain no course names or game content. Replay is opt-in automation; its
+synthetic focus and virtual controllers do not establish physical-device
+qualification.
 
 ## What a project must supply
 
