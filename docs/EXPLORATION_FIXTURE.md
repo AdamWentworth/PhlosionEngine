@@ -39,11 +39,18 @@ four named recovered outdoor meshes: ground,
 paved forecourt, raised train ramp and train body. It rejects missing nodes or
 excessively degenerate geometry, and keeps authored train-side blockers and an
 approach trigger where the render mesh cannot supply gameplay collision. This
-is not extracted game collision. Source materials are converted to the engine's
+is not extracted game collision. The PokemonCyberpunk encounter reads its mesh
+selection, blockers, and sensor from the game's v2 scene config; the separate
+research preview retains its historical fallback. Source materials are converted to the engine's
 opaque material subset and 256-pixel images. The private research guide at
 `D:/Projects/Research/PokemonGCAssetResearch/docs/colosseum/OUTSKIRT_STAND.md`
 records source hashes, conversion limits, collision audit and the native
 idle/blend/walk/run/ramp/wall captures at 16:9 and 21:9.
+The game runs `tools/Verify-Outskirt-Encounter.ps1 -M2Scene` for 108 runtime/editor
+captures at both aspects and all three APIs: idle, walk, run, recovered ramp,
+blocked train side, reset, synthetic focus loss/resume, and virtual controller
+reconnect. The recovered outdoor scene has no qualified visible step case, and
+physical device/focus and deferred editor toolbar checks remain separate.
 Neither the final M2 scene gate nor the M3 double-battle gate is closed by this
 preview.
 

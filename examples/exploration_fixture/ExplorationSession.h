@@ -29,6 +29,8 @@ struct OutskirtEncounterScene {
     float interactionRadius = 2.0f;
     std::string willieModel;
     std::string willieIdleAnimation;
+    std::vector<std::string> collisionMeshNodes;
+    std::vector<CourseBox> collisionBoxes;
 };
 
 class ExplorationSession {

@@ -276,6 +276,17 @@ are corroborated by traces. Manual editor toolbar transitions are deferred by
 the user; reported physical unplug/reconnect has no SDL inventory transition
 in the trace. Final character/environment fitting remains a separate gate.
 
+On 2026-09-26, the PokemonCyberpunk provisional Outskirt scene passed its
+game-owned nine-phase M2 replay: 108 captures across both hosts, 16:9/21:9,
+and OpenGL/Vulkan/D3D12. The verifier checked authored collision selection,
+recovered ramp support, wall blocking, reset, synthetic focus loss/resume,
+virtual-controller reconnect, visible Wes/environment pixels, and state parity.
+All 54 runtime/editor viewport pairs were pixel identical; the 72 cross-API
+pairs had maximum MAE 0.785/255 and 1.89% pixels changing by more than eight.
+Evidence is in `PokemonCyberpunk/artifacts/outskirt-m2-scene/report.json`.
+The synthetic transitions do not establish physical device/OS behavior, and
+the scene has no qualified visible step case.
+
 On 2026-09-22, Astra accepted [M2-E's exploration camera](agent-work/cyberpunk-m2-camera/ACCEPTANCE.md)
 from M2-D commit `bd76391`. The final enabled VS2026 Debug build passed, and all
 fifteen CTest entries passed in 333.88 seconds; the camera entry took 0.10 seconds.

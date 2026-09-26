@@ -1,7 +1,7 @@
 # Cyberpunk engine readiness audit
 
-Status: Engine-facing M1 complete; M2-A through F asset-independent implementation and automated qualification accepted; final game assets and deferred manual editor checks remain
-Date: 2026-09-22 (original audit 2026-09-20)
+Status: Engine-facing M1 complete; M2-A through F accepted; provisional game-owned Outskirt collision and 108-capture native scene replay qualified; M2 exit gate remains open
+Date: 2026-09-26 (original audit 2026-09-20)
 Owner: Astra (scope, architecture, acceptance)
 Audited engine baseline: `c17d2122bd36b3c3bb49c4e703900f40cccfbd76` (`main`)
 
@@ -472,6 +472,21 @@ and Blender preview evidence. Material fidelity, full routes and physical
 controls on this provisional scene, final replacement content and manual editor
 toolbar checks still leave the M2 gate open. M3 battle integration has not yet
 been claimed.
+
+On 2026-09-26, PokemonCyberpunk moved the Outskirt encounter's four collision
+mesh choices, three authored boxes (including the approach sensor), and their
+validation into its v2 scene data. The shared engine fixture loads these values
+for that game scene while retaining its historical `outskirt` research case.
+The game's nine-phase M2 replay passed 108 matching-frame captures across
+runtime/editor, 16:9/21:9, and OpenGL/Vulkan/D3D12. Checks cover visible Wes,
+train and forecourt content, walk/run, recovered ramp support, train-side wall
+blocking, reset, synthetic focus loss/resume and virtual-controller reconnect.
+All 54 runtime/editor image pairs are identical; 72 cross-API comparisons have
+maximum MAE 0.785/255 and 1.89% pixels changing by more than eight. The public
+course still owns the generic stair/step contract: no visible Outskirt step
+case has been qualified. Physical focus/device behavior in this scene and the
+deferred editor toolbar checks remain open, as do game-owned camera settings
+and replacement-content fitting. This is M2 progress, not the M2 exit gate.
 
 ### M3-A: asset-independent animation blend foundation (qualified 2026-09-22)
 
@@ -1048,8 +1063,10 @@ Progress: M2-A's static queries, M2-B's CPU kinematic controller, M2-C's discret
 trigger samples, M2-D's named actions/SDL controller adapter and M2-E's CPU
 exploration camera are accepted. M2-F adds the shared public course and accepted
 automated native runtime/editor integration, with basic physical controls also
-exercised. Deferred manual editor checks and the actual-asset walkable-scene exit
-gate below remain outstanding. Trigger
+exercised. The provisional game's v2 scene data and 108-capture replay now cover
+its recovered collision, ramp, blocker, reset and synthetic device/focus cases.
+Visible Outskirt steps, physical-device and deferred editor toolbar checks, and
+replacement-content fitting remain outside the exit gate. Trigger
 sampling does not guarantee events for complete
 crossings between samples; the camera probe does not qualify full-frustum or
 swept-trajectory clearance.

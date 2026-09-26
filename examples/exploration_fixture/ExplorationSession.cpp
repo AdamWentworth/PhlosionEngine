@@ -6,6 +6,7 @@
 #include <array>
 #include <fstream>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace engine::exploration_fixture {
 namespace {
@@ -17,7 +18,7 @@ OutskirtEncounterScene loadEncounterScene() {
     std::ifstream file(*path);
     require(bool(file), "Cannot read Outskirt encounter scene: " + *path);
     const auto scene = nlohmann::json::parse(file);
-    require(scene.at("schema") == "pokemon-cyberpunk-outskirt-encounter-v1", "Unexpected Outskirt encounter schema");
+    require(scene.at("schema") == "pokemon-cyberpunk-outskirt-encounter-v2", "Unexpected Outskirt encounter schema");
     OutskirtEncounterScene result;
     auto position = [](const nlohmann::json& value) {
         require(value.is_array() && value.size() == 3, "Encounter position needs three coordinates");
@@ -29,6 +30,34 @@ OutskirtEncounterScene loadEncounterScene() {
     result.interactionRadius = scene.at("interaction_radius").get<float>();
     result.willieModel = scene.at("willie_model").get<std::string>();
     result.willieIdleAnimation = scene.at("willie_idle_animation").get<std::string>();
+    const auto& collision = scene.at("collision");
+    const auto& meshNodes = collision.at("mesh_nodes");
+    require(meshNodes.is_array() && !meshNodes.empty(), "Outskirt collision needs mesh nodes");
+    std::unordered_set<std::string> names;
+    for (const auto& value : meshNodes) {
+        const auto name = value.get<std::string>();
+        require(!name.empty() && names.insert(name).second,
+                "Outskirt collision mesh names must be unique");
+        result.collisionMeshNodes.push_back(name);
+    }
+    const auto& boxes = collision.at("boxes");
+    require(boxes.is_array(), "Outskirt collision boxes must be an array");
+    for (const auto& value : boxes) {
+        CourseBox box;
+        box.name = value.at("name").get<std::string>();
+        box.center = position(value.at("center"));
+        box.half = position(value.at("half_extents"));
+        box.pitch = glm::radians(value.value("pitch_degrees", 0.0f));
+        box.sensor = value.value("sensor", false);
+        require(!box.name.empty() && names.insert(box.name).second,
+                "Outskirt collision names must be unique");
+        require(std::isfinite(box.center.x) && std::isfinite(box.center.y) &&
+                std::isfinite(box.center.z) && std::isfinite(box.half.x) &&
+                std::isfinite(box.half.y) && std::isfinite(box.half.z) &&
+                std::isfinite(box.pitch) && glm::all(glm::greaterThan(box.half, glm::vec3(0))),
+                "Invalid Outskirt collision box");
+        result.collisionBoxes.push_back(box);
+    }
     require(std::isfinite(result.interactionRadius) && result.interactionRadius > 0.5f && result.interactionRadius < 5.0f,
             "Invalid Outskirt interaction radius");
     require(std::isfinite(result.playerSpawn.x) && std::isfinite(result.playerSpawn.y) && std::isfinite(result.playerSpawn.z) &&
@@ -39,7 +68,8 @@ OutskirtEncounterScene loadEncounterScene() {
     result.willieModel = *root + "/" + result.willieModel;
     return result;
 }
-void addOutskirtSurfaceCollision(collision::CollisionWorld& world) {
+void addOutskirtSurfaceCollision(collision::CollisionWorld& world,
+                                 const std::vector<std::string>& names) {
     using namespace render::gltf::scene;
     const auto path = env::get("PHLOSION_OUTSKIRT_ENVIRONMENT_GLB");
     require(path && !path->empty(), "Outskirt collision requires PHLOSION_OUTSKIRT_ENVIRONMENT_GLB");
@@ -50,20 +80,15 @@ void addOutskirtSurfaceCollision(collision::CollisionWorld& world) {
     GltfScenePose pose;
     const bool sampled = sampleGltfScenePose(asset, 0, kBindPoseClip, pose, &error);
     require(sampled, error);
-    // These separate recovered mesh nodes contain the ground, paved forecourt,
-    // raised train ramp and train body. Keep the provisional trigger authored.
-    constexpr std::array<const char*, 4> names{
-        "S1_out_mesh_1.001", "S1_out_mesh_007",
-        "S1_out_mesh_0.002", "S1_out_mesh_094"};
     for (std::size_t meshIndex = 0; meshIndex < names.size(); ++meshIndex) {
         const GltfScenePrimitive* selected = nullptr;
         for (const auto& primitive : asset->primitives) {
             if (asset->nodes.at(static_cast<std::size_t>(primitive.nodeIndex)).name == names[meshIndex]) {
-                require(selected == nullptr, std::string("duplicate Outskirt collision node: ") + names[meshIndex]);
+                require(selected == nullptr, "duplicate Outskirt collision node: " + names[meshIndex]);
                 selected = &primitive;
             }
         }
-        require(selected != nullptr, std::string("missing Outskirt collision node: ") + names[meshIndex]);
+        require(selected != nullptr, "missing Outskirt collision node: " + names[meshIndex]);
         const glm::mat4& transform = pose.global.at(static_cast<std::size_t>(selected->nodeIndex));
         std::vector<glm::vec3> vertices;
         vertices.reserve(selected->vertices.size());
@@ -84,13 +109,13 @@ void addOutskirtSurfaceCollision(collision::CollisionWorld& world) {
             indices.insert(indices.end(), {a, b, c});
         }
         require(!indices.empty() && degenerate * 10 <= selected->indices.size() / 3,
-                std::string(names[meshIndex]) + ": excessive degenerate collision triangles (" +
+                names[meshIndex] + ": excessive degenerate collision triangles (" +
                 std::to_string(degenerate) + ")");
         collision::StaticColliderDesc desc;
         desc.userData = meshIndex + 1;
         collision::ColliderId collider;
         const bool added = world.addTriangleMesh(desc, vertices, indices, collider, &error);
-        require(added, std::string(names[meshIndex]) + ": " + error);
+        require(added, names[meshIndex] + ": " + error);
     }
 }
 }
@@ -167,9 +192,17 @@ ExplorationSession::ExplorationSession(std::string name, bool automation, camera
     actions_.setEnabled(false);
     if (case_ == "outskirt-encounter") encounterScene_ = loadEncounterScene();
     const bool outskirt = case_ == "outskirt" || encounterScene_.has_value();
-    if (outskirt) addOutskirtSurfaceCollision(world_);
+    if (outskirt) {
+        static const std::vector<std::string> fallbackMeshNodes{
+            "S1_out_mesh_1.001", "S1_out_mesh_007",
+            "S1_out_mesh_0.002", "S1_out_mesh_094"};
+        addOutskirtSurfaceCollision(world_, encounterScene_ ?
+                                    encounterScene_->collisionMeshNodes : fallbackMeshNodes);
+    }
     std::uint64_t id = outskirt ? 100 : 1;
-    for (const auto& box : outskirt ? outskirtCourse() : course()) {
+    const auto& boxes = encounterScene_ ? encounterScene_->collisionBoxes :
+                        outskirt ? outskirtCourse() : course();
+    for (const auto& box : boxes) {
         collision::StaticColliderDesc d; d.position = box.center; d.rotation = glm::angleAxis(box.pitch,glm::vec3(1,0,0)); d.sensor = box.sensor; d.userData = id++;
         collision::ColliderId collider; require(world_.addBox(d,box.half,collider,&error),error);
     }
