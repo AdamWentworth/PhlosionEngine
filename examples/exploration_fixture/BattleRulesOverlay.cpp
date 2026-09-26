@@ -8,6 +8,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <stdexcept>
 #include <unordered_map>
@@ -133,9 +134,22 @@ struct Layout {
     }
     Rect title() const { return {38.0f*s, height - 155.0f*s, 236.0f*s, 36.0f*s}; }
     Rect menu() const { return {38.0f*s, height - 121.0f*s, 280.0f*s, 82.0f*s}; }
+    Rect commandRect(float x, float y, float w, float h) const {
+        return {x*statusScale, height - (480.0f-y)*statusScale,
+                w*statusScale, h*statusScale};
+    }
     Rect option(const std::string& screen, int index) const {
+        if (screen == "command" && index < 4)
+            return commandRect(index >= 2 ? 201.0f : 61.0f,
+                               index % 2 ? 393.0f : 365.0f, 125.0f, 27.0f);
+        if (screen == "move") {
+            if (index >= 4) return {0,0,0,0};
+            return commandRect(index >= 2 ? 244.0f : 61.0f,
+                               index % 2 ? 393.0f : 365.0f,
+                               index >= 2 ? 155.0f : 181.0f, 28.0f);
+        }
         const auto m = menu();
-        if (screen == "command" || screen == "move") {
+        if (screen == "command") {
             if (index >= 4) return {title().x + title().w - 58.0f*s,
                                     title().y + 9.0f*s, 52.0f*s, 24.0f*s};
             const int column = index / 2;
@@ -156,6 +170,8 @@ void fallbackTextLabel(std::vector<Quad>& quads, const std::string& value,
 
 struct FontAtlas {
     std::string path;
+    bool retail = false;
+    int cell = 24, columns = 21;
     std::array<int, 96> advances{};
     std::vector<unsigned char> alpha;
     explicit FontAtlas(const std::string& png) : path(png) {
@@ -164,12 +180,16 @@ struct FontAtlas {
         if (!(file >> manifest) ||
             std::filesystem::path(manifest.at("atlas").get<std::string>()).filename() !=
                 std::filesystem::path(png).filename() ||
-            manifest.at("cell") != nlohmann::json::array({24, 24}) ||
-            manifest.at("columns") != 21 ||
             manifest.at("texture_size") != nlohmann::json::array({512, 512}) ||
             manifest.at("first_codepoint") != 32 ||
             manifest.at("advances_ascii").size() != advances.size())
             throw std::runtime_error("Invalid GameCube battle font manifest");
+        cell = manifest.at("cell").at(0).get<int>();
+        columns = manifest.at("columns").get<int>();
+        if (manifest.at("cell") != nlohmann::json::array({cell,cell}) ||
+            !((cell == 24 && columns == 21) || (cell == 32 && columns == 16)))
+            throw std::runtime_error("Invalid GameCube battle font grid");
+        retail = manifest.contains("source_sha1") && manifest.contains("font_id");
         for (std::size_t i = 0; i < advances.size(); ++i)
             advances[i] = manifest.at("advances_ascii").at(i).get<int>();
         int width = 0, height = 0, channels = 0;
@@ -186,8 +206,7 @@ struct FontAtlas {
 
 void textLabel(std::vector<Quad>& quads, const FontAtlas& font,
                const std::string& value,
-               float x, float y, Color color, float scale, int maxChars,
-               float heightScale = 1.0f, bool bold = false) {
+               float x, float y, Color color, float scale, int maxChars) {
     if (font.path.empty()) {
         fallbackTextLabel(quads, value, x, y, color, scale, maxChars);
         return;
@@ -199,23 +218,23 @@ void textLabel(std::vector<Quad>& quads, const FontAtlas& font,
         if (c < 32 || c > 127) continue;
         const int index = c - 32;
         if (c != ' ') {
-            const int glyphWidth = std::max(1, static_cast<int>(std::round(24.0f * glyphScale)));
+            const int glyphWidth = std::max(1, static_cast<int>(std::round(font.cell * glyphScale)));
             const int glyphHeight = std::max(1, static_cast<int>(std::round(
-                24.0f * glyphScale * heightScale)));
-            const int atlasX = (index % 21) * 24;
-            const int atlasY = (index / 21) * 24;
+                font.cell * glyphScale)));
+            const int atlasX = (index % font.columns) * font.cell;
+            const int atlasY = (index / font.columns) * font.cell;
             const auto drawGlyph = [&](Color tint, float offset) {
                 for (int row = 0; row < glyphHeight; ++row) {
-                    const int sampleY = atlasY + row * 24 / glyphHeight;
+                    const int sampleY = atlasY + row * font.cell / glyphHeight;
                     for (int col = 0; col < glyphWidth;) {
-                        const int sampleX = atlasX + col * 24 / glyphWidth;
+                        const int sampleX = atlasX + col * font.cell / glyphWidth;
                         const unsigned char opacity = font.alpha[sampleY * 512 + sampleX];
                         if (!opacity) { ++col; continue; }
                         const int start = col;
                         do {
                             ++col;
                         } while (col < glyphWidth &&
-                            font.alpha[sampleY * 512 + atlasX + col * 24 / glyphWidth] == opacity);
+                            font.alpha[sampleY * 512 + atlasX + col * font.cell / glyphWidth] == opacity);
                         box(quads, std::round(x + offset) + start,
                             std::round(y + offset) + row,
                             static_cast<float>(col - start), 1.0f,
@@ -223,8 +242,7 @@ void textLabel(std::vector<Quad>& quads, const FontAtlas& font,
                     }
                 }
             };
-            drawGlyph(shadow, 1.0f);
-            if (bold) drawGlyph(color, 1.0f);
+            drawGlyph(font.retail ? Color{0, 0, 0, .75f} : shadow, 1.0f);
             drawGlyph(color, 0.0f);
         }
         x += (font.advances[index] + 1.0f) * glyphScale;
@@ -246,26 +264,60 @@ float fittedTextScale(const FontAtlas& font, const std::string& value,
     return width > availableWidth ? preferred * availableWidth / width : preferred;
 }
 
-void softMessagePanel(std::vector<Quad>& quads, Rect rect, float scale) {
-    const int height = static_cast<int>(std::round(rect.h));
-    const float fade = 9.0f * scale;
-    const float radius = 13.0f * scale;
-    for (int row = 0; row < height; ++row) {
-        const float dy = std::min(row + .5f, height - row - .5f);
-        const float vertical = std::min(1.0f, dy / fade);
-        const float corner = dy < radius ?
-            radius - std::sqrt(std::max(0.0f, radius * radius -
-                                       (radius - dy) * (radius - dy))) : 0.0f;
-        for (int edge = 0; edge < 9; ++edge) {
-            const float opacity = .72f * vertical * (edge + .5f) / 9.0f;
-            box(quads, rect.x + corner + edge * scale, rect.y + row,
-                scale, 1.0f, {0, 0, 0, opacity});
-            box(quads, rect.x + rect.w - corner - (edge + 1) * scale,
-                rect.y + row, scale, 1.0f, {0, 0, 0, opacity});
+std::pair<float, float> messageInkRows(const FontAtlas& font,
+                                      const std::vector<std::string>& lines,
+                                      float scale, float linePitch) {
+    const int glyphSize = std::max(1, static_cast<int>(std::round(
+        font.cell * scale * (7.0f / 18.0f))));
+    float top = std::numeric_limits<float>::infinity();
+    float bottom = -std::numeric_limits<float>::infinity();
+    for (std::size_t line = 0; line < lines.size(); ++line) {
+        for (unsigned char c : lines[line]) {
+            if (c <= 32 || c > 127) continue;
+            const int index = c - 32;
+            const int atlasX = (index % font.columns) * font.cell;
+            const int atlasY = (index / font.columns) * font.cell;
+            for (int row = 0; row < glyphSize; ++row) {
+                const int sampleY = atlasY + row * font.cell / glyphSize;
+                for (int col = 0; col < glyphSize; ++col) {
+                    if (font.alpha[sampleY * 512 + atlasX +
+                                   col * font.cell / glyphSize] < 128) continue;
+                    const float y = static_cast<float>(line) * linePitch + row;
+                    top = std::min(top, y);
+                    bottom = std::max(bottom, y + 1.0f);
+                    break;
+                }
+            }
         }
-        box(quads, rect.x + corner + fade, rect.y + row,
-            rect.w - 2.0f * (corner + fade), 1.0f,
-            {0, 0, 0, .72f * vertical});
+    }
+    return std::isfinite(top) ? std::pair{top, bottom} :
+        std::pair{0.0f, static_cast<float>(glyphSize)};
+}
+
+void softMessagePanel(std::vector<Quad>& quads, Rect rect, float scale) {
+    // fn_8001EC08 draws an inner/outer vertex fan at radii 15/30.
+    const float inner = 15.0f * scale, outer = 30.0f * scale;
+    const int first = static_cast<int>(std::floor(rect.y - outer));
+    const int last = static_cast<int>(std::ceil(rect.y + rect.h + outer));
+    for (int row = first; row < last; ++row) {
+        const float cy = row + .5f;
+        const float dy = std::max({rect.y - cy, cy - rect.y - rect.h, 0.0f});
+        if (dy >= outer) continue;
+        const auto opacity = [&](float x) {
+            const float dx = std::max({rect.x - x, x - rect.x - rect.w, 0.0f});
+            const float distance = std::sqrt(dx*dx + dy*dy);
+            return .5f * std::clamp((outer - distance) / (outer - inner), 0.0f, 1.0f);
+        };
+        box(quads, rect.x, static_cast<float>(row), rect.w, 1.0f,
+            {0,0,0,opacity(rect.x + rect.w*.5f)});
+        for (int edge = 0; edge < static_cast<int>(std::ceil(outer)); ++edge) {
+            const float left = rect.x - edge - 1.0f;
+            const float right = rect.x + rect.w + edge;
+            box(quads, left, static_cast<float>(row), 1.0f, 1.0f,
+                {0,0,0,opacity(left + .5f)});
+            box(quads, right, static_cast<float>(row), 1.0f, 1.0f,
+                {0,0,0,opacity(right + .5f)});
+        }
     }
 }
 
@@ -331,14 +383,73 @@ int targetPartyIndex(const nlohmann::json& state, int optionIndex) {
     return -1;
 }
 
-void targetArrow(std::vector<Quad>& quads, Rect portrait, bool ally, float s) {
-    const float x = ally ? portrait.x + portrait.w + 3*s : portrait.x - 17*s;
-    const float y = portrait.y + (portrait.h - 15*s)*.5f;
-    for (int row = 0; row < 15; ++row) {
-        const int extent = 7 - std::abs(row - 7);
-        box(quads, x + (ally ? 11 - extent : 0)*s, y + row*s,
-            (4 + extent)*s, s, selected);
+IRenderBackend::DebugSprite targetCursorSprite(const std::string& atlas,
+                                                const Layout& layout, int target) {
+    // Menu 0xFF, items 0x1258..0x125B; negative source widths mirror allies.
+    constexpr std::array<Rect, 4> positions{{
+        {232,61,30,32}, {208,127,30,32},
+        {348,61,30,32}, {371,127,30,32}}};
+    const auto source = positions[target];
+    const float t = layout.statusScale;
+    const float x = target < 2 ? source.x*t :
+                    layout.width - (640.0f-source.x)*t;
+    auto sprite = croppedSprite(atlas,
+        {x,source.y*t,source.w*t,source.h*t}, {214,204,30,32}, 256,239);
+    if (target < 2) std::swap(sprite.u0, sprite.u1);
+    return sprite;
+}
+
+std::vector<std::string> battleMessageLines(const nlohmann::json& state) {
+    const std::string message = state.at("message").get<std::string>();
+    const auto used = message.find(" USED ");
+    if (used != std::string::npos) {
+        const auto moveStart = used + 6;
+        // Move names may contain spaces, so stop only at the result separator.
+        const auto result = message.find(" ON ", moveStart);
+        const auto missed = message.find(" - MISSED", moveStart);
+        const auto end = result != std::string::npos ? result : missed;
+        if (end != std::string::npos) {
+            if (missed != std::string::npos && state.value("action_delay", 0) >= 12)
+                return {upperAscii(message.substr(0,used)) + "'s attack missed!"};
+            if (message.find(" - NO EFFECT") != std::string::npos &&
+                state.value("action_delay", 0) >= 12)
+                return {"It doesn't affect " +
+                        upperAscii(message.substr(result + 4,
+                            message.find(" - ",result) - result - 4)) + "..."};
+            if (message.find(" FAINTED") != std::string::npos &&
+                state.value("action_delay", 0) >= 12) {
+                const auto fainted = message.find(" FAINTED");
+                const auto nameStart = message.rfind(" - ", fainted);
+                if (nameStart != std::string::npos)
+                    return {upperAscii(message.substr(nameStart + 3, fainted-nameStart-3)) +
+                            " fainted!"};
+            }
+            // Fight message 0x768D inserts msgctrlCR (control 0) after "used".
+            return {upperAscii(message.substr(0,used)) + " used",
+                    upperAscii(message.substr(moveStart,end-moveStart)) + "!"};
+        }
     }
+    auto possessive = message.find("'s ");
+    if (possessive == std::string::npos) possessive = message.find("'S ");
+    const auto finalSpace = message.rfind(' ');
+    if (possessive != std::string::npos && finalSpace != std::string::npos &&
+        finalSpace > possessive + 3) {
+        const auto ending = message.substr(finalSpace + 1);
+        if (ending == "fell!" || ending == "rose!")
+            return {upperAscii(message.substr(0,possessive)) + "'s",
+                    upperAscii(message.substr(possessive + 3,
+                                              finalSpace - possessive - 3)),
+                    ending};
+    }
+    std::vector<std::string> lines;
+    std::size_t start = 0;
+    do {
+        const auto end = message.find('\n', start);
+        lines.push_back(message.substr(start, end == std::string::npos ? end : end-start));
+        if (end == std::string::npos) break;
+        start = end + 1;
+    } while (true);
+    return lines;
 }
 
 void partyBalls(std::vector<Quad>& quads, float x, float y, float s) {
@@ -368,16 +479,31 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
                             const std::string& portraitRoot,
                             const std::string& fontAtlasPath,
                             const std::string& portraitFrameAtlasPath,
-                            const std::string& statusDetailAtlasPath) {
+                            const std::string& statusDetailAtlasPath,
+                            const std::string& commandFrameAtlasPath,
+                            const std::string& commandFontAtlasPath,
+                            const std::string& moveFontAtlasPath,
+                            const std::string& messageFontAtlasPath,
+                            const std::string& moveTypeAtlasPath) {
     if (width <= 0 || height <= 0) return;
     const Layout layout(width, height);
     const auto s = layout.s;
     static std::unordered_map<std::string, FontAtlas> fonts;
     const auto& font = fonts.try_emplace(fontAtlasPath, fontAtlasPath).first->second;
+    const auto& commandFont = fonts.try_emplace(commandFontAtlasPath,
+        commandFontAtlasPath).first->second;
+    const auto& moveFont = fonts.try_emplace(moveFontAtlasPath,
+        moveFontAtlasPath).first->second;
+    const auto& messageFont = fonts.try_emplace(messageFontAtlasPath,
+        messageFontAtlasPath).first->second;
     std::vector<Quad> underlay;
     underlay.reserve(48);
+    std::vector<Quad> messagePanel;
     const auto& party = state.at("party");
     const std::string screen = state.at("screen").get<std::string>();
+    const auto narration = screen == "resolving" ? battleMessageLines(state) :
+        std::vector<std::string>{};
+    float messageScale = 0.0f, messageLinePitch = 0.0f, messageTextY = 0.0f;
     const int highlighted = state.at("actor").get<int>();
     const int target = screen == "target" ?
         targetPartyIndex(state, state.at("cursor").get<int>()) : -1;
@@ -438,10 +564,95 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
     const auto title = layout.title();
     const auto menu = layout.menu();
     if (screen == "resolving") {
-        softMessagePanel(underlay,
-            {25.0f*s, height - 112.0f*s, 242.0f*s, 102.0f*s}, s);
+        const float t = layout.statusScale;
+        const float preferred = (18.0f/7.0f)*t;
+        messageScale = preferred;
+        for (const auto& line : narration)
+            messageScale = std::min(messageScale,
+                fittedTextScale(messageFont,line,preferred,523.0f*t));
+        float messageWidth = 0.0f;
+        for (const auto& line : narration)
+            messageWidth = std::max(messageWidth,textWidth(messageFont,line,messageScale));
+        // Font 0 advances one line by its 22-pixel nominal height plus the
+        // 11-pixel default line-space value set by GSmsgGetRect.
+        messageLinePitch = 33.0f*t;
+        const float panelHeight = 24.0f*t +
+            messageLinePitch*static_cast<float>(narration.size()-1);
+        const float panelY = height - 42.0f*t - panelHeight;
+        const auto [inkTop, inkBottom] = messageInkRows(
+            messageFont, narration, messageScale, messageLinePitch);
+        messageTextY = panelY + (panelHeight - (inkBottom-inkTop))*0.5f - inkTop;
+        softMessagePanel(messagePanel,
+            {53.0f*t, panelY,
+             std::max(t,messageWidth - t), panelHeight}, t);
     } else if (screen == "target") {
         // Colosseum leaves the field clear while the portrait arrow chooses a target.
+    } else if (screen == "command") {
+        constexpr std::array<Rect, 5> destinations{{
+            {37,319,32,122}, {69,319,203,122}, {272,319,32,122},
+            {304,353,8,88}, {312,353,32,88}}};
+        constexpr std::array<Rect, 5> sources{{
+            {0,0,32,122}, {32,0,8,122}, {40,0,32,122},
+            {72,34,8,88}, {112,34,32,88}}};
+        for (std::size_t index = 0; index < destinations.size(); ++index) {
+            const auto dest = destinations[index];
+            sprites.push_back(croppedSprite(commandFrameAtlasPath,
+                layout.commandRect(dest.x,dest.y,dest.w,dest.h),
+                sources[index], 240, 200));
+        }
+        const int cursor = state.at("cursor").get<int>();
+        if (cursor >= 0 && cursor < 4) {
+            const float x = cursor >= 2 ? 206.0f : 66.0f;
+            const float y = cursor % 2 ? 402.0f : 374.0f;
+            sprites.push_back(croppedSprite(commandFrameAtlasPath,
+                layout.commandRect(x,y+3,6,12), {109,127,6,12}, 240, 200));
+            sprites.push_back(croppedSprite(commandFrameAtlasPath,
+                layout.commandRect(x+6,y,10,18), {110,148,10,18}, 240, 200));
+        }
+    } else if (screen == "move") {
+        // Retail menu 0x4C, items 0xB9..0xC0 in GC6E01 Start.dol.
+        constexpr std::array<Rect, 8> destinations{{
+            {37,319,32,122}, {69,319,203,122}, {272,319,32,122},
+            {304,353,76,88}, {380,353,32,88}, {412,353,159,88},
+            {571,353,32,88}, {404,373,95,46}}};
+        constexpr std::array<Rect, 8> sources{{
+            {0,0,32,122}, {32,0,8,122}, {40,0,32,122},
+            {72,34,8,88}, {80,34,32,88}, {72,34,8,88},
+            {112,34,32,88}, {2,122,94,46}}};
+        for (std::size_t index = 0; index < sources.size(); ++index) {
+            const auto dest = destinations[index];
+            sprites.push_back(croppedSprite(commandFrameAtlasPath,
+                layout.commandRect(dest.x,dest.y,dest.w,dest.h),
+                sources[index], 240, 200));
+        }
+        const int cursor = state.at("cursor").get<int>();
+        if (cursor >= 0 && cursor < 4) {
+            const float x = cursor >= 2 ? 234.0f : 66.0f;
+            const float y = cursor % 2 ? 402.0f : 374.0f;
+            sprites.push_back(croppedSprite(commandFrameAtlasPath,
+                layout.commandRect(x,y+3,6,12), {109,127,6,12}, 240, 200));
+            sprites.push_back(croppedSprite(commandFrameAtlasPath,
+                layout.commandRect(x+6,y,10,18), {110,148,10,18}, 240, 200));
+            const auto& moves = party[state.at("actor").get<int>()].at("moves");
+            if (cursor < static_cast<int>(moves.size())) {
+                const std::string type = moves.at(cursor).at("type").get<std::string>();
+                constexpr std::array<std::pair<const char*, Rect>, 17> badges{{
+                    {"grass", {6,7,79,27}}, {"flying", {90,7,79,27}},
+                    {"poison", {173,6,79,27}}, {"water", {6,38,79,27}},
+                    {"psychic", {90,38,79,27}}, {"ground", {6,69,79,27}},
+                    {"ghost", {90,69,79,27}}, {"fire", {6,100,79,27}},
+                    {"rock", {90,100,79,27}}, {"fighting", {6,131,79,27}},
+                    {"steel", {90,131,79,27}}, {"dark", {6,162,79,27}},
+                    {"electric", {90,162,79,27}}, {"normal", {6,193,79,27}},
+                    {"dragon", {90,193,79,27}}, {"bug", {6,224,79,27}},
+                    {"ice", {90,224,79,27}}}};
+                Rect source{173,38,79,27}; // Retail ??? badge for an unknown type.
+                for (const auto& [name, crop] : badges)
+                    if (type == name) { source = crop; break; }
+                sprites.push_back(croppedSprite(moveTypeAtlasPath,
+                    layout.commandRect(502,393,79,28), source, 258, 258));
+            }
+        }
     } else {
         commandPanel(underlay, title, s);
         commandPanel(underlay, menu, s);
@@ -450,8 +661,15 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
                layout.statusScale);
     partyBalls(underlay, width - 114*layout.statusScale,
                34*layout.statusScale, layout.statusScale);
-    renderer.drawDebugQuads(underlay.data(), underlay.size(), width, height);
+    for (std::size_t first = 0; first < underlay.size(); first += 3500)
+        renderer.drawDebugQuads(underlay.data() + first,
+                                std::min<std::size_t>(3500,underlay.size()-first),
+                                width,height);
     renderer.drawDebugSprites(sprites.data(), sprites.size(), width, height);
+    for (std::size_t first = 0; first < messagePanel.size(); first += 3500)
+        renderer.drawDebugQuads(messagePanel.data() + first,
+                                std::min<std::size_t>(3500,messagePanel.size()-first),
+                                width,height);
 
     std::vector<Quad> quads;
     quads.reserve(16000);
@@ -498,69 +716,91 @@ void drawBattleRulesOverlay(IRenderBackend& renderer, const nlohmann::json& stat
     const std::string heading = screen == "command" || screen == "move"
         ? party[state.at("actor").get<int>()].at("name").get<std::string>()
         : screen == "resolving" ? "BATTLE" : state.at("title").get<std::string>();
-    if (screen != "resolving" && screen != "target")
+    if (screen == "command" || screen == "move") {
+        const auto name = upperAscii(heading);
+        const auto origin = layout.commandRect(62, 330, 0, 0); // C1/B4 item at y=332, text offset -2.
+        const float preferred = (18.0f/7.0f)*layout.statusScale;
+        textLabel(quads, commandFont, name, origin.x, origin.y, ink,
+                  fittedTextScale(commandFont, name, preferred,
+                                  225*layout.statusScale), 28);
+    } else if (screen != "resolving" && screen != "target") {
         textLabel(quads, font, upperAscii(heading), title.x + 14*s, title.y + 11*s,
                   ink, fittedTextScale(font, upperAscii(heading), 2.2f*s,
                                        title.w - 27*s), 28);
+    }
     if (screen == "resolving") {
-        std::string message = upperAscii(state.at("message").get<std::string>());
-        std::vector<std::string> lines;
-        const auto used = message.find(" USED ");
-        const auto on = message.find(" ON ", used == std::string::npos ? 0 : used + 6);
-        const auto missed = message.find(" - MISSED", used == std::string::npos ? 0 : used + 6);
-        if (used != std::string::npos && (on != std::string::npos || missed != std::string::npos)) {
-            const auto moveEnd = on != std::string::npos ? on : missed;
-            lines.push_back(message.substr(0, used) + " used");
-            lines.push_back(message.substr(used + 6, moveEnd - used - 6) + "!");
-            if (missed != std::string::npos) lines.push_back("But it missed!");
-            else if (message.find(" - NO EFFECT") != std::string::npos)
-                lines.push_back("It had no effect...");
-            else if (message.find(" FAINTED") != std::string::npos)
-                lines.push_back(message.substr(on + 4, message.find(" - ", on) - on - 4) +
-                                " fainted!");
-        } else {
-            for (int line = 0; line < 3 && !message.empty(); ++line) {
-                std::size_t split = message.size() > 23 ? message.rfind(' ', 23) :
-                                    std::string::npos;
-                if (split == std::string::npos || split < 8) split = message.size();
-                lines.push_back(message.substr(0, split));
-                message.erase(0, std::min(message.size(), split + 1));
-            }
-        }
-        for (std::size_t line = 0; line < lines.size() && line < 3; ++line) {
-            textLabel(quads, font, lines[line],
-                      43.0f*s, height - (96.0f - 27.0f*line)*s,
-                      ink, 2.35f*s, 25);
-        }
+        const float t = layout.statusScale;
+        for (std::size_t line = 0; line < narration.size(); ++line)
+            textLabel(quads, messageFont, narration[line],
+                      53.0f*t, messageTextY + messageLinePitch*static_cast<float>(line),
+                      ink, messageScale, static_cast<int>(narration[line].size()));
     }
     const auto& options = state.at("options");
-    for (int i = 0; screen != "target" && i < static_cast<int>(options.size()) && i < 5; ++i) {
+    for (int i = 0; screen != "target" && i < static_cast<int>(options.size()) &&
+                    i < (screen == "move" ? 4 : 5); ++i) {
         const auto slot = layout.option(screen, i);
         const bool enabled = options[i].at("enabled").get<bool>();
         const bool active = i == state.at("cursor").get<int>();
-        if (active) textLabel(quads, font, ">>", slot.x, slot.y + 5*s,
-                              selected, 1.8f*s, 2);
+        if (active && screen != "command" && screen != "move")
+            textLabel(quads, font, ">>", slot.x, slot.y + 5*s,
+                      selected, 1.8f*s, 2);
         std::string value = options[i].at("label").get<std::string>();
         if (screen == "command") {
             if (i == 1) value = "PKMN";
             if (i == 2) value = "ITEMS";
-        } else if (screen == "move" && i < 4) {
+        } else if (screen == "move") {
             const auto& move = party[state.at("actor").get<int>()].at("moves").at(i);
             value = move.at("name").get<std::string>();
-            textLabel(quads, font, "PP " + std::to_string(move.at("pp").get<int>()) +
-                      "/" + std::to_string(move.at("max_pp").get<int>()),
-                      slot.x + 22*s, slot.y + 19*s,
-                      {.85f,.89f,.89f,1}, 1.0f*s, 14);
         }
         const auto display = upperAscii(value);
-        textLabel(quads, font, display, slot.x + 22*s, slot.y + 5*s,
-                  enabled ? ink : muted,
-                  fittedTextScale(font, display,
-                                  (screen == "move" ? 1.55f : 2.1f)*s,
-                                  slot.w - 25*s),
-                  static_cast<int>(display.size()));
+        if (screen == "command" || screen == "move") {
+            const auto origin = layout.commandRect(i >= 2 ?
+                                                    (screen == "move" ? 255.0f : 227.0f) : 87.0f,
+                                                    i % 2 ? 401.0f : 373.0f,
+                                                    0, 0);
+            const float preferred = (18.0f/7.0f)*layout.statusScale;
+            const auto& menuFont = screen == "move" ? moveFont : commandFont;
+            textLabel(quads, menuFont, display, origin.x, origin.y,
+                      enabled ? ink : muted,
+                      fittedTextScale(menuFont, display, preferred,
+                                      (screen == "move" ? (i >= 2 ? 145 : 155) : 99)*
+                                      layout.statusScale),
+                      static_cast<int>(display.size()));
+        } else {
+            textLabel(quads, font, display, slot.x + 22*s, slot.y + 5*s,
+                      enabled ? ink : muted,
+                      fittedTextScale(font, display,
+                                      (screen == "move" ? 1.55f : 2.1f)*s,
+                                      slot.w - 25*s),
+                      static_cast<int>(display.size()));
+        }
     }
-    if (target >= 0) targetArrow(quads, layout.portrait(target), target < 2, s);
+    if (screen == "move") {
+        const int cursor = state.at("cursor").get<int>();
+        const auto& moves = party[state.at("actor").get<int>()].at("moves");
+        if (cursor >= 0 && cursor < 4 && cursor < static_cast<int>(moves.size())) {
+            const auto& move = moves.at(cursor);
+            const std::string current = std::to_string(move.at("pp").get<int>());
+            const std::string maximum = std::to_string(move.at("max_pp").get<int>());
+            const float scale = (18.0f/7.0f)*layout.statusScale;
+            // Retail C2 centers a 9-pixel slash in its 78-pixel PP field.
+            const auto currentRight = layout.commandRect(537,371,0,0);
+            const auto slash = layout.commandRect(537,371,0,0);
+            const auto maximumRight = layout.commandRect(581,371,0,0);
+            textLabel(quads, commandFont, current,
+                      currentRight.x - textWidth(commandFont, current, scale),
+                      currentRight.y, ink, scale, static_cast<int>(current.size()));
+            textLabel(quads, commandFont, "/", slash.x, slash.y,
+                      ink, scale, 1);
+            textLabel(quads, commandFont, maximum,
+                      maximumRight.x - textWidth(commandFont, maximum, scale),
+                      maximumRight.y, ink, scale, static_cast<int>(maximum.size()));
+        }
+    }
+    if (target >= 0) {
+        const auto cursor = targetCursorSprite(statusDetailAtlasPath,layout,target);
+        renderer.drawDebugSprites(&cursor,1,width,height);
+    }
     for (std::size_t first = 0; first < quads.size(); first += 3500)
         renderer.drawDebugQuads(quads.data() + first,
                                 std::min<std::size_t>(3500, quads.size() - first),
@@ -573,7 +813,8 @@ int battleRulesOptionAt(const nlohmann::json& state, int x, int y,
     const Layout layout(width, height);
     const std::string screen = state.at("screen").get<std::string>();
     const auto& options = state.at("options");
-    for (int index = 0; index < static_cast<int>(options.size()) && index < 5; ++index) {
+    for (int index = 0; index < static_cast<int>(options.size()) &&
+                        index < (screen == "move" ? 4 : 5); ++index) {
         const int target = screen == "target" ? targetPartyIndex(state, index) : -1;
         if (screen == "target" && target < 0) continue;
         const auto rect = screen == "target" ? layout.portrait(target) :

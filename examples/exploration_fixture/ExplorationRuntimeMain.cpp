@@ -170,6 +170,7 @@ int main(int argc,char** argv) {
                         if(battle->usesRules()&&e.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_LEFT)battle->menuNavigate(-2);
                         if(battle->usesRules()&&e.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_RIGHT)battle->menuNavigate(2);
                     }
+                    if(battle&&battle->usesRules())battle->menuStickEvent(e);
                     if(battle&&battle->usesRules()&&context.windowFocused&&!context.paused&&
                        e.type==SDL_MOUSEBUTTONDOWN&&e.button.button==SDL_BUTTON_LEFT)
                         battle->menuClick(e.button.x,e.button.y,width,height);

@@ -38,6 +38,7 @@ public:
     void menuBack();
     void menuSelect(int index);
     void menuClick(int x, int y, int width, int height);
+    void menuStickEvent(const SDL_Event& event);
     void release();
     void setNavigationEnabled(bool enabled);
     void navigationEvent(const SDL_Event& event, Uint32 windowId, bool pointerInside);
@@ -87,6 +88,9 @@ private:
     float pendingDolly_ = 0.0f;
     float navigationSeconds_ = 0.0f;
     bool navigationEnabled_ = false;
+    SDL_JoystickID menuStickController_ = -1;
+    std::array<float, 2> menuStickAxes_{};
+    int menuStickDirection_ = 0;
     bool rightMouseDown_ = false;
     bool cameraProbe_ = false;
     bool cameraProbeApplied_ = false;
@@ -97,6 +101,11 @@ private:
     std::string battleFontAtlas_;
     std::string portraitFrameAtlas_;
     std::string statusDetailAtlas_;
+    std::string commandFrameAtlas_;
+    std::string commandFontAtlas_;
+    std::string moveFontAtlas_;
+    std::string messageFontAtlas_;
+    std::string moveTypeAtlas_;
     BattleVfxPlugin vfxPlugin_;
     void* rulesLibrary_ = nullptr;
     BattleRulesPluginApi rulesApi_{};

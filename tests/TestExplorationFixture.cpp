@@ -31,11 +31,32 @@ void battleHudHitboxes() {
     for(const auto [width,height]:{std::pair{832,468},std::pair{840,360}}) {
         const float s=std::min({1.0f,height/400.0f,width/640.0f});
         const float left=38*s, top=height-121*s;
+        const float commandScale=std::min({1.0f,height/480.0f,width/640.0f});
         for(int index=0;index<4;++index) {
-            const int x=static_cast<int>(left+(index/2 ? 180 : 49)*s);
-            const int y=static_cast<int>(top+(index%2 ? 59 : 27)*s);
+            const int x=static_cast<int>((index>=2 ? 261 : 121)*commandScale);
+            const int y=static_cast<int>(height-(480-(index%2 ? 406 : 378))*commandScale);
             CHECK(exploration_fixture::battleRulesOptionAt(state,x,y,width,height)==index);
         }
+        state["screen"]="move";
+        state["options"]=nlohmann::json::array({
+            {{"label","BITE"}},{{"label","QUICK ATTACK"}},
+            {{"label","SNARL"}},{{"label","TACKLE"}},{{"label","BACK"}}
+        });
+        for(int index=0;index<4;++index) {
+            const int x=static_cast<int>((index>=2 ? 310 : 145)*commandScale);
+            const int y=static_cast<int>(height-(480-(index%2 ? 406 : 378))*commandScale);
+            CHECK(exploration_fixture::battleRulesOptionAt(state,x,y,width,height)==index);
+        }
+        CHECK(exploration_fixture::battleRulesOptionAt(state,
+              static_cast<int>(520*commandScale),
+              static_cast<int>(height-90*commandScale),width,height)==-1);
+        state["screen"]="command";
+        state["options"]=nlohmann::json::array({
+            {{"label","FIGHT"}},{{"label","POKEMON"}},{{"label","ITEM"}},{{"label","CALL"}}
+        });
+        CHECK(exploration_fixture::battleRulesOptionAt(state,
+              static_cast<int>(350*commandScale),
+              static_cast<int>(height-90*commandScale),width,height)==-1);
         CHECK(exploration_fixture::battleRulesOptionAt(state,width/2,20,width,height)==-1);
         state["screen"]="target";
         state["party"]=nlohmann::json::array({

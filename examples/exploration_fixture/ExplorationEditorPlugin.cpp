@@ -69,7 +69,7 @@ public:
     }
     const char* status() const noexcept override {
         if (encounterMode_) return "Outskirt: WASD / left stick move; Shift / L3 run; E / A talk to Willie nearby. "
-            "Battle: arrows / D-pad choose, Enter / A confirm, Escape / B back; WASD / RMB camera; R reset.";
+            "Battle: arrows / D-pad / left stick choose, Enter / A confirm, Escape / B back; WASD / RMB camera; R reset.";
         if (battleMode_ && battle_ && battle_->usesAuthoredCast())
             return "Battle camera: WASD move, Q/E down/up, RMB look, Shift fast, "
                    "wheel dolly, R reset.";
@@ -178,6 +178,7 @@ public:
         }
         if(!editor::gameInputEnabled(c))return;
         if(battle_->usesRules()) {
+            battle_->menuStickEvent(e);
             if(e.type==SDL_MOUSEBUTTONDOWN&&e.button.button==SDL_BUTTON_LEFT&&inside)
                 battle_->menuClick(e.button.x-c.viewport.x,e.button.y-c.viewport.y,
                                    c.viewport.width,c.viewport.height);

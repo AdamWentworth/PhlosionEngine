@@ -278,6 +278,21 @@ BattlePreview::BattlePreview(bool audioOutput)
         statusDetailAtlas_ = env::get("PHLOSION_BATTLE_STATUS_DETAILS_PNG").value_or("");
         require(!statusDetailAtlas_.empty() && fs::is_regular_file(statusDetailAtlas_),
                 "Battle rules need PHLOSION_BATTLE_STATUS_DETAILS_PNG");
+        commandFrameAtlas_ = env::get("PHLOSION_BATTLE_COMMAND_FRAME_PNG").value_or("");
+        require(!commandFrameAtlas_.empty() && fs::is_regular_file(commandFrameAtlas_),
+                "Battle rules need PHLOSION_BATTLE_COMMAND_FRAME_PNG");
+        commandFontAtlas_ = env::get("PHLOSION_BATTLE_COMMAND_FONT_PNG").value_or("");
+        require(!commandFontAtlas_.empty() && fs::is_regular_file(commandFontAtlas_),
+                "Battle rules need PHLOSION_BATTLE_COMMAND_FONT_PNG");
+        moveFontAtlas_ = env::get("PHLOSION_BATTLE_MOVE_FONT_PNG").value_or("");
+        require(!moveFontAtlas_.empty() && fs::is_regular_file(moveFontAtlas_),
+                "Battle rules need PHLOSION_BATTLE_MOVE_FONT_PNG");
+        messageFontAtlas_ = env::get("PHLOSION_BATTLE_MESSAGE_FONT_PNG").value_or("");
+        require(!messageFontAtlas_.empty() && fs::is_regular_file(messageFontAtlas_),
+                "Battle rules need PHLOSION_BATTLE_MESSAGE_FONT_PNG");
+        moveTypeAtlas_ = env::get("PHLOSION_BATTLE_MOVE_TYPE_PNG").value_or("");
+        require(!moveTypeAtlas_.empty() && fs::is_regular_file(moveTypeAtlas_),
+                "Battle rules need PHLOSION_BATTLE_MOVE_TYPE_PNG");
         const auto initialRules = rulesState();
         for (const auto& member : initialRules.at("party")) {
             const auto path = fs::path(portraitRoot_) /
@@ -362,6 +377,9 @@ void BattlePreview::dispatch(BattleCue cue) {
 
 void BattlePreview::reset() {
     if (usesRules()) { rulesApi_.reset(rulesApi_.context); rulesTick_ = 0; }
+    menuStickController_ = -1;
+    menuStickAxes_.fill(0.0f);
+    menuStickDirection_ = 0;
     sequence_.reset();
     audioOutput_.stopAll();
     vfxPlugin_.stopAll();
@@ -382,6 +400,9 @@ void BattlePreview::reset() {
 void BattlePreview::setNavigationEnabled(bool enabled) {
     navigationEnabled_ = enabled;
     if (!enabled) {
+        menuStickController_ = -1;
+        menuStickAxes_.fill(0.0f);
+        menuStickDirection_ = 0;
         navigationKeys_.fill(false);
         rightMouseDown_ = false;
         pendingLook_ = {};
@@ -455,6 +476,37 @@ void BattlePreview::menuClick(int x, int y, int width, int height) {
     if (!usesRules() || width <= 0 || height <= 0) return;
     const int option = battleRulesOptionAt(rulesState(), x, y, width, height);
     if (option >= 0) menuSelect(option);
+}
+void BattlePreview::menuStickEvent(const SDL_Event& event) {
+    if (!usesRules() || !navigationEnabled_) return;
+    if (event.type == SDL_CONTROLLERDEVICEREMOVED) {
+        if (event.cdevice.which == menuStickController_) {
+            menuStickController_ = -1;
+            menuStickAxes_.fill(0.0f);
+            menuStickDirection_ = 0;
+        }
+        return;
+    }
+    if (event.type != SDL_CONTROLLERAXISMOTION ||
+        (event.caxis.axis != SDL_CONTROLLER_AXIS_LEFTX &&
+         event.caxis.axis != SDL_CONTROLLER_AXIS_LEFTY)) return;
+    if (menuStickController_ != event.caxis.which) {
+        if (menuStickDirection_ != 0) return;
+        menuStickController_ = event.caxis.which;
+        menuStickAxes_.fill(0.0f);
+    }
+    menuStickAxes_[event.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY ? 1 : 0] =
+        std::clamp(static_cast<float>(event.caxis.value) / 32767.0f, -1.0f, 1.0f);
+    const float x = menuStickAxes_[0], y = menuStickAxes_[1];
+    const float magnitude = std::max(std::abs(x), std::abs(y));
+    if (magnitude < .35f) { menuStickDirection_ = 0; return; }
+    if (magnitude < .55f) return;
+    const int direction = std::abs(y) >= std::abs(x) ?
+        (y < 0.0f ? -1 : 1) : (x < 0.0f ? -2 : 2);
+    if (direction != menuStickDirection_) {
+        menuStickDirection_ = direction;
+        menuNavigate(direction);
+    }
 }
 nlohmann::json BattlePreview::rulesState() const {
     if (!usesRules()) return nullptr;
@@ -729,7 +781,10 @@ void BattlePreview::drawOverlay(IRenderBackend& renderer, int width, int height)
     if (usesRules()) {
         drawBattleRulesOverlay(renderer, rulesState(), width, height,
                                portraitRoot_, battleFontAtlas_,
-                               portraitFrameAtlas_, statusDetailAtlas_);
+                               portraitFrameAtlas_, statusDetailAtlas_,
+                               commandFrameAtlas_, commandFontAtlas_, moveFontAtlas_,
+                               messageFontAtlas_,
+                               moveTypeAtlas_);
         return;
     }
     if (!sequence_.state().hudVisible) return;
