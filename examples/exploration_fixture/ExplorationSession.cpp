@@ -1,4 +1,5 @@
 #include "ExplorationSession.h"
+#include "OutskirtLocomotion.h"
 #include "engine/core/Environment.h"
 #include "engine/render/gltf/GltfSceneAsset.h"
 #include <glm/gtc/quaternion.hpp>
@@ -18,7 +19,7 @@ OutskirtEncounterScene loadEncounterScene() {
     std::ifstream file(*path);
     require(bool(file), "Cannot read Outskirt encounter scene: " + *path);
     const auto scene = nlohmann::json::parse(file);
-    require(scene.at("schema") == "pokemon-cyberpunk-outskirt-encounter-v3", "Unexpected Outskirt encounter schema");
+    require(scene.at("schema") == "pokemon-cyberpunk-outskirt-encounter-v4", "Unexpected Outskirt encounter schema");
     OutskirtEncounterScene result;
     auto position = [](const nlohmann::json& value) {
         require(value.is_array() && value.size() == 3, "Encounter position needs three coordinates");
@@ -38,6 +39,12 @@ OutskirtEncounterScene loadEncounterScene() {
     result.camera.initialYawRadians = camera.at("yaw_radians").get<float>();
     result.camera.followHalfLifeSeconds = camera.at("follow_half_life_seconds").get<float>();
     result.camera.farPlane = camera.at("far_plane").get<float>();
+    const auto& locomotion = scene.at("locomotion");
+    result.walkSpeed = locomotion.at("walk_speed").get<float>();
+    result.runSpeed = locomotion.at("run_speed").get<float>();
+    require(std::isfinite(result.walkSpeed) && std::isfinite(result.runSpeed) &&
+            result.walkSpeed > 0.0f && result.runSpeed > result.walkSpeed,
+            "Invalid Outskirt locomotion speeds");
     require(std::isfinite(result.camera.pivotOffset.x) &&
             std::isfinite(result.camera.pivotOffset.y) &&
             std::isfinite(result.camera.pivotOffset.z), "Invalid Outskirt camera pivot");
@@ -197,6 +204,9 @@ ExplorationSession::ExplorationSession(std::string name, bool automation, camera
     std::string error;
     require(actions_.define({"move", ActionKind::Axis2D, {KeyBinding{InputEvent::Key::W,{0,-1}},
         KeyBinding{InputEvent::Key::S,{0,1}},KeyBinding{InputEvent::Key::A,{-1,0}},KeyBinding{InputEvent::Key::D,{1,0}},StickBinding{GamepadStick::Left}}}, &error),error);
+    require(actions_.define({"keyboard_move", ActionKind::Axis2D, {KeyBinding{InputEvent::Key::W,{0,-1}},
+        KeyBinding{InputEvent::Key::S,{0,1}},KeyBinding{InputEvent::Key::A,{-1,0}},KeyBinding{InputEvent::Key::D,{1,0}}}}, &error),error);
+    require(actions_.define({"stick_move", ActionKind::Axis2D, {StickBinding{GamepadStick::Left}}}, &error),error);
     require(actions_.define({"run", ActionKind::Button, {KeyBinding{InputEvent::Key::LShift},ButtonBinding{GamepadButton::LeftStick}}},&error),error);
     require(actions_.define({"reset", ActionKind::Button,{KeyBinding{InputEvent::Key::R},ButtonBinding{GamepadButton::Back}}},&error),error);
     require(actions_.define({"interact", ActionKind::Button,{KeyBinding{InputEvent::Key::E},ButtonBinding{GamepadButton::South}}},&error),error);
@@ -218,7 +228,9 @@ ExplorationSession::ExplorationSession(std::string name, bool automation, camera
         collision::StaticColliderDesc d; d.position = box.center; d.rotation = glm::angleAxis(box.pitch,glm::vec3(1,0,0)); d.sensor = box.sensor; d.userData = id++;
         collision::ColliderId collider; require(world_.addBox(d,box.half,collider,&error),error);
     }
-    require(world_.createCharacter({},encounterScene_ ? encounterScene_->playerSpawn : caseSpawn(case_),playerId_,&error),error);
+    collision::CharacterSettings playerSettings;
+    if (encounterScene_) { playerSettings.walkSpeed = encounterScene_->walkSpeed; playerSettings.runSpeed = encounterScene_->runSpeed; }
+    require(world_.createCharacter(playerSettings,encounterScene_ ? encounterScene_->playerSpawn : caseSpawn(case_),playerId_,&error),error);
     require(world_.createCharacter({}, encounterScene_ ? encounterScene_->willieSpawn :
         case_ == "outskirt" ? glm::vec3(-5,.9f,3) : glm::vec3(-1,.9f,3),npcId_,&error),error);
     reset(false); resets_ = 0;
@@ -242,7 +254,9 @@ void ExplorationSession::reset(bool safe) {
     if (input_) { input_->takeLookDelta(); input_->takeZoomDelta(); }
     // Recreate characters to clear their trigger history; immutable authored rig settings survive.
     world_.removeCharacter(playerId_); world_.removeCharacter(npcId_);
-    require(world_.createCharacter({},encounterScene_ ? encounterScene_->playerSpawn :
+    collision::CharacterSettings playerSettings;
+    if (encounterScene_) { playerSettings.walkSpeed = encounterScene_->walkSpeed; playerSettings.runSpeed = encounterScene_->runSpeed; }
+    require(world_.createCharacter(playerSettings,encounterScene_ ? encounterScene_->playerSpawn :
         safe && case_ != "outskirt" ? caseSpawn("walk") : caseSpawn(case_),playerId_,&error),error);
     require(world_.createCharacter({}, encounterScene_ ? encounterScene_->willieSpawn :
         case_ == "outskirt" ? glm::vec3(-5,.9f,3) : glm::vec3(-1,.9f,3),npcId_,&error),error);
@@ -250,6 +264,7 @@ void ExplorationSession::reset(bool safe) {
     require(world_.characterState(npcId_,npcState_,&error),error);
     require(rig_.reset(playerState_.center,aspect_,pose_,&world_,&error),error);
     sensorActive_ = false; encounterRequested_ = false; npcStall_ = 0; npcWait_ = 0; ++resets_;
+    requestedMotionAmount_ = 0.0f; appliedMove_ = {}; appliedRun_ = false;
     record("reset");
 }
 void ExplorationSession::npcTick() {
@@ -273,8 +288,27 @@ void ExplorationSession::tick() {
     actions_.advanceFrame(); ++ticks_;
     if (action("reset").pressed) { reset(); record("tick"); return; }
     glm::vec2 movement; std::string error;
-    require(camera::cameraRelativeMove(action("move").value,pose_.yawRadians,movement,&error),error);
-    require(world_.stepCharacter(playerId_,{movement,action("run").down},playerState_,&error),error);
+    glm::vec2 inputMove = action("move").value;
+    bool run = action("run").down;
+    if (encounterScene_) {
+        const auto keyboard = action("keyboard_move").value;
+        const auto stick = action("stick_move").value;
+        if (glm::dot(keyboard, keyboard) > 0.0f) {
+            inputMove = keyboard;
+            requestedMotionAmount_ = run ? 2.0f : 1.0f;
+        } else {
+            const float magnitude = std::min(glm::length(stick), 1.0f);
+            requestedMotionAmount_ = outskirtMotionAmount(magnitude);
+            run = requestedMotionAmount_ > 1.0f;
+            const float speed = outskirtDesiredSpeed(requestedMotionAmount_,
+                encounterScene_->walkSpeed, encounterScene_->runSpeed);
+            inputMove = magnitude > 0.0f ? stick / magnitude *
+                (speed / (run ? encounterScene_->runSpeed : encounterScene_->walkSpeed)) : glm::vec2(0.0f);
+        }
+    }
+    require(camera::cameraRelativeMove(inputMove,pose_.yawRadians,movement,&error),error);
+    appliedMove_ = inputMove; appliedRun_ = run;
+    require(world_.stepCharacter(playerId_,{movement,run},playerState_,&error),error);
     if (encounterScene_ && action("interact").pressed && canInteract()) encounterRequested_ = true;
     if (playerState_.center.y < -8) {reset();record("tick");return;}
     collision::CharacterTriggerSample sample; require(world_.sampleCharacterTriggers(playerId_,sample,{},&error),error);
@@ -305,7 +339,8 @@ nlohmann::json ExplorationSession::state() const {
         {"camera",{{"position",vec(pose_.position)},{"pivot",vec(pose_.pivot)},{"yaw",pose_.yawRadians},{"pitch",pose_.pitchRadians},
             {"desired",pose_.desiredDistance},{"distance",pose_.actualDistance},{"obstructed",pose_.obstructed},{"aspect",pose_.aspectRatio}}},
         {"viewport",{context_.viewport.x,context_.viewport.y,context_.viewport.width,context_.viewport.height}},
-        {"input",{{"move",{move.value.x,move.value.y}},{"run",action("run").down},{"enabled",actions_.enabled()},
+        {"input",{{"move",{move.value.x,move.value.y}},{"applied_move",{appliedMove_.x,appliedMove_.y}},
+            {"motion_amount",requestedMotionAmount_},{"run",appliedRun_},{"enabled",actions_.enabled()},
             {"focus",context_.windowFocused},{"active",context_.activeGameViewport},{"playing",context_.playing},{"paused",context_.paused},
             {"viewport_focus",context_.viewportFocused},{"hover",context_.viewportHovered},{"text",context_.textEditing},
             {"synthetic",context_.synthetic},{"background_controller_input",SDL_GetHintBoolean(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS,SDL_FALSE)==SDL_TRUE},

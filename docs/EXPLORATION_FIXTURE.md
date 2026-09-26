@@ -40,13 +40,16 @@ paved forecourt, raised train ramp and train body. It rejects missing nodes or
 excessively degenerate geometry, and keeps authored train-side blockers and an
 approach trigger where the render mesh cannot supply gameplay collision. This
 is not extracted game collision. The PokemonCyberpunk encounter reads its mesh
-selection, blockers, sensor, and camera framing from the game's v3 scene config; the separate
-research preview retains its historical fallback. Source materials are converted to the engine's
-opaque material subset and 256-pixel images. The private research guide at
+selection, blockers, sensor, camera framing, and locomotion speeds from the
+game's v4 scene config; the separate research preview retains its historical
+fallback. The encounter maps left-stick magnitude through Colosseum's
+slow-walk, walk, and run speed zones, then blends Wes's poses from measured
+movement speed. Source materials are converted to the engine's opaque material
+subset and 256-pixel images. The private research guide at
 `D:/Projects/Research/PokemonGCAssetResearch/docs/colosseum/OUTSKIRT_STAND.md`
 records source hashes, conversion limits, collision audit and the native
 idle/blend/walk/run/ramp/wall captures at 16:9 and 21:9.
-The game runs `tools/Verify-Outskirt-Encounter.ps1 -M2Scene` for 180 runtime/editor
+The game runs `tools/Verify-Outskirt-Encounter.ps1 -M2Scene` for 228 runtime/editor
 captures at both aspects and all three APIs: idle, walk, run, the recovered
 ramp's leading lip and slope, blocked train side, reset, mouse/controller camera
 orbit, synthetic focus loss/resume, and virtual controller reconnect. The ramp
@@ -122,7 +125,7 @@ material keys and one explicitly released world-resource scope.
 | Action | Keyboard/mouse | Controller |
 | --- | --- | --- |
 | Move relative to camera | WASD | Left stick |
-| Run | Left Shift | Left stick click |
+| Run | Left Shift | Tilt left stick farther in PokemonCyberpunk; stick click in the public fixture |
 | Orbit | Hold RMB and drag inside the viewport | Right stick |
 | Zoom | Mouse wheel | Left/right shoulder |
 | Reset player, NPC and camera | R | View/Back (Select) |

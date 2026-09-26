@@ -27,6 +27,7 @@ private:
     int wesLastTick_ = 0;
     int wesLastReset_ = -1;
     float wesFacingRadians_ = 0.0f;
+    float wesCyclePhase_ = 0.0f;
     bool faceMovement_ = false;
     bool outskirtMode_ = false;
     IWorldResourceScope* scopes_ = nullptr;

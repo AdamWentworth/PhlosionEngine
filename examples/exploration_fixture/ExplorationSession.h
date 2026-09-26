@@ -33,6 +33,8 @@ struct OutskirtEncounterScene {
     std::vector<std::string> collisionMeshNodes;
     std::vector<CourseBox> collisionBoxes;
     camera::ExplorationCameraSettings camera;
+    float walkSpeed = 2.0f;
+    float runSpeed = 4.5f;
 };
 
 class ExplorationSession {
@@ -55,6 +57,7 @@ public:
     const std::string& caseName() const { return case_; }
     const camera::ExplorationCameraSettings& settings() const { return rig_.settings(); }
     const OutskirtEncounterScene* encounterScene() const { return encounterScene_ ? &*encounterScene_ : nullptr; }
+    float requestedMotionAmount() const { return requestedMotionAmount_; }
     bool canInteract() const;
     bool takeEncounterRequest();
     void suspendInput();
@@ -78,6 +81,9 @@ private:
     int enters_ = 0, stays_ = 0, exits_ = 0;
     bool sensorActive_ = false;
     bool encounterRequested_ = false;
+    float requestedMotionAmount_ = 0.0f;
+    glm::vec2 appliedMove_{0.0f};
+    bool appliedRun_ = false;
     float aspect_ = 16.0f / 9;
     std::ofstream trace_;
 };

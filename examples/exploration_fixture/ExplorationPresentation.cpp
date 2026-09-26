@@ -1,4 +1,5 @@
 #include "ExplorationPresentation.h"
+#include "OutskirtLocomotion.h"
 #include "BattlePreview.h"
 #include "engine/core/IAssetStore.h"
 #include "engine/core/Environment.h"
@@ -167,13 +168,32 @@ void ExplorationPresentation::draw(IRenderBackend& renderer,const ExplorationSes
             wesMachine_.reset();
             wesFrame_ = {};
             wesFacingRadians_ = 0.0f;
+            wesCyclePhase_ = 0.0f;
             wesLastReset_ = s.resets();
             wesLastTick_ = s.ticks();
         }
         if (wesFrame_.state.empty() || s.ticks() != wesLastTick_) {
-            require(wesMachine_.setNumber("speed", speed, &error), error);
             const int elapsedTicks = std::max(0, s.ticks() - wesLastTick_);
-            require(wesMachine_.advance(elapsedTicks * fixedDelta, wesFrame_, &error), error);
+            if (faceMovement_) {
+                const auto* encounter = s.encounterScene();
+                const float amount = outskirtAnimationAmount(speed, s.requestedMotionAmount(),
+                    encounter->walkSpeed, encounter->runSpeed);
+                const float walkDuration = wes_->animations[2].durationSec;
+                const float runDuration = wes_->animations[3].durationSec;
+                require(walkDuration > 0.0f && runDuration > 0.0f &&
+                        wes_->animations[1].durationSec > 0.0f, "Invalid Wes locomotion clips");
+                const float runWeight = std::clamp(amount - 1.0f, 0.0f, 1.0f);
+                wesCyclePhase_ += elapsedTicks * fixedDelta *
+                    ((1.0f - runWeight) / walkDuration + runWeight / runDuration);
+                wesFrame_.pose = outskirtLocomotionPose(amount, wesCyclePhase_,
+                    wes_->animations[1].durationSec, walkDuration, runDuration);
+                wesFrame_.state = amount < .4f ? "idle" : amount <= 1.0f ? "walk" : "run";
+                wesFrame_.transitioning = wesFrame_.pose.targetClipIndex >= 0 &&
+                    wesFrame_.pose.crossfadeWeight > 0.0f && wesFrame_.pose.crossfadeWeight < 1.0f;
+            } else {
+                require(wesMachine_.setNumber("speed", speed, &error), error);
+                require(wesMachine_.advance(elapsedTicks * fixedDelta, wesFrame_, &error), error);
+            }
             wesLastTick_ = s.ticks();
         }
         GltfScenePose pose;

@@ -1,5 +1,6 @@
 #define SDL_MAIN_HANDLED
 #include "ExplorationPresentation.h"
+#include "OutskirtLocomotion.h"
 #include "BattleRulesOverlay.h"
 #include "engine/editor/EditorProjectPlugin.h"
 #include "engine/input/SdlInputReplay.h"
@@ -126,6 +127,29 @@ void policy() {
     for(int tick=0;tick<900;++tick){freePlay.begin(c);freePlay.end(c);freePlay.tick();}
     CHECK(freePlay.state().at("resets")==1&&std::abs(freePlay.player().center.x)<.001f&&std::abs(freePlay.player().center.z-4)<.001f);
 }
+void outskirtLocomotion() {
+    using namespace exploration_fixture;
+    const float walk = 2.0f, run = 4.5f;
+    for (const auto [amount, speed] : {std::pair{0.0f, 0.0f},
+            std::pair{.2f, .5f}, std::pair{.4f, 1.0f},
+            std::pair{.8f, 1.6666667f}, std::pair{1.0f, 2.0f},
+            std::pair{1.5f, 3.25f}, std::pair{2.0f, 4.5f}}) {
+        CHECK(std::abs(outskirtDesiredSpeed(amount, walk, run) - speed) < .0001f);
+        const float animation = speed <= walk ? speed / walk :
+            1.0f + (speed - walk) / (run - walk);
+        CHECK(std::abs(outskirtAnimationAmount(speed, amount, walk, run) - animation) < .0001f);
+    }
+    CHECK(outskirtMotionAmount(.5f) == 1.0f);
+    CHECK(outskirtAnimationAmount(0.0f, 2.0f, walk, run) == .2f);
+    const auto slow = outskirtLocomotionPose(.2f, .25f, 1.0f, 1.0f, .5f);
+    CHECK(slow.baseClipIndex == 1 && slow.targetClipIndex == 2 &&
+          std::abs(slow.crossfadeWeight - .5f) < .0001f &&
+          std::abs(slow.baseTimeSec - .25f) < .0001f);
+    const auto fast = outskirtLocomotionPose(1.5f, .25f, 1.0f, 1.0f, .5f);
+    CHECK(fast.baseClipIndex == 2 && fast.targetClipIndex == 3 &&
+          std::abs(fast.crossfadeWeight - .5f) < .0001f &&
+          std::abs(fast.targetTimeSec - .125f) < .0001f);
+}
 nlohmann::json run(const std::string& name,const std::filesystem::path& dir) {
     const auto script=dir/(name+".json");{std::ofstream out(script);out<<exploration_fixture::replayScript(name).dump(2);}
     input::SdlInputReplay replay(script);exploration_fixture::ExplorationSession session(name,true);auto c=context();
@@ -203,7 +227,7 @@ int main(int argc,char** argv) {
         CHECK(SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER|SDL_INIT_EVENTS)==0);
         const int ambientDevices=SDL_NumJoysticks();
         const auto dir=argc>1?std::filesystem::path(argv[1]):std::filesystem::temp_directory_path()/("phlosion-exploration-"+std::to_string(SDL_GetPerformanceCounter()));
-        std::filesystem::create_directories(dir);extension();policy();malformed(dir);reconnectSelection(dir);
+        std::filesystem::create_directories(dir);extension();policy();outskirtLocomotion();malformed(dir);reconnectSelection(dir);
         nlohmann::json states;
         for(const auto& name:exploration_fixture::cases()){states[name]=run(name,dir);std::cout<<name<<" "<<states[name].dump()<<'\n';}
         for(const auto& name:exploration_fixture::supplementalCases()){states[name]=run(name,dir);std::cout<<name<<" "<<states[name].dump()<<'\n';}
