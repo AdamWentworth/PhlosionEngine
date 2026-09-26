@@ -24,11 +24,15 @@ void SdlGameInput::event(const editor::EditorSdlGameInputContext& c, const SDL_E
     std::string error;
     // Controller discovery and releases continue when gameplay is gated.
     require(adapter_.ingest(e, &error), error);
-    if (!editor::gameInputEnabled(c)) return;
-    if (e.type == SDL_CONTROLLERBUTTONDOWN && e.cbutton.button == SDL_CONTROLLER_BUTTON_START) {
+    // Controller selection is an editor/device operation, not a gameplay action.
+    // In particular a reconnected pad can be selected before the Game image
+    // regains keyboard focus; movement still waits for the gameplay gate.
+    if (c.windowFocused && c.activeGameViewport && !c.textEditing &&
+        e.type == SDL_CONTROLLERBUTTONDOWN && e.cbutton.button == SDL_CONTROLLER_BUTTON_START) {
         ControllerId id;
         if (adapter_.controllerForInstance(e.cbutton.which, id, &error)) require(actions_.selectController(id, &error), error);
     }
+    if (!editor::gameInputEnabled(c)) return;
     if (e.type == SDL_KEYDOWN && e.key.windowID == c.windowId && !e.key.repeat && e.key.keysym.sym == SDLK_TAB) {
         const auto devices = adapter_.devices();
         if (!devices.empty()) {

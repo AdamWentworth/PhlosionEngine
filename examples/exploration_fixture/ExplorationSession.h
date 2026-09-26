@@ -18,7 +18,8 @@ const std::vector<std::string>& cases();
 const std::vector<std::string>& supplementalCases();
 glm::vec3 caseSpawn(const std::string& name);
 camera::ExplorationCameraSettings cameraSettings();
-camera::ExplorationCameraSettings configuredCameraSettings();
+camera::ExplorationCameraSettings configuredCameraSettings(
+    camera::ExplorationCameraSettings settings = cameraSettings());
 inline constexpr int targetTick = 120;
 inline constexpr float fixedDelta = 1.0f / 60;
 
@@ -31,6 +32,7 @@ struct OutskirtEncounterScene {
     std::string willieIdleAnimation;
     std::vector<std::string> collisionMeshNodes;
     std::vector<CourseBox> collisionBoxes;
+    camera::ExplorationCameraSettings camera;
 };
 
 class ExplorationSession {
@@ -62,6 +64,7 @@ private:
     input::ActionState action(const char* name) const;
     std::string case_;
     bool automation_;
+    std::optional<OutskirtEncounterScene> encounterScene_;
     input::InputActions actions_{{128, 32, 32}};
     std::unique_ptr<input::SdlGameInput> input_;
     collision::CollisionWorld world_;
@@ -75,7 +78,6 @@ private:
     int enters_ = 0, stays_ = 0, exits_ = 0;
     bool sensorActive_ = false;
     bool encounterRequested_ = false;
-    std::optional<OutskirtEncounterScene> encounterScene_;
     float aspect_ = 16.0f / 9;
     std::ofstream trace_;
 };

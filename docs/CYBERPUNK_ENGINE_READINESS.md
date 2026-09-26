@@ -1,6 +1,6 @@
 # Cyberpunk engine readiness audit
 
-Status: Engine-facing M1 complete; M2-A through F accepted; provisional game-owned Outskirt collision and 108-capture native scene replay qualified; M2 exit gate remains open
+Status: Engine-facing M1 complete; M2 walkable Outskirt Stand gate qualified with provisional recovered content; M3 in progress
 Date: 2026-09-26 (original audit 2026-09-20)
 Owner: Astra (scope, architecture, acceptance)
 Audited engine baseline: `c17d2122bd36b3c3bb49c4e703900f40cccfbd76` (`main`)
@@ -488,6 +488,27 @@ case has been qualified. Physical focus/device behavior in this scene and the
 deferred editor toolbar checks remain open, as do game-owned camera settings
 and replacement-content fitting. This is M2 progress, not the M2 exit gate.
 
+The follow-on v3 game scene owns its exploration camera defaults. Changing only
+the authored camera distance to 5.5 changed the running camera's reported
+distance to 5.5; the unchanged scene still produces the prior idle pixels.
+The source-blend collision audit now samples the recovered ramp's leading lip:
+at X=-2 it rises 0.143 world units above the paved forecourt. Walking and
+running replays move Wes from ground support to ramp support across that visible
+edge while raising the character, then continue up the slope. Mouse drag/wheel
+and right-stick orbit are qualified in the same scene. The expanded 15-phase
+matrix passes 180 native captures and 210 comparisons across both hosts,
+16:9/21:9, and all three APIs. All 90 runtime/editor viewport pairs are pixel
+identical; 120 cross-API pairs have maximum MAE 0.818/255 and 2.13% pixels
+changing by more than eight. The recovered scene and Wes are the user's
+authorized temporary M2 content; a later remake is a separate content task.
+Two visible D3D12 editor sessions then qualified physical movement, camera,
+focus recovery, unplug/reconnect with Menu/Start reselection, and the editor's
+Pause/Play, Stop/Play, and Scene/Game transitions. The twelve-check trace report
+is under `PokemonCyberpunk/artifacts/outskirt-m2-manual/`; the user confirmed
+the visible behavior. This closes the bounded M2 exit gate with provisional
+recovered content. Final Outskirt and Wes replacements remain separate content
+work.
+
 ### M3-A: asset-independent animation blend foundation (qualified 2026-09-22)
 
 The [blend foundation](ANIMATION_BLEND.md) adds clip crossfades, masked override
@@ -800,7 +821,7 @@ current status of its claims, re-checked against the baseline.
 | The full typed cooked family `.phmesh/.phskel/.phanim/.phmat/.phcol/.phv` had to be finished before freezing | Present: [PhlosionResourceContainer.h](../src/engine/assets/phlosion/PhlosionResourceContainer.h) and [PhlosionSceneArchive.h](../src/engine/assets/phlosion/PhlosionSceneArchive.h) provide the `.phrc` container plus `.phlo`/`.phscene` runtime APIs with integrity and round-trip tests; typed formats remain a long-term target in [PHLOSION_ASSET_ARCHITECTURE.md](PHLOSION_ASSET_ARCHITECTURE.md). Audit position: the typed family is not a blocker | Treat typed formats as an optional, evidence-driven follow-up; freeze against the versioned PHLO/PHSCENE contract |
 | Lua/sol2 were linked without a mature generic scripting layer | Still true: `lua` and `sol2` are declared in [vcpkg.json](../vcpkg.json) and linked in [CMakeLists.txt](../CMakeLists.txt), while engine source contains no Lua usage (word-bounded search) | Optional for the qualification slice; if scripting is wanted, decide between a thin engine facade and game-owned bindings |
 | Scene hierarchy was partly read-only with editable components as a near-term milestone | Completed for the current adapter workflow: [EDITOR_ARCHITECTURE.md](EDITOR_ARCHITECTURE.md) M1 is active with typed commands, transactions, undo/redo, transform gizmos and saveable project-owned overrides; [EDITOR_PROJECT_EXTENSIONS.md](EDITOR_PROJECT_EXTENSIONS.md) declares generic transform capabilities, project commands and commit/cancel/undo routing; source spot checks show the layout-object and command types in [EditorProjectPlugin.h](../src/engine/editor/EditorProjectPlugin.h) (lines 180, 244-290, 523-526, 678-689) and undo/redo plus "release to save; Esc cancels" in [EditorShell.cpp](../src/engine/editor/EditorShell.cpp) (lines 1483-1494, 1686) | Generic component coverage beyond project layout objects, and a general external query/edit transport for agents, remain outstanding. Canonical cooked scenes stay read-only by design |
-| Physics/collision, character controller, animation runtime, camera rigs, action input, runtime UI and audio were missing | Absent or partial at the original audit; M2-A through F subsequently added and qualified the bounded exploration stack | Actual game-scene qualification, expanded animation/battle cameras, runtime UI and audio remain blockers |
+| Physics/collision, character controller, animation runtime, camera rigs, action input, runtime UI and audio were missing | Absent or partial at the original audit; M2-A through F and the provisional Outskirt scene now qualify the bounded exploration stack | Expanded animation/battle cameras, runtime UI and audio remain separate work |
 
 ## Capability matrix
 
@@ -815,7 +836,7 @@ it is proven" means consumer usage, not engine verification.
 | --- | --- | --- | --- |
 | Window, drawable size, VSync, swap | Implemented | [Window.h](../src/engine/platform/Window.h); no engine test identified | Fullscreen/borderless policy and display-mode enumeration are consumer-side |
 | Keyboard and mouse input | Actions and bounded native exploration routing qualified through M2-F | [Input contracts](INPUT_ACTIONS.md) plus the [public course](EXPLORATION_FIXTURE.md): keys, RMB orbit, wheel zoom, focus/text/pause gates and fixed-tick delivery | General text/IME input and final game integration remain; existing plugins opt in explicitly |
-| Gamepad / controller | Mapped adapter and synthetic runtime/editor integration qualified through M2-F; basic physical D3D12 controls exercised | [SDL action adapter](INPUT_ACTIONS.md), public-course virtual-device select/hotplug/rearm, and recorded Xbox 360 Controller manual sessions | Manual editor toolbar checks deferred; physical SDL detach not corroborated; prompts, haptics and other hardware/driver coverage remain |
+| Gamepad / controller | Mapped adapter, synthetic runtime/editor integration and physical D3D12 Outskirt editor controls qualified | [SDL action adapter](INPUT_ACTIONS.md), virtual-device select/hotplug/rearm, three-API scene replay, and two Xbox 360 Controller manual traces with detach/reconnect and toolbar transitions | Prompts, haptics and other hardware/driver coverage remain separate work |
 | Named action mapping, rebinding, context layers | Actions, in-memory rebinding and sample host integration implemented; context layers remain absent | [InputActions](INPUT_ACTIONS.md) and [course scheduling](EXPLORATION_FIXTURE.md) preserve taps/deltas through zero-tick frames and consume them once across catch-up ticks | Context priority/consumption, binding capture UI and persistence remain |
 | Camera | Exploration CPU/native path qualified through M2-F; M3-C battle rig CPU foundation and M3-J/K provisional native preview | [Exploration camera](EXPLORATION_CAMERA.md), [battle camera](BATTLE_CAMERA.md) and [Outskirt fixture](EXPLORATION_FIXTURE.md): four-slot framing, blend, cut, shake, settle and cleanup on all three APIs in runtime/editor | Final-asset framing and authored scene zones remain unqualified |
 | Cursor capture and pointer policy | Bounded viewport-local exploration policy qualified in M2-F | RMB starts inside the active image; gates/releases clear drag and deltas; wheel respects image hover without global relative mouse mode | Broader cursor modes and battle pointer policy remain |
@@ -847,10 +868,10 @@ it is proven" means consumer usage, not engine verification.
 
 | Capability | Status | Evidence | Gap for this work |
 | --- | --- | --- | --- |
-| Physics/collision layer | M2-A CPU foundation and M2-F public-course integration accepted | [Static collision queries](COLLISION_WORLD.md) plus shared authored render/collision boxes in both native hosts | Actual environment proxies, representative content/scale and scene fitting remain; general dynamic physics is outside the baseline |
-| Character controller | M2-B CPU foundation and M2-F action/camera/host composition accepted | [Kinematic character contract](CHARACTER_CONTROLLER.md): walk/run, gravity, grounding, sliding, slopes/steps and recovery, exercised in the native public course | Final character/environment fitting and game-scale movement remain; moving bodies and character-character response are outside this pass |
+| Physics/collision layer | M2-A CPU foundation, M2-F public course and provisional Outskirt scene qualified | [Static collision queries](COLLISION_WORLD.md), recovered Outskirt mesh support and train blockers in the game scene | Final replacement-environment fitting remains; general dynamic physics is outside the baseline |
+| Character controller | M2-B CPU foundation and provisional Outskirt native scene qualified | [Kinematic character contract](CHARACTER_CONTROLLER.md): walk/run, gravity, grounding, sliding, slopes/steps and recovery, including the recovered ramp lip | Final character/environment fitting remains; moving bodies and character-character response are outside this pass |
 | Character sensor events | M2-C discrete foundation and M2-F visible sample dispatch accepted | [Trigger samples](CHARACTER_TRIGGERS.md): Enter/Stay/Exit with independent filters and copied snapshots; public player/zone membership response in both native hosts | Complete crossings between samples are not guaranteed; games still author volumes and interaction rules |
-| Traversal (jumping, ledges, ramps) | Bounded CPU and native public-course subset qualified | M2-B contracts and M2-F ramp/stair, steep-slope rejection, ledge falling/landing and recovery captures | Jumping, climbing, traversal animation and final game-scene qualification remain |
+| Traversal (jumping, ledges, ramps) | Bounded CPU/public-course subset and Outskirt ramp lip qualified | M2-B contracts, M2-F ramp/stair/ledge captures, and provisional Outskirt walking/running step and slope captures | Jumping, climbing, traversal animation and final-content qualification remain |
 
 The recovered material calls for kinematic character/world collision.
 The original audit deferred vendor selection; M2-A selected manifest-pinned
@@ -1059,14 +1080,16 @@ load-time and residency measurements feeding M4/M5.
 scene content. This milestone pulls in the collision and character-controller
 capability, the exploration camera, and action-based input:
 
-Progress: M2-A's static queries, M2-B's CPU kinematic controller, M2-C's discrete
+Completed for the provisional scene: M2-A's static queries, M2-B's CPU kinematic controller, M2-C's discrete
 trigger samples, M2-D's named actions/SDL controller adapter and M2-E's CPU
 exploration camera are accepted. M2-F adds the shared public course and accepted
 automated native runtime/editor integration, with basic physical controls also
-exercised. The provisional game's v2 scene data and 108-capture replay now cover
-its recovered collision, ramp, blocker, reset and synthetic device/focus cases.
-Visible Outskirt steps, physical-device and deferred editor toolbar checks, and
-replacement-content fitting remain outside the exit gate. Trigger
+exercised. The provisional game's v3 scene data and 180-capture replay now cover
+its recovered collision, the visible ramp lip and slope, blocker, reset,
+game-owned camera framing, mouse/right-stick orbit, and synthetic device/focus
+cases. Physical-device and editor toolbar checks passed in visible D3D12
+sessions, including actual SDL detach/reconnect and movement afterward. The
+later Outskirt/Wes remake is a separate content task. Trigger
 sampling does not guarantee events for complete
 crossings between samples; the camera probe does not qualify full-frustum or
 swept-trajectory clearance.

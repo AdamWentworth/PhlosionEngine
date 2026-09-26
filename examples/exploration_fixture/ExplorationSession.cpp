@@ -18,7 +18,7 @@ OutskirtEncounterScene loadEncounterScene() {
     std::ifstream file(*path);
     require(bool(file), "Cannot read Outskirt encounter scene: " + *path);
     const auto scene = nlohmann::json::parse(file);
-    require(scene.at("schema") == "pokemon-cyberpunk-outskirt-encounter-v2", "Unexpected Outskirt encounter schema");
+    require(scene.at("schema") == "pokemon-cyberpunk-outskirt-encounter-v3", "Unexpected Outskirt encounter schema");
     OutskirtEncounterScene result;
     auto position = [](const nlohmann::json& value) {
         require(value.is_array() && value.size() == 3, "Encounter position needs three coordinates");
@@ -30,6 +30,17 @@ OutskirtEncounterScene loadEncounterScene() {
     result.interactionRadius = scene.at("interaction_radius").get<float>();
     result.willieModel = scene.at("willie_model").get<std::string>();
     result.willieIdleAnimation = scene.at("willie_idle_animation").get<std::string>();
+    const auto& camera = scene.at("camera");
+    result.camera = cameraSettings();
+    result.camera.pivotOffset = position(camera.at("pivot_offset"));
+    result.camera.desiredDistance = camera.at("distance").get<float>();
+    result.camera.initialPitchRadians = camera.at("pitch_radians").get<float>();
+    result.camera.initialYawRadians = camera.at("yaw_radians").get<float>();
+    result.camera.followHalfLifeSeconds = camera.at("follow_half_life_seconds").get<float>();
+    result.camera.farPlane = camera.at("far_plane").get<float>();
+    require(std::isfinite(result.camera.pivotOffset.x) &&
+            std::isfinite(result.camera.pivotOffset.y) &&
+            std::isfinite(result.camera.pivotOffset.z), "Invalid Outskirt camera pivot");
     const auto& collision = scene.at("collision");
     const auto& meshNodes = collision.at("mesh_nodes");
     require(meshNodes.is_array() && !meshNodes.empty(), "Outskirt collision needs mesh nodes");
@@ -168,8 +179,7 @@ camera::ExplorationCameraSettings cameraSettings() {
     camera::ExplorationCameraSettings s; s.pivotOffset = {0,.45f,0}; s.desiredDistance = 7;
     s.initialPitchRadians = .48f; s.followHalfLifeSeconds = .08f; s.farPlane = 100; return s;
 }
-camera::ExplorationCameraSettings configuredCameraSettings() {
-    auto settings=cameraSettings();
+camera::ExplorationCameraSettings configuredCameraSettings(camera::ExplorationCameraSettings settings) {
     auto read=[](const char* name,float& out){if(const auto value=env::get(name);value&&!value->empty()){
         std::size_t consumed=0;out=std::stof(*value,&consumed);if(consumed!=value->size()||!std::isfinite(out))throw std::runtime_error(std::string("Invalid camera setting: ")+name);
     }};
@@ -179,7 +189,10 @@ camera::ExplorationCameraSettings configuredCameraSettings() {
     return settings;
 }
 ExplorationSession::ExplorationSession(std::string name, bool automation, camera::ExplorationCameraSettings settings)
-    : case_(std::move(name)), automation_(automation), rig_(settings) {
+    : case_(std::move(name)), automation_(automation),
+      encounterScene_(case_ == "outskirt-encounter" ?
+                      std::optional<OutskirtEncounterScene>(loadEncounterScene()) : std::nullopt),
+      rig_(encounterScene_ ? configuredCameraSettings(encounterScene_->camera) : settings) {
     using namespace input;
     std::string error;
     require(actions_.define({"move", ActionKind::Axis2D, {KeyBinding{InputEvent::Key::W,{0,-1}},
@@ -190,7 +203,6 @@ ExplorationSession::ExplorationSession(std::string name, bool automation, camera
     require(actions_.define({"look", ActionKind::Axis2D,{StickBinding{GamepadStick::Right}}},&error),error);
     require(actions_.define({"zoom", ActionKind::Axis1D,{ButtonBinding{GamepadButton::LeftShoulder,{-1,0}},ButtonBinding{GamepadButton::RightShoulder,{1,0}}}},&error),error);
     actions_.setEnabled(false);
-    if (case_ == "outskirt-encounter") encounterScene_ = loadEncounterScene();
     const bool outskirt = case_ == "outskirt" || encounterScene_.has_value();
     if (outskirt) {
         static const std::vector<std::string> fallbackMeshNodes{

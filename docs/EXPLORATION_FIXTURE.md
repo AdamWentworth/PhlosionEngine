@@ -40,19 +40,22 @@ paved forecourt, raised train ramp and train body. It rejects missing nodes or
 excessively degenerate geometry, and keeps authored train-side blockers and an
 approach trigger where the render mesh cannot supply gameplay collision. This
 is not extracted game collision. The PokemonCyberpunk encounter reads its mesh
-selection, blockers, and sensor from the game's v2 scene config; the separate
+selection, blockers, sensor, and camera framing from the game's v3 scene config; the separate
 research preview retains its historical fallback. Source materials are converted to the engine's
 opaque material subset and 256-pixel images. The private research guide at
 `D:/Projects/Research/PokemonGCAssetResearch/docs/colosseum/OUTSKIRT_STAND.md`
 records source hashes, conversion limits, collision audit and the native
 idle/blend/walk/run/ramp/wall captures at 16:9 and 21:9.
-The game runs `tools/Verify-Outskirt-Encounter.ps1 -M2Scene` for 108 runtime/editor
-captures at both aspects and all three APIs: idle, walk, run, recovered ramp,
-blocked train side, reset, synthetic focus loss/resume, and virtual controller
-reconnect. The recovered outdoor scene has no qualified visible step case, and
-physical device/focus and deferred editor toolbar checks remain separate.
-Neither the final M2 scene gate nor the M3 double-battle gate is closed by this
-preview.
+The game runs `tools/Verify-Outskirt-Encounter.ps1 -M2Scene` for 180 runtime/editor
+captures at both aspects and all three APIs: idle, walk, run, the recovered
+ramp's leading lip and slope, blocked train side, reset, mouse/controller camera
+orbit, synthetic focus loss/resume, and virtual controller reconnect. The ramp
+lip rises about 0.14 world units above the paved forecourt near X=-2; paired
+walking and running replays check the support change and vertical ascent.
+Physical device/focus and editor toolbar checks passed in visible D3D12
+editor sessions; the game test plan and manual trace report record the evidence.
+The provisional recovered scene is the user-authorized M2 content while its
+eventual remake belongs to later content fitting.
 
 The separate opt-in `outskirt-battle` case uses the recovered battle-field GLB
 and four labelled Wes stand-ins for provisional actor slots. It exercises the
@@ -122,8 +125,8 @@ material keys and one explicitly released world-resource scope.
 | Run | Left Shift | Left stick click |
 | Orbit | Hold RMB and drag inside the viewport | Right stick |
 | Zoom | Mouse wheel | Left/right shoulder |
-| Reset player, NPC and camera | R | Back |
-| Select a controller | Tab cycles available devices | Start on that device |
+| Reset player, NPC and camera | R | View/Back (Select) |
+| Select a controller | Tab cycles available devices | Menu/Start on that device |
 | Pause standalone | P | Use editor Pause in the editor |
 | Quit standalone | Escape / close window | Close window |
 
@@ -157,7 +160,7 @@ sensor counters and camera/reset state. It records no raw keys or editor text.
 
 For the short physical check, exercise move/run/orbit/zoom and reset, then return
 from pause or another window while holding a stick (movement must wait for
-neutral). Unplug/reconnect and press Start to select the reconnected device.
+neutral). Unplug/reconnect and press Menu/Start to select the reconnected device.
 Resize both hosts and check that the editor's fitted image remains exact and
 letterbox clicks do not start an orbit. In the editor, click the Game image to
 give it focus; UI text editing must gate gameplay. The root review records these

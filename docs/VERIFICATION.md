@@ -287,6 +287,21 @@ Evidence is in `PokemonCyberpunk/artifacts/outskirt-m2-scene/report.json`.
 The synthetic transitions do not establish physical device/OS behavior, and
 the scene has no qualified visible step case.
 
+The 2026-09-26 follow-on added a v3 game-authored exploration camera and source
+audit of the recovered ramp's 0.143-unit leading lip. Walking and running
+replays now check ground-to-ramp support and vertical ascent. Mouse drag/wheel
+and right-stick camera changes are checked in the actual scene. The expanded
+matrix passed 180 captures and 210 image comparisons: 90 runtime/editor pairs
+were pixel identical, while 120 cross-API pairs had maximum MAE 0.818/255 and
+2.13% pixels changing by more than eight. A temporary 5.5-distance game config
+produced a 5.5-distance running camera. Two visible D3D12 editor sessions then
+passed twelve manual trace checks for physical controls, focus recovery,
+SDL detach/reconnect with Menu/Start reselection and movement, and toolbar
+Pause/Play, Stop/Play, and Scene/Game. The user confirmed the visible results.
+Evidence is under `PokemonCyberpunk/artifacts/outskirt-m2-manual/`. A focused
+post-fix hotplug replay passed all twelve host/aspect/API captures, and the
+180-capture scene verifier passed again.
+
 On 2026-09-22, Astra accepted [M2-E's exploration camera](agent-work/cyberpunk-m2-camera/ACCEPTANCE.md)
 from M2-D commit `bd76391`. The final enabled VS2026 Debug build passed, and all
 fifteen CTest entries passed in 333.88 seconds; the camera entry took 0.10 seconds.

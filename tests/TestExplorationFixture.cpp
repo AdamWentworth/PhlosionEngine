@@ -167,6 +167,35 @@ void malformed(const std::filesystem::path& dir) {
                  {{"frame",1},{"type","attach"}},{{"frame",2},{"type","axis"},{"index",0},{"value",-32768}},
                  {{"frame",2},{"type","axis"},{"index",5},{"value",32767}}},true);
 }
+void reconnectSelection(const std::filesystem::path& dir) {
+    const auto script=dir/"reconnect-selection.json";
+    {std::ofstream out(script);out<<nlohmann::json{{"schema","phlosion-sdl-replay-v1"},{"events",nlohmann::json::array({
+        {{"frame",1},{"type","attach"}},
+        {{"frame",2},{"type","button"},{"index",6},{"value",1}},
+        {{"frame",3},{"type","button"},{"index",6},{"value",0}},
+        {{"frame",4},{"type","detach"}},
+        {{"frame",5},{"type","attach"}},
+        {{"frame",6},{"type","state"},{"viewport_focus",false}},
+        {{"frame",6},{"type","button"},{"index",6},{"value",1}},
+        {{"frame",7},{"type","button"},{"index",6},{"value",0}},
+        {{"frame",8},{"type","state"},{"viewport_focus",true}},
+        {{"frame",9},{"type","axis"},{"index",1},{"value",-32767}}
+    })}};}
+    input::InputActions actions;
+    CHECK(actions.define({"move",input::ActionKind::Axis2D,{input::StickBinding{input::GamepadStick::Left}}}));
+    input::SdlInputReplay replay(script);
+    input::SdlGameInput game(actions,42,false);
+    auto c=context();
+    for(int frame=1;frame<=10;++frame) {
+        replay.frame(c);game.begin(c);
+        SDL_Event e{};while(SDL_PollEvent(&e))game.event(c,e);
+        game.end(c);actions.advanceFrame();
+        if(frame==2)CHECK(actions.selectedController());
+        if(frame==4)CHECK(!actions.selectedController());
+        if(frame==6){CHECK(!c.viewportFocused);CHECK(actions.selectedController());}
+        if(frame==9){input::ActionState state;CHECK(actions.state("move",state));CHECK(state.value.y<-.9f);}
+    }
+}
 }
 int main(int argc,char** argv) {
     try {
@@ -174,7 +203,7 @@ int main(int argc,char** argv) {
         CHECK(SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER|SDL_INIT_EVENTS)==0);
         const int ambientDevices=SDL_NumJoysticks();
         const auto dir=argc>1?std::filesystem::path(argv[1]):std::filesystem::temp_directory_path()/("phlosion-exploration-"+std::to_string(SDL_GetPerformanceCounter()));
-        std::filesystem::create_directories(dir);extension();policy();malformed(dir);
+        std::filesystem::create_directories(dir);extension();policy();malformed(dir);reconnectSelection(dir);
         nlohmann::json states;
         for(const auto& name:exploration_fixture::cases()){states[name]=run(name,dir);std::cout<<name<<" "<<states[name].dump()<<'\n';}
         for(const auto& name:exploration_fixture::supplementalCases()){states[name]=run(name,dir);std::cout<<name<<" "<<states[name].dump()<<'\n';}
