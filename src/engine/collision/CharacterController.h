@@ -31,6 +31,7 @@ struct CharacterSettings {
     float fixedDeltaSeconds = 1.0f / 60.0f;
     std::uint32_t layerMask = 0xffffffffu;
     ColliderId ignore;
+    bool collideWithCharacters = false;
 };
 
 struct CharacterInput {

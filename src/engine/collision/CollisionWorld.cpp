@@ -188,6 +188,7 @@ struct CollisionWorld::Impl {
     JPH::PhysicsSystem physics;
     std::map<ColliderId, Entry> entries;
     JPH::TempAllocatorMalloc characterAllocator;
+    JPH::CharacterVsCharacterCollisionSimple characterCollisions;
     std::map<CharacterId, CharacterEntry> characters;
 
     explicit Impl(const CollisionWorldOptions& settings) : options(settings) {
@@ -332,6 +333,8 @@ bool CollisionWorld::remove(ColliderId id) {
 }
 void CollisionWorld::clear() {
     impl_->checkOwner();
+    for (const auto& [id, character] : impl_->characters)
+        impl_->characterCollisions.Remove(character.solver.get());
     impl_->characters.clear();
     while (!impl_->entries.empty()) remove(impl_->entries.begin()->first);
 }
@@ -364,7 +367,10 @@ bool CollisionWorld::createCharacter(const CharacterSettings& settings, const gl
     Impl::CharacterEntry entry{settings, std::make_unique<JPH::CharacterVirtual>(
         &config, JPH::RVec3(vec(center)), JPH::Quat::sIdentity(), &impl_->physics)};
     impl_->refresh(entry);
-    impl_->characters.emplace(id, std::move(entry));
+    const auto it = impl_->characters.emplace(id, std::move(entry)).first;
+    impl_->characterCollisions.Add(it->second.solver.get());
+    if (settings.collideWithCharacters)
+        it->second.solver->SetCharacterVsCharacterCollision(&impl_->characterCollisions);
     out = id;
     succeed(error);
     return true;
@@ -372,7 +378,13 @@ bool CollisionWorld::createCharacter(const CharacterSettings& settings, const gl
 
 bool CollisionWorld::removeCharacter(CharacterId id) {
     impl_->checkOwner();
-    return impl_->characters.erase(id) != 0;
+    const auto it = impl_->characters.find(id);
+    if (it == impl_->characters.end()) return false;
+    impl_->characterCollisions.Remove(it->second.solver.get());
+    impl_->characters.erase(it);
+    for (auto& [otherId, character] : impl_->characters)
+        if (character.settings.collideWithCharacters) impl_->refresh(character);
+    return true;
 }
 
 std::size_t CollisionWorld::characterCount() const {
@@ -453,6 +465,17 @@ bool CollisionWorld::teleportCharacter(CharacterId id, const glm::vec3& center, 
     for (const auto& hit : contacts.mHits)
         if (hit.mPenetrationDepth > collisionTolerance)
             return fail(error, "Character destination penetrates blocking geometry");
+    if (entry.settings.collideWithCharacters) {
+        for (const auto& [otherId, other] : impl_->characters) {
+            if (otherId == id) continue;
+            const glm::vec3 delta = center - vec(other.solver->GetPosition());
+            const float verticalGap = std::max(0.0f, std::abs(delta.y)
+                - entry.settings.cylinderHalfHeight - other.settings.cylinderHalfHeight);
+            const float separation = glm::length(glm::vec3(delta.x, verticalGap, delta.z));
+            if (separation < entry.settings.radius + other.settings.radius - collisionTolerance)
+                return fail(error, "Character destination penetrates another character");
+        }
+    }
     entry.solver->SetPosition(JPH::RVec3(vec(center)));
     entry.solver->SetLinearVelocity(JPH::Vec3::sZero());
     entry.velocity = glm::vec3(0.0f);

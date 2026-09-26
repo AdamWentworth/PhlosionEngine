@@ -131,10 +131,15 @@ ceiling clearance; steps above the allowed reach block. Steep faces reject
 uphill movement. Descending motion can follow nearby ground; an airborne
 character cannot snap to a remote floor, and ledge departure falls under gravity.
 
-Sensors never block or support. Layer/ignore filters apply to movement and
-teleport. Characters have no inner rigid body or character-vs-character collision
-interface: they can share space, and collision-world queries do not see them.
-Static sensor queries remain available. Explicit
+Sensors never block or support. Layer/ignore filters apply to static geometry.
+`CharacterSettings::collideWithCharacters` opts a character into movement
+collision with every other character in the same world, using Jolt's virtual
+character sweeps. The default is false to preserve existing authored courses.
+Teleport rejects capsule overlap with another character for opted-in movers.
+Characters have no inner rigid body and collision-world ray/shape queries do
+not see them. The owner-thread API steps one character at a time; other virtual
+characters do not receive a push impulse. Static sensor queries remain available.
+Explicit
 [character trigger samples](CHARACTER_TRIGGERS.md) provide discrete Enter/Stay/Exit
 membership independently of movement; ticks and teleports do not sample or
 reset that history automatically.
@@ -150,11 +155,12 @@ escape. Such cases remain finite and can use explicit teleport. The API never
 silently chooses a spawn point.
 
 `teleportCharacter` tests the precise geometric capsule at the destination
-against blocking shapes/triangles, not an AABB occupancy shortcut. Any contact
-penetration greater than 0.0001 units rejects the entire operation, preserving
-center, velocity and support. Touching and shallower contacts within that small
-numerical tolerance are accepted. Meshes are surfaces rather than closed-volume
-occupancy solids, consistent with collision queries.
+against blocking shapes/triangles, not an AABB occupancy shortcut. Opted-in
+characters also reject overlapping character capsules. Any penetration greater
+than 0.0001 units rejects the entire operation, preserving center, velocity and
+support. Touching and shallower contacts within that small numerical tolerance
+are accepted. Meshes are surfaces rather than closed-volume occupancy solids,
+consistent with collision queries.
 
 Success replaces the center, resets reported and gravity velocities to zero,
 and refreshes support immediately. No tick elapses. Teleport is the caller's

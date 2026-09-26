@@ -220,6 +220,41 @@ void overlapRecoveryAndTeleport() {
     CHECK(trapped.teleportCharacter(prisoner, {10, 0.9f, 0}));
     CHECK(ticks(trapped, prisoner, 30).groundState == CharacterGroundState::Grounded);
 }
+void characterBlockingAndLifecycle() {
+    CollisionWorld w;
+    floor(w);
+    CharacterSettings blocking;
+    blocking.collideWithCharacters = true;
+    const auto walker = character(w, {-2, 0.9f, 0}, blocking);
+    const auto npc = character(w, {0, 0.9f, 0}, blocking);
+    const auto stopped = ticks(w, walker, 120, {{1, 0}, false});
+    CHECK(stopped.center.x < -0.69f && stopped.center.x > -0.75f);
+    CHECK(near(stopped.center.z, 0) && near(state(w, npc).center, {0, 0.9f, 0}, 0.02f));
+    CHECK(stopped.groundState == CharacterGroundState::Grounded);
+    CHECK(near(ticks(w, walker, 30, {{1, 0}, true}).center, stopped.center, 0.02f));
+    CHECK(!w.teleportCharacter(walker, {-0.2f, 0.9f, 0}));
+    CHECK(near(state(w, walker).center, stopped.center));
+    CHECK(w.teleportCharacter(walker, {-2, 0.9f, 0}));
+    const auto around = ticks(w, walker, 120, {{1, 1}, false});
+    CHECK(around.center.x > 0 && around.center.z > 1);
+    CHECK(w.removeCharacter(npc));
+    CHECK(ticks(w, walker, 120, {{-1, 0}, false}).center.x < -1);
+    w.clear();
+    CHECK(w.characterCount() == 0);
+    floor(w);
+    const auto newWalker = character(w, {-2, 0.9f, 0}, blocking);
+    CHECK(ticks(w, newWalker, 120, {{1, 0}, false}).center.x > 1);
+    CollisionWorld legacy;
+    floor(legacy);
+    const auto unblocked = character(legacy, {-2, 0.9f, 0});
+    character(legacy, {0, 0.9f, 0});
+    CHECK(ticks(legacy, unblocked, 120, {{1, 0}, false}).center.x > 1);
+    CollisionWorld mixed;
+    floor(mixed);
+    character(mixed, {0, 0.9f, 0});
+    const auto optedIn = character(mixed, {-2, 0.9f, 0}, blocking);
+    CHECK(ticks(mixed, optedIn, 120, {{1, 0}, false}).center.x < -0.69f);
+}
 void filteringAndSupportRemoval() {
     CollisionWorld w;
     const auto ground = box(w, {0, -0.5f, 0}, {20, 0.5f, 20}, 31, false, 77);
@@ -399,10 +434,11 @@ void repeatedAuthoredSequence() {
 } // namespace
 
 int main() {
-    const std::array<std::pair<const char*, std::function<void()>>, 10> tests{{
+    const std::array<std::pair<const char*, std::function<void()>>, 11> tests{{
         {"free movement and fixed ticks", freeMovementAndFixedTicks}, {"gravity landing metadata", gravityLandingAndMetadata},
         {"walls corners sweeps", wallsCornersAndSweeps}, {"slopes ceilings", slopesAndCeilings},
         {"steps following ledges", stepsFloorFollowingAndLedges}, {"recovery teleport", overlapRecoveryAndTeleport},
+        {"character blocking lifecycle", characterBlockingAndLifecycle},
         {"filtering removal", filteringAndSupportRemoval}, {"lifecycle threads", lifecycleCapacityAndThreads},
         {"validation bounds", validationAndBounds}, {"repeated authored sequence", repeatedAuthoredSequence}
     }};
