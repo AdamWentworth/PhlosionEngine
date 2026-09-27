@@ -90,6 +90,15 @@ vec3 encodeWorldSurfaceColor(vec3 linearColor) {
 
 
 void main() {
+    WorldIndirectDrawState portableDraw = worldIndirectDraws.states[drawStateIndex];
+    if (portableDraw.materialParams.w > 254.5) {
+        uint materialIndex = portableDraw.drawParams.x;
+        vec4 color = clamp(vertexColor *
+            texture(baseColorTextures[nonuniformEXT(materialIndex)], vertexUv),
+            0.0, 1.0);
+        writeWorldColor(color);
+        return;
+    }
 #ifdef PHLOSION_PROJECT_MATERIAL
 #include "project_world_indirect_evaluation.glsl"
 #else

@@ -185,6 +185,7 @@ struct WorldTextureData {
     std::uint8_t blendMode = 0u;
     std::uint8_t dualSourceBlendEnabled = 0u;
     std::uint8_t depthTestEnabled = 1u;
+    // 255: unlit numeric RGBA for portable effects, even with project material profiles.
     std::uint8_t materialMode = 0u;
     float clipSpaceDepthBias = 0.0f;
     float alphaCutoff = 0.5f;

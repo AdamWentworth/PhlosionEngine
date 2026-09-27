@@ -103,6 +103,11 @@ vec3 encodeWorldSurfaceColor(vec3 linearColor) {
 
 
 void main() {
+    if (pushData.materialParams.w > 254.5) {
+        vec4 color = clamp(vertexColor * texture(baseColorTexture, vertexUv), 0.0, 1.0);
+        writeWorldColor(color);
+        return;
+    }
 #ifdef PHLOSION_PROJECT_MATERIAL
 #include "project_world_evaluation.glsl"
 #else

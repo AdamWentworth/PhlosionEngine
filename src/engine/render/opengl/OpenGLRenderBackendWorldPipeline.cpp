@@ -493,6 +493,17 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
 
 __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
         void main() {
+            if (uMaterialMode > 254.5) {
+                vec4 tex = uUseTexture > 0.5 ? texture(uTexture, vUv) : vec4(1.0);
+                vec4 color = clamp(vColor * uVertexColorMul * tex, 0.0, 1.0);
+                float alpha = color.a;
+                if (uDualSourceBlendEnabled > 0.5)
+                    color.a = floor(alpha * 63.0 + 0.5) / 63.0;
+                FragColor = color;
+                FragBlendAlpha = uDualSourceBlendEnabled > 0.5
+                    ? vec4(0.0, 0.0, 0.0, alpha) : vec4(0.0);
+                return;
+            }
 __PHLOSION_PROJECT_MATERIAL_EVALUATION__
 }
 

@@ -188,6 +188,7 @@ struct WorkspaceAsset {
     bool previewable3d = false;
     bool sceneInstantiable = false;
     std::vector<WorkspaceProperty> properties;
+    bool projectRuntimeAsset = false;
 };
 
 struct WorkspaceAssetAnimation {

@@ -1434,7 +1434,8 @@ void appendProjectAssets(
                          : description},
                     {"Format", "Project runtime"},
                     {"Project path", asset.path},
-                }});
+                },
+                .projectRuntimeAsset = true});
     }
     std::stable_sort(
         assets.begin(),
@@ -1603,8 +1604,15 @@ struct LoadedProject {
     DynamicLibrary assetPreviewLibrary;
     engine::editor::IEditorProjectRuntime* assetPreviewRuntime = nullptr;
     engine::editor::DestroyEditorProjectRuntimeFn destroyAssetPreviewRuntime = nullptr;
+    engine::editor::IEditorProjectRuntime* activeAssetPreviewProvider = nullptr;
     engine::editor::IEditorProjectRuntime* previewProvider() const noexcept {
-        return assetPreviewRuntime ? assetPreviewRuntime : runtime;
+        return activeAssetPreviewProvider ? activeAssetPreviewProvider :
+            (assetPreviewRuntime ? assetPreviewRuntime : runtime);
+    }
+    engine::editor::IEditorProjectRuntime* previewProviderForAsset(
+        std::size_t index) const noexcept {
+        return assetViews[index].projectRuntimeAsset || !assetPreviewRuntime
+            ? runtime : assetPreviewRuntime;
     }
     const engine::editor::EditorSdlGameInputExtension* sdlGameInput = nullptr;
     engine::editor::DestroyEditorProjectRuntimeFn destroyRuntime =
@@ -1649,7 +1657,6 @@ struct LoadedProject {
         projectCommandViews;
     std::vector<engine::editor::WorkspaceAsset>
         assetViews;
-    std::size_t cookedAssetViewCount = 0u;
     std::vector<engine::editor::WorkspaceScene> sceneViews;
     std::vector<engine::editor::WorkspaceGamePreview>
         gamePreviewViews;
@@ -1933,6 +1940,9 @@ void writeAutomationMetrics(
             document["asset_preview"] = {
                 {"id", preview.assetId},
                 {"path", asset.path},
+                {"kind", preview.kind ==
+                    engine::editor::WorkspaceAssetPreviewKind::VisualEffect
+                    ? "visual-effect" : "model"},
                 {"ready", preview.ready},
                 {"graphics_quality", preview.graphicsQuality},
                 {"lighting_profile", preview.lightingProfile},
@@ -1942,12 +1952,17 @@ void writeAutomationMetrics(
                 {"material_count", preview.materialCount},
                 {"texture_count", preview.textureCount},
                 {"bone_count", preview.boneCount},
+                {"active_element_count", preview.activeElementCount},
+                {"animation_time_seconds", preview.animationTimeSeconds},
+                {"animation_duration_seconds", preview.animationDurationSeconds},
                 {"object_package_file_count", packageFileCount},
                 {"object_package_bytes", packageBytes},
                 {"decoded_object_cache_hits", nullptr},
                 {"decoded_object_cache_misses", nullptr},
-                {"cache_note",
-                 "The current direct PHLO preview path has no decoded-object cache counters; backend cached draws are reported separately."}};
+                {"cache_note", preview.kind ==
+                    engine::editor::WorkspaceAssetPreviewKind::Model
+                    ? "The current direct PHLO preview path has no decoded-object cache counters; backend cached draws are reported separately."
+                    : "No decoded-object cache applies to this effect preview."}};
         }
     }
 
@@ -2636,12 +2651,15 @@ bool selectAssetPreview(
             : (project.root / asset.path)
                   .lexically_normal()
                   .string();
-    if (!project.previewProvider()->selectAssetPreview(
+    auto* provider = project.previewProviderForAsset(
+        static_cast<std::size_t>(assetIndex));
+    if (!provider || !provider->selectAssetPreview(
             asset.id.c_str(),
             resolvedAssetPath.c_str(),
             &outError)) {
         return false;
     }
+    project.activeAssetPreviewProvider = provider;
     selectedAssetPreviewIndex = assetIndex;
     refreshAssetPreviewView(project, true);
     resetAssetPreviewCamera(camera, project.assetPreviewView);
@@ -2880,8 +2898,6 @@ std::unique_ptr<LoadedProject> loadProjectRuntime(
         discoverCookedAssets(
             loaded->root,
             loaded->descriptor);
-    loaded->cookedAssetViewCount =
-        loaded->assetViews.size();
     loaded->sceneViews.reserve(
         loaded->descriptor.scenes.size());
     for (const auto& scene : loaded->descriptor.scenes) {
@@ -4892,8 +4908,8 @@ int main(int argc, char** argv) {
                             renderer.backendId()
                             ? renderer.backendId()
                             : "unknown");
-                    project->assetViews.resize(
-                        project->cookedAssetViewCount);
+                    std::erase_if(project->assetViews,
+                        [](const auto& asset) { return asset.projectRuntimeAsset; });
                     appendProjectAssets(
                         *project->runtime,
                         project->assetViews);

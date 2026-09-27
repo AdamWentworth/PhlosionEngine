@@ -90,6 +90,39 @@ struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLO
 
 __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
 float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
+  if (uMaterialMode > 254.5f) {
+    float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    if (uUseTexture > 0.5f) {
+      uint width, height;
+      gTex.GetDimensions(width, height);
+      int2 size = int2(max(width, 1u), max(height, 1u));
+      float2 pixel = i.uv * float2(size) - 0.5f;
+      int2 base = int2(floor(pixel));
+      float2 weight = frac(pixel);
+      int2 next = base + 1;
+      if (abs(uWrapS - 33071.0f) < 0.5f) {
+        base.x = clamp(base.x, 0, size.x - 1);
+        next.x = clamp(next.x, 0, size.x - 1);
+      } else {
+        base.x = (base.x % size.x + size.x) % size.x;
+        next.x = (next.x % size.x + size.x) % size.x;
+      }
+      if (abs(uWrapT - 33071.0f) < 0.5f) {
+        base.y = clamp(base.y, 0, size.y - 1);
+        next.y = clamp(next.y, 0, size.y - 1);
+      } else {
+        base.y = (base.y % size.y + size.y) % size.y;
+        next.y = (next.y % size.y + size.y) % size.y;
+      }
+      float4 top = lerp(gTex.Load(int3(base, 0)),
+                        gTex.Load(int3(next.x, base.y, 0)), weight.x);
+      float4 bottom = lerp(gTex.Load(int3(base.x, next.y, 0)),
+                           gTex.Load(int3(next, 0)), weight.x);
+      tex = lerp(top, bottom, weight.y);
+    }
+    return saturate(i.col * float4(uVertexColorMulR, uVertexColorMulG,
+                                    uVertexColorMulB, uVertexColorMulA) * tex);
+  }
 __PHLOSION_PROJECT_MATERIAL_EVALUATION__
 }
 
