@@ -3911,12 +3911,12 @@ int main(int argc, char** argv) {
             const auto frameStart = now;
             const double wallFrameMs = std::chrono::duration<double, std::milli>(now - previous).count();
             double viewportMs = 0;
-            const float deltaSeconds =
-                arguments.fixedDeltaSeconds.value_or(
-                    std::min(
-                        0.05f,
-                        std::chrono::duration<float>(
-                            now - previous).count()));
+            const float wallDeltaSeconds =
+                std::chrono::duration<float>(now - previous).count();
+            const float deltaSeconds = arguments.fixedDeltaSeconds.value_or(
+                std::min(0.05f, wallDeltaSeconds));
+            const float gameDeltaSeconds = arguments.fixedDeltaSeconds.value_or(
+                wallDeltaSeconds);
             previous = now;
             float wheelDelta = 0.0f;
             glm::vec2 panPixels(0.0f);
@@ -4065,7 +4065,8 @@ int main(int argc, char** argv) {
                 continue;
             }
             if (playState == engine::editor::EditorPlayState::Playing)
-                simulationSeconds += deltaSeconds;
+                simulationSeconds += project && project->runtime->gamePreviewReady()
+                    ? gameDeltaSeconds : deltaSeconds;
             if (standaloneBuild) {
                 if (!project || pendingProject) standaloneBuild.reset();
                 else if (const auto buildExitCode = standaloneBuild->poll()) {
@@ -4482,18 +4483,14 @@ int main(int argc, char** argv) {
                 playState ==
                     engine::editor::EditorPlayState::Playing) {
                 constexpr float fixedDelta = 1.0f / 60.0f;
-                gameFixedAccumulator += deltaSeconds;
+                gameFixedAccumulator += gameDeltaSeconds;
                 int fixedTicks = 0;
                 while (gameFixedAccumulator >= fixedDelta &&
-                       fixedTicks < 4) {
+                       fixedTicks < 120) {
                     project->runtime->
                         fixedUpdateGamePreview(fixedDelta);
                     gameFixedAccumulator -= fixedDelta;
                     ++fixedTicks;
-                }
-                if (fixedTicks == 4 &&
-                    gameFixedAccumulator >= fixedDelta) {
-                    gameFixedAccumulator = 0.0f;
                 }
             }
 
