@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <vector>
 
 using namespace engine::audio;
 
@@ -18,6 +19,13 @@ namespace {
 
 std::shared_ptr<const AudioClip> clip() {
     const std::array samples{1.0f, -1.0f, 0.5f, -0.5f};
+    std::shared_ptr<const AudioClip> result;
+    CHECK(AudioClip::create(sampleRate, 2, samples, result));
+    return result;
+}
+
+std::shared_ptr<const AudioClip> longerClip() {
+    const std::vector<float> samples(10000u * 2u, 0.25f);
     std::shared_ptr<const AudioClip> result;
     CHECK(AudioClip::create(sampleRate, 2, samples, result));
     return result;
@@ -51,16 +59,22 @@ void failureSinkRetryAndCleanup() {
     AudioPlayOptions looping;
     looping.loop = true;
     CHECK(mixer.play(clip(), looping, id));
+    CHECK(output.pump(800));
+    CHECK(output.queuedFrames() > 5000u);
+    CHECK(output.lastPeak() > 0.0f);
     for (int i = 0; i < 8; ++i) {
         CHECK(output.pump(4096));
-        CHECK(output.queuedFrames() <= sampleRate / 10u);
+        CHECK(output.queuedFrames() <= sampleRate / 6u);
     }
     CHECK(mixer.activeVoices() == 1);
-    CHECK(output.lastPeak() > 0.0f);
     output.stopAll();
     CHECK(mixer.activeVoices() == 0);
     CHECK(output.queuedFrames() == 0);
     CHECK(output.lastPeak() == 0.0f);
+    CHECK(mixer.play(longerClip(), {}, id));
+    for (int i = 0; i < 8; ++i) CHECK(output.pump(4096));
+    CHECK(mixer.activeVoices() == 1);
+    output.stopAll();
     CHECK(mixer.play(clip(), looping, id));
     output.shutdown();
     CHECK(!output.deviceReady());

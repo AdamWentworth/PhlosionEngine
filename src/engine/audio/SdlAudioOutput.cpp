@@ -19,7 +19,10 @@ void succeed(std::string* diagnostic) {
     if (diagnostic) diagnostic->clear();
 }
 
-constexpr std::size_t maxQueuedFrames = sampleRate / 10u;
+// Debug render frames can exceed one 60 Hz audio block. Keep enough ready
+// PCM for a slow frame without advancing the mixer when SDL's queue is full.
+constexpr std::size_t maxQueuedFrames = sampleRate / 6u;
+constexpr std::size_t targetQueuedFrames = sampleRate / 8u;
 
 } // namespace
 
@@ -41,6 +44,7 @@ void SdlAudioOutput::closeDevice() {
     SDL_ClearQueuedAudio(device_);
     SDL_CloseAudioDevice(device_);
     device_ = 0;
+    mixedAheadFrames_ = 0;
 }
 
 bool SdlAudioOutput::start(std::string* diagnostic) {
@@ -79,25 +83,39 @@ bool SdlAudioOutput::pump(std::size_t elapsedFrames, std::string* diagnostic) {
     if (elapsedFrames == 0u || elapsedFrames > 4096u)
         return fail(diagnostic, "invalid SDL audio pump frame count");
     const bool hadVoices = mixer_.activeVoices() != 0u;
-    buffer_.resize(elapsedFrames * 2u);
-    if (!mixer_.render(elapsedFrames, buffer_, diagnostic)) return false;
-    lastPeak_ = 0.0f;
-    for (const float sample : buffer_)
-        lastPeak_ = std::max(lastPeak_, std::abs(sample));
     if (device_ == 0 || !hadVoices) {
+        mixedAheadFrames_ = 0;
+        buffer_.resize(elapsedFrames * 2u);
+        if (!mixer_.render(elapsedFrames, buffer_, diagnostic)) return false;
+        lastPeak_ = 0.0f;
+        for (const float sample : buffer_)
+            lastPeak_ = std::max(lastPeak_, std::abs(sample));
         succeed(diagnostic);
         return true;
     }
+    mixedAheadFrames_ -= static_cast<std::int64_t>(elapsedFrames);
     const std::size_t queued = queuedFrames();
-    if (queued >= maxQueuedFrames || elapsedFrames > maxQueuedFrames - queued) {
-        succeed(diagnostic);
-        return true;
-    }
-    const auto byteCount = static_cast<Uint32>(buffer_.size() * sizeof(float));
-    if (SDL_QueueAudio(device_, buffer_.data(), byteCount) != 0) {
-        const std::string message = std::string("SDL audio queue failed: ") + SDL_GetError();
-        closeDevice();
-        return fail(diagnostic, message);
+    const std::size_t room = queued < maxQueuedFrames ? maxQueuedFrames - queued : 0u;
+    const std::size_t due = mixedAheadFrames_ < 0 ?
+        static_cast<std::size_t>(-mixedAheadFrames_) : 0u;
+    const std::size_t refill = queued < targetQueuedFrames ?
+        targetQueuedFrames - queued : 0u;
+    std::size_t framesToMix = std::min(room, std::max(due, refill));
+    lastPeak_ = 0.0f;
+    while (framesToMix > 0u) {
+        const std::size_t chunk = std::min<std::size_t>(framesToMix, 4096u);
+        buffer_.resize(chunk * 2u);
+        if (!mixer_.render(chunk, buffer_, diagnostic)) return false;
+        for (const float sample : buffer_)
+            lastPeak_ = std::max(lastPeak_, std::abs(sample));
+        const auto byteCount = static_cast<Uint32>(buffer_.size() * sizeof(float));
+        if (SDL_QueueAudio(device_, buffer_.data(), byteCount) != 0) {
+            const std::string message = std::string("SDL audio queue failed: ") + SDL_GetError();
+            closeDevice();
+            return fail(diagnostic, message);
+        }
+        mixedAheadFrames_ += static_cast<std::int64_t>(chunk);
+        framesToMix -= chunk;
     }
     succeed(diagnostic);
     return true;
@@ -108,6 +126,7 @@ void SdlAudioOutput::stopAll() {
     mixer_.stopAll();
     if (device_ != 0) SDL_ClearQueuedAudio(device_);
     lastPeak_ = 0.0f;
+    mixedAheadFrames_ = 0;
 }
 
 void SdlAudioOutput::shutdown() {

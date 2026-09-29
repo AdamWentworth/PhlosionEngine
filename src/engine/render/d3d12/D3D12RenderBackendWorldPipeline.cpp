@@ -89,6 +89,15 @@ struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLO
 
 
 __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
+int legacyWrapIndex(int index, int size, float mode) {
+  if (abs(mode - 33071.0f) < 0.5f) return clamp(index, 0, size - 1);
+  if (abs(mode - 33648.0f) < 0.5f) {
+    const int period = size * 2;
+    const int wrapped = (index % period + period) % period;
+    return wrapped < size ? wrapped : period - 1 - wrapped;
+  }
+  return (index % size + size) % size;
+}
 float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   if (uMaterialMode > 254.5f) {
     float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -100,20 +109,10 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
       int2 base = int2(floor(pixel));
       float2 weight = frac(pixel);
       int2 next = base + 1;
-      if (abs(uWrapS - 33071.0f) < 0.5f) {
-        base.x = clamp(base.x, 0, size.x - 1);
-        next.x = clamp(next.x, 0, size.x - 1);
-      } else {
-        base.x = (base.x % size.x + size.x) % size.x;
-        next.x = (next.x % size.x + size.x) % size.x;
-      }
-      if (abs(uWrapT - 33071.0f) < 0.5f) {
-        base.y = clamp(base.y, 0, size.y - 1);
-        next.y = clamp(next.y, 0, size.y - 1);
-      } else {
-        base.y = (base.y % size.y + size.y) % size.y;
-        next.y = (next.y % size.y + size.y) % size.y;
-      }
+      base.x = legacyWrapIndex(base.x, size.x, uWrapS);
+      next.x = legacyWrapIndex(next.x, size.x, uWrapS);
+      base.y = legacyWrapIndex(base.y, size.y, uWrapT);
+      next.y = legacyWrapIndex(next.y, size.y, uWrapT);
       float4 top = lerp(gTex.Load(int3(base, 0)),
                         gTex.Load(int3(next.x, base.y, 0)), weight.x);
       float4 bottom = lerp(gTex.Load(int3(base.x, next.y, 0)),

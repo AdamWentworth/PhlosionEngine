@@ -5,6 +5,7 @@
 #include <SDL_audio.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <thread>
 #include <vector>
@@ -38,6 +39,7 @@ private:
     bool ownsAudioSubsystem_ = false;
     std::vector<float> buffer_;
     float lastPeak_ = 0.0f;
+    std::int64_t mixedAheadFrames_ = 0;
 };
 
 } // namespace engine::audio
