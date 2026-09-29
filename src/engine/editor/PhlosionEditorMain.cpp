@@ -3915,8 +3915,10 @@ int main(int argc, char** argv) {
                 std::chrono::duration<float>(now - previous).count();
             const float deltaSeconds = arguments.fixedDeltaSeconds.value_or(
                 std::min(0.05f, wallDeltaSeconds));
+            // Keep a slow render or asset load from consuming an entire gameplay
+            // effect before the next Game viewport frame can present it.
             const float gameDeltaSeconds = arguments.fixedDeltaSeconds.value_or(
-                wallDeltaSeconds);
+                std::min(0.05f, wallDeltaSeconds));
             previous = now;
             float wheelDelta = 0.0f;
             glm::vec2 panPixels(0.0f);
