@@ -1,5 +1,6 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
+#include "portable_material.glsl"
 
 layout(set = 0, binding = 0) uniform sampler2D baseColorTexture;
 layout(set = 0, binding = 1) uniform sampler2D normalTexture;
@@ -103,8 +104,10 @@ vec3 encodeWorldSurfaceColor(vec3 linearColor) {
 
 
 void main() {
-    if (pushData.materialParams.w > 254.5) {
-        vec4 color = clamp(vertexColor * texture(baseColorTexture, vertexUv), 0.0, 1.0);
+    if (pushData.materialParams.w >= 249.5 && pushData.materialParams.w != 254.0) {
+        vec4 color = portableMaterial(pushData.materialParams.w,
+            texture(baseColorTexture, vertexUv), vertexColor,
+            vec3(vertexSourceUv1, vertexSourceUv2.x));
         writeWorldColor(color);
         return;
     }

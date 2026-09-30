@@ -91,7 +91,7 @@ WorldTextureData makeTextureData(const GltfSceneMaterial& material,
     texture.emissiveTextureSrgb = material.emissive.textureSrgb;
 
     texture.materialMode = options.materialMode;
-    texture.alphaMode = 0u;
+    texture.alphaMode = options.translucent ? 2u : 0u;
     texture.depthTestEnabled = 1u;
     texture.normalScale = material.normalScale;
     texture.metallicFactor = material.metallicFactor;
@@ -102,10 +102,10 @@ WorldTextureData makeTextureData(const GltfSceneMaterial& material,
     texture.emissiveFactorB = material.emissiveFactor[2];
     // The base color factor is applied exactly once, in the linear shader
     // field the shared world material multiplies with the sampled texture.
-    texture.vertexColorMulR = material.baseColorFactor[0];
-    texture.vertexColorMulG = material.baseColorFactor[1];
-    texture.vertexColorMulB = material.baseColorFactor[2];
-    texture.vertexColorMulA = material.baseColorFactor[3];
+    texture.vertexColorMulR = material.baseColorFactor[0] * options.tint[0];
+    texture.vertexColorMulG = material.baseColorFactor[1] * options.tint[1];
+    texture.vertexColorMulB = material.baseColorFactor[2] * options.tint[2];
+    texture.vertexColorMulA = material.baseColorFactor[3] * options.tint[3];
     texture.modelMatrix = modelMatrix;
     texture.cameraPosX = options.cameraPosition[0];
     texture.cameraPosY = options.cameraPosition[1];
@@ -151,6 +151,10 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
     }
     if (options.surfaceWidth <= 0 || options.surfaceHeight <= 0) {
         return fail("glTF scene draw needs positive surface dimensions");
+    }
+    for (const float value : options.tint) {
+        if (!std::isfinite(value) || value < 0.0f || value > 1.0f)
+            return fail("glTF scene tint must be finite and normalized");
     }
     if (asset.materials.empty() && !asset.primitives.empty()) {
         return fail("the asset has primitives but no materials");

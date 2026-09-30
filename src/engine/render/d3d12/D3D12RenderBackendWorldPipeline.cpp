@@ -99,7 +99,7 @@ int legacyWrapIndex(int index, int size, float mode) {
   return (index % size + size) % size;
 }
 float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
-  if (uMaterialMode > 254.5f) {
+  if (uMaterialMode >= 249.5f && uMaterialMode != 254.0f) {
     float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
     if (uUseTexture > 0.5f) {
       uint width, height;
@@ -119,8 +119,24 @@ float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
                            gTex.Load(int3(next, 0)), weight.x);
       tex = lerp(top, bottom, weight.y);
     }
-    return saturate(i.col * float4(uVertexColorMulR, uVertexColorMulG,
-                                    uVertexColorMulB, uVertexColorMulA) * tex);
+    float4 high = i.col * float4(uVertexColorMulR, uVertexColorMulG,
+                                uVertexColorMulB, uVertexColorMulA);
+    if (uMaterialMode > 254.5f) return saturate(high * tex);
+    float4 low = float4(i.sourceUv1, i.sourceUv2.x, 0.0f);
+    bool separate = uMaterialMode == 251.0f || uMaterialMode == 253.0f;
+    float intensity = separate ? tex.r : tex.a;
+    float4 factor = float4(intensity, intensity, intensity, tex.a);
+    float4 color = saturate(lerp(low, high, factor));
+    if (uMaterialMode >= 251.5f) {
+      factor = floor(factor * 255.0f + 0.5f);
+      low = floor(low * 255.0f + 0.5f);
+      high = floor(high * 255.0f + 0.5f);
+      float4 bytes = clamp(floor((low * 256.0f + (high - low) *
+          (factor + floor(factor / 128.0f)) + 128.0f) / 256.0f), 0.0f, 255.0f);
+      color = bytes / 255.0f;
+      if (bytes.a == 1.0f) color.a = 0.0f;
+    }
+    return color;
   }
 __PHLOSION_PROJECT_MATERIAL_EVALUATION__
 }

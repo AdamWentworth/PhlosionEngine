@@ -493,6 +493,30 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
                 unsupported, *asset, pose, managedOptions, managedStats, &error) && unsupported.submissions.empty(),
                 "unsupported resource ownership silently fell back")) return false;
     }
+    {
+        RecordingBackend overlay;
+        auto overlayOptions = options;
+        overlayOptions.materialMode = 255;
+        overlayOptions.translucent = true;
+        overlayOptions.tint = {.5f, .75f, 1.0f, .25f};
+        GltfSceneDrawStats overlayStats;
+        if (!check(engine::render::gltf::scene::drawGltfSceneAsset(
+                overlay, *asset, pose, overlayOptions, overlayStats, &error),
+                "translucent overlay failed: " + error)) return false;
+        const auto& before = bindBackend.submissions.front().texture;
+        const auto& after = overlay.submissions.front().texture;
+        if (!check(after.materialMode == 255 && after.alphaMode == 2 &&
+                after.depthTestEnabled == 1 &&
+                nearlyEqual(after.vertexColorMulR, before.vertexColorMulR * .5f) &&
+                nearlyEqual(after.vertexColorMulA, before.vertexColorMulA * .25f) &&
+                after.rgba == before.rgba,
+                "overlay must retain textures and apply tint/alpha with depth testing")) return false;
+        overlay.submissions.clear();
+        overlayOptions.tint[3] = -1.0f;
+        if (!check(!engine::render::gltf::scene::drawGltfSceneAsset(
+                overlay, *asset, pose, overlayOptions, overlayStats, &error) &&
+                overlay.submissions.empty(), "invalid tint must reject before drawing")) return false;
+    }
     outFail.clear();
     return true;
 }

@@ -1,6 +1,7 @@
 #version 450
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_GOOGLE_include_directive : require
+#include "portable_material.glsl"
 
 #include "world_indirect_state.glsl"
 
@@ -91,11 +92,11 @@ vec3 encodeWorldSurfaceColor(vec3 linearColor) {
 
 void main() {
     WorldIndirectDrawState portableDraw = worldIndirectDraws.states[drawStateIndex];
-    if (portableDraw.materialParams.w > 254.5) {
+    if (portableDraw.materialParams.w >= 249.5 && portableDraw.materialParams.w != 254.0) {
         uint materialIndex = portableDraw.drawParams.x;
-        vec4 color = clamp(vertexColor *
+        vec4 color = portableMaterial(portableDraw.materialParams.w,
             texture(baseColorTextures[nonuniformEXT(materialIndex)], vertexUv),
-            0.0, 1.0);
+            vertexColor, vec3(vertexSourceUv1, vertexSourceUv2.x));
         writeWorldColor(color);
         return;
     }

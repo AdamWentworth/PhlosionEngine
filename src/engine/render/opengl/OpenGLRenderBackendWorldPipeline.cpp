@@ -493,9 +493,26 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
 
 __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
         void main() {
-            if (uMaterialMode > 254.5) {
+            if (uMaterialMode >= 249.5 && uMaterialMode != 254.0) {
                 vec4 tex = uUseTexture > 0.5 ? texture(uTexture, vUv) : vec4(1.0);
                 vec4 color = clamp(vColor * uVertexColorMul * tex, 0.0, 1.0);
+                if (uMaterialMode < 253.5) {
+                    vec4 high = vColor * uVertexColorMul;
+                    vec4 low = vec4(vSourceUv1, vSourceUv2.x, 0.0);
+                    bool separate = uMaterialMode == 251.0 || uMaterialMode == 253.0;
+                    float intensity = separate ? tex.r : tex.a;
+                    vec4 factor = vec4(vec3(intensity), tex.a);
+                    color = clamp(mix(low, high, factor), 0.0, 1.0);
+                    if (uMaterialMode >= 251.5) {
+                        factor = floor(factor * 255.0 + 0.5);
+                        low = floor(low * 255.0 + 0.5);
+                        high = floor(high * 255.0 + 0.5);
+                        vec4 bytes = clamp(floor((low * 256.0 + (high - low) *
+                            (factor + floor(factor / 128.0)) + 128.0) / 256.0), 0.0, 255.0);
+                        color = bytes / 255.0;
+                        if (bytes.a == 1.0) color.a = 0.0;
+                    }
+                }
                 float alpha = color.a;
                 if (uDualSourceBlendEnabled > 0.5)
                     color.a = floor(alpha * 63.0 + 0.5) / 63.0;

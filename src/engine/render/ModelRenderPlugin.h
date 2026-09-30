@@ -6,7 +6,7 @@
 
 namespace engine::render {
 
-inline constexpr std::uint32_t modelRenderPluginAbi = 2;
+inline constexpr std::uint32_t modelRenderPluginAbi = 3;
 inline constexpr char modelRenderPluginEntryPoint[] = "phlosionModelRenderPluginCreate";
 
 // Project renderers may present cooked models outside the asset inspector.
@@ -28,6 +28,14 @@ struct ModelRenderFrame {
     float farPlane = 100.0f;
     int width = 0;
     int height = 0;
+    // Generic translucent model overlays, e.g. motion trails. Defaults retain
+    // the asset's materials. Alpha blending tests depth and does not write it.
+    float tint[4]{1.0f, 1.0f, 1.0f, 1.0f};
+    bool translucent = false;
+    bool unlit = false;
+    // Distinct poses of one asset submitted in the same frame need stable skin
+    // palettes. Providers retain one palette per slot (0..15) until next frame.
+    std::uint32_t poseSlot = 0;
 };
 
 // CPU sampling uses the same animation/root-motion and instance transform as

@@ -113,6 +113,7 @@ foreach(_shader IN LISTS PHLOSION_VULKAN_SHADER_SOURCES)
     set(_shader_dependencies "${_source}")
     if (_shader STREQUAL "world.frag")
         list(APPEND _shader_dependencies
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/portable_material.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_material.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
     elseif (_shader STREQUAL "world_indirect.vert")
@@ -120,6 +121,7 @@ foreach(_shader IN LISTS PHLOSION_VULKAN_SHADER_SOURCES)
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_indirect_state.glsl")
     elseif (_shader STREQUAL "world_indirect.frag")
         list(APPEND _shader_dependencies
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/portable_material.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_indirect_state.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_material.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
@@ -144,6 +146,7 @@ foreach(_shader IN ITEMS world world_indirect)
         "${PHLOSION_VULKAN_SHADER_OUTPUT_DIR}/${_shader}_dual_source.frag.spv")
     set(_shader_dependencies
         "${_source}"
+        "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/portable_material.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_material.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
     if (_shader STREQUAL "world_indirect")

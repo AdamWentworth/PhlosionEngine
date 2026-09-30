@@ -39,6 +39,8 @@ struct GltfSceneDrawOptions {
     std::array<float, 3> cameraTarget{0.0f, -1.0f, 0.0f};
     // The shared world material path; 2 selects the composed PBR material.
     std::uint8_t materialMode = 2u;
+    std::array<float, 4> tint{1.0f, 1.0f, 1.0f, 1.0f};
+    bool translucent = false;
     // Optional explicit GPU ownership. Create/release this renderer-owned scope
     // through IWorldResourceScope. Zero retains the legacy unowned cache path.
     engine::render::WorldResourceScopeId resourceScope = 0u;
