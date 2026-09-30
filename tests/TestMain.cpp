@@ -17,6 +17,7 @@ bool test_editor_renderer_preference_contract(std::string& outFail);
 bool test_camera_view_plane_pan_contract(std::string& outFail);
 bool test_editor_project_plugin_contract(std::string& outFail);
 bool test_editor_game_preview_routing_contract(std::string& outFail);
+bool test_editor_game_preview_clock_contract(std::string& outFail);
 bool test_editor_gameplay_reload(std::string& outFail);
 bool test_editor_performance_contract(std::string& outFail);
 bool test_world_material_profile_contract(std::string &outFail);
@@ -68,6 +69,7 @@ int main(int argc, char** argv) {
         {"camera_view_plane_pan_contract", &test_camera_view_plane_pan_contract},
         {"editor_project_plugin_contract", &test_editor_project_plugin_contract},
         {"editor_game_preview_routing_contract", &test_editor_game_preview_routing_contract},
+        {"editor_game_preview_clock_contract", &test_editor_game_preview_clock_contract},
         {"editor_gameplay_reload", &test_editor_gameplay_reload},
         {"editor_performance_contract", &test_editor_performance_contract},
         {"gltf_scene_import_contract", &test_gltf_scene_import_contract},

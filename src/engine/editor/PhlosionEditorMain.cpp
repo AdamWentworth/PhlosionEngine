@@ -6,6 +6,7 @@
 #include "engine/editor/EditorPackagePlugin.h"
 #include "engine/editor/D3D12EditorRenderSurface.h"
 #include "engine/editor/EditorGamePreviewRouting.h"
+#include "engine/editor/EditorGamePreviewClock.h"
 #include "engine/editor/EditorSdlGameInput.h"
 #include "engine/input/SdlInputReplay.h"
 #include "engine/editor/EditorGameplayReload.h"
@@ -3810,6 +3811,7 @@ int main(int argc, char** argv) {
         int assetPreviewHeight = 300;
         int selectedAssetPreviewIndex = -1;
         double gameFixedAccumulator = 0.0;
+        engine::editor::EditorGamePreviewClock gameClock;
         bool commandLinePreviewApplied = false;
         bool commandLineAssetPreviewApplied = false;
         bool restartRequested = false;
@@ -3915,11 +3917,6 @@ int main(int argc, char** argv) {
                 std::chrono::duration<float>(now - previous).count();
             const float deltaSeconds = arguments.fixedDeltaSeconds.value_or(
                 std::min(0.05f, wallDeltaSeconds));
-            // Retain elapsed game time through slow frames. The fixed-update
-            // budget limits work per frame while leaving its debt to catch up.
-            const double gameDeltaSeconds = arguments.fixedDeltaSeconds
-                ? static_cast<double>(*arguments.fixedDeltaSeconds)
-                : std::chrono::duration<double>(now - previous).count();
             previous = now;
             float wheelDelta = 0.0f;
             glm::vec2 panPixels(0.0f);
@@ -4065,11 +4062,12 @@ int main(int argc, char** argv) {
                 }
                 SDL_Delay(50);
                 previous = Clock::now();
+                gameClock.suspend();
                 continue;
             }
-            if (playState == engine::editor::EditorPlayState::Playing)
-                simulationSeconds += project && project->runtime->gamePreviewReady()
-                    ? static_cast<float>(gameDeltaSeconds) : deltaSeconds;
+            if (playState == engine::editor::EditorPlayState::Playing &&
+                (!project || !project->runtime->gamePreviewReady()))
+                simulationSeconds += deltaSeconds;
             if (standaloneBuild) {
                 if (!project || pendingProject) standaloneBuild.reset();
                 else if (const auto buildExitCode = standaloneBuild->poll()) {
@@ -4119,6 +4117,7 @@ int main(int argc, char** argv) {
                         playState = engine::editor::EditorPlayState::Editing;
                         simulationSeconds = 0.0f;
                         gameFixedAccumulator = 0.0;
+                        gameClock.suspend();
                         selectedAssetPreviewIndex = -1;
                         editor.selectAsset(-1);
                         const auto restore = [&](const std::filesystem::path& module,
@@ -4213,6 +4212,7 @@ int main(int argc, char** argv) {
                     focusActiveViewport = true;
                     selectedAssetPreviewIndex = -1;
                     gameFixedAccumulator = 0.0f;
+                    gameClock.suspend();
                     if (!commandLinePreviewApplied &&
                         !arguments.gamePreview.empty()) {
                         commandLinePreviewApplied = true;
@@ -4485,12 +4485,17 @@ int main(int argc, char** argv) {
             const bool gameTimeReset = project &&
                 project->runtime->consumeGamePreviewTimeReset();
             if (gameTimeReset) gameFixedAccumulator = 0.0;
-            if (project &&
+            const bool gamePlaying = project &&
                 project->runtime->gamePreviewReady() &&
-                playState ==
-                    engine::editor::EditorPlayState::Playing) {
+                playState == engine::editor::EditorPlayState::Playing;
+            const double gameDeltaSeconds = gameClock.beginFrame(
+                now, gamePlaying, arguments.fixedDeltaSeconds, gameTimeReset);
+            if (gamePlaying) {
                 constexpr double fixedDelta = 1.0 / 60.0;
-                if (!gameTimeReset) gameFixedAccumulator += gameDeltaSeconds;
+                simulationSeconds += static_cast<float>(gameDeltaSeconds);
+                // Keep ordinary slow-frame debt; only loading/paused epochs
+                // are excluded by the clock's presentation boundary.
+                gameFixedAccumulator += gameDeltaSeconds;
                 int fixedTicks = 0;
                 while (gameFixedAccumulator + 1e-12 >= fixedDelta &&
                        fixedTicks < 120) {
@@ -4502,6 +4507,7 @@ int main(int argc, char** argv) {
             }
 
             const double simulationMs = elapsedMilliseconds(simulationStart);
+            bool projectFrameRendered = false;
             renderer.beginFrame(
                 0.025f,
                 0.031f,
@@ -4573,6 +4579,7 @@ int main(int argc, char** argv) {
                             surfaceWidth,
                             surfaceHeight);
                         project->runtime->render(renderContext);
+                        projectFrameRendered = true;
                         renderer.endWorldSceneColorPass();
                         sceneSurface->end();
                         // render() updates project-owned viewport
@@ -4588,6 +4595,7 @@ int main(int argc, char** argv) {
                         static_cast<float>(surfaceHeight));
                     project->runtime->renderGamePreview(
                         renderContext);
+                    projectFrameRendered = true;
                     gameSurface->end();
                     // Game-preview rendering updates project-owned unit
                     // projections used by picking and live transform gizmos.
@@ -4832,6 +4840,7 @@ int main(int argc, char** argv) {
             editor.render();
             renderer.endFrame();
             window.swapBuffers();
+            if (projectFrameRendered) gameClock.presented(Clock::now());
             const double frameCpuMs = elapsedMilliseconds(frameStart);
             IRenderBackend::BackendFrameTimings frameTimings{};
             const bool timingsValid = renderer.getLastFrameTimings(frameTimings);

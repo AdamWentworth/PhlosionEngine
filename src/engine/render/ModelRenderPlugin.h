@@ -6,7 +6,7 @@
 
 namespace engine::render {
 
-inline constexpr std::uint32_t modelRenderPluginAbi = 3;
+inline constexpr std::uint32_t modelRenderPluginAbi = 4;
 inline constexpr char modelRenderPluginEntryPoint[] = "phlosionModelRenderPluginCreate";
 
 // Project renderers may present cooked models outside the asset inspector.
@@ -36,6 +36,9 @@ struct ModelRenderFrame {
     // Distinct poses of one asset submitted in the same frame need stable skin
     // palettes. Providers retain one palette per slot (0..15) until next frame.
     std::uint32_t poseSlot = 0;
+    // One-shot clips clamp at their endpoints and must not blend the final
+    // pose into the first frame as a looping preview does.
+    bool looping = true;
 };
 
 // CPU sampling uses the same animation/root-motion and instance transform as
@@ -49,6 +52,7 @@ struct ModelNodePoseRequest {
     float position[3]{};
     float yawRadians = 0.0f;
     float scale = 1.0f;
+    bool looping = true;
 };
 
 struct ModelNodePoseResult {
