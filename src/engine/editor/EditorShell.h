@@ -199,6 +199,7 @@ struct WorkspaceAssetAnimation {
 enum class WorkspaceAssetPreviewKind {
     Model,
     VisualEffect,
+    AnimatedScene,
 };
 
 struct WorkspaceAssetPreview {

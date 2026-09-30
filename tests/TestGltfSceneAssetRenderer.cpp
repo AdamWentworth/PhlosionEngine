@@ -517,6 +517,31 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
                 overlay, *asset, pose, overlayOptions, overlayStats, &error) &&
                 overlay.submissions.empty(), "invalid tint must reject before drawing")) return false;
     }
+    for (const auto* alpha : {"MASK", "BLEND"}) {
+        FixtureDirectory materialDirectory(std::string("phlosion-gltf-material-") + alpha);
+        auto materialSource = source;
+        materialSource.document["materials"][0]["alphaMode"] = alpha;
+        materialSource.document["materials"][0]["alphaCutoff"] = .3f;
+        materialSource.document["materials"][0]["pbrMetallicRoughness"]["baseColorFactor"][3] = .6f;
+        materialSource.document["samplers"][0]["wrapS"] = 33071;
+        materialSource.document["samplers"][0]["wrapT"] = 33648;
+        std::shared_ptr<const GltfSceneAsset> materialAsset;
+        const auto materialPath = stageScene(materialDirectory, materialSource);
+        if (!check(loadGltfSceneAsset(materialPath.string(), materialAsset, &error), error)) return false;
+        GltfScenePose materialPose;
+        if (!check(sampleGltfScenePose(materialAsset, 0, 0, materialPose, &error), error)) return false;
+        RecordingBackend materialBackend;
+        if (!check(engine::render::gltf::scene::drawGltfSceneAsset(materialBackend,
+                *materialAsset, materialPose, options, stats, &error), error)) return false;
+        const bool blend = std::string_view(alpha) == "BLEND";
+        const auto& draw = materialBackend.submissions[blend ? 1 : 0];
+        if (!check(draw.texture.alphaMode == (blend ? 2 : 1) &&
+                   nearlyEqual(draw.texture.alphaCutoff, .3f) &&
+                   nearlyEqual(draw.texture.vertexColorMulA, .6f) &&
+                   draw.texture.wrapS == 33071 && draw.texture.wrapT == 33648 &&
+                   draw.geometryKey == materialAsset->primitives[0].geometryKey,
+                   "source alpha/wrapping or opaque-before-blended order was lost")) return false;
+    }
     outFail.clear();
     return true;
 }

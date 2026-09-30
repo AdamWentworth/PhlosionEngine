@@ -91,7 +91,8 @@ WorldTextureData makeTextureData(const GltfSceneMaterial& material,
     texture.emissiveTextureSrgb = material.emissive.textureSrgb;
 
     texture.materialMode = options.materialMode;
-    texture.alphaMode = options.translucent ? 2u : 0u;
+    texture.alphaMode = options.translucent ? 2u : material.alphaMode;
+    texture.alphaCutoff = material.alphaCutoff;
     texture.depthTestEnabled = 1u;
     texture.normalScale = material.normalScale;
     texture.metallicFactor = material.metallicFactor;
@@ -257,8 +258,14 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
         ~EndBatch() { renderer.endWorldIndexedBatchSubmission(); }
     } endBatch{renderer};
     GltfSceneDrawStats collected;
+    // Establish opaque depth before drawing transparent surface overlays.
+    // Preserve authored primitive order within each pass.
+    for (int transparentPass = 0; transparentPass < 2; ++transparentPass) {
     for (std::size_t index = 0u; index < asset.primitives.size(); ++index) {
         const GltfScenePrimitive& primitive = asset.primitives[index];
+        const bool transparent = options.translucent ||
+            asset.materials[primitive.materialIndex].alphaMode == 2u;
+        if (transparent != (transparentPass != 0)) continue;
         const std::vector<glm::mat4>& palette = pose.palettes[index];
 
         const std::array<float, 16> nodeGlobal =
@@ -300,6 +307,7 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
             static_cast<std::uint64_t>(primitive.indices.size() / 3u);
         ++collected.materialBinds;
         collected.textureRoles += 5u;
+    }
     }
 
     if (scopeApi) {

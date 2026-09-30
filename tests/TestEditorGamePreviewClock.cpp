@@ -55,6 +55,14 @@ bool test_editor_game_preview_clock_contract(std::string& outFail) {
         outFail = "A minimized/replaced preview must start a fresh clock epoch.";
         return false;
     }
+    clock.presented(at(200010));
+    clock.beginFrame(at(200030), true);
+    clock.restartDuringFrame();
+    clock.presented(at(208030));
+    if (!near(clock.beginFrame(at(208040), true), .01)) {
+        outFail = "Loading an encounter inside a running fixed update must not become camera catch-up debt.";
+        return false;
+    }
     for (const float delta : {1.0f / 15.0f, 1.0f / 60.0f, 1.0f / 240.0f}) {
         EditorGamePreviewClock fixed;
         for (int frame = 0; frame < 6; ++frame) {

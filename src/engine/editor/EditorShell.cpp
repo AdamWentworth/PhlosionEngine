@@ -5,6 +5,7 @@
 #include "engine/editor/EditorShell.h"
 #include "engine/editor/EditorSdlGameInput.h"
 #include "engine/editor/EditorBuildProfile.h"
+#include "engine/editor/EditorAssetBrowser.h"
 
 #include <algorithm>
 #include <array>
@@ -814,6 +815,9 @@ struct EditorShell::Impl {
     InspectorSelectionDomain inspectorSelection =
         InspectorSelectionDomain::Hierarchy;
     std::array<char, 256> assetFilter{};
+    std::string assetCategorySelection;
+    std::string assetBrowserProject;
+    char assetLetter = 0;
     EditorViewportKind selectedViewport =
         EditorViewportKind::Scene;
     int assetPreviewAnimationIndex = -1;
@@ -3632,8 +3636,7 @@ EditorShellActions EditorShell::drawWorkspace(
 
             ImGui::Spacing();
             const auto* animations = preview.animations;
-            if (preview.kind ==
-                WorkspaceAssetPreviewKind::Model) {
+            if (preview.kind != WorkspaceAssetPreviewKind::VisualEffect) {
                 const char* animationLabel = "Bind pose";
                 if (animations &&
                     impl_->assetPreviewAnimationIndex >= 0 &&
@@ -3863,6 +3866,8 @@ EditorShellActions EditorShell::drawWorkspace(
                 }
             }
 
+            if (preview.kind == WorkspaceAssetPreviewKind::AnimatedScene &&
+                ImGui::Checkbox("Mesh", &impl_->assetPreviewShowMesh)) optionsChanged = true;
             ImGui::Separator();
             if (preview.kind ==
                 WorkspaceAssetPreviewKind::VisualEffect) {
@@ -3925,109 +3930,121 @@ EditorShellActions EditorShell::drawWorkspace(
     ImGui::End();
 
     ImGui::Begin("Assets");
-    ImGui::SetNextItemWidth(-1.0f);
-    ImGui::InputTextWithHint(
-        "##AssetFilter",
-        "Filter assets...",
-        impl_->assetFilter.data(),
-        impl_->assetFilter.size());
+    if (impl_->assetBrowserProject != text(workspace.projectRoot)) {
+        impl_->assetBrowserProject = text(workspace.projectRoot);
+        impl_->assetCategorySelection.clear();
+        impl_->assetFilter.fill(0);
+        impl_->assetLetter = 0;
+    }
+    ImGui::SetNextItemWidth(std::max(120.0f, ImGui::GetContentRegionAvail().x - 205.0f));
+    if (ImGui::InputTextWithHint("##AssetFilter", "Search all assets...",
+            impl_->assetFilter.data(), impl_->assetFilter.size()) && impl_->assetFilter[0]) {
+        impl_->assetCategorySelection.clear();
+        impl_->assetLetter = 0;
+    }
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(85);
+    const char letterLabel[] = {impl_->assetLetter, 0};
+    if (ImGui::BeginCombo("##AssetLetter", impl_->assetLetter ? letterLabel : "A-Z: All")) {
+        if (ImGui::Selectable("All letters", impl_->assetLetter == 0)) impl_->assetLetter = 0;
+        for (char letter = 'A'; letter <= 'Z'; ++letter) {
+            const char label[] = {letter, 0};
+            if (ImGui::Selectable(label, impl_->assetLetter == letter)) impl_->assetLetter = letter;
+        }
+        if (ImGui::Selectable("#", impl_->assetLetter == '#')) impl_->assetLetter = '#';
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Clear filters")) {
+        impl_->assetCategorySelection.clear();
+        impl_->assetFilter.fill(0);
+        impl_->assetLetter = 0;
+    }
     ImGui::Separator();
     if (!workspace.assets || workspace.assets->empty()) {
-        ImGui::TextWrapped(
-            "No assets were discovered for this project.");
-    } else if (ImGui::BeginTable(
-                   "AssetTable",
-                   2,
-                   ImGuiTableFlags_RowBg |
-                       ImGuiTableFlags_BordersInnerV |
-                       ImGuiTableFlags_Resizable |
-                       ImGuiTableFlags_ScrollY,
-                   ImVec2(0.0f, -22.0f))) {
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn(
-            "Asset",
-            ImGuiTableColumnFlags_WidthStretch,
-            0.7f);
-        ImGui::TableSetupColumn(
-            "Type",
-            ImGuiTableColumnFlags_WidthStretch,
-            0.3f);
-        ImGui::TableHeadersRow();
-
-        const std::string_view filter(
-            impl_->assetFilter.data());
-        std::string previousCategory;
-        for (std::size_t index = 0u;
-             index < workspace.assets->size();
-             ++index) {
-            const auto& asset =
-                (*workspace.assets)[index];
-            if (!containsInsensitive(
-                    asset.displayName,
-                    filter) &&
-                !containsInsensitive(
-                    asset.typeName,
-                    filter) &&
-                !containsInsensitive(
-                    asset.category,
-                    filter) &&
-                !containsInsensitive(
-                    asset.path,
-                    filter)) {
-                continue;
-            }
-            if (asset.category != previousCategory) {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::TextDisabled(
-                    "%s",
-                    asset.category.c_str());
-                ImGui::TableSetColumnIndex(1);
-                ImGui::TextDisabled("Category");
-                previousCategory = asset.category;
-            }
-            ImGui::PushID(static_cast<int>(index));
+        ImGui::TextWrapped("No assets were discovered for this project.");
+    } else {
+        const auto categories = assetBrowserCategories(*workspace.assets);
+        if (!impl_->assetCategorySelection.empty() && std::none_of(categories.begin(), categories.end(),
+            [&](const auto& category) { return category.path == impl_->assetCategorySelection; }))
+            impl_->assetCategorySelection.clear();
+        if (ImGui::BeginTable("AssetBrowserPanes", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV)) {
+            ImGui::TableSetupColumn("Collections", ImGuiTableColumnFlags_WidthFixed, 210);
+            ImGui::TableSetupColumn("Contents", ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            if (ImGui::Selectable(
-                    asset.displayName.c_str(),
-                    impl_->inspectorSelection ==
-                            InspectorSelectionDomain::Asset &&
-                        impl_->selectedAsset ==
-                            static_cast<int>(index),
-                    ImGuiSelectableFlags_SpanAllColumns)) {
-                impl_->selectedAsset =
-                    static_cast<int>(index);
-                impl_->inspectorSelection =
-                    InspectorSelectionDomain::Asset;
-                actions.selectAssetIndex =
-                    static_cast<int>(index);
-                impl_->assetPreviewAnimationIndex = 0;
-                impl_->assetPreviewPlaybackSpeed = 1.0f;
-                impl_->assetPreviewAnimationPlaying = true;
-                impl_->assetPreviewShowMesh = true;
-                impl_->assetPreviewShowMaterials = true;
-                impl_->assetPreviewShowTextures = true;
-                impl_->assetPreviewShowWireframe = false;
-                impl_->assetPreviewShowSkeleton = false;
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip(
-                    "%s",
-                    asset.path.c_str());
-            }
+            ImGui::BeginChild("AssetCollections", ImVec2(0, 0));
+            const auto chooseCategory = [&](const std::string& path) {
+                impl_->assetCategorySelection = path;
+                impl_->assetFilter.fill(0);
+                impl_->assetLetter = 0;
+            };
+            const std::string allLabel = "All Assets (" + std::to_string(workspace.assets->size()) + ")";
+            if (ImGui::Selectable(allLabel.c_str(), impl_->assetCategorySelection.empty())) chooseCategory("");
+            const auto drawCategories = [&](auto&& self, const std::string& parent) -> void {
+                for (const auto& category : categories) {
+                    if (category.parent != parent) continue;
+                    const bool children = std::any_of(categories.begin(), categories.end(),
+                        [&](const auto& other) { return other.parent == category.path; });
+                    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+                    if (!children) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+                    if (impl_->assetCategorySelection == category.path) flags |= ImGuiTreeNodeFlags_Selected;
+                    const std::string label = category.label + " (" + std::to_string(category.count) + ")";
+                    const bool open = ImGui::TreeNodeEx(category.path.c_str(), flags, "%s", label.c_str());
+                    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) chooseCategory(category.path);
+                    if (open && children) { self(self, category.path); ImGui::TreePop(); }
+                }
+            };
+            drawCategories(drawCategories, "");
+            ImGui::EndChild();
             ImGui::TableSetColumnIndex(1);
-            ImGui::TextUnformatted(
-                asset.typeName.c_str());
-            ImGui::PopID();
+            const auto indices = filterAssetBrowser(*workspace.assets, impl_->assetCategorySelection,
+                impl_->assetFilter.data(), impl_->assetLetter);
+            ImGui::TextDisabled("%s  |  %zu of %zu assets",
+                impl_->assetCategorySelection.empty() ? "All assets" : impl_->assetCategorySelection.c_str(),
+                indices.size(), workspace.assets->size());
+            if (indices.empty()) ImGui::TextWrapped("No matching assets. Clear filters or choose another collection.");
+            else if (ImGui::BeginTable("AssetTable", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
+                ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY, ImVec2(0, 0))) {
+                ImGui::TableSetupScrollFreeze(0, 1);
+                ImGui::TableSetupColumn("Asset", ImGuiTableColumnFlags_WidthStretch, .7f);
+                ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch, .3f);
+                ImGui::TableHeadersRow();
+                ImGuiListClipper clipper;
+                clipper.Begin(static_cast<int>(indices.size()));
+                while (clipper.Step()) for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+                    const auto index = indices[static_cast<std::size_t>(row)];
+                    const auto& asset = (*workspace.assets)[index];
+                    ImGui::PushID(static_cast<int>(index));
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    if (ImGui::Selectable(
+                            asset.displayName.c_str(),
+                            impl_->inspectorSelection == InspectorSelectionDomain::Asset &&
+                                impl_->selectedAsset == static_cast<int>(index),
+                            ImGuiSelectableFlags_SpanAllColumns)) {
+                        impl_->selectedAsset = static_cast<int>(index);
+                        impl_->inspectorSelection = InspectorSelectionDomain::Asset;
+                        actions.selectAssetIndex = static_cast<int>(index);
+                        impl_->assetPreviewAnimationIndex = 0;
+                        impl_->assetPreviewPlaybackSpeed = 1.0f;
+                        impl_->assetPreviewAnimationPlaying = true;
+                        impl_->assetPreviewShowMesh = true;
+                        impl_->assetPreviewShowMaterials = true;
+                        impl_->assetPreviewShowTextures = true;
+                        impl_->assetPreviewShowWireframe = false;
+                        impl_->assetPreviewShowSkeleton = false;
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", asset.path.c_str());
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::TextUnformatted(asset.typeName.c_str());
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+            ImGui::EndTable();
         }
-        ImGui::EndTable();
     }
-    ImGui::TextDisabled(
-        "%zu top-level cooked assets",
-        workspace.assets
-            ? workspace.assets->size()
-            : 0u);
     ImGui::End();
 
     if (focusScenes) ImGui::SetNextWindowFocus();

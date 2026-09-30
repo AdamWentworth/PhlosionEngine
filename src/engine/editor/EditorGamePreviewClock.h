@@ -31,6 +31,10 @@ public:
 
     void suspend() { playing_ = false; }
 
+    // A runtime may replace its world inside a fixed update (for example when
+    // entering an encounter). That frame's loading belongs to the new epoch.
+    void restartDuringFrame() { awaitingFirstPresent_ = true; }
+
 private:
     Clock::time_point previous_{};
     bool playing_ = false;

@@ -939,6 +939,7 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestEditorProjectPluginContract.cpp
         tests/TestEditorGamePreviewRouting.cpp
         tests/TestEditorGamePreviewClock.cpp
+        tests/TestEditorAssetBrowser.cpp
         tests/TestEditorPerformance.cpp
         tests/TestEditorGameplayReload.cpp
         tests/TestProjectDescriptor.cpp

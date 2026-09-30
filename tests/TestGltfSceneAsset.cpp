@@ -487,8 +487,8 @@ bool test_gltf_scene_asset_contract(std::string& outFail) {
                      "inverse bind matrices");
 
         mutated = source;
-        mutated.document["materials"][0]["alphaMode"] = "MASK";
-        addRejection("mask-material", std::move(mutated), "OPAQUE");
+        mutated.document["materials"][0]["alphaCutoff"] = -0.1;
+        addRejection("invalid-alpha-cutoff", std::move(mutated), "alpha cutoff");
 
         mutated = source;
         mutated.document["materials"][0]["doubleSided"] = true;

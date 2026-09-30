@@ -233,9 +233,12 @@ bool samplerIsSupported(const fastgltf::Asset& asset,
         return false;
     }
     const fastgltf::Sampler& sampler = asset.samplers[samplerIndex];
-    if (sampler.wrapS != fastgltf::Wrap::Repeat ||
-        sampler.wrapT != fastgltf::Wrap::Repeat) {
-        outDetail = "non-default sampler wrap mode";
+    const auto supportedWrap = [](fastgltf::Wrap wrap) {
+        return wrap == fastgltf::Wrap::Repeat || wrap == fastgltf::Wrap::ClampToEdge ||
+               wrap == fastgltf::Wrap::MirroredRepeat;
+    };
+    if (!supportedWrap(sampler.wrapS) || !supportedWrap(sampler.wrapT)) {
+        outDetail = "invalid sampler wrap mode";
         return false;
     }
     // The shared world path has no per-texture filter field, so it always
@@ -1035,10 +1038,11 @@ bool importMaterial(LoadState& state,
         return state.fail(label + " enables the unsupported material feature " +
                           feature);
     }
-    if (material.alphaMode != fastgltf::AlphaMode::Opaque) {
-        return state.fail(label +
-                          " uses alphaMode MASK/BLEND; only OPAQUE is supported");
-    }
+    out.alphaMode = material.alphaMode == fastgltf::AlphaMode::Mask ? 1u :
+                    material.alphaMode == fastgltf::AlphaMode::Blend ? 2u : 0u;
+    out.alphaCutoff = material.alphaCutoff;
+    if (!std::isfinite(out.alphaCutoff) || out.alphaCutoff < 0 || out.alphaCutoff > 1)
+        return state.fail(label + " has an invalid alpha cutoff");
     if (material.doubleSided) {
         return state.fail(label +
                           " is double-sided; only single-sided materials are "
@@ -1111,8 +1115,7 @@ bool importMaterial(LoadState& state,
                           material.emissiveFactor[1],
                           material.emissiveFactor[2]};
 
-    // Bounded material subset: finite factors in their legal ranges and an
-    // opaque alpha factor, which is what the shared opaque path can honour.
+    // Finite factors in legal ranges; masked/blended materials retain alpha.
     const auto finiteInRange = [&state, &label](float value, float minimum,
                                                 float maximum,
                                                 const char* what) {
@@ -1130,7 +1133,7 @@ bool importMaterial(LoadState& state,
             return false;
         }
     }
-    if (out.baseColorFactor[3] != 1.0f) {
+    if (out.alphaMode == 0 && out.baseColorFactor[3] != 1.0f) {
         return state.fail(label +
                           " has a non-opaque baseColorFactor alpha; only alpha "
                           "factor 1 is supported");

@@ -1883,6 +1883,7 @@ void writeAutomationMetrics(
                 {"id", asset.id},
                 {"display_name", asset.displayName},
                 {"type", asset.typeName},
+                {"category", asset.category},
                 {"previewable", asset.previewable3d}});
         }
         editorContents["layout_objects"] = nlohmann::json::array();
@@ -1963,7 +1964,9 @@ void writeAutomationMetrics(
                 {"cache_note", preview.kind ==
                     engine::editor::WorkspaceAssetPreviewKind::Model
                     ? "The current direct PHLO preview path has no decoded-object cache counters; backend cached draws are reported separately."
-                    : "No decoded-object cache applies to this effect preview."}};
+                    : preview.kind == engine::editor::WorkspaceAssetPreviewKind::AnimatedScene
+                        ? "Scene preview resource caching is managed by its project provider."
+                        : "No decoded-object cache applies to this effect preview."}};
         }
     }
 
@@ -2576,8 +2579,9 @@ void refreshAssetPreviewView(
                     ? engine::editor::
                           WorkspaceAssetPreviewKind::
                               VisualEffect
-                    : engine::editor::
-                          WorkspaceAssetPreviewKind::Model,
+                    : info.kind == engine::editor::EditorProjectAssetPreviewKind::AnimatedScene
+                        ? engine::editor::WorkspaceAssetPreviewKind::AnimatedScene
+                        : engine::editor::WorkspaceAssetPreviewKind::Model,
             .assetId =
                 info.assetId ? info.assetId : "",
             .status =
@@ -4503,6 +4507,11 @@ int main(int argc, char** argv) {
                         fixedUpdateGamePreview(static_cast<float>(fixedDelta));
                     gameFixedAccumulator = std::max(0.0, gameFixedAccumulator - fixedDelta);
                     ++fixedTicks;
+                    if (project->runtime->consumeGamePreviewTimeReset()) {
+                        gameFixedAccumulator = 0.0;
+                        gameClock.restartDuringFrame();
+                        break;
+                    }
                 }
             }
 

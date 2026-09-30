@@ -60,8 +60,12 @@ or a GPU-residency claim.
 - Four weights per vertex and at most 64 joints per skin.
 - `LINEAR`, `STEP` and `CUBICSPLINE` translation/rotation/scale samplers through
   the shared sampler.
-- Opaque materials (base and vertex alpha 1), shared UV0, no texture-transform
-  extension, repeat wrap, omitted `minFilter`, and omitted or LINEAR `magFilter`.
+- OPAQUE, MASK and BLEND materials, shared UV0, no texture-transform extension;
+  repeat, clamp-to-edge and mirrored-repeat wrapping; omitted `minFilter` and
+  omitted or LINEAR `magFilter`. Opaque base alpha and vertex alpha remain 1.
+  MASK/BLEND retain their base alpha and cutoff through the native material path.
+  Opaque/masked surfaces draw before transparent overlays, with authored order
+  preserved within each pass (no triangle-level transparency sorting).
   The renderer owns mip/anisotropy policy. Explicit minification and nearest
   magnification are rejected rather than ignored. Missing material bindings use
   an owned glTF default material.

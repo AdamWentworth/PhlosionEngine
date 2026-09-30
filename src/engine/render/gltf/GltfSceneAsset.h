@@ -85,6 +85,8 @@ struct GltfSceneMaterial {
     float roughnessFactor = 1.0f;
     float normalScale = 1.0f;
     float occlusionStrength = 1.0f;
+    std::uint8_t alphaMode = 0u; // OPAQUE, MASK, BLEND
+    float alphaCutoff = 0.5f;
     bool hasBaseColorMap = false;
     bool hasNormalMap = false;
     bool hasMetallicRoughnessMap = false;

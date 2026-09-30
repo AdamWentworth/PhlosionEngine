@@ -56,7 +56,8 @@ struct GltfSceneDrawStats {
     std::uint32_t textureRoles = 0u;
 };
 
-// Submits every primitive in asset order. Returns false with a diagnostic
+// Submits opaque/masked primitives, then blended ones, in authored order within
+// each pass. Returns false with a diagnostic
 // before submitting anything when the pose does not belong to this asset
 // generation or any submission input is inconsistent; the caller's statistics
 // are only written on success. Native allocation failures in a managed scope

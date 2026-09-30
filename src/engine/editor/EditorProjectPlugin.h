@@ -91,6 +91,8 @@ struct EditorProjectAsset {
 enum class EditorProjectAssetPreviewKind : std::uint8_t {
     Model = 0u,
     VisualEffect = 1u,
+    // Animation/framing controls without the cooked-material debug controls.
+    AnimatedScene = 2u,
 };
 
 struct EditorProjectGamePreviewContext {
