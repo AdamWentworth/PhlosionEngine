@@ -929,6 +929,8 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
         (gpuSkinMatrixCount > 0 && texture) ? texture->skinMatrices : nullptr;
     const bool canReuseSkinUniforms =
         batchState &&
+        // A new batch has no known shader state, even for an unskinned draw.
+        batchState->worldProgramStaticUniformsApplied &&
         batchState->lastWorldSkinningEnabled == gpuSkinningEnabled &&
         batchState->lastWorldSkinningMode == gpuSkinningMode &&
         batchState->lastWorldSkinMatrixCount == static_cast<std::uint32_t>(gpuSkinMatrixCount) &&

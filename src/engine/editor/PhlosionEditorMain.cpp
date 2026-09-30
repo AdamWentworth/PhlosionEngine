@@ -414,7 +414,7 @@ Arguments parseArguments(int argc, char** argv) {
             result.fixedDeltaSeconds = std::clamp(
                 std::stof(argument.substr(fixedDeltaPrefix.size())),
                 0.0001f,
-                0.05f);
+                1.0f);
         } else if (argument.starts_with("--input-replay=")) {
             result.inputReplay = argument.substr(15);
         } else if (argument.starts_with("--game-aspect=")) {
@@ -3809,7 +3809,7 @@ int main(int argc, char** argv) {
         int assetPreviewWidth = 400;
         int assetPreviewHeight = 300;
         int selectedAssetPreviewIndex = -1;
-        float gameFixedAccumulator = 0.0f;
+        double gameFixedAccumulator = 0.0;
         bool commandLinePreviewApplied = false;
         bool commandLineAssetPreviewApplied = false;
         bool restartRequested = false;
@@ -3915,10 +3915,11 @@ int main(int argc, char** argv) {
                 std::chrono::duration<float>(now - previous).count();
             const float deltaSeconds = arguments.fixedDeltaSeconds.value_or(
                 std::min(0.05f, wallDeltaSeconds));
-            // Keep a slow render or asset load from consuming an entire gameplay
-            // effect before the next Game viewport frame can present it.
-            const float gameDeltaSeconds = arguments.fixedDeltaSeconds.value_or(
-                std::min(0.05f, wallDeltaSeconds));
+            // Retain elapsed game time through slow frames. The fixed-update
+            // budget limits work per frame while leaving its debt to catch up.
+            const double gameDeltaSeconds = arguments.fixedDeltaSeconds
+                ? static_cast<double>(*arguments.fixedDeltaSeconds)
+                : std::chrono::duration<double>(now - previous).count();
             previous = now;
             float wheelDelta = 0.0f;
             glm::vec2 panPixels(0.0f);
@@ -4068,7 +4069,7 @@ int main(int argc, char** argv) {
             }
             if (playState == engine::editor::EditorPlayState::Playing)
                 simulationSeconds += project && project->runtime->gamePreviewReady()
-                    ? gameDeltaSeconds : deltaSeconds;
+                    ? static_cast<float>(gameDeltaSeconds) : deltaSeconds;
             if (standaloneBuild) {
                 if (!project || pendingProject) standaloneBuild.reset();
                 else if (const auto buildExitCode = standaloneBuild->poll()) {
@@ -4116,7 +4117,8 @@ int main(int argc, char** argv) {
                         auto lastGood = project->pluginCopy;
                         project.reset();
                         playState = engine::editor::EditorPlayState::Editing;
-                        simulationSeconds = gameFixedAccumulator = 0.0f;
+                        simulationSeconds = 0.0f;
+                        gameFixedAccumulator = 0.0;
                         selectedAssetPreviewIndex = -1;
                         editor.selectAsset(-1);
                         const auto restore = [&](const std::filesystem::path& module,
@@ -4480,18 +4482,21 @@ int main(int argc, char** argv) {
             }
 
             const auto simulationStart = Clock::now();
+            const bool gameTimeReset = project &&
+                project->runtime->consumeGamePreviewTimeReset();
+            if (gameTimeReset) gameFixedAccumulator = 0.0;
             if (project &&
                 project->runtime->gamePreviewReady() &&
                 playState ==
                     engine::editor::EditorPlayState::Playing) {
-                constexpr float fixedDelta = 1.0f / 60.0f;
-                gameFixedAccumulator += gameDeltaSeconds;
+                constexpr double fixedDelta = 1.0 / 60.0;
+                if (!gameTimeReset) gameFixedAccumulator += gameDeltaSeconds;
                 int fixedTicks = 0;
-                while (gameFixedAccumulator >= fixedDelta &&
+                while (gameFixedAccumulator + 1e-12 >= fixedDelta &&
                        fixedTicks < 120) {
                     project->runtime->
-                        fixedUpdateGamePreview(fixedDelta);
-                    gameFixedAccumulator -= fixedDelta;
+                        fixedUpdateGamePreview(static_cast<float>(fixedDelta));
+                    gameFixedAccumulator = std::max(0.0, gameFixedAccumulator - fixedDelta);
                     ++fixedTicks;
                 }
             }
@@ -4553,7 +4558,11 @@ int main(int argc, char** argv) {
                         .cameraForward3 =
                             glm::value_ptr(cameraForward),
                         .cameraTarget3 =
-                            glm::value_ptr(cameraTarget)};
+                            glm::value_ptr(cameraTarget),
+                        .fixedUpdateRemainderSeconds = arguments.fixedDeltaSeconds &&
+                            std::abs(static_cast<double>(*arguments.fixedDeltaSeconds) -
+                                     1.0 / 60.0) < 1e-9
+                            ? 0.0 : std::clamp(gameFixedAccumulator, 0.0, 1.0 / 60.0)};
                 const auto viewportStart = Clock::now();
                 if (activeViewport ==
                     engine::editor::EditorViewportKind::Scene) {

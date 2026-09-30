@@ -246,6 +246,12 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
         IWorldResourceScope* api;
         ~EndScope() { if (api) api->endWorldResourceScope(); }
     } endScope{scopeApi};
+    // Preserve backend state once for this ordered group of primitives.
+    renderer.beginWorldIndexedBatchSubmission();
+    struct EndBatch {
+        IRenderBackend& renderer;
+        ~EndBatch() { renderer.endWorldIndexedBatchSubmission(); }
+    } endBatch{renderer};
     GltfSceneDrawStats collected;
     for (std::size_t index = 0u; index < asset.primitives.size(); ++index) {
         const GltfScenePrimitive& primitive = asset.primitives[index];

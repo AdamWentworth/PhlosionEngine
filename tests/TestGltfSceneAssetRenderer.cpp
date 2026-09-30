@@ -83,6 +83,10 @@ public:
     };
 
     std::vector<Submission> submissions;
+    int batchBegins = 0, batchEnds = 0, batchDepth = 0;
+    bool unbatchedDraw = false;
+    void beginWorldIndexedBatchSubmission() override { ++batchBegins; ++batchDepth; }
+    void endWorldIndexedBatchSubmission() override { ++batchEnds; --batchDepth; }
 
     const char* backendId() const override { return "recording"; }
     void beginFrame(float, float, float, float) override {}
@@ -102,6 +106,7 @@ public:
         const float* viewProjectionMatrix,
         int surfaceWidth,
         int surfaceHeight) override {
+        unbatchedDraw |= batchDepth <= 0;
         (void)vertices;
         (void)indices;
         (void)viewProjectionMatrix;
@@ -196,6 +201,9 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
         return false;
     }
 
+    if (!check(backend.batchBegins == 1 && backend.batchEnds == 1 &&
+                   backend.batchDepth == 0 && !backend.unbatchedDraw,
+               "scene primitives must share one balanced submission batch")) return false;
     if (!check(backend.submissions.size() == 2u,
                "expected two submissions, recorded " +
                    std::to_string(backend.submissions.size()))) {
@@ -363,7 +371,8 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
         saved.drawCalls = 42u;
         if (!check(!engine::render::gltf::scene::drawGltfSceneAsset(
                        backend, bad, pose, options, saved, &error) &&
-                       backend.submissions.empty() && saved.drawCalls == 42u,
+                       backend.submissions.empty() && saved.drawCalls == 42u &&
+                       backend.batchBegins == 0 && backend.batchEnds == 0,
                    "bad second primitive must be rejected before any draw")) return false;
         GltfScenePose badPose = pose;
         badPose.palettes[1].push_back(glm::mat4(1.0f));
@@ -471,6 +480,7 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
         if (!check(!engine::render::gltf::scene::drawGltfSceneAsset(
                 scoped, *asset, pose, managedOptions, managedStats, &error) &&
                 !scoped.active && scoped.ended == 2 && managedStats.drawCalls == priorDraws &&
+                scoped.batchDepth == 0 && scoped.batchBegins == scoped.batchEnds &&
                 error.find("authored allocation failure") != std::string::npos,
                 "native allocation failure was hidden or scope remained active")) return false;
         managedOptions.resourceScope = 2u;

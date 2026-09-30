@@ -52,7 +52,7 @@ defaults. Profiles are owned copies, contain no plugin callbacks, and remain
 valid after a plugin DLL unloads. The editor's `world_material_profile` descriptor
 selects the project profile. Closing a project restores defaults; failed project
 activation restores the previous profile. Reopen after rebuilding edited shader
-artifacts. Editor and plugin must share ABI 34.
+artifacts. Editor and plugin must share ABI 35.
 
 The editor labels lighting preset 4 `Authored Stage`; its interpretation belongs
 to the profile. The CLI accepts `authored-stage` and retains older spelling aliases

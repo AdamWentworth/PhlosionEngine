@@ -6,7 +6,7 @@
 
 namespace engine::render {
 
-inline constexpr std::uint32_t modelRenderPluginAbi = 1;
+inline constexpr std::uint32_t modelRenderPluginAbi = 2;
 inline constexpr char modelRenderPluginEntryPoint[] = "phlosionModelRenderPluginCreate";
 
 // Project renderers may present cooked models outside the asset inspector.
@@ -30,6 +30,23 @@ struct ModelRenderFrame {
     int height = 0;
 };
 
+// CPU sampling uses the same animation/root-motion and instance transform as
+// rendering. Strings are borrowed for the call; no render frame is required.
+struct ModelNodePoseRequest {
+    const char* assetId = nullptr;
+    const char* phloPath = nullptr;
+    const char* animation = nullptr;
+    const char* nodeName = nullptr;
+    float animationTime = 0.0f;
+    float position[3]{};
+    float yawRadians = 0.0f;
+    float scale = 1.0f;
+};
+
+struct ModelNodePoseResult {
+    float worldPosition[3]{};
+};
+
 struct ModelRenderPluginApi {
     std::uint32_t abi = 0;
     std::uint32_t size = 0;
@@ -37,6 +54,9 @@ struct ModelRenderPluginApi {
     bool (*render)(void*, const ModelRenderFrame*) noexcept = nullptr;
     const char* (*lastError)(void*) noexcept = nullptr;
     void (*destroy)(void*) noexcept = nullptr;
+    // Missing nodes/clips fail explicitly and leave the result unchanged.
+    bool (*sampleNodePose)(void*, const ModelNodePoseRequest*,
+                           ModelNodePoseResult*) noexcept = nullptr;
 };
 
 using CreateModelRenderPlugin =

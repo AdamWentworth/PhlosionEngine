@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 34u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 35u;
 inline constexpr char kEditorProjectPluginContractSymbol[] =
     "phlosionEditorProjectPluginContract";
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
@@ -44,6 +44,9 @@ struct EditorProjectRenderContext {
     const float* cameraWorldPosition3 = nullptr;
     const float* cameraForward3 = nullptr;
     const float* cameraTarget3 = nullptr;
+    // Time beyond the last fixed Game update. Sampling may use this remainder;
+    // rendering must not advance gameplay. Zero for exact-tick captures.
+    double fixedUpdateRemainderSeconds = 0.0;
 };
 
 struct EditorProjectStats {
@@ -449,6 +452,9 @@ public:
         return false;
     }
     virtual void resetGamePreview() {}
+    // An in-game restart discards elapsed time from the preceding preview epoch.
+    // Return true once after such an event; the host clears fixed-update debt.
+    virtual bool consumeGamePreviewTimeReset() { return false; }
     virtual void fixedUpdateGamePreview(float deltaSeconds) {
         (void)deltaSeconds;
     }

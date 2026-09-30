@@ -1,6 +1,6 @@
 #pragma once
 
-// Optional SDL platform extension. This is deliberately outside the ABI-34
+// Optional SDL platform extension. This is deliberately outside the ABI-35
 // runtime vtable. Callbacks run on the host owner thread; pointers are borrowed
 // only for the duration of each callback. A missing export preserves legacy input.
 #include <SDL.h>
