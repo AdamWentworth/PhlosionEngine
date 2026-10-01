@@ -399,6 +399,46 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
                    "a primitive without a material must draw with the legal default: " + error)) return false;
     }
 
+    // Explicit LINEAR minification retains only the authored base level.
+    {
+        SceneSource linear = gltf_scene_contract::makeValidSceneSource();
+        linear.document["samplers"][0]["minFilter"] = 9729;
+        auto path = stageScene(directory, linear);
+        std::shared_ptr<const GltfSceneAsset> linearAsset;
+        GltfScenePose linearPose;
+        RecordingBackend backend;
+        GltfSceneDrawStats stats;
+        if (!check(loadGltfSceneAsset(path.string(), linearAsset, &error) &&
+                   linearAsset->materials[0].baseColor.linearWithoutMipmaps &&
+                   sampleGltfScenePose(linearAsset, 0, kBindPoseClip, linearPose, &error) &&
+                   engine::render::gltf::scene::drawGltfSceneAsset(backend, *linearAsset,
+                       linearPose, options, stats, &error) &&
+                   backend.submissions[0].texture.mipLevelCount == 1,
+                   "explicit LINEAR must suppress automatic mip generation: " + error)) return false;
+    }
+
+    // Animated factors replace authored factors once, retain the texture, and
+    // fail before submission when a caller binds the wrong material layout.
+    {
+        RecordingBackend backend;
+        GltfSceneDrawStats stats;
+        auto animated = options;
+        const std::array<std::array<float, 4>, 2> colors{{{.2f,.4f,.6f,1}, {.8f,.6f,.4f,.5f}}};
+        animated.baseColorFactors = colors;
+        animated.tint = {.5f, 1, 1, .5f};
+        if (!check(engine::render::gltf::scene::drawGltfSceneAsset(
+                       backend, *asset, pose, animated, stats, &error) &&
+                       nearlyEqual(backend.submissions[0].texture.vertexColorMulR, .1f) &&
+                       nearlyEqual(backend.submissions[1].texture.vertexColorMulA, .25f) &&
+                       backend.submissions[0].texture.rgba == asset->materials[0].baseColor.rgba.data(),
+                   "animated material factors were not submitted independently: " + error)) return false;
+        backend.submissions.clear();
+        animated.baseColorFactors = std::span(colors).first(1);
+        if (!check(!engine::render::gltf::scene::drawGltfSceneAsset(
+                       backend, *asset, pose, animated, stats, &error) && backend.submissions.empty(),
+                   "incorrect material factor count must reject before drawing")) return false;
+    }
+
     // A pose from another generation is rejected before anything is submitted.
     SceneSource replacement = gltf_scene_contract::makeValidSceneSource();
     replacement.document["materials"][0]["name"] = "OtherBlockSkin";
@@ -522,6 +562,9 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
         auto materialSource = source;
         materialSource.document["materials"][0]["alphaMode"] = alpha;
         materialSource.document["materials"][0]["alphaCutoff"] = .3f;
+        materialSource.document["extensionsUsed"] = {"KHR_materials_unlit"};
+        materialSource.document["extensionsRequired"] = {"KHR_materials_unlit"};
+        materialSource.document["materials"][0]["extensions"]["KHR_materials_unlit"] = nlohmann::json::object();
         materialSource.document["materials"][0]["pbrMetallicRoughness"]["baseColorFactor"][3] = .6f;
         materialSource.document["samplers"][0]["wrapS"] = 33071;
         materialSource.document["samplers"][0]["wrapT"] = 33648;
@@ -536,6 +579,7 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
         const bool blend = std::string_view(alpha) == "BLEND";
         const auto& draw = materialBackend.submissions[blend ? 1 : 0];
         if (!check(draw.texture.alphaMode == (blend ? 2 : 1) &&
+                   materialAsset->materials[0].unlit && draw.texture.materialMode == 255 &&
                    nearlyEqual(draw.texture.alphaCutoff, .3f) &&
                    nearlyEqual(draw.texture.vertexColorMulA, .6f) &&
                    draw.texture.wrapS == 33071 && draw.texture.wrapT == 33648 &&

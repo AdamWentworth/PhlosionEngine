@@ -9,12 +9,14 @@
 #include <unordered_map>
 
 #include "engine/render/IRenderBackend.h"
+#include "engine/render/IWorldDepthControl.h"
 #include "engine/render/WorldResourceScopeState.h"
 
 class Renderer;
 
-class OpenGLRenderBackend final : public IRenderBackend, public IWorldResourceScope {
+class OpenGLRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl {
 public:
+  bool clearWorldDepth() override;
 
   engine::render::WorldResourceScopeId createWorldResourceScope(std::uint64_t payloadByteLimit) override;
   bool beginWorldResourceScope(engine::render::WorldResourceScopeId id) override;

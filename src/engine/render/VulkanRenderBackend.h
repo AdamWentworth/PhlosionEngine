@@ -8,13 +8,15 @@
 #include <vulkan/vulkan.h>
 
 #include "engine/render/IRenderBackend.h"
+#include "engine/render/IWorldDepthControl.h"
 #include "engine/render/WorldResourceScopeState.h"
 
 struct SDL_Window;
 struct VulkanRenderBackendImpl;
 
-class VulkanRenderBackend final : public IRenderBackend, public IWorldResourceScope {
+class VulkanRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl {
 public:
+    bool clearWorldDepth() override;
 
   engine::render::WorldResourceScopeId createWorldResourceScope(std::uint64_t payloadByteLimit) override;
   bool beginWorldResourceScope(engine::render::WorldResourceScopeId id) override;

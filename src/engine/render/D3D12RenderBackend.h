@@ -6,6 +6,7 @@
 #include <unordered_map>
 
 #include "engine/render/IRenderBackend.h"
+#include "engine/render/IWorldDepthControl.h"
 #include "engine/render/WorldResourceScopeState.h"
 
 struct SDL_Window;
@@ -32,8 +33,9 @@ struct ID3D12Resource;
 struct ID3D12RootSignature;
 #endif
 
-class D3D12RenderBackend final : public IRenderBackend, public IWorldResourceScope {
+class D3D12RenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl {
 public:
+  bool clearWorldDepth() override;
 
   engine::render::WorldResourceScopeId createWorldResourceScope(std::uint64_t payloadByteLimit) override;
   bool beginWorldResourceScope(engine::render::WorldResourceScopeId id) override;

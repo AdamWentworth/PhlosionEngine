@@ -319,6 +319,7 @@ struct VulkanRenderBackendImpl {
     void beginFrame(float r, float g, float b, float a);
     void endFrame();
     void beginWorldSceneColorPass(int surfaceWidth, int surfaceHeight);
+    bool clearWorldDepth();
     void endWorldSceneColorPass();
     void requestResize(int width, int height);
     void requestVSync(bool enabled);

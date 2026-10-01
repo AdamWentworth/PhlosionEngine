@@ -11,7 +11,7 @@
 //
 // The import is a bounded subset, not general glTF support. Unsupported
 // topologies, morph targets, extra joint sets, non-default UV sets or texture
-// transforms, blend/mask/double-sided materials and unsupported material
+// transforms, double-sided materials and unsupported material
 // extensions are rejected with an explicit diagnostic.
 
 #include <array>
@@ -61,6 +61,7 @@ struct GltfSceneTexture {
     int wrapT = 10497;
     std::uint8_t textureSrgb = 1u;
     bool authored = false;
+    bool linearWithoutMipmaps = false;
     std::string key;
     std::string cacheKey;
     std::uint64_t contentHash = 0u;
@@ -86,6 +87,7 @@ struct GltfSceneMaterial {
     float normalScale = 1.0f;
     float occlusionStrength = 1.0f;
     std::uint8_t alphaMode = 0u; // OPAQUE, MASK, BLEND
+    bool unlit = false;
     float alphaCutoff = 0.5f;
     bool hasBaseColorMap = false;
     bool hasNormalMap = false;

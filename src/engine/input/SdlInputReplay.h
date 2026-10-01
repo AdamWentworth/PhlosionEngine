@@ -14,6 +14,8 @@ public:
     SdlInputReplay& operator=(const SdlInputReplay&) = delete;
     void frame(editor::EditorSdlGameInputContext& context);
     int frameNumber() const;
+    // Replays accept controller input only from their owned virtual device.
+    bool acceptsEvent(const SDL_Event& event) const;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

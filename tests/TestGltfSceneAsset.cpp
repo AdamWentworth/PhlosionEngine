@@ -174,6 +174,19 @@ bool test_gltf_scene_asset_contract(std::string& outFail) {
     }
     const auto& skinned = asset->primitives[0];
     const auto& prop = asset->primitives[1];
+    for (const auto* primitive : {&skinned, &prop}) {
+        for (std::size_t i = 0; i < primitive->indices.size(); i += 3) {
+            const auto& a = primitive->vertices[primitive->indices[i]];
+            const auto& b = primitive->vertices[primitive->indices[i + 1]];
+            const auto& c = primitive->vertices[primitive->indices[i + 2]];
+            const glm::vec3 cross = glm::cross(
+                glm::vec3(b.x - a.x, b.y - a.y, b.z - a.z),
+                glm::vec3(c.x - a.x, c.y - a.y, c.z - a.z));
+            if (!check(glm::dot(cross, glm::vec3(a.nx, a.ny, a.nz)) < 0,
+                       "glTF exterior must be clockwise in the world pipeline"))
+                return false;
+        }
+    }
     if (!check(skinned.nodeIndex == AuthoredRig::kBlockMeshNode &&
                    skinned.meshIndex == 0 && skinned.primitiveIndex == 0 &&
                    skinned.materialIndex == 0 && skinned.skinIndex == 0,
@@ -510,10 +523,10 @@ bool test_gltf_scene_asset_contract(std::string& outFail) {
 
         mutated = source;
         mutated.document["extensionsUsed"] =
-            nlohmann::json::array({"KHR_materials_unlit"});
-        mutated.document["materials"][0]["extensions"]["KHR_materials_unlit"] =
+            nlohmann::json::array({"KHR_materials_clearcoat"});
+        mutated.document["materials"][0]["extensions"]["KHR_materials_clearcoat"] =
             nlohmann::json::object();
-        addRejection("unlit-material", std::move(mutated), "unlit");
+        addRejection("clearcoat-material", std::move(mutated), "clearcoat");
 
         mutated = source;
         mutated.document["meshes"][0]["primitives"][0]["attributes"].erase(
@@ -547,7 +560,7 @@ bool test_gltf_scene_asset_contract(std::string& outFail) {
         addRejection("alpha-factor", std::move(bad), "alpha");
         bad = source; bad.document["samplers"][0]["magFilter"] = 9728;
         addRejection("nearest-sampling", std::move(bad), "magnification");
-        bad = source; bad.document["samplers"][0]["minFilter"] = 9729;
+        bad = source; bad.document["samplers"][0]["minFilter"] = 9728;
         addRejection("explicit-minification", std::move(bad), "minification");
         bad = source; bad.document["animations"][0]["channels"][0]["target"]["path"] = "weights";
         addRejection("animation-weights", std::move(bad), "channel path");

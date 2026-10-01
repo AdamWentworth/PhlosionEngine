@@ -197,7 +197,6 @@ bool materialHasUnsupportedExtension(const fastgltf::Material& material,
          "MSFT_packing_normalRoughnessMetallic"},
         {material.packedOcclusionRoughnessMetallicTextures != nullptr,
          "MSFT_packing_occlusionRoughnessMetallic"},
-        {material.unlit, "KHR_materials_unlit"},
     };
     for (const Feature& feature : features) {
         if (feature.present) {
@@ -241,13 +240,12 @@ bool samplerIsSupported(const fastgltf::Asset& asset,
         outDetail = "invalid sampler wrap mode";
         return false;
     }
-    // The shared world path has no per-texture filter field, so it always
-    // supplies linear magnification and renderer-controlled mip filtering.
-    // Anything else would be silently ignored, so it is rejected instead.
-    if (sampler.minFilter.has_value()) {
+    // Explicit LINEAR uses the existing authored one-level upload contract.
+    // Omitted filtering retains renderer policy; other filters remain rejected.
+    if (sampler.minFilter.has_value() && sampler.minFilter.value() != fastgltf::Filter::Linear) {
         outDetail =
             "unsupported minification filter; the shared world path always "
-            "owns the minification policy; omit minFilter";
+            "owns mip filtering; use LINEAR without mips or omit minFilter";
         return false;
     }
     if (sampler.magFilter.has_value() &&
@@ -302,6 +300,7 @@ GltfSceneTexture fromCPU(const CPUTexture& cpu,
     texture.wrapT = cpu.wrapT;
     texture.rgba = cpu.rgba;
     texture.authored = authored;
+    texture.linearWithoutMipmaps = authored && cpu.minF == 9729;
     std::uint64_t hash = fnv1a64(texture.rgba.data(), texture.rgba.size(),
                                  1469598103934665603ull);
     const std::uint32_t dimensions[2] = {cpu.width, cpu.height};
@@ -441,7 +440,7 @@ bool floatAccessorValid(LoadState& state,
     return accessorPayloadValid(state, accessor, label);
 }
 
-const std::array<const char*, 24> kUnsupportedUsedExtensions{
+const std::array<const char*, 23> kUnsupportedUsedExtensions{
     "KHR_texture_transform",
     "KHR_texture_basisu",
     "MSFT_texture_dds",
@@ -453,7 +452,6 @@ const std::array<const char*, 24> kUnsupportedUsedExtensions{
     "EXT_mesh_gpu_instancing",
     "MSFT_packing_normalRoughnessMetallic",
     "MSFT_packing_occlusionRoughnessMetallic",
-    "KHR_materials_unlit",
     "KHR_materials_emissive_strength",
     "KHR_materials_specular",
     "KHR_materials_ior",
@@ -470,13 +468,10 @@ const std::array<const char*, 24> kUnsupportedUsedExtensions{
 
 bool validateExtensionPolicy(LoadState& state) {
     const fastgltf::Asset& asset = *state.asset;
-    // This bounded path implements no extension, so a required extension is
-    // always a rejection rather than an approximation.
-    if (!asset.extensionsRequired.empty()) {
-        const std::string name(asset.extensionsRequired.front().begin(),
-                               asset.extensionsRequired.front().end());
-        return state.fail("the asset requires the unsupported extension '" +
-                          name + "'");
+    for (const auto& required : asset.extensionsRequired) {
+        const std::string name(required.begin(), required.end());
+        if (name != "KHR_materials_unlit")
+            return state.fail("the asset requires the unsupported extension '" + name + "'");
     }
     for (const auto& used : asset.extensionsUsed) {
         const std::string name(used.begin(), used.end());
@@ -1041,6 +1036,7 @@ bool importMaterial(LoadState& state,
     out.alphaMode = material.alphaMode == fastgltf::AlphaMode::Mask ? 1u :
                     material.alphaMode == fastgltf::AlphaMode::Blend ? 2u : 0u;
     out.alphaCutoff = material.alphaCutoff;
+    out.unlit = material.unlit;
     if (!std::isfinite(out.alphaCutoff) || out.alphaCutoff < 0 || out.alphaCutoff > 1)
         return state.fail(label + " has an invalid alpha cutoff");
     if (material.doubleSided) {
@@ -1869,6 +1865,11 @@ bool importPrimitive(LoadState& state,
             vertex.weight0 = 1.0f;
         }
     }
+    // glTF defines counter-clockwise front faces; the shared world pipeline
+    // defines clockwise fronts. Generate normals/tangents in source winding
+    // first, then convert the index order (without reversing the normals).
+    for (std::size_t index = 0; index < indices.size(); index += 3u)
+        std::swap(indices[index + 1u], indices[index + 2u]);
     out.indices = std::move(indices);
     out.triangleCount = out.indices.size() / 3u;
 

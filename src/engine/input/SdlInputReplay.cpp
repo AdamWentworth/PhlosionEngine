@@ -96,6 +96,13 @@ SdlInputReplay::SdlInputReplay(const std::filesystem::path& script) : impl_(std:
 }
 SdlInputReplay::~SdlInputReplay() = default;
 int SdlInputReplay::frameNumber() const { return impl_->frame; }
+bool SdlInputReplay::acceptsEvent(const SDL_Event& event) const {
+    if (event.type == SDL_CONTROLLERAXISMOTION)
+        return impl_->instance >= 0 && event.caxis.which == impl_->instance;
+    if (event.type == SDL_CONTROLLERBUTTONDOWN || event.type == SDL_CONTROLLERBUTTONUP)
+        return impl_->instance >= 0 && event.cbutton.which == impl_->instance;
+    return true;
+}
 void SdlInputReplay::frame(editor::EditorSdlGameInputContext& c) {
     auto& p = *impl_; check(p.frame < 10000,"replay host frame limit exceeded"); ++p.frame; c.synthetic = true;
     while (p.next < p.events.size() && p.events[p.next].at("frame").get<int>() == p.frame) {

@@ -332,6 +332,23 @@ void D3D12RenderBackend::beginWorldSceneColorPass(
 #endif
 }
 
+bool D3D12RenderBackend::clearWorldDepth() {
+#if defined(_WIN32)
+    if (!worldSceneColorPassActive_ || !commandList_) return false;
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv{};
+    if (editorSurfaceActive_) dsv = editorSurfaceTarget_.depthDsv;
+    else if (dsvHeap_) {
+        dsv = dsvHeap_->GetCPUDescriptorHandleForHeapStart();
+        dsv.ptr += static_cast<SIZE_T>(frameIndex_) * dsvDescriptorSize_;
+    }
+    if (!dsv.ptr) return false;
+    commandList_->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0u, 0u, nullptr);
+    return true;
+#else
+    return false;
+#endif
+}
+
 void D3D12RenderBackend::endWorldSceneColorPass() {
 #if defined(_WIN32)
     ID3D12Resource* sceneColorTarget =

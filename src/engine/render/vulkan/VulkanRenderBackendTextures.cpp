@@ -447,7 +447,7 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTextureWithForma
         samplerInfo.addressModeU = addressModeFromGl(wrapS);
         samplerInfo.addressModeV = addressModeFromGl(wrapT);
         samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        samplerInfo.anisotropyEnable = samplerAnisotropyEnabled ? VK_TRUE : VK_FALSE;
+        samplerInfo.anisotropyEnable = samplerAnisotropyEnabled && mipLevelCount > 1u ? VK_TRUE : VK_FALSE;
         samplerInfo.maxAnisotropy = maxSamplerAnisotropy;
         samplerInfo.minLod = 0.0f;
         samplerInfo.maxLod =

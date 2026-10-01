@@ -197,6 +197,12 @@ float4 sampleTextureWithWrap(Texture2D tex,
   const float lodScale = exp2(litTextureDetailLodBias());
   uvDx *= lodScale;
   uvDy *= lodScale;
+  uint width, height, levels;
+  tex.GetDimensions(0, width, height, levels);
+  // A one-level authored texture requests bilinear filtering. Static D3D12
+  // samplers remain anisotropic for mip chains; zero gradients select the
+  // base-level magnification footprint for this texture only.
+  if (levels == 1u) { uvDx = 0.0f.xx; uvDy = 0.0f.xx; }
   bool sClamp = isClampWrap(wrapS);
   bool tClamp = isClampWrap(wrapT);
   bool sMirror = isMirrorWrap(wrapS);

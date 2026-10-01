@@ -18,6 +18,7 @@ bool test_camera_view_plane_pan_contract(std::string& outFail);
 bool test_editor_project_plugin_contract(std::string& outFail);
 bool test_editor_game_preview_routing_contract(std::string& outFail);
 bool test_editor_game_preview_clock_contract(std::string& outFail);
+bool test_sdl_replay_controller_isolation(std::string& outFail);
 bool test_editor_asset_browser_contract(std::string& outFail);
 bool test_editor_gameplay_reload(std::string& outFail);
 bool test_editor_performance_contract(std::string& outFail);
@@ -71,6 +72,7 @@ int main(int argc, char** argv) {
         {"editor_project_plugin_contract", &test_editor_project_plugin_contract},
         {"editor_game_preview_routing_contract", &test_editor_game_preview_routing_contract},
         {"editor_game_preview_clock_contract", &test_editor_game_preview_clock_contract},
+        {"sdl_replay_controller_isolation", &test_sdl_replay_controller_isolation},
         {"editor_asset_browser_contract", &test_editor_asset_browser_contract},
         {"editor_gameplay_reload", &test_editor_gameplay_reload},
         {"editor_performance_contract", &test_editor_performance_contract},

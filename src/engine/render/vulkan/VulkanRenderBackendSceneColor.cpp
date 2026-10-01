@@ -298,6 +298,25 @@ void VulkanRenderBackendImpl::beginWorldSceneColorPass(
     worldSceneColorPassActive = true;
 }
 
+bool VulkanRenderBackendImpl::clearWorldDepth() {
+    if (!frameActive || !worldSceneColorPassActive) return false;
+    VkExtent2D extent = swapchainExtent;
+    if (activeEditorSurface != 0u) {
+        const auto found = editorSurfaces.find(activeEditorSurface);
+        if (found == editorSurfaces.end()) return false;
+        extent = {static_cast<std::uint32_t>(found->second.width),
+                  static_cast<std::uint32_t>(found->second.height)};
+    }
+    VkClearAttachment clear{};
+    clear.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    clear.clearValue.depthStencil = {1.0f, 0u};
+    VkClearRect rect{};
+    rect.rect.extent = extent;
+    rect.layerCount = 1;
+    vkCmdClearAttachments(frames[currentFrame].commandBuffer, 1, &clear, 1, &rect);
+    return true;
+}
+
 void VulkanRenderBackendImpl::endWorldSceneColorPass() {
     if (!frameActive || !worldSceneColorPassActive) return;
 

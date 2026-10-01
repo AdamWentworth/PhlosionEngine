@@ -939,6 +939,7 @@ if (PHLOSION_BUILD_TESTS)
         tests/TestEditorProjectPluginContract.cpp
         tests/TestEditorGamePreviewRouting.cpp
         tests/TestEditorGamePreviewClock.cpp
+        tests/TestSdlInputReplay.cpp
         tests/TestEditorAssetBrowser.cpp
         tests/TestEditorPerformance.cpp
         tests/TestEditorGameplayReload.cpp
@@ -973,6 +974,7 @@ if (PHLOSION_BUILD_TESTS)
     )
     target_link_libraries(PhlosionEngineTests
         PRIVATE
+            engine_sdl_replay
             Phlosion::Core
             Phlosion::EditorCore
             Phlosion::Render

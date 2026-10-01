@@ -16,6 +16,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <span>
 
 namespace engine::render::gltf::scene {
 
@@ -41,6 +42,9 @@ struct GltfSceneDrawOptions {
     std::uint8_t materialMode = 2u;
     std::array<float, 4> tint{1.0f, 1.0f, 1.0f, 1.0f};
     bool translucent = false;
+    // Optional per-material factors for animated material inputs. Empty uses
+    // authored factors; otherwise supply one linear RGBA value per material.
+    std::span<const std::array<float, 4>> baseColorFactors;
     // Optional explicit GPU ownership. Create/release this renderer-owned scope
     // through IWorldResourceScope. Zero retains the legacy unowned cache path.
     engine::render::WorldResourceScopeId resourceScope = 0u;

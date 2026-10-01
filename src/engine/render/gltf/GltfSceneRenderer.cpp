@@ -90,7 +90,7 @@ WorldTextureData makeTextureData(const GltfSceneMaterial& material,
     texture.emissiveWrapT = material.emissive.wrapT;
     texture.emissiveTextureSrgb = material.emissive.textureSrgb;
 
-    texture.materialMode = options.materialMode;
+    texture.materialMode = material.unlit ? 255u : options.materialMode;
     texture.alphaMode = options.translucent ? 2u : material.alphaMode;
     texture.alphaCutoff = material.alphaCutoff;
     texture.depthTestEnabled = 1u;
@@ -159,6 +159,14 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
     }
     if (asset.materials.empty() && !asset.primitives.empty()) {
         return fail("the asset has primitives but no materials");
+    }
+    if (!options.baseColorFactors.empty()) {
+        if (options.baseColorFactors.size() != asset.materials.size())
+            return fail("glTF material factor count does not match the asset");
+        for (const auto& color : options.baseColorFactors)
+            for (float value : color)
+                if (!std::isfinite(value) || value < 0 || value > 1)
+                    return fail("glTF material factors must be finite and normalized");
     }
     const auto finiteMatrix = [](const std::array<float, 16>& matrix) {
         for (const float value : matrix) {
@@ -276,6 +284,31 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
             asset.materials[static_cast<std::size_t>(primitive.materialIndex)],
             modelMatrix,
             options);
+        // All backends upload/copy texture bytes during submission. Supplying
+        // a one-level authored chain prevents automatic mip generation.
+        const auto& material = asset.materials[primitive.materialIndex];
+        const GltfSceneTexture* roles[] = {&material.baseColor, &material.normal,
+            &material.metallicRoughness, &material.occlusion, &material.emissive};
+        engine::render::backend::WorldTextureMipLevel levels[5];
+        const engine::render::backend::WorldTextureMipLevel** pointers[] = {
+            &texture.mipLevels, &texture.normalMipLevels, &texture.metallicRoughnessMipLevels,
+            &texture.occlusionMipLevels, &texture.emissiveMipLevels};
+        std::uint32_t* counts[] = {&texture.mipLevelCount, &texture.normalMipLevelCount,
+            &texture.metallicRoughnessMipLevelCount, &texture.occlusionMipLevelCount,
+            &texture.emissiveMipLevelCount};
+        for (int role = 0; role < 5; ++role) if (roles[role]->linearWithoutMipmaps) {
+            levels[role] = {roles[role]->rgba.data(), roles[role]->width, roles[role]->height};
+            *pointers[role] = &levels[role];
+            *counts[role] = 1;
+        }
+
+        if (!options.baseColorFactors.empty()) {
+            const auto& color = options.baseColorFactors[primitive.materialIndex];
+            texture.vertexColorMulR = color[0] * options.tint[0];
+            texture.vertexColorMulG = color[1] * options.tint[1];
+            texture.vertexColorMulB = color[2] * options.tint[2];
+            texture.vertexColorMulA = color[3] * options.tint[3];
+        }
 
         if (!palette.empty()) {
             texture.gpuSkinning = 1u;

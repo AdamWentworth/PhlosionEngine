@@ -3940,6 +3940,7 @@ int main(int argc, char** argv) {
             if (project && project->sdlGameInput) project->sdlGameInput->beginFrame(project->runtime, &gameInputContext);
             SDL_Event event{};
             while (SDL_PollEvent(&event)) {
+                if (inputReplay && !inputReplay->acceptsEvent(event)) continue;
                 editor.processEvent(event);
                 if (event.type == SDL_WINDOWEVENT && event.window.windowID == gameInputContext.windowId) {
                     if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) windowFocused = false;

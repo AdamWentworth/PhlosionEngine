@@ -196,6 +196,23 @@ void OpenGLRenderBackend::beginWorldSceneColorPass(
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 }
 
+bool OpenGLRenderBackend::clearWorldDepth() {
+    if (!worldSceneColorPassActive_) return false;
+    GLboolean mask = GL_TRUE;
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &mask);
+    GLdouble previousClear = 1.0;
+    glGetDoublev(GL_DEPTH_CLEAR_VALUE, &previousClear);
+    const bool scissor = glIsEnabled(GL_SCISSOR_TEST) == GL_TRUE;
+    if (scissor) glDisable(GL_SCISSOR_TEST);
+    glDepthMask(GL_TRUE);
+    glClearDepth(1.0);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glClearDepth(previousClear);
+    glDepthMask(mask);
+    if (scissor) glEnable(GL_SCISSOR_TEST);
+    return true;
+}
+
 void OpenGLRenderBackend::endWorldSceneColorPass() {
     if (!worldSceneColorPassActive_) return;
 
