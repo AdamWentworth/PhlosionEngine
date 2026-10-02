@@ -79,6 +79,9 @@ engine content. [Capture provenance](docs/SHOWCASE_MEDIA.md).*
   and collision-aware distance, with separate authored settings and runtime state.
 - **Cooked resources:** PHRC containers and `.phlo` / `.phscene` runtime APIs,
   authored scenes and environment patches, with integrity and round-trip tests.
+- **Model support:** engine-owned cooking, instances, skeletal/material/visibility
+  animation, skinning, attachments and ordinary preview. Source adapters are
+  optional; see [model ownership and APIs](docs/MODELS.md).
 
 The engine API is still evolving. Windows is the documented build and CI target;
 other operating systems are not qualified by that workflow. An installed

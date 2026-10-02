@@ -40,7 +40,8 @@ void samplePose(const PoseSource& source,
                 int animIndex,
                 std::vector<model_types::NodeTRS>& outLocal,
                 std::vector<glm::mat4>& outGlobal,
-                bool suppressHorizontalRootMotion = true);
+                bool suppressHorizontalRootMotion = true,
+                bool looping = true);
 
 // Recompose a caller-owned local pose using the same hierarchy and segment
 // scale compensation rules as samplePose. Used after blending sampled locals.

@@ -18,6 +18,7 @@
 // keep the legacy wrapping and tail behavior above, unchanged.
 
 #include "ModelPoseSampler.h"
+#include "AnimationTrackSampler.h"
 
 #include <algorithm>
 #include <cmath>
@@ -44,17 +45,6 @@ float wrapTime(float t, float duration)
     return x;
 }
 
-size_t findKeyframe(const std::vector<float>& times, float t)
-{
-    if (times.empty()) return 0;
-    if (t <= times.front()) return 0;
-    if (t >= times.back()) return times.size() - 1;
-
-    auto it = std::upper_bound(times.begin(), times.end(), t);
-    size_t idx = (it == times.begin()) ? 0 : (size_t)((it - times.begin()) - 1);
-    return idx;
-}
-
 } // namespace
 
 glm::mat4 trsToMat4(const model_types::NodeTRS& node)
@@ -71,7 +61,8 @@ void samplePose(const PoseSource& source,
                 int animIndex,
                 std::vector<model_types::NodeTRS>& outLocal,
                 std::vector<glm::mat4>& outGlobal,
-                bool suppressHorizontalRootMotion)
+                bool suppressHorizontalRootMotion,
+                bool looping)
 {
     const auto& nodesDefault = source.nodesDefault;
     const auto& nodeChildren = source.nodeChildren;
@@ -130,93 +121,11 @@ void samplePose(const PoseSource& source,
         }
     }
 
-    auto sampleVec4 = [&](const AnimationSampler& s, float t, float duration)->glm::vec4 {
-        if (s.inputs.empty() || s.outputs.empty()) return glm::vec4(0.0f);
-        const auto valueAt = [&](size_t index) {
-            return s.outputs[(std::min)(index, s.outputs.size() - 1)];
-        };
-        if (s.inputs.size() == 1u || s.outputs.size() == 1u) {
-            return valueAt(0u);
-        }
-
-        const float firstTime = s.inputs.front();
-        const float lastTime = s.inputs.back();
-        const glm::vec4 firstValue = valueAt(0u);
-        const glm::vec4 lastValue = valueAt(s.inputs.size() - 1u);
-        const bool outsideKeyRange = t < firstTime || t > lastTime;
-        if (outsideKeyRange) {
-            if (s.interpolation == "STEP") return lastValue;
-            const float wrappedSpan = (duration - lastTime) + firstTime;
-            if (!(wrappedSpan > 0.0f)) return lastValue;
-            const float wrappedT =
-                (t >= lastTime) ? (t - lastTime) : (t + duration - lastTime);
-            const float a = std::clamp(wrappedT / wrappedSpan, 0.0f, 1.0f);
-            return glm::mix(lastValue, firstValue, a);
-        }
-
-        size_t i = findKeyframe(s.inputs, t);
-        if (i >= s.inputs.size() - 1) {
-            if (s.interpolation == "STEP") return lastValue;
-            const float wrappedSpan = (duration - lastTime) + firstTime;
-            if (!(wrappedSpan > 0.0f)) return lastValue;
-            const float a = std::clamp((t - lastTime) / wrappedSpan, 0.0f, 1.0f);
-            return glm::mix(lastValue, firstValue, a);
-        }
-
-        float t0 = s.inputs[i];
-        float t1 = s.inputs[i + 1];
-        float a = (t1 > t0) ? ((t - t0) / (t1 - t0)) : 0.0f;
-
-        glm::vec4 v0 = valueAt(i);
-        glm::vec4 v1 = valueAt(i + 1u);
-
-        if (s.interpolation == "STEP") return v0;
-        return glm::mix(v0, v1, a);
+    auto sampleVec4 = [looping](const AnimationSampler& sampler, float time, float duration) {
+        return sampleVectorTrack(sampler, time, duration, looping);
     };
-
-    auto sampleQuat = [&](const AnimationSampler& s, float t, float duration)->glm::quat {
-        if (s.inputs.empty() || s.outputs.empty()) {
-            return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-        }
-        const auto quatAt = [&](size_t index) {
-            const glm::vec4 v = s.outputs[(std::min)(index, s.outputs.size() - 1)];
-            return glm::normalize(glm::quat(v.w, v.x, v.y, v.z));
-        };
-        if (s.inputs.size() == 1u || s.outputs.size() == 1u) {
-            return quatAt(0u);
-        }
-
-        const float firstTime = s.inputs.front();
-        const float lastTime = s.inputs.back();
-        const glm::quat firstValue = quatAt(0u);
-        const glm::quat lastValue = quatAt(s.inputs.size() - 1u);
-        const bool outsideKeyRange = t < firstTime || t > lastTime;
-        if (outsideKeyRange) {
-            if (s.interpolation == "STEP") return lastValue;
-            const float wrappedSpan = (duration - lastTime) + firstTime;
-            if (!(wrappedSpan > 0.0f)) return lastValue;
-            const float wrappedT =
-                (t >= lastTime) ? (t - lastTime) : (t + duration - lastTime);
-            const float a = std::clamp(wrappedT / wrappedSpan, 0.0f, 1.0f);
-            return glm::normalize(glm::slerp(lastValue, firstValue, a));
-        }
-
-        size_t i = findKeyframe(s.inputs, t);
-        if (i >= s.inputs.size() - 1) {
-            if (s.interpolation == "STEP") return lastValue;
-            const float wrappedSpan = (duration - lastTime) + firstTime;
-            if (!(wrappedSpan > 0.0f)) return lastValue;
-            const float a = std::clamp((t - lastTime) / wrappedSpan, 0.0f, 1.0f);
-            return glm::normalize(glm::slerp(lastValue, firstValue, a));
-        }
-
-        float t0 = s.inputs[i];
-        float t1 = s.inputs[i + 1];
-        float a = (t1 > t0) ? ((t - t0) / (t1 - t0)) : 0.0f;
-        const glm::quat q0 = quatAt(i);
-        const glm::quat q1 = quatAt(i + 1u);
-        if (s.interpolation == "STEP") return q0;
-        return glm::normalize(glm::slerp(q0, q1, std::clamp(a, 0.0f, 1.0f)));
+    auto sampleQuat = [looping](const AnimationSampler& sampler, float time, float duration) {
+        return sampleRotationTrack(sampler, time, duration, looping);
     };
 
     // ---- CUBICSPLINE helpers ----
@@ -327,7 +236,8 @@ void samplePose(const PoseSource& source,
 
     if (animIndex >= 0 && animIndex < (int)animations.size()) {
         const auto& clip = animations[animIndex];
-        float t = wrapTime(timeSec, clip.durationSec);
+        float t = looping ? wrapTime(timeSec, clip.durationSec)
+                          : std::clamp(timeSec, 0.0f, std::max(0.0f, clip.durationSec));
 
         for (const auto& ch : clip.channels) {
             if (ch.targetNode < 0 || ch.targetNode >= (int)outLocal.size()) continue;

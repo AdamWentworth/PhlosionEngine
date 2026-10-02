@@ -6,7 +6,7 @@
 
 namespace engine::render {
 
-inline constexpr std::uint32_t modelRenderPluginAbi = 4;
+inline constexpr std::uint32_t modelRenderPluginAbi = 5;
 inline constexpr char modelRenderPluginEntryPoint[] = "phlosionModelRenderPluginCreate";
 
 // Project renderers may present cooked models outside the asset inspector.
@@ -15,7 +15,7 @@ struct ModelRenderFrame {
     IRenderBackend* renderer = nullptr;
     const char* assetId = nullptr;
     const char* phloPath = nullptr;
-    const char* animation = nullptr;
+    const char* animation = nullptr; // Null or empty selects the authored bind pose.
     float animationTime = 0.0f;
     float position[3]{};
     float yawRadians = 0.0f;
@@ -34,11 +34,17 @@ struct ModelRenderFrame {
     bool translucent = false;
     bool unlit = false;
     // Distinct poses of one asset submitted in the same frame need stable skin
-    // palettes. Providers retain one palette per slot (0..15) until next frame.
+    // palettes. Each slot (0..15) remains valid until reused or its resource replaced.
     std::uint32_t poseSlot = 0;
     // One-shot clips clamp at their endpoints and must not blend the final
     // pose into the first frame as a looping preview does.
     bool looping = true;
+    // Placement is selected by the caller. Scale includes the resource's
+    // authored modelScaleFactor; optional grounding uses its support anchor.
+    bool groundPlaneEnabled = false;
+    float groundPlaneY = 0.0f;
+    float groundClearance = 0.0f;
+    int lightingPreset = 0;
 };
 
 // CPU sampling uses the same animation/root-motion and instance transform as
@@ -53,6 +59,9 @@ struct ModelNodePoseRequest {
     float yawRadians = 0.0f;
     float scale = 1.0f;
     bool looping = true;
+    bool groundPlaneEnabled = false;
+    float groundPlaneY = 0.0f;
+    float groundClearance = 0.0f;
 };
 
 struct ModelNodePoseResult {

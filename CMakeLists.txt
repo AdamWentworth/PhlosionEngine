@@ -58,6 +58,7 @@ find_package(lua CONFIG REQUIRED)
 find_package(sol2 CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(fastgltf CONFIG REQUIRED)
+find_package(Ktx CONFIG REQUIRED)
 find_package(Vulkan REQUIRED)
 find_package(Threads REQUIRED)
 if (PHLOSION_BUILD_EDITOR)
@@ -235,6 +236,34 @@ target_link_libraries(engine_core
 )
 phlosion_apply_settings(engine_core)
 
+add_library(engine_image_codecs STATIC
+    src/engine/utils/stb_image_impl.cpp
+    src/engine/utils/stb_image_write_impl.cpp)
+find_path(PHLOSION_STB_INCLUDE_DIR NAMES stb_image.h REQUIRED)
+target_include_directories(engine_image_codecs PUBLIC "${PHLOSION_STB_INCLUDE_DIR}")
+if (MSVC)
+    target_compile_definitions(engine_image_codecs PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+phlosion_apply_settings(engine_image_codecs)
+add_library(Phlosion::ImageCodecs ALIAS engine_image_codecs)
+
+add_library(engine_models_core STATIC
+    src/engine/render/ModelPoseSampler.cpp
+    src/engine/render/AnimationTrackSampler.cpp
+    src/engine/models/ModelTracks.cpp
+    src/engine/models/PhlosionModelObject.cpp
+    src/engine/models/PhlosionTextureDependencyStore.cpp)
+target_link_libraries(engine_models_core PUBLIC engine_core PRIVATE KTX::ktx)
+phlosion_apply_settings(engine_models_core)
+add_library(Phlosion::ModelsCore ALIAS engine_models_core)
+
+if (PHLOSION_BUILD_TESTS)
+    add_executable(PhlosionModelsCoreTests tests/TestModelsCore.cpp)
+    target_link_libraries(PhlosionModelsCoreTests PRIVATE Phlosion::ModelsCore)
+    phlosion_apply_settings(PhlosionModelsCoreTests)
+    add_test(NAME PhlosionModelsCore COMMAND PhlosionModelsCoreTests)
+endif()
+
 add_library(engine_input STATIC src/engine/input/InputActions.cpp)
 target_link_libraries(engine_input PUBLIC glm::glm)
 phlosion_apply_settings(engine_input)
@@ -326,7 +355,6 @@ add_library(engine_render STATIC
     src/engine/render/Camera3D.cpp
     src/engine/render/Model.cpp
     src/engine/render/ModelAnimation.cpp
-    src/engine/render/ModelPoseSampler.cpp
     src/engine/render/AnimationBlend.cpp
     src/engine/render/AnimationStateMachine.cpp
     src/engine/render/ModelCacheAnimation.cpp
@@ -354,13 +382,12 @@ add_library(engine_render STATIC
     src/engine/utils/ResourceManager.cpp
     src/engine/utils/Log.cpp
     src/engine/utils/LogSink.cpp
-    src/engine/utils/stb_image_impl.cpp
-    src/engine/utils/stb_image_write_impl.cpp
     src/engine/vfx/ParticleSystem.cpp
 )
 target_link_libraries(engine_render
     PUBLIC
         engine_core
+        engine_models_core
         engine_platform
         SDL2::SDL2
         OpenGL::GL
@@ -513,7 +540,42 @@ phlosion_apply_settings(engine_tools_vfx_preview)
 
 add_library(Phlosion::Core ALIAS engine_core)
 add_library(Phlosion::Platform ALIAS engine_platform)
+target_link_libraries(engine_render PUBLIC Phlosion::ImageCodecs)
 add_library(Phlosion::Render ALIAS engine_render)
+
+add_library(engine_models_runtime STATIC
+    src/engine/models/WorldIndexedBatches.cpp
+    src/engine/models/ModelGeometryCache.cpp
+    src/engine/models/ModelMaterials.cpp
+    src/engine/models/ModelTransforms.cpp
+    src/engine/models/ModelAttachments.cpp
+    src/engine/models/ModelInstance.cpp
+    src/engine/models/ModelRenderProvider.cpp)
+target_link_libraries(engine_models_runtime PUBLIC Phlosion::ModelsCore Phlosion::Render)
+phlosion_apply_settings(engine_models_runtime)
+add_library(Phlosion::Models ALIAS engine_models_runtime)
+target_link_libraries(Engine INTERFACE Phlosion::Models)
+add_library(engine_models_editor STATIC src/engine/editor/ModelPreview.cpp)
+target_link_libraries(engine_models_editor PUBLIC Phlosion::Models)
+phlosion_apply_settings(engine_models_editor)
+add_library(Phlosion::ModelPreview ALIAS engine_models_editor)
+
+add_library(PhlosionModelRuntime SHARED EXCLUDE_FROM_ALL tools/models/ModelRuntimePlugin.cpp)
+target_link_libraries(PhlosionModelRuntime PRIVATE Phlosion::Models)
+phlosion_apply_settings(PhlosionModelRuntime)
+add_library(PhlosionModelPreviewPlugin SHARED EXCLUDE_FROM_ALL tools/models/ModelPreviewPlugin.cpp)
+target_link_libraries(PhlosionModelPreviewPlugin PRIVATE Phlosion::ModelPreview)
+target_compile_definitions(PhlosionModelPreviewPlugin PRIVATE PHLOSION_EDITOR_BUILD_CONFIGURATION="$<CONFIG>")
+phlosion_apply_settings(PhlosionModelPreviewPlugin)
+set_target_properties(PhlosionModelRuntime PhlosionModelPreviewPlugin PROPERTIES PREFIX "")
+
+if (PHLOSION_BUILD_TESTS)
+    add_executable(PhlosionModelInstanceTests tests/TestModelInstance.cpp)
+    target_link_libraries(PhlosionModelInstanceTests PRIVATE Phlosion::Models)
+    phlosion_apply_settings(PhlosionModelInstanceTests)
+    add_test(NAME PhlosionModelInstance COMMAND PhlosionModelInstanceTests)
+endif()
+
 add_library(Phlosion::Runtime ALIAS engine_runtime)
 add_library(Phlosion::EditorCore ALIAS engine_editor_core)
 add_library(Phlosion::VfxPreview ALIAS engine_tools_vfx_preview)

@@ -17,6 +17,7 @@
     "sol2",
     "nlohmann-json",
     "fastgltf",
+    "ktx",
     {
       "name": "imgui",
       "features": [
