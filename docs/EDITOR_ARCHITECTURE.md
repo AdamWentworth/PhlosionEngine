@@ -32,7 +32,7 @@ semantics live below the UI layer.
   loading, the `PhlosionEditor` executable and project browser, common panels,
   editor transactions, viewport integration, and the local-agent tool
   contract.
-- `PhlosionVFX` owns VFX-specific authoring panels and effect schemas.
+- `PhlosionEngine` owns reusable VFX preview/authoring services and its optional VFXLibrary bridge. Games own move presets and specialized panels; the independent VFXLibrary owns its portable schemas.
 - `PhlosionPackages` owns optional reusable editor/runtime features. Its
   packages are independently manifested and tested within one monorepo; they
   are loaded only when declared by the opened project.

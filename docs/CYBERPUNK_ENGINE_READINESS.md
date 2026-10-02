@@ -1,6 +1,7 @@
 # Cyberpunk engine readiness audit
 
-This is a dated milestone audit. The exploration course, Outskirt preview,
+This is a dated milestone audit. Since the audit, reusable PhlosionVFX services
+have moved into the engine; see [current VFX ownership](VFX.md). The exploration course, Outskirt preview,
 runtime/editor plugin, and native capture tools have since moved to the
 PokemonCyberpunk repository. Current ownership and commands are in
 [engine boundaries](ENGINE_BOUNDARIES.md) and the game's
@@ -581,7 +582,7 @@ game cues and end-to-end battle audio remain to be qualified.
 
 ### M3-H: reusable effect host (CPU qualified 2026-09-22)
 
-PhlosionVFX's [effect host](../../PhlosionVFX/docs/EFFECT_HOST.md) adds bounded
+PhlosionVFX's [effect host](VFX_EFFECT_HOST.md) adds bounded
 spawn IDs, moving-anchor attachment, expiry and stop-all cleanup. Its standalone
 contracts pass. The game must still bind battle/animation events and actor
 sockets to real effects; native attack-effect presentation remains open.
@@ -798,7 +799,7 @@ Inspected (read-only):
   [test plan](../../../Games/PokemonAutochess/docs/TEST_PLAN.md)) plus targeted
   source searches for audio, gamepad, save and scripting usage.
 - Sibling ownership: [package architecture](../../PhlosionPackages/docs/PACKAGE_ARCHITECTURE.md),
-  [PhlosionVFX README](../../PhlosionVFX/README.md).
+  [current engine VFX documentation](VFX.md).
 - Unreal project structure only: `PokemonCyberpunk.uproject` plus one native
   module
   ([PokemonCyberpunk.Build.cs](../../../Games/PokemonCyberpunkUnreal/Source/PokemonCyberpunk/PokemonCyberpunk.Build.cs)).
@@ -913,7 +914,7 @@ vehicle physics stay excluded.
 | Dynamic lights, sky/environment parameters, fog, time-of-day values | Not found in inspected scope | No light, sky, fog or environment time-of-day API in engine source; PBR tunables are fixed shared defaults in [WorldPbrShaderShared.h](../src/engine/render/WorldPbrShaderShared.h) | The recovered material splits these: the engine provides lights/environment/fog/interpolation, the game owns the world clock and presets. Exposure exists only as shader constants today |
 | Shadow maps | Not found in inspected scope | No shadow pass in engine source. A projected-shadow carrier does exist and is real: game-supplied RGBA texture, matrix, sampling scale and bias in [RenderBackendTypes.h](../src/engine/render/RenderBackendTypes.h) lines 168-180, consumed by all backends | Day/night and a city block need a shadow decision: build a shadow pass, integrate one, or extend the existing projected/baked carrier. The carrier's quality at city scale is Unverified |
 | Stylised material support (wet surfaces, cyberpunk looks) | Extension implemented; content Unverified | Project material profiles via [MATERIAL_PROFILES.md](MATERIAL_PROFILES.md) and [WorldMaterialProfile.h](../src/engine/render/WorldMaterialProfile.h) are implemented and tested (`world_material_profile_contract`) | No wet or cyberpunk material content exists or has been qualified; that is project authoring work with three-API visual checks |
-| Particles and VFX host | M3-H generic host; native effects partial | [ParticleSystem.h](../src/engine/vfx/ParticleSystem.h), [vfx_preview/](../src/engine/tools/vfx_preview), and PhlosionVFX's [effect host](../../PhlosionVFX/docs/EFFECT_HOST.md) with CPU spawn/attach/cleanup contracts | Game battle bindings and three-API native attack effects remain unqualified |
+| Particles and VFX host | M3-H generic host; native effects partial | [ParticleSystem.h](../src/engine/vfx/ParticleSystem.h), [vfx_preview/](../src/engine/tools/vfx_preview), and PhlosionVFX's [effect host](VFX_EFFECT_HOST.md) with CPU spawn/attach/cleanup contracts | Game battle bindings and three-API native attack effects remain unqualified |
 | Post-processing and anti-aliasing | Partial | Tone mapping and exposure exist as shader constants (see above); [assets/shaders](../assets/shaders) contain no post-processing chain and no anti-aliasing | Missing: a configurable environment/post pipeline, render scale and AA. The Autochess roadmap lists AA and render scale as core roadmap items |
 | High-consumer qualification limits | Known, game-owned | [Autochess outstanding issues](../../../Games/PokemonAutochess/docs/OUTSTANDING_ISSUES.md) (`combat-target-focus` appearance guard, private content requirement, no controlled GPU CI gate), [tech debt](../../../Games/PokemonAutochess/docs/TECH_DEBT.md) (perf gate, preview smoke) | GPU qualification is local and manual today; expect the same for Cyberpunk until a runner exists |
 

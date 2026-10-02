@@ -15,8 +15,9 @@ and the other libraries. Vulkan is a required build dependency in the current
 CMake graph, even if you intend to run OpenGL. A separate Vulkan SDK install
 is not required when these manifest dependencies are available.
 
-The standalone engine builds without Pokemon Autochess, PhlosionVFX,
-PhlosionPackages or a private content depot. Projects remain responsible for
+The standalone engine includes reusable VFX and needs no game, optional tool
+package or private content depot. The independent VFXLibrary bridge is opt-in
+(see [VFX](VFX.md)). Projects remain responsible for
 restoring their own content and building any plugins/packages they declare.
 
 ## Build configurations

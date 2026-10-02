@@ -16,7 +16,7 @@ Outskirt preview migration and the source-neutral model-render ABI.
 - OpenGL, D3D12, and Vulkan backends;
 - the Phlosion Editor shell, project descriptor, project-plugin ABI, generic
   hierarchy/inspector/viewport contracts, and optional editor-package ABI;
-- generic VFX host/preview integration points supplied by Phlosion VFX.
+- reusable VFX runtime, authored batches, preview helpers and optional VFXLibrary bridge (see [VFX](VFX.md)).
 
 The opt-in [collision module](COLLISION_WORLD.md) owns reusable static geometry,
 ray/capsule queries, filtering, collider lifetime and

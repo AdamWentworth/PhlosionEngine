@@ -93,7 +93,7 @@ other operating systems are not qualified by that workflow. An installed
 | --- | --- |
 | **PhlosionEngine** | Generic runtime, rendering, resources, UI, editor host and extension contracts |
 | A game project | Simulation, game UI semantics, content, source-specific import/cook policy, materials and editor adapters |
-| [PhlosionVFX](https://github.com/AdamWentworth/PhlosionVFX) | Reusable effects and VFX-specific runtime/preview integration |
+| [Engine VFX](docs/VFX.md) | Engine-owned effect lifetime, batches, preview and optional VFXLibrary bridge |
 | Optional editor packages | Specialized reusable tooling loaded only when a project declares it; not required to build the engine |
 
 Board rendering, health-bar semantics, battle feeds, move-specific diagnostics

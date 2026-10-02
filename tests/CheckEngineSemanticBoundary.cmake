@@ -11,6 +11,8 @@ file(GLOB_RECURSE _engine_boundary_files
     "${PHLOSION_ROOT}/tests/*.h"
     "${PHLOSION_ROOT}/tools/*.cpp"
     "${PHLOSION_ROOT}/tools/*.h")
+file(GLOB_RECURSE _engine_cmake_files "${PHLOSION_ROOT}/cmake/*.cmake")
+list(APPEND _engine_boundary_files ${_engine_cmake_files})
 list(APPEND _engine_boundary_files
     "${PHLOSION_ROOT}/CMakeLists.txt")
 

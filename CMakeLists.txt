@@ -579,6 +579,7 @@ endif()
 add_library(Phlosion::Runtime ALIAS engine_runtime)
 add_library(Phlosion::EditorCore ALIAS engine_editor_core)
 add_library(Phlosion::VfxPreview ALIAS engine_tools_vfx_preview)
+include(cmake/PhlosionVfx.cmake)
 
 if (PHLOSION_BUILD_PUBLIC_ASSET_FIXTURE OR PHLOSION_BUILD_SCENE_FIXTURE OR PHLOSION_BUILD_TESTS)
     add_library(public_asset_fixture STATIC
