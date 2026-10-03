@@ -35,11 +35,14 @@ resource. CPU node queries use the same pose and transform as rendering.
 One-shot clips clamp; looping clips wrap. Named missing clips/nodes fail
 explicitly, and failed node queries leave their output unchanged.
 
-`ModelRenderPlugin` ABI 5 separates placement and lighting choices from source
+`ModelRenderPlugin` ABI 6 separates placement and lighting choices from source
 interpretation. Callers explicitly enable grounding, choose clearance and set a
 lighting preset. Defaults retain authored placement and ordinary lighting.
-Null/empty animation selects the bind pose. ABI 4 plugins must be rebuilt with
-their consumers. The provider caches by caller asset ID and reloads when its
+Null/empty animation selects the bind pose. ABI 6 adds a finite two-component
+projection offset in normalized device coordinates (+X right, +Y up), allowing
+models inside UI panes without shifting the camera or changing the viewport.
+The default zero offset preserves existing renders. Older plugins must be
+rebuilt with their consumers. The provider caches by caller asset ID and reloads when its
 path or PHLO modification time changes; destroying the provider releases its
 resources. A game owns action selection, placement and procedural movement.
 

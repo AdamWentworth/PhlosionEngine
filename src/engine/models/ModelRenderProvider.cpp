@@ -74,6 +74,7 @@ bool renderModel(void* context,const render::ModelRenderFrame* request) noexcept
             request->verticalFovDegrees<=0 || request->verticalFovDegrees>=180 ||
             !std::isfinite(request->nearPlane) || !std::isfinite(request->farPlane) ||
             request->nearPlane<=0 || request->farPlane<=request->nearPlane ||
+            !std::isfinite(request->projectionOffset[0]) || !std::isfinite(request->projectionOffset[1]) ||
             glm::length(glm::cross(glm::make_vec3(request->cameraTarget)-glm::make_vec3(request->cameraPosition),
                 glm::make_vec3(request->cameraUp)))<1e-6f) {
             provider.error="Invalid model camera"; return false;
@@ -95,7 +96,9 @@ bool renderModel(void* context,const render::ModelRenderFrame* request) noexcept
         if (!prepared) return false;
         auto batches=*prepared;
         if (provider.lighting.prepare && !provider.lighting.prepare(batches,request->lightingPreset,provider.error)) return false;
-        const auto matrix=camera.getProjectionMatrix()*view;
+        const auto shift=glm::translate(glm::mat4(1),
+            glm::vec3(request->projectionOffset[0],request->projectionOffset[1],0));
+        const auto matrix=shift*camera.getProjectionMatrix()*view;
         const auto forward=camera.getDirection()*(provider.lighting.forwardScale ?
             provider.lighting.forwardScale(request->lightingPreset) : 1.0f);
         batches::submitWorldIndexedBatches(*request->renderer,batches,glm::value_ptr(matrix),request->width,request->height,
