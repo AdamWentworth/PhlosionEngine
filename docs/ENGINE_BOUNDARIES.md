@@ -83,10 +83,10 @@ elevation, ramps, and platform authoring lives in the separate
 the Editor loads no tile implementation for a racing or shooter project that
 does not request it.
 
-Pokemon Autochess therefore owns its autochess board and benches, Pokemon
-data/model conventions, Route 1 scene adapter, LGPE canonical-scene decoder,
-recovered CPU material oracles, terrain palette, battle/planning previews, and
-all Pokemon-specific editor adapters. It can configure `phlosion.tile-tools`, but
+Pokemon Autochess therefore owns its autochess board and benches, roster and
+gameplay data, Route 1 scene adapter, LGPE canonical-scene decoder,
+recovered field-material CPU oracles, terrain palette, battle/planning previews,
+and game-specific editor bindings. It can configure `phlosion.tile-tools`, but
 does not own the generic package implementation. The current Blender workflow
 does not activate that optional package.
 
@@ -131,8 +131,10 @@ Renderer-owned copies survive project-plugin unloads. See
 [material profiles](MATERIAL_PROFILES.md) for the extension contract.
 
 Recovered character shaders, eye/skin formulas, reflection-atlas decoding,
-layered effects, vertex displacement and their per-mode packing now also belong
-to the consuming game. Their eight shader contracts moved with the code. The
+layered effects, vertex displacement and their per-mode packing belong to the
+optional PokemonModelSupport package shared by the consuming games. Their eight
+shader contracts live with that adapter. Games select the profile and own their
+field-material programs, gameplay choices and presentation bindings. The
 engine retains standard PBR, skinning, generic shader interfaces and review
 presentation. Its semantic guard rejects the removed character identifiers,
 without shader-file exemptions. The editor's project-defined lighting preset is
