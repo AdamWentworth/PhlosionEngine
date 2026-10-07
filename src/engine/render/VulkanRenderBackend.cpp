@@ -400,3 +400,7 @@ void VulkanRenderBackend::drawDebugSprites(const DebugSprite* sprites,
 void VulkanRenderBackend::prewarmDebugSpriteTexture(const char* texturePath) {
     if (impl_) impl_->prewarmSpriteTexture(texturePath);
 }
+
+void VulkanRenderBackend::endWorldSceneColorPass(const engine::render::ScreenFeedbackFrame& frame) {
+    impl_->endWorldSceneColorPass(frame);
+}

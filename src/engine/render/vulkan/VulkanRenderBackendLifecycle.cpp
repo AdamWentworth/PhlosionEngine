@@ -1449,6 +1449,11 @@ void VulkanRenderBackendImpl::createPipelines() {
 }
 
 void VulkanRenderBackendImpl::destroyPipelines() {
+    if(device!=VK_NULL_HANDLE) {
+        if(feedbackPipeline)vkDestroyPipeline(device,feedbackPipeline,nullptr);
+        if(feedbackDisplayPipeline)vkDestroyPipeline(device,feedbackDisplayPipeline,nullptr);
+    }
+    feedbackPipeline=feedbackDisplayPipeline=VK_NULL_HANDLE;
     if (device == VK_NULL_HANDLE) return;
     if (debugPipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, debugPipeline, nullptr);
     if (spritePipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, spritePipeline, nullptr);
@@ -1919,6 +1924,7 @@ void VulkanRenderBackendImpl::shutdown() {
                 device, worldSceneColorSetLayout, nullptr);
         }
         if (commandPool != VK_NULL_HANDLE) vkDestroyCommandPool(device, commandPool, nullptr);
+        destroyScreenFeedback();
         vkDestroyDevice(device, nullptr);
     }
     device = VK_NULL_HANDLE;
@@ -2086,4 +2092,16 @@ void VulkanRenderBackendImpl::finishScreenshotCapture(VkFence frameFence) {
     screenshotCaptured = true;
     screenshotCopyPending = false;
     destroyBuffer(screenshotReadback);
+}
+
+void VulkanRenderBackendImpl::createScreenFeedbackPipeline() {
+    const auto vs=loadShaderModule("scene_color.vert.spv");
+    VkShaderModule fs=VK_NULL_HANDLE;
+    try {
+        fs=loadShaderModule("screen_feedback.frag.spv");
+        VkVertexInputBindingDescription binding{0,0,VK_VERTEX_INPUT_RATE_VERTEX};
+        feedbackPipeline=createGraphicsPipeline(device,feedbackRenderPass,feedbackLayout,vs,fs,binding,{},false,0,false,false,false);
+        feedbackDisplayPipeline=createGraphicsPipeline(device,loadRenderPass,feedbackLayout,vs,fs,binding,{},false,0,false,false,false);
+    } catch(...) {if(fs)vkDestroyShaderModule(device,fs,nullptr);vkDestroyShaderModule(device,vs,nullptr);throw;}
+    vkDestroyShaderModule(device,fs,nullptr);vkDestroyShaderModule(device,vs,nullptr);
 }

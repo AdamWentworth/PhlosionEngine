@@ -19,6 +19,7 @@ struct Draw {
     std::filesystem::path texture;
     vfxlibrary::Blend blend = vfxlibrary::Blend::Alpha;
     bool depthTest = true;
+    bool depthWrite = false;
     int wrapS = 33071;
     int wrapT = 33071;
     std::uint8_t materialMode = 255;
@@ -29,6 +30,7 @@ struct Draw {
 class PortableEffect {
 public:
     explicit PortableEffect(const std::filesystem::path& manifest);
+    explicit PortableEffect(vfxlibrary::Effect effect);
 
     const vfxlibrary::Effect& effect() const noexcept { return effect_; }
     std::vector<Draw> sample(std::int64_t timeMs, const glm::mat4& world,

@@ -96,6 +96,12 @@ std::shared_ptr<const engine::audio::AudioClip> decodeWav(
 
 } // namespace
 
+std::shared_ptr<const engine::audio::AudioClip> loadPcmWav(const std::filesystem::path& file) {
+    vfxlibrary::AudioCue cue;
+    cue.file=file;
+    return decodeWav(cue);
+}
+
 std::vector<AudioCue> loadAudio(const std::filesystem::path& manifest) {
     const auto effect = vfxlibrary::load(manifest);
     std::vector<AudioCue> cues;

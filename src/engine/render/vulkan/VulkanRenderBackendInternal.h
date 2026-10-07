@@ -221,6 +221,20 @@ struct VulkanRenderBackendImpl {
     VkPipeline debugPipeline = VK_NULL_HANDLE;
     VkPipeline spritePipeline = VK_NULL_HANDLE;
     VkPipeline worldSceneColorPipeline = VK_NULL_HANDLE;
+    VkDescriptorSetLayout feedbackSetLayout=VK_NULL_HANDLE;
+    VkDescriptorPool feedbackPool=VK_NULL_HANDLE;
+    VkPipelineLayout feedbackLayout=VK_NULL_HANDLE;
+    VkPipeline feedbackPipeline=VK_NULL_HANDLE,feedbackDisplayPipeline=VK_NULL_HANDLE;
+    VkRenderPass feedbackRenderPass=VK_NULL_HANDLE;
+    std::array<Texture,2> feedbackImages{};
+    std::array<VkFramebuffer,2> feedbackFramebuffers{};
+    std::array<std::array<VkDescriptorSet,2>,kFramesInFlight> feedbackSets{};
+    std::uint64_t feedbackSequence=0;
+    int feedbackWidth=0,feedbackHeight=0,feedbackHistory=0,feedbackDisplayInput=0;
+    engine::render::ScreenFeedbackUpdate feedbackLast{};
+    void createScreenFeedbackPipeline();
+    void ensureScreenFeedbackResources(int width,int height);
+    void destroyScreenFeedback();
     std::array<
         VkPipeline,
         engine::render::vulkan_backend::kWorldPipelineCount> worldPipelines{};
@@ -321,6 +335,7 @@ struct VulkanRenderBackendImpl {
     void beginWorldSceneColorPass(int surfaceWidth, int surfaceHeight);
     bool clearWorldDepth();
     void endWorldSceneColorPass();
+    void endWorldSceneColorPass(const engine::render::ScreenFeedbackFrame&);
     void requestResize(int width, int height);
     void requestVSync(bool enabled);
     void recordSubmissionStats(const IRenderBackend::WorldIndexedSubmissionStats& stats);

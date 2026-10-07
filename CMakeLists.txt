@@ -103,6 +103,7 @@ set(PHLOSION_VULKAN_SHADER_SOURCES
     world.frag
     scene_color.vert
     scene_color.frag
+    screen_feedback.frag
     world_indirect.vert
     world_indirect.frag
 )
@@ -112,7 +113,9 @@ foreach(_shader IN LISTS PHLOSION_VULKAN_SHADER_SOURCES)
     set(_source "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/${_shader}")
     set(_output "${PHLOSION_VULKAN_SHADER_OUTPUT_DIR}/${_shader}.spv")
     set(_shader_dependencies "${_source}")
-    if (_shader STREQUAL "world.frag")
+    if (_shader STREQUAL "screen_feedback.frag")
+        list(APPEND _shader_dependencies "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/screen_feedback_common.glsl")
+    elseif (_shader STREQUAL "world.frag")
         list(APPEND _shader_dependencies
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/portable_material.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_material.glsl"
@@ -947,6 +950,19 @@ if (PHLOSION_BUILD_TESTS)
     set_tests_properties(PhlosionUiTextContracts PROPERTIES TIMEOUT 120)
 
     add_executable(PhlosionAudioMixerTests tests/TestAudioMixer.cpp)
+    add_executable(PhlosionScreenFeedbackTests tests/TestScreenFeedback.cpp)
+    target_link_libraries(PhlosionScreenFeedbackTests PRIVATE Phlosion::Render Phlosion::Platform)
+    phlosion_apply_settings(PhlosionScreenFeedbackTests)
+    set(_feedback_test_apis opengl vulkan)
+    if(WIN32)
+        list(APPEND _feedback_test_apis d3d12)
+    endif()
+    foreach(api IN LISTS _feedback_test_apis)
+        add_test(NAME PhlosionScreenFeedback-${api} COMMAND PhlosionScreenFeedbackTests ${api}
+            "${CMAKE_CURRENT_BINARY_DIR}/screen-feedback-tests/${api}.png")
+        set_tests_properties(PhlosionScreenFeedback-${api} PROPERTIES RUN_SERIAL TRUE TIMEOUT 120
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+    endforeach()
     target_link_libraries(PhlosionAudioMixerTests PRIVATE Phlosion::Audio)
     phlosion_apply_settings(PhlosionAudioMixerTests)
     add_test(NAME PhlosionAudioMixerContracts COMMAND PhlosionAudioMixerTests)

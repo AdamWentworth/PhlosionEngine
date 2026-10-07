@@ -546,6 +546,9 @@ void D3D12RenderBackend::shutdown() {
     worldSceneMaterialBindingCacheGeneration_ = 0u;
     worldSceneMaterialBindingCacheRegistryIdentity_ = nullptr;
     worldSceneColorTarget_.Reset();
+    feedbackPipeline_.Reset();feedbackRoot_.Reset();feedbackRtvHeap_.Reset();
+    for(auto& image:feedbackImages_)image.Reset();
+    feedbackSequence_=0;feedbackWidth_=feedbackHeight_=0;feedbackLast_={};
     worldSceneColorPipelineState_.Reset();
     worldSceneColorRootSignature_.Reset();
     worldSceneColorSrvDescriptorIndex_ = 0xffffffffu;

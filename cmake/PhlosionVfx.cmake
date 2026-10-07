@@ -36,10 +36,17 @@ if (PHLOSION_BUILD_VFX_LIBRARY_BRIDGE)
     endif()
     add_library(engine_vfx_library_bridge STATIC
         src/engine/vfx/portable/PortableEffect.cpp
-        src/engine/vfx/portable/PortableAudio.cpp)
+        src/engine/vfx/portable/PortableAudio.cpp
+        src/engine/vfx/portable/PortableScreen.cpp)
     target_link_libraries(engine_vfx_library_bridge PUBLIC Phlosion::Vfx VFXLibrary::Runtime Phlosion::Audio)
     phlosion_apply_settings(engine_vfx_library_bridge)
     add_library(Phlosion::VfxLibraryBridge ALIAS engine_vfx_library_bridge)
+    if(PHLOSION_BUILD_TESTS)
+        add_executable(PhlosionPortableVertexTests tests/TestPortableVertices.cpp)
+        target_link_libraries(PhlosionPortableVertexTests PRIVATE Phlosion::VfxLibraryBridge)
+        phlosion_apply_settings(PhlosionPortableVertexTests)
+        add_test(NAME PhlosionPortableVertices COMMAND PhlosionPortableVertexTests)
+    endif()
 endif()
 
 if (PHLOSION_BUILD_TESTS)

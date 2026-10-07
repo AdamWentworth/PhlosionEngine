@@ -139,7 +139,10 @@ constexpr std::array<vfxlibrary::Vec2, 4> defaultUvs{{
 } // namespace
 
 PortableEffect::PortableEffect(const std::filesystem::path& manifest)
-    : effect_(vfxlibrary::load(manifest)) {
+    : PortableEffect(vfxlibrary::load(manifest)) {}
+
+PortableEffect::PortableEffect(vfxlibrary::Effect effect)
+    : effect_(std::move(effect)) {
     for (const auto& style : effect_.cardStyles) {
         materialMode(style.shader);
         if (style.cameraRibbon || style.customVertices || style.cameraPosition || style.nearest ||
@@ -152,11 +155,12 @@ PortableEffect::PortableEffect(const std::filesystem::path& manifest)
             if (packet.mode != 0 && packet.mode != 1 && packet.mode != 3 && packet.mode != 4)
                 throw std::runtime_error("Portable effect uses unsupported card-stream packet");
         for (const auto& card : span.first)
-            if (card.flags & ~7)
+            if (card.flags & ~63)
                 throw std::runtime_error("Portable effect uses unsupported per-card vertex data");
     }
     for (const auto& mesh : effect_.meshes) {
-        if (mesh.depthWrite || (mesh.cull != "back" && mesh.cull != "none") ||
+        if ((mesh.depthWrite && mesh.blend != vfxlibrary::Blend::Alpha) ||
+            (mesh.cull != "back" && mesh.cull != "none") ||
             (mesh.wrapU != "clamp" && mesh.wrapU != "repeat" && mesh.wrapU != "mirror") ||
             (mesh.wrapV != "clamp" && mesh.wrapV != "repeat" && mesh.wrapV != "mirror"))
             throw std::runtime_error("Portable effect uses unsupported mesh material");
@@ -243,6 +247,7 @@ std::vector<Draw> PortableEffect::sample(std::int64_t timeMs,
         draw.texture = mesh.texture;
         draw.blend = mesh.blend;
         draw.depthTest = mesh.depthTest;
+        draw.depthWrite = mesh.depthWrite;
         draw.wrapS = wrap(mesh.wrapU);
         draw.wrapT = wrap(mesh.wrapV);
         draw.materialMode = mesh.intensityMaterial ? 250 : 255;
@@ -437,13 +442,27 @@ std::vector<Draw> PortableEffect::sample(std::int64_t timeMs,
                 corners[0] -= sweep; corners[1] -= sweep;
                 corners[2] += sweep; corners[3] += sweep;
             }
+            if (card.flags & 16)
+                for (std::size_t i=0;i<4;++i)
+                    corners[i]=transformPoint(world,{p[34+i*3],p[35+i*3],p[36+i*3]});
             vfxlibrary::Rgba high{p[7], p[8], p[9], p[10]};
             vfxlibrary::Rgba low{p[11], p[12], p[13], p[14]};
             for (int channel = 0; channel < 4; ++channel) high[channel] *= style.tint[channel];
             for (int channel = 0; channel < 3; ++channel) low[channel] *= style.tint[channel];
             high[3] *= p[0] * style.opacity;
             Draw draw;
-            appendQuad(draw, corners, style.customUvs ? style.uvs : defaultUvs, high);
+            auto uvs=style.customUvs ? style.uvs : defaultUvs;
+            if (card.flags & 32)
+                for (std::size_t i=0;i<4;++i) uvs[i]={p[46+i*2],p[47+i*2]};
+            appendQuad(draw, corners, uvs, high);
+            if (card.flags & 8)
+                for (std::size_t i=0;i<4;++i) {
+                    auto& output=draw.vertices[i];
+                    output.r=p[18+i*4]*style.tint[0];
+                    output.g=p[19+i*4]*style.tint[1];
+                    output.b=p[20+i*4]*style.tint[2];
+                    output.a=p[21+i*4]*style.tint[3]*p[0]*style.opacity;
+                }
             for (auto& output : draw.vertices) lowColor(output, low);
             draw.texture = style.texture;
             draw.materialMode = materialMode(style.shader);
@@ -475,7 +494,7 @@ void PortableEffect::render(IRenderBackend& renderer, std::int64_t timeMs,
         material.wrapS = batch.wrapS;
         material.wrapT = batch.wrapT;
         material.textureSrgb = 0u;
-        material.alphaMode = 2u;
+        material.alphaMode = batch.depthWrite ? 1u : 2u;
         material.blendMode = batch.blend == vfxlibrary::Blend::Additive ? 1u : 0u;
         material.depthTestEnabled = batch.depthTest ? 1u : 0u;
         material.materialMode = batch.materialMode;
@@ -488,12 +507,14 @@ void PortableEffect::render(IRenderBackend& renderer, std::int64_t timeMs,
                                    viewProjection, surfaceHeight)) {
         if (!batch.vertices.empty() && (batch.texture != draw.texture ||
             batch.blend != draw.blend || batch.depthTest != draw.depthTest ||
+            batch.depthWrite != draw.depthWrite ||
             batch.wrapS != draw.wrapS || batch.wrapT != draw.wrapT ||
             batch.materialMode != draw.materialMode)) flush();
         if (batch.vertices.empty()) {
             batch.texture = draw.texture;
             batch.blend = draw.blend;
             batch.depthTest = draw.depthTest;
+            batch.depthWrite = draw.depthWrite;
             batch.wrapS = draw.wrapS;
             batch.wrapT = draw.wrapT;
             batch.materialMode = draw.materialMode;

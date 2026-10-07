@@ -423,3 +423,125 @@ void VulkanRenderBackendImpl::endWorldSceneColorPass() {
 
     invalidateSceneColorBindings(*this);
 }
+
+void VulkanRenderBackendImpl::ensureScreenFeedbackResources(int width,int height) {
+    if(feedbackRenderPass) {
+        if(feedbackWidth!=width || feedbackHeight!=height)throw std::runtime_error("Screen feedback dimensions must remain fixed for a renderer session");
+        if(!feedbackPipeline)createScreenFeedbackPipeline();
+        return;
+    }
+    std::array<VkDescriptorSetLayoutBinding,4> bindings{};
+    for(std::uint32_t i=0;i<4;++i)bindings[i]={i,i==3?VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,1,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr};
+    VkDescriptorSetLayoutCreateInfo setInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};setInfo.bindingCount=4;setInfo.pBindings=bindings.data();
+    requireSceneColorVk(vkCreateDescriptorSetLayout(device,&setInfo,nullptr,&feedbackSetLayout),"screen feedback set layout");
+    VkPipelineLayoutCreateInfo layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};layout.setLayoutCount=1;layout.pSetLayouts=&feedbackSetLayout;
+    requireSceneColorVk(vkCreatePipelineLayout(device,&layout,nullptr,&feedbackLayout),"screen feedback pipeline layout");
+    const VkDescriptorPoolSize sizes[]={{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,3*2*kFramesInFlight},{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,2*kFramesInFlight}};
+    VkDescriptorPoolCreateInfo pool{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};pool.maxSets=2*kFramesInFlight;pool.poolSizeCount=2;pool.pPoolSizes=sizes;
+    requireSceneColorVk(vkCreateDescriptorPool(device,&pool,nullptr,&feedbackPool),"screen feedback descriptor pool");
+    for(auto& sets : feedbackSets) {
+        const VkDescriptorSetLayout layouts[]={feedbackSetLayout,feedbackSetLayout};
+        VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};allocate.descriptorPool=feedbackPool;allocate.descriptorSetCount=2;allocate.pSetLayouts=layouts;
+        requireSceneColorVk(vkAllocateDescriptorSets(device,&allocate,sets.data()),"screen feedback descriptor sets");
+    }
+    VkAttachmentDescription attachment{};attachment.format=VK_FORMAT_R8G8B8A8_UNORM;attachment.samples=VK_SAMPLE_COUNT_1_BIT;
+    attachment.loadOp=VK_ATTACHMENT_LOAD_OP_DONT_CARE;attachment.storeOp=VK_ATTACHMENT_STORE_OP_STORE;
+    attachment.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_DONT_CARE;attachment.stencilStoreOp=VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachment.initialLayout=attachment.finalLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkAttachmentReference reference{0,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};VkSubpassDescription subpass{};subpass.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS;subpass.colorAttachmentCount=1;subpass.pColorAttachments=&reference;
+    const VkSubpassDependency dependencies[]={
+        {VK_SUBPASS_EXTERNAL,0,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_ACCESS_SHADER_READ_BIT,VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,0},
+        {0,VK_SUBPASS_EXTERNAL,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT,0}};
+    VkRenderPassCreateInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};pass.attachmentCount=1;pass.pAttachments=&attachment;pass.subpassCount=1;pass.pSubpasses=&subpass;pass.dependencyCount=2;pass.pDependencies=dependencies;
+    requireSceneColorVk(vkCreateRenderPass(device,&pass,nullptr,&feedbackRenderPass),"screen feedback render pass");
+    for(std::size_t i=0;i<2;++i) {
+        auto& image=feedbackImages[i];image.width=width;image.height=height;image.format=attachment.format;
+        VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};info.imageType=VK_IMAGE_TYPE_2D;info.format=attachment.format;
+        info.extent={static_cast<std::uint32_t>(width),static_cast<std::uint32_t>(height),1};info.mipLevels=info.arrayLayers=1;
+        info.samples=VK_SAMPLE_COUNT_1_BIT;info.tiling=VK_IMAGE_TILING_OPTIMAL;info.usage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT;
+        requireSceneColorVk(vkCreateImage(device,&info,nullptr,&image.image),"screen feedback image");
+        VkMemoryRequirements need{};vkGetImageMemoryRequirements(device,image.image,&need);
+        VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};allocate.allocationSize=need.size;allocate.memoryTypeIndex=findMemoryType(need.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        requireSceneColorVk(vkAllocateMemory(device,&allocate,nullptr,&image.memory),"screen feedback memory");
+        requireSceneColorVk(vkBindImageMemory(device,image.image,image.memory,0),"screen feedback image memory");
+        VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};view.image=image.image;view.viewType=VK_IMAGE_VIEW_TYPE_2D;view.format=attachment.format;view.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+        requireSceneColorVk(vkCreateImageView(device,&view,nullptr,&image.view),"screen feedback view");
+        VkFramebufferCreateInfo fb{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};fb.renderPass=feedbackRenderPass;fb.attachmentCount=1;fb.pAttachments=&image.view;fb.width=width;fb.height=height;fb.layers=1;
+        requireSceneColorVk(vkCreateFramebuffer(device,&fb,nullptr,&feedbackFramebuffers[i]),"screen feedback framebuffer");
+        const auto command=beginOneTimeCommands();
+        VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;barrier.newLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;barrier.image=image.image;barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;barrier.subresourceRange=view.subresourceRange;barrier.dstAccessMask=VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+        endOneTimeCommands(command);
+    }
+    feedbackWidth=width;feedbackHeight=height;createScreenFeedbackPipeline();
+}
+
+void VulkanRenderBackendImpl::destroyScreenFeedback() {
+    if(!device)return;
+    for(auto& fb:feedbackFramebuffers){if(fb)vkDestroyFramebuffer(device,fb,nullptr);fb=VK_NULL_HANDLE;}
+    for(auto& image:feedbackImages){
+        if(image.view)vkDestroyImageView(device,image.view,nullptr);if(image.image)vkDestroyImage(device,image.image,nullptr);if(image.memory)vkFreeMemory(device,image.memory,nullptr);image={};
+    }
+    if(feedbackPipeline)vkDestroyPipeline(device,feedbackPipeline,nullptr);
+    if(feedbackDisplayPipeline)vkDestroyPipeline(device,feedbackDisplayPipeline,nullptr);
+    if(feedbackRenderPass)vkDestroyRenderPass(device,feedbackRenderPass,nullptr);
+    if(feedbackPool)vkDestroyDescriptorPool(device,feedbackPool,nullptr);
+    if(feedbackLayout)vkDestroyPipelineLayout(device,feedbackLayout,nullptr);
+    if(feedbackSetLayout)vkDestroyDescriptorSetLayout(device,feedbackSetLayout,nullptr);
+    feedbackPipeline=feedbackDisplayPipeline=VK_NULL_HANDLE;feedbackRenderPass=VK_NULL_HANDLE;
+    feedbackPool=VK_NULL_HANDLE;feedbackLayout=VK_NULL_HANDLE;feedbackSetLayout=VK_NULL_HANDLE;
+    feedbackWidth=feedbackHeight=0;feedbackSequence=0;feedbackLast={};
+}
+
+void VulkanRenderBackendImpl::endWorldSceneColorPass(const engine::render::ScreenFeedbackFrame& input) {
+    using namespace engine::render;
+    validateScreenFeedback(input);
+    if(!worldSceneColorPassActive)throw std::runtime_error("Screen feedback requires an active world pass");
+    const bool editor=activeEditorSurface!=0;
+    auto* editorTarget=editor?&editorSurfaces.at(activeEditorSurface):nullptr;
+    const VkImageView sceneView=editor?editorTarget->frames[currentFrame].linearColorView:worldSceneColorViews[currentFrame];
+    endWorldSceneColorPass();
+    ensureScreenFeedbackResources(input.width,input.height);
+    auto* mask=ensureWorldTextureRaw(input.maskKey.c_str(),nullptr,input.maskRgba,input.maskWidth,input.maskHeight,33071,33071,false);
+    if(!mask)throw std::runtime_error("Could not upload screen feedback ingredient");
+    if(input.seed){feedbackSequence=input.sequence;feedbackHistory=0;feedbackDisplayInput=0;feedbackLast={};feedbackLast.count=1;feedbackLast.passes[0].rectangle={0,0,float(input.width),float(input.height)};}
+    else if(feedbackSequence!=input.sequence)throw std::runtime_error("Screen feedback must be seeded before playback");
+    auto& frame=frames[currentFrame];auto command=frame.commandBuffer;
+    vkCmdEndRenderPass(command);mainRenderPassActive=false;editorSurfacePassActive=false;
+    for(int history=0;history<2;++history) {
+        const VkDescriptorImageInfo images[]={{worldSceneColorSampler,sceneView,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+            {worldSceneColorSampler,feedbackImages[history].view,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+            {mask->sampler,mask->view,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
+        VkDescriptorBufferInfo buffer{frame.transient.buffer,0,sizeof(ScreenFeedbackUniform)};
+        std::array<VkWriteDescriptorSet,4> writes{};
+        for(std::uint32_t i=0;i<4;++i){auto& write=writes[i];write.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;write.dstSet=feedbackSets[currentFrame][history];write.dstBinding=i;write.descriptorCount=1;write.descriptorType=i==3?VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;if(i==3)write.pBufferInfo=&buffer;else write.pImageInfo=&images[i];}
+        vkUpdateDescriptorSets(device,4,writes.data(),0,nullptr);
+    }
+    auto draw=[&](int mode,int history,int width,int height,const ScreenFeedbackUpdate& update,VkPipeline pipeline) {
+        const ScreenFeedbackUniform uniform{{float(input.width),float(input.height),float(mode),float(update.count)},update.passes};
+        VkBuffer buffer=VK_NULL_HANDLE;VkDeviceSize offset=0;
+        if(!writeTransient(&uniform,sizeof(uniform),physicalDeviceProperties.limits.minUniformBufferOffsetAlignment,buffer,offset))throw std::runtime_error("Screen feedback uniform arena exhausted");
+        const auto dynamicOffset=static_cast<std::uint32_t>(offset);
+        vkCmdBindPipeline(command,VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline);
+        vkCmdBindDescriptorSets(command,VK_PIPELINE_BIND_POINT_GRAPHICS,feedbackLayout,0,1,&feedbackSets[currentFrame][history],1,&dynamicOffset);
+        VkViewport viewport{0,0,float(width),float(height),0,1};
+        VkRect2D scissor{{0,0},{static_cast<std::uint32_t>(width),static_cast<std::uint32_t>(height)}};
+        vkCmdSetViewport(command,0,1,&viewport);vkCmdSetScissor(command,0,1,&scissor);
+        vkCmdDraw(command,3,1,0,0);
+    };
+    auto historyDraw=[&](int mode,int history,int target,const ScreenFeedbackUpdate& update){
+        VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};pass.renderPass=feedbackRenderPass;pass.framebuffer=feedbackFramebuffers[target];pass.renderArea.extent={static_cast<std::uint32_t>(input.width),static_cast<std::uint32_t>(input.height)};
+        vkCmdBeginRenderPass(command,&pass,VK_SUBPASS_CONTENTS_INLINE);draw(mode,history,input.width,input.height,update,feedbackPipeline);vkCmdEndRenderPass(command);
+    };
+    if(input.seed)historyDraw(0,1,0,{});
+    for(const auto& update:input.updates){feedbackDisplayInput=feedbackHistory;feedbackHistory=1-feedbackHistory;feedbackLast=update;historyDraw(1,feedbackDisplayInput,feedbackHistory,update);}
+    if(editor)beginEditorSurfaceDisplayPass(*editorTarget);
+    else {
+        VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};pass.renderPass=loadRenderPass;pass.framebuffer=framebuffers[acquiredImage];pass.renderArea.extent=swapchainExtent;
+        vkCmdBeginRenderPass(command,&pass,VK_SUBPASS_CONTENTS_INLINE);mainRenderPassActive=true;
+    }
+    // Seed also redraws the ordinary scene, because an editor display pass clears.
+    draw(input.seed && input.updates.empty()?0:2,feedbackDisplayInput,
+        editor?editorTarget->width:int(swapchainExtent.width),editor?editorTarget->height:int(swapchainExtent.height),feedbackLast,feedbackDisplayPipeline);
+    invalidateSceneColorBindings(*this);
+}

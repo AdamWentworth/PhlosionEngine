@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/render/RenderBackendTypes.h"
+#include "engine/render/ScreenFeedback.h"
 
 class IRenderBackendWorld {
 public:
@@ -65,6 +66,9 @@ public:
         (void)surfaceHeight;
     }
     virtual void endWorldSceneColorPass() {}
+    virtual void endWorldSceneColorPass(const engine::render::ScreenFeedbackFrame&) {
+        throw std::runtime_error("Screen feedback is unsupported by this renderer");
+    }
     virtual void beginWorldIndexedBatchSubmission() {}
     virtual void endWorldIndexedBatchSubmission() {}
     virtual void recordWorldIndexedSubmissionStats(const WorldIndexedSubmissionStats& stats) {

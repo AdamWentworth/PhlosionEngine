@@ -45,6 +45,7 @@ public:
   bool activeGpuIsDiscrete() const override;
   void beginWorldSceneColorPass(int surfaceWidth, int surfaceHeight) override;
   void endWorldSceneColorPass() override;
+    void endWorldSceneColorPass(const engine::render::ScreenFeedbackFrame&) override;
   void beginWorldIndexedBatchSubmission() override;
   void endWorldIndexedBatchSubmission() override;
   void recordWorldIndexedSubmissionStats(const WorldIndexedSubmissionStats &stats) override;
@@ -281,6 +282,12 @@ private:
     unsigned int worldSceneColorTexture_ = 0;
     unsigned int worldSceneDepthRenderbuffer_ = 0;
     unsigned int worldSceneColorPostProgram_ = 0;
+    unsigned int feedbackProgram_=0, feedbackVao_=0, feedbackMask_=0;
+    std::array<unsigned int,2> feedbackTextures_{}, feedbackFbos_{};
+    std::uint64_t feedbackSequence_=0;
+    int feedbackWidth_=0,feedbackHeight_=0,feedbackHistory_=0,feedbackDisplayInput_=0;
+    engine::render::ScreenFeedbackUpdate feedbackLast_{};
+    void destroyScreenFeedback();
     unsigned int worldSceneColorPostVao_ = 0;
     int worldSceneColorPostSamplerLoc_ = -1;
     int worldSceneColorWidth_ = 0;

@@ -72,6 +72,7 @@ public:
   bool getWorldSceneFastPathCaps(WorldSceneFastPathCaps &outCaps) const override;
   void beginWorldSceneColorPass(int surfaceWidth, int surfaceHeight) override;
   void endWorldSceneColorPass() override;
+    void endWorldSceneColorPass(const engine::render::ScreenFeedbackFrame&) override;
   void recordWorldIndexedSubmissionStats(const WorldIndexedSubmissionStats &stats) override;
   void submitWorldScene(const WorldSceneFrame &frame,
                         const WorldSceneView &view) override;
@@ -206,6 +207,7 @@ private:
     void createWorldPipeline(bool createBuffers = true);
     void createSpritePipeline();
     void createWorldSceneColorPipeline();
+    void createScreenFeedbackPipeline();
     void createWorldSceneColorResource();
     void releaseWorldSceneColorResource();
     struct SpriteTexture;
@@ -462,6 +464,14 @@ private:
     std::uint32_t dsvDescriptorSize_ = 0;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, kFrameCount> renderTargets_;
     Microsoft::WRL::ComPtr<ID3D12Resource> worldSceneColorTarget_;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> feedbackRoot_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> feedbackPipeline_;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> feedbackRtvHeap_;
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,2> feedbackImages_;
+    std::array<std::uint32_t,2> feedbackSrv_{};
+    std::uint64_t feedbackSequence_=0;
+    int feedbackWidth_=0,feedbackHeight_=0,feedbackHistory_=0,feedbackDisplayInput_=0;
+    engine::render::ScreenFeedbackUpdate feedbackLast_{};
     Microsoft::WRL::ComPtr<ID3D12RootSignature> worldSceneColorRootSignature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldSceneColorPipelineState_;
     std::uint32_t worldSceneColorSrvDescriptorIndex_ = 0xffffffffu;
