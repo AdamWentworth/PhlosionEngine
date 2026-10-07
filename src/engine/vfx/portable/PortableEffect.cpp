@@ -476,6 +476,28 @@ std::vector<Draw> PortableEffect::sample(std::int64_t timeMs,
     return draws;
 }
 
+void PortableEffect::prewarm(IRenderBackend& renderer) const {
+    const auto upload = [&](const Texture& image, int wrapS, int wrapT) {
+        IRenderBackend::WorldTextureData material{};
+        material.key=image.key.c_str();
+        material.rgba=image.rgba.data(); material.width=image.width; material.height=image.height;
+        material.wrapS=wrapS; material.wrapT=wrapT; material.textureSrgb=0;
+        renderer.prewarmWorldTextureData(&material);
+    };
+    // Prepare the authored sampler for every binding, including intensity
+    // variants. A file path alone is not a complete GPU texture cache key.
+    upload(texture({}),33071,33071);
+    for (const auto& mesh : effect_.meshes) upload(texture(mesh.texture),wrap(mesh.wrapU),wrap(mesh.wrapV));
+    for (const auto& style : effect_.cardStyles) upload(texture(style.texture),wrap(style.wrapU),wrap(style.wrapV));
+    for (const auto& burst : effect_.bursts) upload(texture(burst.texture),33071,33071);
+    for (const auto& frame : effect_.frames)
+        for (const auto& draw : frame) if (draw.kind==vfxlibrary::DrawKind::Card) {
+            const auto& material=effect_.materials.at(static_cast<std::size_t>(draw.material));
+            const auto path=intensityTexture(material.texture,normalized(draw.high),normalized(draw.low));
+            upload(texture(path),wrap(material.wrapU),wrap(material.wrapV));
+        }
+}
+
 void PortableEffect::render(IRenderBackend& renderer, std::int64_t timeMs,
     const glm::mat4& world, const glm::vec3& cameraRight,
     const glm::vec3& cameraUp, const float* viewProjection,
@@ -487,7 +509,7 @@ void PortableEffect::render(IRenderBackend& renderer, std::int64_t timeMs,
         const auto& image = texture(batch.texture);
         IRenderBackend::WorldTextureData material{};
         material.key = image.key.c_str();
-        material.cacheKey = image.key.c_str();
+        // Let each backend include dimensions, sampler and color space in its key.
         material.rgba = image.rgba.data();
         material.width = image.width;
         material.height = image.height;

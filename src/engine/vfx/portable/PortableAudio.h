@@ -1,4 +1,5 @@
 #pragma once
+#include "vfxlibrary/Effect.h"
 
 #include "engine/audio/AudioMixer.h"
 
@@ -15,6 +16,7 @@ struct AudioCue {
 
 // Decode package-contained PCM WAV cues into the engine mixer's 48 kHz format.
 std::vector<AudioCue> loadAudio(const std::filesystem::path& manifest);
+std::vector<AudioCue> loadAudio(const vfxlibrary::Effect& effect);
 std::shared_ptr<const engine::audio::AudioClip> loadPcmWav(const std::filesystem::path& file);
 
 } // namespace vfx::portable

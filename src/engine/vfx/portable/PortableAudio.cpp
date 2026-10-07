@@ -103,7 +103,10 @@ std::shared_ptr<const engine::audio::AudioClip> loadPcmWav(const std::filesystem
 }
 
 std::vector<AudioCue> loadAudio(const std::filesystem::path& manifest) {
-    const auto effect = vfxlibrary::load(manifest);
+    return loadAudio(vfxlibrary::load(manifest));
+}
+
+std::vector<AudioCue> loadAudio(const vfxlibrary::Effect& effect) {
     std::vector<AudioCue> cues;
     cues.reserve(effect.audio.size());
     for (const auto& cue : effect.audio)

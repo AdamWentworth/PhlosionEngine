@@ -83,6 +83,10 @@ public:
     };
 
     std::vector<Submission> submissions;
+    int preparedGeometry=0,preparedTextures=0;
+    void prewarmWorldTextureData(const WorldTextureData*) override {++preparedTextures;}
+    void prewarmWorldIndexedMeshCached(const char*,const WorldMeshVertex*,std::size_t,
+        const std::uint32_t*,std::size_t) override {++preparedGeometry;}
     int batchBegins = 0, batchEnds = 0, batchDepth = 0;
     bool unbatchedDraw = false;
     void beginWorldIndexedBatchSubmission() override { ++batchBegins; ++batchDepth; }
@@ -194,6 +198,11 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
     options.surfaceWidth = 320;
     options.surfaceHeight = 180;
     GltfSceneDrawStats stats;
+    options.prewarmOnly=true;
+    if (!check(engine::render::gltf::scene::drawGltfSceneAsset(backend,*asset,pose,options,stats,&error) &&
+        backend.submissions.empty() && backend.preparedGeometry==2 && backend.preparedTextures==2 && stats.drawCalls==0,
+        "Preparation uploaded the wrong resources or drew the scene")) return false;
+    options.prewarmOnly=false;
     const bool drew = engine::render::gltf::scene::drawGltfSceneAsset(
         backend, *asset, pose, options, stats, &error);
     if (!check(drew,

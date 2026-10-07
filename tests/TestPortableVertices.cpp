@@ -4,6 +4,24 @@
 #include <iostream>
 #include <stdexcept>
 
+struct Recorder final : IRenderBackend {
+    int uploads=0,draws=0; bool preparedRepeat=false,drawnRepeat=false;
+    const char* backendId() const override{return "recording";}
+    void beginFrame(float,float,float,float) override{} void endFrame() override{}
+    void onResize(int,int) override{} void shutdown() override{}
+    bool requiresOpenGLContext() const override{return false;}
+    bool handlesPresentation() const override{return false;}
+    void prewarmWorldTextureData(const WorldTextureData* texture) override {
+        if(texture->cacheKey)throw std::runtime_error("Preparation must retain backend sampler-aware texture identity");
+        ++uploads; preparedRepeat|=texture->wrapS==10497 && texture->wrapT==33648;
+    }
+    void drawWorldIndexedMeshTextured(const WorldMeshVertex*,std::size_t,const std::uint32_t*,std::size_t,
+        const WorldTextureData* texture,const float*,int,int) override {
+        if(texture->cacheKey)throw std::runtime_error("Draw must use the same sampler-aware texture identity");
+        ++draws; drawnRepeat|=texture->wrapS==10497 && texture->wrapT==33648;
+    }
+};
+
 int main() {
     try {
         vfxlibrary::Effect source;source.durationMs=100;
@@ -33,6 +51,14 @@ int main() {
         }
         if(!effect.sample(-1,glm::mat4(1),{1,0,0},{0,1,0}).empty() ||
            !effect.sample(100,glm::mat4(1),{1,0,0},{0,1,0}).empty())throw std::runtime_error("Card escaped lifetime");
+        source.cardStyles[0].wrapU="repeat"; source.cardStyles[0].wrapV="mirror";
+        vfx::portable::PortableEffect repeated(source);
+        Recorder renderer; repeated.prewarm(renderer);
+        if(renderer.uploads==0 || renderer.draws!=0 || !renderer.preparedRepeat)
+            throw std::runtime_error("Preparation lost the authored sampler or drew prematurely");
+        const glm::mat4 identity(1);
+        repeated.render(renderer,50,identity,{1,0,0},{0,1,0},&identity[0][0],640,360);
+        if(renderer.draws!=1 || !renderer.drawnRepeat)throw std::runtime_error("Prepared sampler changed on draw");
         source.cardSpans[0].first[0].flags|=64;
         bool rejected=false;try{vfx::portable::PortableEffect unsupported(source);}catch(const std::runtime_error&){rejected=true;}
         if(!rejected)throw std::runtime_error("Unsupported projection silently accepted");

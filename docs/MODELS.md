@@ -62,3 +62,11 @@ synthetic fixtures, without private assets or a graphics context. They cover
 cook/load integrity, animation tracks, CPU/render pose agreement, slot lifetime,
 replacement/failure behavior and the runtime ABI. Native renderer qualification
 remains a separate gate.
+
+Resource preparation: `ModelRenderFrame::prewarmOnly` (plugin ABI 7) runs the same
+load, pose/material preparation and geometry/texture uploads as rendering, but
+submits no scene draws. Call it on the renderer owner thread before gameplay;
+it does not require a render pass. The provider also accepts ABI 6 callers and
+never reads the new frame tail for them. New callers require a rebuilt plugin.
+`GltfSceneDrawOptions::prewarmOnly` supplies the equivalent path for glTF scenes,
+including managed resource scopes. CPU contracts assert uploads without draws.

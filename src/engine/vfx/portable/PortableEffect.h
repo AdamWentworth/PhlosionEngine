@@ -32,6 +32,7 @@ public:
     explicit PortableEffect(const std::filesystem::path& manifest);
     explicit PortableEffect(vfxlibrary::Effect effect);
 
+    void prewarm(IRenderBackend& renderer) const;
     const vfxlibrary::Effect& effect() const noexcept { return effect_; }
     std::vector<Draw> sample(std::int64_t timeMs, const glm::mat4& world,
                              const glm::vec3& cameraRight,

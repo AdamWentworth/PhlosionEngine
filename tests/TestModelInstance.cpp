@@ -16,6 +16,22 @@ static_assert(std::is_move_constructible_v<engine::models::ModelInstance>);
 void require(bool condition, const std::string& message) {
     if (!condition) throw std::runtime_error(message);
 }
+class WarmBackend final : public IRenderBackend {
+public:
+    int textures=0,geometry=0,draws=0;
+    const char* backendId() const override {return "recording";}
+    void beginFrame(float,float,float,float) override {}
+    void endFrame() override {}
+    void onResize(int,int) override {}
+    bool requiresOpenGLContext() const override {return false;}
+    bool handlesPresentation() const override {return true;}
+    void shutdown() override {}
+    void prewarmWorldTextureData(const WorldTextureData*) override {++textures;}
+    void prewarmWorldIndexedMeshCached(const char*,const WorldMeshVertex*,std::size_t,
+        const std::uint32_t*,std::size_t) override {++geometry;}
+    void drawWorldIndexedMeshTexturedCached(const char*,const WorldMeshVertex*,std::size_t,
+        const std::uint32_t*,std::size_t,const WorldTextureData*,const float*,int,int) override {++draws;}
+};
 bool near(float a, float b) { return std::abs(a-b) < 0.0001f; }
 engine::models::MeshData fixture() {
     using namespace engine::render::model_types;
@@ -106,13 +122,31 @@ int main() {
         require(cookModelObject("lamp", model, root.string(), "Model", stats, &error), error);
         const auto path = objectPathForModel("lamp", root.string());
         engine::render::ModelRenderPluginApi api;
-        require(!createModelRenderProvider(engine::render::modelRenderPluginAbi - 1, &api) && !api.context,
+        require(!createModelRenderProvider(5, &api) && !api.context,
             "Provider accepted an incompatible ABI");
         require(createModelRenderProvider(engine::render::modelRenderPluginAbi, &api), "Provider creation failed");
         struct Release {
             engine::render::ModelRenderPluginApi& api;
             ~Release() { api.destroy(api.context); }
         } release{api};
+        WarmBackend backend;
+        engine::render::ModelRenderFrame warm;
+        warm.renderer=&backend; warm.assetId="lamp"; warm.phloPath=path.c_str();
+        warm.animation="slide"; warm.animationTime=.25f;
+        warm.width=640; warm.height=360; warm.cameraPosition[2]=5; warm.prewarmOnly=true;
+        require(api.render(api.context,&warm) && backend.textures>0 && backend.geometry>0 && backend.draws==0,
+            "Preparation must upload resources without drawing");
+        const int preparedGeometry=backend.geometry;
+        require(api.render(api.context,&warm) && backend.geometry==preparedGeometry*2 && backend.draws==0,
+            "Repeated preparation unexpectedly draws");
+        warm.prewarmOnly=false;
+        require(api.render(api.context,&warm) && backend.draws>0, "Prepared model failed to render");
+        engine::render::ModelRenderPluginApi legacy;
+        require(createModelRenderProvider(6,&legacy) && legacy.abi==6, "ABI 6 clients lost compatibility");
+        warm.prewarmOnly=true; const int previousDraws=backend.draws;
+        require(legacy.render(legacy.context,&warm) && backend.draws>previousDraws,
+            "ABI 6 provider read the new frame tail");
+        legacy.destroy(legacy.context);
         engine::render::ModelNodePoseRequest request;
         request.assetId = "lamp"; request.phloPath = path.c_str(); request.nodeName = "bulb";
         engine::render::ModelNodePoseResult result;

@@ -13,6 +13,7 @@ struct Resource {
     std::unique_ptr<ModelInstance> instance;
 };
 struct Provider {
+    bool supportsPrewarm = false;
     std::shared_ptr<const ModelProfile> profile;
     ModelLighting lighting;
     std::unordered_map<std::string,Resource> resources;
@@ -101,7 +102,10 @@ bool renderModel(void* context,const render::ModelRenderFrame* request) noexcept
         const auto matrix=shift*camera.getProjectionMatrix()*view;
         const auto forward=camera.getDirection()*(provider.lighting.forwardScale ?
             provider.lighting.forwardScale(request->lightingPreset) : 1.0f);
-        batches::submitWorldIndexedBatches(*request->renderer,batches,glm::value_ptr(matrix),request->width,request->height,
+        if (provider.supportsPrewarm && request->prewarmOnly)
+            batches::prewarmWorldIndexedBatches(*request->renderer,batches,
+                glm::value_ptr(camera.getPosition()),glm::value_ptr(forward),glm::value_ptr(camera.getTarget()));
+        else batches::submitWorldIndexedBatches(*request->renderer,batches,glm::value_ptr(matrix),request->width,request->height,
             glm::value_ptr(camera.getPosition()),glm::value_ptr(forward),glm::value_ptr(camera.getTarget()));
         provider.error.clear(); return true;
     } catch (const std::exception& e) { provider.error=e.what(); return false; }
@@ -128,9 +132,11 @@ void destroy(void* context) noexcept { delete static_cast<Provider*>(context); }
 }
 bool createModelRenderProvider(std::uint32_t abi,render::ModelRenderPluginApi* out,
     std::shared_ptr<const ModelProfile> profile,ModelLighting lighting) noexcept {
-    if (!out || abi!=render::modelRenderPluginAbi) return false;
+    // ABI 6 has the same API table and frame prefix, without prewarmOnly.
+    if (!out || (abi!=6 && abi!=render::modelRenderPluginAbi)) return false;
     try {
         auto provider=std::make_unique<Provider>();
+        provider->supportsPrewarm=abi>=7;
         provider->profile=profile?std::move(profile):std::make_shared<ModelProfile>();
         provider->lighting=std::move(lighting);
         *out={abi,sizeof(render::ModelRenderPluginApi),provider.release(),&renderModel,&lastError,&destroy,&sampleNode};

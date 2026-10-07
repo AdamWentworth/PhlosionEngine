@@ -260,11 +260,12 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
         ~EndScope() { if (api) api->endWorldResourceScope(); }
     } endScope{scopeApi};
     // Preserve backend state once for this ordered group of primitives.
-    renderer.beginWorldIndexedBatchSubmission();
+    if (!options.prewarmOnly) renderer.beginWorldIndexedBatchSubmission();
     struct EndBatch {
         IRenderBackend& renderer;
-        ~EndBatch() { renderer.endWorldIndexedBatchSubmission(); }
-    } endBatch{renderer};
+        bool active;
+        ~EndBatch() { if (active) renderer.endWorldIndexedBatchSubmission(); }
+    } endBatch{renderer,!options.prewarmOnly};
     GltfSceneDrawStats collected;
     // Establish opaque depth before drawing transparent surface overlays.
     // Preserve authored primitive order within each pass.
@@ -325,7 +326,12 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
                 static_cast<std::uint32_t>(palette.size());
         }
 
-        renderer.drawWorldIndexedMeshTexturedCached(
+        if (options.prewarmOnly) {
+            renderer.prewarmWorldTextureData(&texture);
+            renderer.prewarmWorldIndexedMeshCached(primitive.geometryKey.c_str(),
+                primitive.vertices.data(), primitive.vertices.size(),
+                primitive.indices.data(), primitive.indices.size());
+        } else renderer.drawWorldIndexedMeshTexturedCached(
             primitive.geometryKey.c_str(),
             primitive.vertices.data(),
             primitive.vertices.size(),
@@ -335,7 +341,7 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
             options.viewProjectionMatrix.data(),
             options.surfaceWidth,
             options.surfaceHeight);
-        ++collected.drawCalls;
+        if (!options.prewarmOnly) ++collected.drawCalls;
         collected.triangles +=
             static_cast<std::uint64_t>(primitive.indices.size() / 3u);
         ++collected.materialBinds;

@@ -42,6 +42,9 @@ struct GltfSceneDrawOptions {
     std::uint8_t materialMode = 2u;
     std::array<float, 4> tint{1.0f, 1.0f, 1.0f, 1.0f};
     bool translucent = false;
+    // Upload the same geometry/materials without submitting a visible draw.
+    // May be called outside a frame on the renderer's owner thread.
+    bool prewarmOnly = false;
     // Optional per-material factors for animated material inputs. Empty uses
     // authored factors; otherwise supply one linear RGBA value per material.
     std::span<const std::array<float, 4>> baseColorFactors;

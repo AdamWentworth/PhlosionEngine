@@ -6,7 +6,7 @@
 
 namespace engine::render {
 
-inline constexpr std::uint32_t modelRenderPluginAbi = 6;
+inline constexpr std::uint32_t modelRenderPluginAbi = 7;
 inline constexpr char modelRenderPluginEntryPoint[] = "phlosionModelRenderPluginCreate";
 
 // Project renderers may present cooked models outside the asset inspector.
@@ -48,6 +48,9 @@ struct ModelRenderFrame {
     // Lens shift in normalized device coordinates (+X right, +Y up). Places
     // a preview inside a UI pane without moving the camera or the viewport.
     float projectionOffset[2]{};
+    // Load/prepare this pose and upload its resources without drawing or
+    // advancing animation. Owner-thread use; no active render pass required.
+    bool prewarmOnly = false;
 };
 
 // CPU sampling uses the same animation/root-motion and instance transform as
