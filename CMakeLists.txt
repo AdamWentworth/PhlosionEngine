@@ -216,6 +216,10 @@ target_link_libraries(engine_camera PUBLIC Phlosion::Collision glm::glm)
 phlosion_apply_settings(engine_camera)
 add_library(Phlosion::Camera ALIAS engine_camera)
 
+add_library(engine_narrative STATIC src/engine/narrative/SequencePlayer.cpp)
+phlosion_apply_settings(engine_narrative)
+add_library(Phlosion::Narrative ALIAS engine_narrative)
+
 add_library(engine_core STATIC
     src/engine/core/SystemRegistry.cpp
     src/engine/core/StdoutLogger.cpp
@@ -975,6 +979,10 @@ if (PHLOSION_BUILD_TESTS)
     set_tests_properties(PhlosionSdlAudioContracts PROPERTIES TIMEOUT 120)
 
     add_executable(PhlosionCameraTests tests/TestExplorationCamera.cpp)
+    add_executable(PhlosionNarrativeTests tests/TestNarrativeSequence.cpp)
+    target_link_libraries(PhlosionNarrativeTests PRIVATE Phlosion::Narrative)
+    phlosion_apply_settings(PhlosionNarrativeTests)
+    add_test(NAME PhlosionNarrativeContracts COMMAND PhlosionNarrativeTests)
     target_link_libraries(PhlosionCameraTests PRIVATE Phlosion::Camera Phlosion::Input)
     phlosion_apply_settings(PhlosionCameraTests)
     add_test(NAME PhlosionCameraContracts COMMAND PhlosionCameraTests)
