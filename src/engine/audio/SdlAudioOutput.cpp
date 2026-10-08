@@ -23,11 +23,18 @@ void succeed(std::string* diagnostic) {
 // PCM for a slow frame without advancing the mixer when SDL's queue is full.
 constexpr std::size_t maxQueuedFrames = sampleRate / 6u;
 constexpr std::size_t targetQueuedFrames = sampleRate / 8u;
+constexpr std::size_t generatedStartFrames = 2048u;
 
 } // namespace
 
 SdlAudioOutput::SdlAudioOutput(AudioMixer& mixer)
-    : mixer_(mixer), owner_(std::this_thread::get_id()) {}
+    : SdlAudioOutput(mixer, AudioQueueMode::Buffered) {}
+
+SdlAudioOutput::SdlAudioOutput(AudioMixer& mixer, AudioQueueMode mode)
+    : mixer_(mixer), mode_(mode), owner_(std::this_thread::get_id()) {
+    if (mode != AudioQueueMode::Buffered && mode != AudioQueueMode::Generated)
+        throw std::invalid_argument("invalid audio queue mode");
+}
 
 SdlAudioOutput::~SdlAudioOutput() {
     if (owner_ != std::this_thread::get_id()) std::terminate();
@@ -44,6 +51,7 @@ void SdlAudioOutput::closeDevice() {
     SDL_ClearQueuedAudio(device_);
     SDL_CloseAudioDevice(device_);
     device_ = 0;
+    primingGenerated_ = false;
     mixedAheadFrames_ = 0;
 }
 
@@ -73,7 +81,8 @@ bool SdlAudioOutput::start(std::string* diagnostic) {
         return fail(diagnostic, "SDL audio device did not match the mixer format");
     }
     device_ = opened;
-    SDL_PauseAudioDevice(device_, 0);
+    primingGenerated_ = mode_ == AudioQueueMode::Generated;
+    SDL_PauseAudioDevice(device_, primingGenerated_ ? 1 : 0);
     succeed(diagnostic);
     return true;
 }
@@ -82,6 +91,40 @@ bool SdlAudioOutput::pump(std::size_t elapsedFrames, std::string* diagnostic) {
     checkOwner();
     if (elapsedFrames == 0u || elapsedFrames > 4096u)
         return fail(diagnostic, "invalid SDL audio pump frame count");
+    if (mode_ == AudioQueueMode::Generated) {
+        // A synthesizer can only supply samples already produced by its simulation.
+        // Consume exactly this block, including silence, without predicting future input.
+        buffer_.resize(elapsedFrames * 2u);
+        if (!mixer_.render(elapsedFrames, buffer_, diagnostic)) return false;
+        lastPeak_ = 0.0f;
+        for (const float sample : buffer_)
+            lastPeak_ = std::max(lastPeak_, std::abs(sample));
+        if (device_ != 0) {
+            if (queuedFrames() == 0 && !primingGenerated_) {
+                SDL_PauseAudioDevice(device_, 1);
+                primingGenerated_ = true;
+            }
+            // A stalled/minimized host must not accumulate stale audio indefinitely.
+            if (queuedFrames() + elapsedFrames > maxQueuedFrames) {
+                SDL_PauseAudioDevice(device_, 1);
+                SDL_ClearQueuedAudio(device_);
+                primingGenerated_ = true;
+            }
+            if (SDL_QueueAudio(device_, buffer_.data(), static_cast<Uint32>(buffer_.size() * sizeof(float))) != 0) {
+                const std::string message = std::string("SDL audio queue failed: ") + SDL_GetError();
+                closeDevice();
+                return fail(diagnostic, message);
+            }
+            // Collect actual generated blocks before starting the device. Two device
+            // periods absorb scheduling jitter without advancing the synthesizer.
+            if (primingGenerated_ && queuedFrames() >= generatedStartFrames) {
+                SDL_PauseAudioDevice(device_, 0);
+                primingGenerated_ = false;
+            }
+        }
+        succeed(diagnostic);
+        return true;
+    }
     const bool hadVoices = mixer_.activeVoices() != 0u;
     if (device_ == 0 || !hadVoices) {
         mixedAheadFrames_ = 0;
@@ -124,7 +167,13 @@ bool SdlAudioOutput::pump(std::size_t elapsedFrames, std::string* diagnostic) {
 void SdlAudioOutput::stopAll() {
     checkOwner();
     mixer_.stopAll();
-    if (device_ != 0) SDL_ClearQueuedAudio(device_);
+    if (device_ != 0) {
+        if (mode_ == AudioQueueMode::Generated) {
+            SDL_PauseAudioDevice(device_, 1);
+            primingGenerated_ = true;
+        }
+        SDL_ClearQueuedAudio(device_);
+    }
     lastPeak_ = 0.0f;
     mixedAheadFrames_ = 0;
 }

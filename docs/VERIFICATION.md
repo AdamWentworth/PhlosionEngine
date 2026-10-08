@@ -16,7 +16,10 @@ Do not infer every target's flags from the top-level option alone.
 
 The build includes the native editor, plugin probe and Vulkan shader programs.
 It does not fetch a game, private assets or optional package repositories.
-No test in the current engine CTest suite needs a graphics context.
+The default CTest suite needs no graphics context. Explicitly enabling
+`PHLOSION_BUILD_GPU_TESTS=ON` adds the hidden-window OpenGL pixel presenter
+contract described in [pixel presentation](PIXEL_PRESENTATION.md); run this
+separately on a qualified graphics machine. Hosted source CI keeps it disabled.
 
 | CTest entry | Coverage |
 | --- | --- |
@@ -27,7 +30,7 @@ No test in the current engine CTest suite needs a graphics context.
 | `PhlosionUiFocusContracts` | Spatial focus, disabled/dynamic items, keyboard/synthetic-controller action composition, held repeat, modal gating/rearm, activation/cancel precedence, transactional failures and thread ownership |
 | `PhlosionUiTextContracts` | Strict UTF-8, transactional string-table replacement, fallback metrics, analytic wrapping/scaling, explicit line breaks, unsupported text and preserved output on failure |
 | `PhlosionAudioMixerContracts` | Owned PCM clips, numeric stereo mix, buses/mute, loop/end, sample-time fades, spatial pan/attenuation, cleanup, invalid input and owner-thread rules |
-| `PhlosionSdlAudioContracts` | SDL dummy-device startup/retry, null-sink progress, queue cap, stop/shutdown cleanup, subsystem references and owner-thread rules |
+| `PhlosionSdlAudioContracts` | SDL dummy-device startup/retry, null-sink progress, queue cap, exact generated-block consumption, startup/overflow/stop priming, stop/shutdown cleanup, subsystem references and owner-thread rules |
 | `PhlosionSdlInputContracts` | Three real SDL virtual-device groups for mapped-controller discovery, all 15 buttons/six axes, normalization, queued taps and event/poll duplicate observations, hotplug/disconnect, window focus filtering and subsystem/handle ownership |
 | `PhlosionCameraContracts` | Ten groups for exploration framing, delta/rate controls, follow/recovery damping, real sphere obstruction queries, validation/ownership, relative movement and repeated CPU input/character/camera composition |
 | `PhlosionBattleCameraContracts` | CPU battle camera framing at multiple aspects, impossible-shot rejection, cuts/blends/tracking, deterministic shake, reduced motion, reset, transactions and thread ownership |

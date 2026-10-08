@@ -105,12 +105,64 @@ void subsystemAndThreadOwnership() {
     SDL_QuitSubSystem(SDL_INIT_AUDIO);
 }
 
+void generatedBlocksDoNotReadAhead() {
+    CHECK(SDL_setenv("SDL_AUDIODRIVER", "dummy", 1) == 0);
+    AudioMixer mixer;
+    SdlAudioOutput output(mixer, AudioQueueMode::Generated);
+    CHECK(output.start());
+    AudioVoiceId id = 0;
+    CHECK(mixer.play(longerClip(), {}, id));
+    CHECK(output.pump(800));
+    CHECK(output.queuedFrames() == 800u);
+    SDL_Delay(50); // Startup must retain real blocks until the priming threshold.
+    CHECK(output.queuedFrames() == 800u);
+    CHECK(mixer.activeVoices() == 1u);
+    for (int i = 0; i < 11; ++i) CHECK(output.pump(800));
+    CHECK(mixer.activeVoices() == 1u); // Exactly 9600 of 10000 samples consumed.
+    CHECK(output.pump(400));
+    CHECK(mixer.activeVoices() == 0u);
+    CHECK(output.queuedFrames() <= sampleRate / 6u);
+    CHECK(!output.pump(4097));
+    output.stopAll();
+    CHECK(output.queuedFrames() == 0u);
+    CHECK(output.pump(800)); // Silent blocks preserve the generated timeline.
+    CHECK(output.lastPeak() == 0.0f);
+    output.shutdown();
+    CHECK(mixer.play(clip(), {}, id));
+    CHECK(output.pump(2));
+    CHECK(mixer.activeVoices() == 0u);
+    CHECK(output.lastPeak() > 0.0f);
+    CHECK(output.queuedFrames() == 0u);
+}
+
+void generatedOverflowReprimes() {
+    CHECK(SDL_setenv("SDL_AUDIODRIVER", "dummy", 1) == 0);
+    AudioMixer mixer;
+    SdlAudioOutput output(mixer, AudioQueueMode::Generated);
+    CHECK(output.start());
+    bool discarded = false;
+    for (int i = 0; i < 2000 && !discarded; ++i) {
+        const auto before = output.queuedFrames();
+        CHECK(output.pump(128));
+        discarded = before > sampleRate / 6u - 128u && output.queuedFrames() == 128u;
+    }
+    CHECK(discarded);
+    SDL_Delay(60); // A tiny replacement block must not play straight into an underrun.
+    CHECK(output.queuedFrames() == 128u);
+    output.stopAll();
+    CHECK(output.pump(800));
+    SDL_Delay(50);
+    CHECK(output.queuedFrames() == 800u);
+}
+
 } // namespace
 
 int main() {
     try {
         failureSinkRetryAndCleanup();
         subsystemAndThreadOwnership();
+        generatedBlocksDoNotReadAhead();
+        generatedOverflowReprimes();
         std::cout << "SDL audio output contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

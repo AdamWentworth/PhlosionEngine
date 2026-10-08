@@ -25,6 +25,7 @@ if (DEFINED ENV{CI} AND NOT "$ENV{CI}" STREQUAL "" AND NOT "$ENV{CI}" STREQUAL "
 endif()
 
 option(PHLOSION_BUILD_TESTS "Build Phlosion Engine contract tests" ${_phlosion_tests_default})
+option(PHLOSION_BUILD_GPU_TESTS "Build contract tests requiring a working native GPU" OFF)
 option(PHLOSION_BUILD_EDITOR "Build the native Phlosion Editor and UI framework" ${_phlosion_editor_default})
 option(PHLOSION_ENABLE_WARNINGS "Enable compiler warnings for engine sources" ON)
 option(PHLOSION_WARNINGS_AS_ERRORS "Treat engine warnings as errors" ${_phlosion_werror_default})
@@ -330,6 +331,7 @@ add_library(engine_render STATIC
     src/engine/render/d3d12/D3D12RenderBackendSceneColor.cpp
     src/engine/render/d3d12/D3D12TextureUpload.cpp
     src/engine/render/OpenGLRenderBackend.cpp
+    src/engine/render/opengl/OpenGLPixelPresenter.cpp
     src/engine/render/opengl/OpenGLRenderBackendDebugDraw.cpp
     src/engine/render/opengl/OpenGLRenderBackendPipelines.cpp
     src/engine/render/opengl/OpenGLRenderBackendShaderUtils.cpp
@@ -972,6 +974,13 @@ if (PHLOSION_BUILD_TESTS)
     add_test(NAME PhlosionAudioMixerContracts COMMAND PhlosionAudioMixerTests)
     set_tests_properties(PhlosionAudioMixerContracts PROPERTIES TIMEOUT 120)
 
+    if (PHLOSION_BUILD_GPU_TESTS)
+        add_executable(PhlosionPixelPresenterTests tests/TestOpenGLPixelPresenter.cpp)
+        target_link_libraries(PhlosionPixelPresenterTests PRIVATE Phlosion::Render Phlosion::Platform)
+        phlosion_apply_settings(PhlosionPixelPresenterTests)
+        add_test(NAME PhlosionPixelPresenterContracts COMMAND PhlosionPixelPresenterTests)
+        set_tests_properties(PhlosionPixelPresenterContracts PROPERTIES TIMEOUT 120 LABELS "gpu;opengl")
+    endif()
     add_executable(PhlosionSdlAudioTests tests/TestSdlAudioOutput.cpp)
     target_link_libraries(PhlosionSdlAudioTests PRIVATE Phlosion::AudioSdl)
     phlosion_apply_settings(PhlosionSdlAudioTests)
