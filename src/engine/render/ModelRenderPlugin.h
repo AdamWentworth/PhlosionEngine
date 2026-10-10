@@ -6,7 +6,8 @@
 
 namespace engine::render {
 
-inline constexpr std::uint32_t modelRenderPluginAbi = 7;
+// ABI 9 appends the shared world environment to runtime model frames.
+inline constexpr std::uint32_t modelRenderPluginAbi = 9;
 inline constexpr char modelRenderPluginEntryPoint[] = "phlosionModelRenderPluginCreate";
 
 // Project renderers may present cooked models outside the asset inspector.
@@ -51,6 +52,7 @@ struct ModelRenderFrame {
     // Load/prepare this pose and upload its resources without drawing or
     // advancing animation. Owner-thread use; no active render pass required.
     bool prewarmOnly = false;
+    WorldEnvironmentLighting environment;
 };
 
 // CPU sampling uses the same animation/root-motion and instance transform as

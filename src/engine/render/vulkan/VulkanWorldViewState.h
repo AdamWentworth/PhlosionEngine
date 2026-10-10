@@ -12,13 +12,15 @@ struct alignas(16) WorldViewState {
     std::array<float, 4> cameraPosition{0.0f, 7.0f, 9.0f, 0.0f};
     std::array<float, 4> cameraForward{0.0f, -0.6139406f, -0.7893522f, 0.0f};
     std::array<float, 4> cameraTarget{0.0f, -1.0f, 0.0f, 0.0f};
+    engine::render::WorldEnvironmentUniforms environment{};
 };
 
 static_assert(std::is_standard_layout_v<WorldViewState>);
-static_assert(sizeof(WorldViewState) == 48u);
+static_assert(sizeof(WorldViewState) == 144u);
 static_assert(offsetof(WorldViewState, cameraPosition) == 0u);
 static_assert(offsetof(WorldViewState, cameraForward) == 16u);
 static_assert(offsetof(WorldViewState, cameraTarget) == 32u);
+static_assert(offsetof(WorldViewState, environment) == 48u);
 
 inline WorldViewState makeWorldViewState(
     const backend::WorldTextureData* texture) {
@@ -40,6 +42,7 @@ inline WorldViewState makeWorldViewState(
         texture->cameraTargetY,
         texture->cameraTargetZ,
         0.0f};
+    out.environment = engine::render::packWorldEnvironment(texture->environment);
     return out;
 }
 

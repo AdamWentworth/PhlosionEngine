@@ -17,6 +17,12 @@ layout(set = 1, binding = 0) uniform WorldViewState {
     vec4 cameraPosition;
     vec4 cameraForward;
     vec4 cameraTarget;
+    vec4 environmentSun;
+    vec4 environmentRadiance;
+    vec4 environmentAmbient;
+    vec4 environmentHaze;
+    vec4 environmentHeight;
+    vec4 environmentNight;
 } worldView;
 
 layout(location = 0) in vec2 vertexUv;
@@ -35,6 +41,12 @@ layout(location = 0, index = 1) out vec4 outBlendAlpha;
 layout(location = 0) out vec4 outColor;
 #endif
 
+#define ENV_SUN worldView.environmentSun
+#define ENV_RADIANCE worldView.environmentRadiance
+#define ENV_AMBIENT worldView.environmentAmbient
+#define ENV_HAZE worldView.environmentHaze
+#define ENV_HEIGHT worldView.environmentHeight
+#define ENV_NIGHT worldView.environmentNight
 #ifndef PHLOSION_PROJECT_MATERIAL
 #include "world_material.glsl"
 #endif
@@ -90,6 +102,8 @@ vec3 encodeWorldSurfaceColor(vec3 linearColor) {
 
 
 
+#define ENV_LUT(uv) vec3(0.0)
+#include "world_atmosphere.glsl"
 void main() {
     WorldIndirectDrawState portableDraw = worldIndirectDraws.states[drawStateIndex];
     if (portableDraw.materialParams.w >= 249.5 && portableDraw.materialParams.w != 254.0) {
@@ -221,7 +235,8 @@ void main() {
             vertexNormal,
             reviewCameraForward);
     }
-    const float toneMappingExposure = 1.15;
+    linearColor = environmentHaze(linearColor, worldPosition, worldView.cameraPosition.xyz);
+    float toneMappingExposure = ENV_SUN.w > 0.5 ? ENV_AMBIENT.w : 1.15;
     vec3 mapped = tonemapACESFilmic(max(linearColor, vec3(0.0)), toneMappingExposure);
     vec3 resolvedColor = sceneColorPostEnabled
         ? mapped

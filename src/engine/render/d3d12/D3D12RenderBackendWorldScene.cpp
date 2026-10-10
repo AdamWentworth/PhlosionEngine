@@ -169,6 +169,7 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     tex.cameraForwardX = view.cameraForward[0];
     tex.cameraForwardY = view.cameraForward[1];
     tex.cameraForwardZ = view.cameraForward[2];
+    tex.environment = view.environment;
     tex.cameraTargetX = view.cameraTarget[0];
     tex.cameraTargetY = view.cameraTarget[1];
     tex.cameraTargetZ = view.cameraTarget[2];

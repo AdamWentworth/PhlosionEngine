@@ -14,6 +14,7 @@ struct Resource {
 };
 struct Provider {
     bool supportsPrewarm = false;
+    bool supportsEnvironment = false;
     std::shared_ptr<const ModelProfile> profile;
     ModelLighting lighting;
     std::unordered_map<std::string,Resource> resources;
@@ -96,6 +97,8 @@ bool renderModel(void* context,const render::ModelRenderFrame* request) noexcept
         const auto* prepared=instance->prepare(frame,request->poseSlot,&provider.error);
         if (!prepared) return false;
         auto batches=*prepared;
+        if (provider.supportsEnvironment)
+            for (auto& batch : batches) batch.environment = request->environment;
         if (provider.lighting.prepare && !provider.lighting.prepare(batches,request->lightingPreset,provider.error)) return false;
         const auto shift=glm::translate(glm::mat4(1),
             glm::vec3(request->projectionOffset[0],request->projectionOffset[1],0));
@@ -137,6 +140,7 @@ bool createModelRenderProvider(std::uint32_t abi,render::ModelRenderPluginApi* o
     try {
         auto provider=std::make_unique<Provider>();
         provider->supportsPrewarm=abi>=7;
+        provider->supportsEnvironment=abi>=9;
         provider->profile=profile?std::move(profile):std::make_shared<ModelProfile>();
         provider->lighting=std::move(lighting);
         *out={abi,sizeof(render::ModelRenderPluginApi),provider.release(),&renderModel,&lastError,&destroy,&sampleNode};

@@ -18,13 +18,23 @@ using namespace engine::render::d3d12_pipeline_compile;
 
 void D3D12RenderBackend::createWorldPipeline(bool createBuffers) {
 #if defined(_WIN32)
-    static const std::string kVertexTemplate = R"HLSL(cbuffer VSConstants : register(b0) { float4x4 uViewProj; float4x4 uModel; float4 uSkinMeta; float4 uClipMeta; };cbuffer MaterialVsConstants : register(b1) { float _m0,_m1,_m2,_m3,_m4,_m5,_m6,_m7,_m8,_m9,_m10,uMaterialMode,uMaterialTimeSecVs,uMaterialFlagsVs,uMaterialAtlasWidthVs,uMaterialAtlasHeightVs; float4 uMaterialRect0Vs; float4 uMaterialRect1Vs; };StructuredBuffer<float4> gSkinMatrices : register(t7);Texture2D gVertexDisplacementMap : register(t1);SamplerState gVertexSampCC : register(s0);struct InstanceData { float4 model0; float4 model1; float4 model2; float4 model3; float4 color; uint4 skinMeta; };StructuredBuffer<InstanceData> gInstances : register(t6);struct VSIn { float3 pos : POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 nrm : NORMAL; float4 jnts : BLENDINDICES; float4 wgts : BLENDWEIGHT; float4 tan : TANGENT; float2 sourceUv1 : TEXCOORD1; float2 sourceUv2 : TEXCOORD2; };struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 worldPos : TEXCOORD1; float3 worldNormal : TEXCOORD2; float4 worldTangent : TEXCOORD3; float3 generated : TEXCOORD4; float2 sourceUv1 : TEXCOORD5; float2 sourceUv2 : TEXCOORD6; };static const int kMaxSkinMatrices = 128;float4 resolveSkinMeta(InstanceData inst) {  if (inst.skinMeta.x != 0u) return float4(1.0f, (float)inst.skinMeta.y, (float)inst.skinMeta.z, (float)inst.skinMeta.w);  return uSkinMeta;}float4x4 loadPackedMatrix(uint baseFloat4) {  float4 c0 = gSkinMatrices[baseFloat4 + 0u];  float4 c1 = gSkinMatrices[baseFloat4 + 1u];  float4 c2 = gSkinMatrices[baseFloat4 + 2u];  float4 c3 = gSkinMatrices[baseFloat4 + 3u];  return float4x4(c0.x, c1.x, c2.x, c3.x, c0.y, c1.y, c2.y, c3.y, c0.z, c1.z, c2.z, c3.z, c0.w, c1.w, c2.w, c3.w);}float4x4 loadSkinMatrix(float4 skinMeta, int jointIndex, int c) {  const uint jointBase = (uint)skinMeta.w + (uint)(jointIndex * 4);  if (skinMeta.z > 0.5f) {    const uint inverseBindBase = (uint)skinMeta.w + (uint)(c * 4 + jointIndex * 4);    return mul(loadPackedMatrix(jointBase), loadPackedMatrix(inverseBindBase));  }  return loadPackedMatrix(jointBase);}float3 applySkinningPos(VSIn i, float3 localPos, float4 skinMeta) {  if (skinMeta.x < 0.5f) return localPos;  float4 blended = float4(0.0f, 0.0f, 0.0f, 0.0f);  float totalWeight = 0.0f;  int c = (int)skinMeta.y;  int j0 = (int)round(i.jnts.x); float w0 = i.wgts.x;  int j1 = (int)round(i.jnts.y); float w1 = i.wgts.y;  int j2 = (int)round(i.jnts.z); float w2 = i.wgts.z;  int j3 = (int)round(i.jnts.w); float w3 = i.wgts.w;  if (w0 > 0.00001f && j0 >= 0 && j0 < c && j0 < kMaxSkinMatrices) { blended += mul(loadSkinMatrix(skinMeta, j0, c), float4(localPos, 1.0f)) * w0; totalWeight += w0; }  if (w1 > 0.00001f && j1 >= 0 && j1 < c && j1 < kMaxSkinMatrices) { blended += mul(loadSkinMatrix(skinMeta, j1, c), float4(localPos, 1.0f)) * w1; totalWeight += w1; }  if (w2 > 0.00001f && j2 >= 0 && j2 < c && j2 < kMaxSkinMatrices) { blended += mul(loadSkinMatrix(skinMeta, j2, c), float4(localPos, 1.0f)) * w2; totalWeight += w2; }  if (w3 > 0.00001f && j3 >= 0 && j3 < c && j3 < kMaxSkinMatrices) { blended += mul(loadSkinMatrix(skinMeta, j3, c), float4(localPos, 1.0f)) * w3; totalWeight += w3; }  if (totalWeight <= 0.00001f) return localPos;  if (totalWeight < 0.999f) blended += float4(localPos, 1.0f) * (1.0f - totalWeight);  return blended.xyz;}float3 applySkinningNormal(VSIn i, float3 localNormal, float4 skinMeta) {  if (skinMeta.x < 0.5f) return localNormal;  float3 blended = float3(0.0f, 0.0f, 0.0f);  float totalWeight = 0.0f;  int c = (int)skinMeta.y;  int j0 = (int)round(i.jnts.x); float w0 = i.wgts.x;  int j1 = (int)round(i.jnts.y); float w1 = i.wgts.y;  int j2 = (int)round(i.jnts.z); float w2 = i.wgts.z;  int j3 = (int)round(i.jnts.w); float w3 = i.wgts.w;  if (w0 > 0.00001f && j0 >= 0 && j0 < c && j0 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j0, c), localNormal) * w0; totalWeight += w0; }  if (w1 > 0.00001f && j1 >= 0 && j1 < c && j1 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j1, c), localNormal) * w1; totalWeight += w1; }  if (w2 > 0.00001f && j2 >= 0 && j2 < c && j2 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j2, c), localNormal) * w2; totalWeight += w2; }  if (w3 > 0.00001f && j3 >= 0 && j3 < c && j3 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j3, c), localNormal) * w3; totalWeight += w3; }  if (totalWeight <= 0.00001f) return localNormal;  if (totalWeight < 0.999f) blended += localNormal * (1.0f - totalWeight);  float len2 = dot(blended, blended);  return (len2 > 1e-8f) ? normalize(blended) : float3(0.0f, 1.0f, 0.0f);}float4 applySkinningTangent(VSIn i, float4 localTangent, float4 skinMeta) {  if (skinMeta.x < 0.5f) return localTangent;  float3 tangent = localTangent.xyz;  float3 blended = float3(0.0f, 0.0f, 0.0f);  float totalWeight = 0.0f;  int c = (int)skinMeta.y;  int j0 = (int)round(i.jnts.x); float w0 = i.wgts.x;  int j1 = (int)round(i.jnts.y); float w1 = i.wgts.y;  int j2 = (int)round(i.jnts.z); float w2 = i.wgts.z;  int j3 = (int)round(i.jnts.w); float w3 = i.wgts.w;  if (w0 > 0.00001f && j0 >= 0 && j0 < c && j0 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j0, c), tangent) * w0; totalWeight += w0; }  if (w1 > 0.00001f && j1 >= 0 && j1 < c && j1 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j1, c), tangent) * w1; totalWeight += w1; }  if (w2 > 0.00001f && j2 >= 0 && j2 < c && j2 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j2, c), tangent) * w2; totalWeight += w2; }  if (w3 > 0.00001f && j3 >= 0 && j3 < c && j3 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j3, c), tangent) * w3; totalWeight += w3; }  if (totalWeight <= 0.00001f) return localTangent;  if (totalWeight < 0.999f) blended += tangent * (1.0f - totalWeight);  float len2 = dot(blended, blended);  if (len2 > 1e-8f) blended = normalize(blended);  else blended = tangent;  return float4(blended, localTangent.w);}float4 applyInstancePos(InstanceData inst, float3 localPos) {  return inst.model0 * localPos.x + inst.model1 * localPos.y + inst.model2 * localPos.z + inst.model3;}float3 applyInstanceLinear(InstanceData inst, float3 localDir) {  return inst.model0.xyz * localDir.x + inst.model1.xyz * localDir.y + inst.model2.xyz * localDir.z;}
+    static const std::string kVertexTemplate = R"HLSL(cbuffer VSConstants : register(b0) { float4x4 uViewProj; float4x4 uModel; float4 uSkinMeta; float4 uClipMeta; float4 uEnvironmentSunVs; float4 uEnvironmentRadianceVs; };cbuffer MaterialVsConstants : register(b1) { float _m0,_m1,_m2,_m3,_m4,_m5,_m6,_m7,_m8,_m9,_m10,uMaterialMode,uMaterialTimeSecVs,uMaterialFlagsVs,uMaterialAtlasWidthVs,uMaterialAtlasHeightVs; float4 uMaterialRect0Vs; float4 uMaterialRect1Vs; };StructuredBuffer<float4> gSkinMatrices : register(t7);Texture2D gVertexDisplacementMap : register(t1);SamplerState gVertexSampCC : register(s0);struct InstanceData { float4 model0; float4 model1; float4 model2; float4 model3; float4 color; uint4 skinMeta; };StructuredBuffer<InstanceData> gInstances : register(t6);struct VSIn { float3 pos : POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 nrm : NORMAL; float4 jnts : BLENDINDICES; float4 wgts : BLENDWEIGHT; float4 tan : TANGENT; float2 sourceUv1 : TEXCOORD1; float2 sourceUv2 : TEXCOORD2; };struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 worldPos : TEXCOORD1; float3 worldNormal : TEXCOORD2; float4 worldTangent : TEXCOORD3; float3 generated : TEXCOORD4; float2 sourceUv1 : TEXCOORD5; float2 sourceUv2 : TEXCOORD6; };static const int kMaxSkinMatrices = 128;float4 resolveSkinMeta(InstanceData inst) {  if (inst.skinMeta.x != 0u) return float4(1.0f, (float)inst.skinMeta.y, (float)inst.skinMeta.z, (float)inst.skinMeta.w);  return uSkinMeta;}float4x4 loadPackedMatrix(uint baseFloat4) {  float4 c0 = gSkinMatrices[baseFloat4 + 0u];  float4 c1 = gSkinMatrices[baseFloat4 + 1u];  float4 c2 = gSkinMatrices[baseFloat4 + 2u];  float4 c3 = gSkinMatrices[baseFloat4 + 3u];  return float4x4(c0.x, c1.x, c2.x, c3.x, c0.y, c1.y, c2.y, c3.y, c0.z, c1.z, c2.z, c3.z, c0.w, c1.w, c2.w, c3.w);}float4x4 loadSkinMatrix(float4 skinMeta, int jointIndex, int c) {  const uint jointBase = (uint)skinMeta.w + (uint)(jointIndex * 4);  if (skinMeta.z > 0.5f) {    const uint inverseBindBase = (uint)skinMeta.w + (uint)(c * 4 + jointIndex * 4);    return mul(loadPackedMatrix(jointBase), loadPackedMatrix(inverseBindBase));  }  return loadPackedMatrix(jointBase);}float3 applySkinningPos(VSIn i, float3 localPos, float4 skinMeta) {  if (skinMeta.x < 0.5f) return localPos;  float4 blended = float4(0.0f, 0.0f, 0.0f, 0.0f);  float totalWeight = 0.0f;  int c = (int)skinMeta.y;  int j0 = (int)round(i.jnts.x); float w0 = i.wgts.x;  int j1 = (int)round(i.jnts.y); float w1 = i.wgts.y;  int j2 = (int)round(i.jnts.z); float w2 = i.wgts.z;  int j3 = (int)round(i.jnts.w); float w3 = i.wgts.w;  if (w0 > 0.00001f && j0 >= 0 && j0 < c && j0 < kMaxSkinMatrices) { blended += mul(loadSkinMatrix(skinMeta, j0, c), float4(localPos, 1.0f)) * w0; totalWeight += w0; }  if (w1 > 0.00001f && j1 >= 0 && j1 < c && j1 < kMaxSkinMatrices) { blended += mul(loadSkinMatrix(skinMeta, j1, c), float4(localPos, 1.0f)) * w1; totalWeight += w1; }  if (w2 > 0.00001f && j2 >= 0 && j2 < c && j2 < kMaxSkinMatrices) { blended += mul(loadSkinMatrix(skinMeta, j2, c), float4(localPos, 1.0f)) * w2; totalWeight += w2; }  if (w3 > 0.00001f && j3 >= 0 && j3 < c && j3 < kMaxSkinMatrices) { blended += mul(loadSkinMatrix(skinMeta, j3, c), float4(localPos, 1.0f)) * w3; totalWeight += w3; }  if (totalWeight <= 0.00001f) return localPos;  if (totalWeight < 0.999f) blended += float4(localPos, 1.0f) * (1.0f - totalWeight);  return blended.xyz;}float3 applySkinningNormal(VSIn i, float3 localNormal, float4 skinMeta) {  if (skinMeta.x < 0.5f) return localNormal;  float3 blended = float3(0.0f, 0.0f, 0.0f);  float totalWeight = 0.0f;  int c = (int)skinMeta.y;  int j0 = (int)round(i.jnts.x); float w0 = i.wgts.x;  int j1 = (int)round(i.jnts.y); float w1 = i.wgts.y;  int j2 = (int)round(i.jnts.z); float w2 = i.wgts.z;  int j3 = (int)round(i.jnts.w); float w3 = i.wgts.w;  if (w0 > 0.00001f && j0 >= 0 && j0 < c && j0 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j0, c), localNormal) * w0; totalWeight += w0; }  if (w1 > 0.00001f && j1 >= 0 && j1 < c && j1 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j1, c), localNormal) * w1; totalWeight += w1; }  if (w2 > 0.00001f && j2 >= 0 && j2 < c && j2 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j2, c), localNormal) * w2; totalWeight += w2; }  if (w3 > 0.00001f && j3 >= 0 && j3 < c && j3 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j3, c), localNormal) * w3; totalWeight += w3; }  if (totalWeight <= 0.00001f) return localNormal;  if (totalWeight < 0.999f) blended += localNormal * (1.0f - totalWeight);  float len2 = dot(blended, blended);  return (len2 > 1e-8f) ? normalize(blended) : float3(0.0f, 1.0f, 0.0f);}float4 applySkinningTangent(VSIn i, float4 localTangent, float4 skinMeta) {  if (skinMeta.x < 0.5f) return localTangent;  float3 tangent = localTangent.xyz;  float3 blended = float3(0.0f, 0.0f, 0.0f);  float totalWeight = 0.0f;  int c = (int)skinMeta.y;  int j0 = (int)round(i.jnts.x); float w0 = i.wgts.x;  int j1 = (int)round(i.jnts.y); float w1 = i.wgts.y;  int j2 = (int)round(i.jnts.z); float w2 = i.wgts.z;  int j3 = (int)round(i.jnts.w); float w3 = i.wgts.w;  if (w0 > 0.00001f && j0 >= 0 && j0 < c && j0 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j0, c), tangent) * w0; totalWeight += w0; }  if (w1 > 0.00001f && j1 >= 0 && j1 < c && j1 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j1, c), tangent) * w1; totalWeight += w1; }  if (w2 > 0.00001f && j2 >= 0 && j2 < c && j2 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j2, c), tangent) * w2; totalWeight += w2; }  if (w3 > 0.00001f && j3 >= 0 && j3 < c && j3 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j3, c), tangent) * w3; totalWeight += w3; }  if (totalWeight <= 0.00001f) return localTangent;  if (totalWeight < 0.999f) blended += tangent * (1.0f - totalWeight);  float len2 = dot(blended, blended);  if (len2 > 1e-8f) blended = normalize(blended);  else blended = tangent;  return float4(blended, localTangent.w);}float4 applyInstancePos(InstanceData inst, float3 localPos) {  return inst.model0 * localPos.x + inst.model1 * localPos.y + inst.model2 * localPos.z + inst.model3;}float3 applyInstanceLinear(InstanceData inst, float3 localDir) {  return inst.model0.xyz * localDir.x + inst.model1.xyz * localDir.y + inst.model2.xyz * localDir.z;}
 __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
 VSOut main(VSIn i, uint instanceId : SV_InstanceID) {  VSOut o;  InstanceData inst = gInstances[instanceId];  float4 skinMeta = resolveSkinMeta(inst);  float3 localPos = i.pos;  float3 localNormal = i.nrm;  float4 localTangent = i.tan;  float normalLengthSquared = dot(localNormal, localNormal);  if (uMaterialMode > 2.5f && uMaterialMode < 3.5f && normalLengthSquared > 1e-10f) localPos += localNormal * rsqrt(normalLengthSquared) * 0.001f;
 __PHLOSION_PROJECT_MATERIAL_EVALUATION__
-  if (skinMeta.x > 0.5f) {    localPos = applySkinningPos(i, localPos, skinMeta);    localNormal = applySkinningNormal(i, localNormal, skinMeta);    localTangent = applySkinningTangent(i, localTangent, skinMeta);  }  float4 instanceWorld = applyInstancePos(inst, localPos);  float4 world = mul(uModel, instanceWorld);  float4 clip = mul(uViewProj, world);  clip.z = clip.z * 0.5f + clip.w * 0.5f;  clip.z -= uClipMeta.x * clip.w;  o.pos = clip;  o.uv = i.uv;  o.sourceUv1 = i.sourceUv1;  o.sourceUv2 = i.sourceUv2;  o.col = i.col * inst.color;  float3 genDen = max(uMaterialRect1Vs.xyz - uMaterialRect0Vs.xyz, float3(1e-5f, 1e-5f, 1e-5f));  o.generated = saturate((i.pos - uMaterialRect0Vs.xyz) / genDen);  o.worldPos = world.xyz;  float3x3 normalM = (float3x3)uModel;  float3 instanceNormal = applyInstanceLinear(inst, localNormal);  float3 wn = mul(normalM, instanceNormal);  float wnLen2 = dot(wn, wn);  o.worldNormal = (wnLen2 > 1e-8f) ? normalize(wn) : float3(0.0f, 1.0f, 0.0f);  float3 instanceTangent = applyInstanceLinear(inst, localTangent.xyz);  float3 wt = mul(normalM, instanceTangent);  float wtLen2 = dot(wt, wt);  if (wtLen2 > 1e-8f) wt = normalize(wt);  o.worldTangent = float4(wt, localTangent.w);  return o;})HLSL";
+  if (skinMeta.x > 0.5f) {    localPos = applySkinningPos(i, localPos, skinMeta);    localNormal = applySkinningNormal(i, localNormal, skinMeta);    localTangent = applySkinningTangent(i, localTangent, skinMeta);  }  float4 instanceWorld = applyInstancePos(inst, localPos);  float4 world = mul(uModel, instanceWorld);  float4 clip = mul(uViewProj, world);  clip.z = clip.z * 0.5f + clip.w * 0.5f;  clip.z -= uClipMeta.x * clip.w;  if (uEnvironmentSunVs.w > 0.5f && uEnvironmentRadianceVs.w > 0.5f) clip.z = clip.w;  o.pos = clip;  o.uv = i.uv;  o.sourceUv1 = i.sourceUv1;  o.sourceUv2 = i.sourceUv2;  o.col = i.col * inst.color;  float3 genDen = max(uMaterialRect1Vs.xyz - uMaterialRect0Vs.xyz, float3(1e-5f, 1e-5f, 1e-5f));  o.generated = saturate((i.pos - uMaterialRect0Vs.xyz) / genDen);  o.worldPos = world.xyz;  float3x3 normalM = (float3x3)uModel;  float3 instanceNormal = applyInstanceLinear(inst, localNormal);  float3 wn = mul(normalM, instanceNormal);  float wnLen2 = dot(wn, wn);  o.worldNormal = (wnLen2 > 1e-8f) ? normalize(wn) : float3(0.0f, 1.0f, 0.0f);  float3 instanceTangent = applyInstanceLinear(inst, localTangent.xyz);  float3 wt = mul(normalM, instanceTangent);  float wtLen2 = dot(wt, wt);  if (wtLen2 > 1e-8f) wt = normalize(wt);  o.worldTangent = float4(wt, localTangent.w);  return o;})HLSL";
     const std::string kVsSource = engine::render::injectWorldMaterialProfile(kVertexTemplate, worldMaterialProfile_.d3d12Vertex);
     static const std::string kPsSource = R"HLSL(
+cbuffer EnvironmentConstants : register(b0) {
+  float4 _environmentReserved[10];
+  float4 uEnvironmentSun;
+  float4 uEnvironmentRadiance;
+  float4 uEnvironmentAmbient;
+  float4 uEnvironmentHaze;
+  float4 uEnvironmentHeight;
+  float4 uEnvironmentNight;
+  float4 uEnvironmentCamera;
+};
 cbuffer PSConstants : register(b1) {
   float uUseTexture;
   float uWrapS;
@@ -88,6 +98,14 @@ SamplerState gSampMC : register(s8);
 struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 worldPos : TEXCOORD1; float3 worldNormal : TEXCOORD2; float4 worldTangent : TEXCOORD3; float3 generated : TEXCOORD4; float2 sourceUv1 : TEXCOORD5; float2 sourceUv2 : TEXCOORD6; };
 
 
+#define ENV_SUN uEnvironmentSun
+#define ENV_RADIANCE uEnvironmentRadiance
+#define ENV_AMBIENT uEnvironmentAmbient
+#define ENV_HAZE uEnvironmentHaze
+#define ENV_HEIGHT uEnvironmentHeight
+#define ENV_NIGHT uEnvironmentNight
+#define ENV_LUT(uv) gTex.SampleLevel(gSampCC, uv, 0.0).rgb
+__PHLOSION_ENVIRONMENT_SHADER__
 __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
 int legacyWrapIndex(int index, int size, float mode) {
   if (abs(mode - 33071.0f) < 0.5f) return clamp(index, 0, size - 1);
@@ -99,6 +117,11 @@ int legacyWrapIndex(int index, int size, float mode) {
   return (index % size + size) % size;
 }
 float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
+  if (ENV_SUN.w > 0.5f && ENV_RADIANCE.w > 0.5f) {
+    float3 camera = uEnvironmentCamera.xyz;
+    float3 sky = environmentSky(i.worldPos-camera);
+    return float4(resolveWorldSceneColor(tonemapACESFilmic(sky, ENV_AMBIENT.w)), 1.0f);
+  }
   if (uMaterialMode >= 249.5f && uMaterialMode != 254.0f) {
     float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
     if (uUseTexture > 0.5f) {
@@ -479,13 +502,13 @@ float3 applyWorldLitModel(PSIn i,
   camRight = safeNormalize(camRight, float3(1.0f, 0.0f, 0.0f));
   float3 camUp = safeNormalize(cross(camRight, camForward), float3(0.0f, 1.0f, 0.0f));
   float3 v = safeNormalize(cameraPos - i.worldPos, -camForward);
-  const float3 directColor = float3(1.0f, 1.0f, 1.0f);
-  const float directIntensity = __PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265f;
-  const float3 ambientColor = float3(1.0f, 1.0f, 1.0f);
-  const float ambientIntensity = __PHLOSION_PBR_AMBIENT_INTENSITY__;
+  float3 directColor = ENV_SUN.w > 0.5 ? ENV_RADIANCE.rgb : float3(1.0f, 1.0f, 1.0f);
+  float directIntensity = ENV_SUN.w > 0.5 ? 1.0 : __PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265f;
+  float3 ambientColor = ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb : float3(1.0f, 1.0f, 1.0f);
+  float ambientIntensity = ENV_SUN.w > 0.5 ? 1.0 : __PHLOSION_PBR_AMBIENT_INTENSITY__;
 
   float3 lightPos = cameraPos + camRight * 0.5f + camUp * 0.0f - camForward * 0.8660254f;
-  float3 l0 = safeNormalize(lightPos - cameraTarget, float3(0.45f, 0.86f, 0.24f));
+  float3 l0 = ENV_SUN.w > 0.5 ? ENV_SUN.xyz : safeNormalize(lightPos - cameraTarget, float3(0.45f, 0.86f, 0.24f));
   float3 direct = evalDirectPbr(n, v, l0, directColor * directIntensity, albedo, F0, roughness, metallic);
 
   float NdotV = max(dot(n, v), 0.0f);
@@ -494,8 +517,8 @@ float3 applyWorldLitModel(PSIn i,
   float3 kD = (float3(1.0f, 1.0f, 1.0f) - kS) * (1.0f - metallic);
 
   float3 r = reflect(-v, n);
-  float3 envIrradiance = 3.14159265f * sampleNeutralEnvironment(n, 1.0f);
-  float3 envRadiance = sampleNeutralEnvironment(r, roughness);
+  float3 envIrradiance = ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb * 3.14159265f : 3.14159265f * sampleNeutralEnvironment(n, 1.0f);
+  float3 envRadiance = ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb * 0.5 : sampleNeutralEnvironment(r, roughness);
   float3 singleScattering = float3(0.0f, 0.0f, 0.0f);
   float3 multiScattering = float3(0.0f, 0.0f, 0.0f);
   computeMultiscattering(n, v, F0, specularF90, roughness, singleScattering, multiScattering);
@@ -643,7 +666,8 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
         i.worldNormal,
         reviewCameraForward);
   }
-  const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
+  outLinear = environmentHaze(outLinear, i.worldPos, uEnvironmentCamera.xyz);
+    float toneMappingExposure = ENV_SUN.w > 0.5 ? ENV_AMBIENT.w : __PHLOSION_PBR_TONEMAP_EXPOSURE__;
   const float toneMappingMode = 1.0f;
   float3 mapped = applyViewerToneMapping(
       max(outLinear, float3(0.0f, 0.0f, 0.0f)),
@@ -732,7 +756,7 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
     rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParams[0].Descriptor.ShaderRegister = 0;
     rootParams[0].Descriptor.RegisterSpace = 0;
-    rootParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+    rootParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     rootParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     rootParams[1].Constants.Num32BitValues = static_cast<UINT>(sizeof(WorldPsConstants) / sizeof(float));
     rootParams[1].Constants.ShaderRegister = 1;
@@ -1068,7 +1092,7 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
     worldIndexMappedData_ = static_cast<std::uint8_t*>(worldIndexMapped);
 
     // Per-draw VS constant upload ring buffer (view-proj + model + skin meta).
-    const std::size_t kWorldVsConstantsBytesPerDraw = alignUp(40u * sizeof(float), 256u);
+    const std::size_t kWorldVsConstantsBytesPerDraw = kWorldViewConstantStride;
     const std::size_t kMaxWorldDrawsPerFrame = 4096u;
     const std::size_t kWorldVsConstantsBufferBytesPerFrame =
         kWorldVsConstantsBytesPerDraw * kMaxWorldDrawsPerFrame;

@@ -811,6 +811,8 @@ constexpr std::uint64_t editorProjectPluginLayoutFingerprint() noexcept {
     PHLOSION_EDITOR_ABI_TYPE(EditorProjectTerrainTileEditRequest);
     PHLOSION_EDITOR_ABI_TYPE(IEditorProjectRuntime);
     PHLOSION_EDITOR_ABI_TYPE(IRenderBackend);
+    PHLOSION_EDITOR_ABI_TYPE(IRenderBackend::WorldTextureData);
+    PHLOSION_EDITOR_ABI_TYPE(IRenderBackend::WorldSceneView);
     PHLOSION_EDITOR_ABI_TYPE(ProjectDescriptor);
     PHLOSION_EDITOR_ABI_TYPE(std::string);
     PHLOSION_EDITOR_ABI_TYPE(EditorProjectPluginContract);

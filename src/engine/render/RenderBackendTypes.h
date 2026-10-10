@@ -8,6 +8,7 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include "engine/render/WorldEnvironmentLighting.h"
 
 namespace engine::render::backend {
 
@@ -244,6 +245,7 @@ struct WorldTextureData {
     std::uint8_t gpuSkinningMode = 0u;
     std::uint32_t skinMatrixCount = 0u;
     const float* skinMatrices = nullptr;
+    engine::render::WorldEnvironmentLighting environment;
 };
 
 struct WorldMeshInstance {
@@ -611,6 +613,7 @@ struct WorldSceneView {
     std::array<float, 3> cameraWorldPos{0.0f, 7.0f, 9.0f};
     std::array<float, 3> cameraForward{0.0f, -0.6139406f, -0.7893522f};
     std::array<float, 3> cameraTarget{0.0f, -1.0f, 0.0f};
+    engine::render::WorldEnvironmentLighting environment;
 };
 
 struct WorldTriangle {

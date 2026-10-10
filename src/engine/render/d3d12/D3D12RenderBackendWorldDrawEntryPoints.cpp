@@ -73,7 +73,7 @@ void D3D12RenderBackend::drawWorldTriangles(const WorldTriangle* triangles,
         static_cast<std::size_t>(worldVsConstantFrameBaseOffset_) +
         static_cast<std::size_t>(worldVsConstantBufferBytesPerFrame_);
     if (neededBytes == 0 || writeOffset + neededBytes > vertexFrameEnd) return;
-    if (vsConstantsWriteOffset + 256u > vsConstantsFrameEnd) return;
+    if (vsConstantsWriteOffset + kWorldViewConstantStride > vsConstantsFrameEnd) return;
 
     WorldVertex* out = reinterpret_cast<WorldVertex*>(worldVertexMappedData_ + writeOffset);
     for (std::size_t i = 0; i < safeCount; ++i) {
@@ -120,7 +120,7 @@ void D3D12RenderBackend::drawWorldTriangles(const WorldTriangle* triangles,
         commandList_->SetDescriptorHeaps(1, heaps);
     }
     commandList_->SetGraphicsRootSignature(worldRootSignature_.Get());
-    float vsConstants[40] = {};
+    float vsConstants[kWorldViewConstantFloats] = {};
     packWorldVsConstants(viewProjectionMatrix4x4, nullptr, false, 0u, 0u, 0.0f, vsConstants);
     std::memcpy(
         worldVsConstantMappedData_ + vsConstantsWriteOffset,
@@ -165,7 +165,7 @@ void D3D12RenderBackend::drawWorldTriangles(const WorldTriangle* triangles,
     ++frameDrawCalls_;
     frameTriangles_ += static_cast<std::uint64_t>(vertexCount / 3u);
     worldVertexFrameOffset_ = static_cast<UINT>(writeOffset + neededBytes);
-    worldVsConstantFrameOffset_ = static_cast<UINT>(vsConstantsWriteOffset + 256u);
+    worldVsConstantFrameOffset_ = static_cast<UINT>(vsConstantsWriteOffset + kWorldViewConstantStride);
 #else
     (void)triangles;
     (void)triangleCount;

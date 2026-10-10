@@ -120,6 +120,7 @@ foreach(_shader IN LISTS PHLOSION_VULKAN_SHADER_SOURCES)
         list(APPEND _shader_dependencies
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/portable_material.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_material.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_atmosphere.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
     elseif (_shader STREQUAL "world_indirect.vert")
         list(APPEND _shader_dependencies
@@ -129,6 +130,7 @@ foreach(_shader IN LISTS PHLOSION_VULKAN_SHADER_SOURCES)
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/portable_material.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_indirect_state.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_material.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_atmosphere.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
     endif()
     add_custom_command(
@@ -153,6 +155,7 @@ foreach(_shader IN ITEMS world world_indirect)
         "${_source}"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/portable_material.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_material.glsl"
+        "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_atmosphere.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
     if (_shader STREQUAL "world_indirect")
         list(APPEND _shader_dependencies
@@ -370,6 +373,7 @@ add_library(engine_render STATIC
     src/engine/render/ModelCache.cpp
     src/engine/render/RendererParityContract.cpp
     src/engine/render/WorldPbrShaderShared.cpp
+    src/engine/render/AtmosphereSky.cpp
     src/engine/render/WorldMaterialProfile.cpp
     src/engine/render/NeutralPmrem.cpp
     src/engine/render/gltf/ModelFastGltfLoader.cpp
@@ -1170,3 +1174,9 @@ if (PHLOSION_BUILD_TESTS)
         endif()
     endif()
 endif()
+
+# One atmosphere shader source is compiled into GL/HLSL and included by Vulkan.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_atmosphere.glsl")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_atmosphere.glsl" PHLOSION_ATMOSPHERE_SOURCE)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WorldAtmosphereSource.h.in" "${CMAKE_CURRENT_BINARY_DIR}/generated/WorldAtmosphereSource.h" @ONLY)
+target_include_directories(engine_render PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")

@@ -173,6 +173,7 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     texture.materialFlipbook1Rows = material.materialFlipbook1Rows;
     texture.materialFlipbook1Frames = material.materialFlipbook1Frames;
     texture.materialFlipbook1Fps = material.materialFlipbook1Fps;
+    texture.environment = view.environment;
     texture.cameraPosX = view.cameraWorldPos[0];
     texture.cameraPosY = view.cameraWorldPos[1];
     texture.cameraPosZ = view.cameraWorldPos[2];

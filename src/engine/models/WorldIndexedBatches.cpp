@@ -72,6 +72,7 @@ int compareStringViews(std::string_view lhs, std::string_view rhs) {
 }
 
 struct AutoInstanceKey {
+    render::WorldEnvironmentUniforms environment{};
     std::string_view geometryCacheKey{};
     bool hasBaseTexture = false;
     bool hasNormalTexture = false;
@@ -135,7 +136,7 @@ struct AutoInstanceKey {
     float materialFlipbook1Fps = 0.0f;
 
     bool operator==(const AutoInstanceKey& other) const {
-        return geometryCacheKey == other.geometryCacheKey &&
+        return environment == other.environment && geometryCacheKey == other.geometryCacheKey &&
                hasBaseTexture == other.hasBaseTexture &&
                hasNormalTexture == other.hasNormalTexture &&
                hasMetallicRoughnessTexture == other.hasMetallicRoughnessTexture &&
@@ -214,6 +215,8 @@ std::size_t hashFloat(float value) {
 struct AutoInstanceKeyHash {
     std::size_t operator()(const AutoInstanceKey& key) const {
         std::size_t h = 0u;
+        for (const auto& vector : key.environment)
+            for (float value : vector) hashCombine(h, std::hash<float>{}(value));
         hashCombine(h, std::hash<std::string_view>{}(key.geometryCacheKey));
         hashCombine(h, std::hash<bool>{}(key.hasBaseTexture));
         hashCombine(h, std::hash<bool>{}(key.hasNormalTexture));
@@ -387,6 +390,7 @@ bool resolvedTextureHasStableIdentity(const WorldIndexedBatch& batch,
 AutoInstanceKey makeAutoInstanceKey(const WorldIndexedBatch& batch) {
     const WorldIndexedBatch& materialBatch = materialTemplateOrSelf(batch);
     AutoInstanceKey key{};
+    key.environment = render::packWorldEnvironment(batch.environment);
     key.geometryCacheKey = batch.geometryCacheKey;
     key.hasBaseTexture = resolvedTexturePresent(
         batch,
@@ -1418,6 +1422,7 @@ IRenderBackend::WorldTextureData toWorldTextureData(const WorldIndexedBatch& bat
     tex.materialFlipbook1Rows = materialBatch.materialFlipbook1Rows;
     tex.materialFlipbook1Frames = materialBatch.materialFlipbook1Frames;
     tex.materialFlipbook1Fps = materialBatch.materialFlipbook1Fps;
+    tex.environment = batch.environment;
     tex.modelMatrix = batch.modelMatrix;
     tex.gpuSkinning = batch.gpuSkinning;
     tex.gpuSkinningMode = batch.gpuSkinningMode;

@@ -19,6 +19,16 @@ void require(bool condition, const std::string& message) {
 class WarmBackend final : public IRenderBackend {
 public:
     int textures=0,geometry=0,draws=0;
+    engine::render::WorldEnvironmentLighting environment;
+    bool instancing=false;
+    int instancedDraws=0;
+    bool supportsWorldIndexedMeshInstancing() const override {return instancing;}
+    void drawWorldIndexedMeshTexturedCachedInstanced(const char*,const WorldMeshVertex*,std::size_t,
+        const std::uint32_t*,std::size_t,const WorldTextureData* texture,
+        const WorldMeshInstance*,std::size_t,const float*,int,int) override {
+        ++draws; ++instancedDraws; environment=texture->environment;
+    }
+
     const char* backendId() const override {return "recording";}
     void beginFrame(float,float,float,float) override {}
     void endFrame() override {}
@@ -30,7 +40,7 @@ public:
     void prewarmWorldIndexedMeshCached(const char*,const WorldMeshVertex*,std::size_t,
         const std::uint32_t*,std::size_t) override {++geometry;}
     void drawWorldIndexedMeshTexturedCached(const char*,const WorldMeshVertex*,std::size_t,
-        const std::uint32_t*,std::size_t,const WorldTextureData*,const float*,int,int) override {++draws;}
+        const std::uint32_t*,std::size_t,const WorldTextureData* texture,const float*,int,int) override {++draws; environment=texture->environment;}
 };
 bool near(float a, float b) { return std::abs(a-b) < 0.0001f; }
 engine::models::MeshData fixture() {
@@ -124,6 +134,10 @@ int main() {
         engine::render::ModelRenderPluginApi api;
         require(!createModelRenderProvider(5, &api) && !api.context,
             "Provider accepted an incompatible ABI");
+        require(!createModelRenderProvider(7, &api) && !api.context,
+            "Provider accepted pre-environment renderer ABI 7");
+        require(!createModelRenderProvider(8, &api) && !api.context,
+            "Provider accepted a frame without the environment tail");
         require(createModelRenderProvider(engine::render::modelRenderPluginAbi, &api), "Provider creation failed");
         struct Release {
             engine::render::ModelRenderPluginApi& api;
@@ -140,13 +154,44 @@ int main() {
         require(api.render(api.context,&warm) && backend.geometry==preparedGeometry*2 && backend.draws==0,
             "Repeated preparation unexpectedly draws");
         warm.prewarmOnly=false;
+        warm.environment.enabled=true; warm.environment.sunRadiance={1,2,3};
         require(api.render(api.context,&warm) && backend.draws>0, "Prepared model failed to render");
+        require(backend.environment.enabled && backend.environment.sunRadiance==warm.environment.sunRadiance,
+            "Runtime provider dropped shared world lighting");
+        warm.environment={};
+        require(api.render(api.context,&warm) && !backend.environment.enabled,
+            "World lighting leaked into a later inspection draw");
+        warm.environment.enabled=true;
         engine::render::ModelRenderPluginApi legacy;
         require(createModelRenderProvider(6,&legacy) && legacy.abi==6, "ABI 6 clients lost compatibility");
         warm.prewarmOnly=true; const int previousDraws=backend.draws;
         require(legacy.render(legacy.context,&warm) && backend.draws>previousDraws,
             "ABI 6 provider read the new frame tail");
+        require(!backend.environment.enabled,"ABI 6 read the environment tail");
         legacy.destroy(legacy.context);
+        std::vector<batches::WorldIndexedBatch> submissions(2);
+        for (auto& batch : submissions) {
+            batch.geometryCacheKey="shared-static-triangle";
+            batch.vertices.resize(3); batch.indices={0,1,2};
+            batch.environment.enabled=true;
+        }
+        submissions[1].environment.sunRadiance={1,2,3};
+        backend.instancing=true;
+        const int beforeSeparate=backend.draws;
+        const glm::mat4 identity(1);
+        batches::submitWorldIndexedBatches(backend,submissions,&identity[0][0],640,360);
+        require(backend.draws==beforeSeparate+2 && backend.instancedDraws==0,
+            "Instancing merged different world environments");
+        submissions[0].environment=submissions[1].environment;
+        batches::submitWorldIndexedBatches(backend,submissions,&identity[0][0],640,360);
+        require(backend.instancedDraws==1 && backend.environment.enabled,
+            "Matching world environments no longer share instanced geometry");
+        submissions[0].environment.sunDirection[0]=-0.0f;
+        batches::submitWorldIndexedBatches(backend,submissions,&identity[0][0],640,360);
+        require(backend.instancedDraws==2,
+            "Equivalent signed-zero environment values did not share instancing");
+
+
         engine::render::ModelNodePoseRequest request;
         request.assetId = "lamp"; request.phloPath = path.c_str(); request.nodeName = "bulb";
         engine::render::ModelNodePoseResult result;

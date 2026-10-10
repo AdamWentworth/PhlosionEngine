@@ -451,6 +451,12 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
         uniform vec3 uCameraPos;
         uniform vec3 uCameraForward;
         uniform vec3 uCameraTarget;
+        uniform vec4 uEnvironmentSun;
+        uniform vec4 uEnvironmentRadiance;
+        uniform vec4 uEnvironmentAmbient;
+        uniform vec4 uEnvironmentHaze;
+        uniform vec4 uEnvironmentHeight;
+        uniform vec4 uEnvironmentNight;
         uniform float uMaterialMode;
         uniform float uMaterialTimeSec;
         uniform float uMaterialFlags;
@@ -491,8 +497,22 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
         out vec4 FragBlendAlpha;
 
 
+#define ENV_SUN uEnvironmentSun
+#define ENV_RADIANCE uEnvironmentRadiance
+#define ENV_AMBIENT uEnvironmentAmbient
+#define ENV_HAZE uEnvironmentHaze
+#define ENV_HEIGHT uEnvironmentHeight
+#define ENV_NIGHT uEnvironmentNight
+#define ENV_LUT(uv) textureLod(uTexture, uv, 0.0).rgb
+__PHLOSION_ENVIRONMENT_SHADER__
 __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
         void main() {
+            if (ENV_SUN.w > 0.5 && ENV_RADIANCE.w > 0.5) {
+                vec3 radiance = environmentSky(vWorldPos-uCameraPos);
+                FragColor = vec4(resolveWorldSceneColor(tonemapACESFilmic(radiance, ENV_AMBIENT.w)), 1.0);
+                FragBlendAlpha = vec4(0.0);
+                return;
+            }
             if (uMaterialMode >= 249.5 && uMaterialMode != 254.0) {
                 vec4 tex = uUseTexture > 0.5 ? texture(uTexture, vUv) : vec4(1.0);
                 vec4 color = clamp(vColor * uVertexColorMul * tex, 0.0, 1.0);
@@ -780,13 +800,13 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             camRight = safeNormalize(camRight, vec3(1.0, 0.0, 0.0));
             vec3 camUp = safeNormalize(cross(camRight, camForward), vec3(0.0, 1.0, 0.0));
             vec3 v = safeNormalize(uCameraPos - vWorldPos, -camForward);
-            const vec3 directColor = vec3(1.0);
-            const float directIntensity = __PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265;
-            const vec3 ambientColor = vec3(1.0);
-            const float ambientIntensity = __PHLOSION_PBR_AMBIENT_INTENSITY__;
+            vec3 directColor = ENV_SUN.w > 0.5 ? ENV_RADIANCE.rgb : vec3(1.0);
+            float directIntensity = ENV_SUN.w > 0.5 ? 1.0 : __PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265;
+            vec3 ambientColor = ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb : vec3(1.0);
+            float ambientIntensity = ENV_SUN.w > 0.5 ? 1.0 : __PHLOSION_PBR_AMBIENT_INTENSITY__;
 
             vec3 lightPos = uCameraPos + camRight * 0.5 + camUp * 0.0 - camForward * 0.8660254;
-            vec3 l0 = safeNormalize(lightPos - uCameraTarget, vec3(0.45, 0.86, 0.24));
+            vec3 l0 = ENV_SUN.w > 0.5 ? ENV_SUN.xyz : safeNormalize(lightPos - uCameraTarget, vec3(0.45, 0.86, 0.24));
             vec3 direct = evalDirectPbr(
 )GLSL"
         R"GLSL(                n, v, l0, directColor * directIntensity, albedo, F0, roughness, metallic);
@@ -797,8 +817,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
 
             vec3 r = reflect(-v, n);
-            vec3 envIrradiance = 3.14159265 * sampleNeutralEnvironment(n, 1.0);
-            vec3 envRadiance = sampleNeutralEnvironment(r, roughness);
+            vec3 envIrradiance = ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb * 3.14159265 : 3.14159265 * sampleNeutralEnvironment(n, 1.0);
+            vec3 envRadiance = ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb * 0.5 : sampleNeutralEnvironment(r, roughness);
             vec3 singleScattering = vec3(0.0);
             vec3 multiScattering = vec3(0.0);
             computeMultiscattering(n, v, F0, specularF90, roughness, singleScattering, multiScattering);
@@ -956,7 +976,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                     vWorldNormal,
                     uCameraForward);
             }
-            const float toneMappingExposure = __PHLOSION_PBR_TONEMAP_EXPOSURE__;
+            outLinear = environmentHaze(outLinear, vWorldPos, uCameraPos);
+    float toneMappingExposure = ENV_SUN.w > 0.5 ? ENV_AMBIENT.w : __PHLOSION_PBR_TONEMAP_EXPOSURE__;
             const float toneMappingMode = 1.0;
             vec3 mapped = applyViewerToneMapping(max(outLinear, vec3(0.0)), toneMappingMode, toneMappingExposure);
             vec3 outSrgb = resolveWorldSceneColor(mapped);
@@ -1033,6 +1054,12 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
     worldCameraPosLoc_ = glGetUniformLocation(worldProgram_, "uCameraPos");
     worldCameraForwardLoc_ = glGetUniformLocation(worldProgram_, "uCameraForward");
     worldCameraTargetLoc_ = glGetUniformLocation(worldProgram_, "uCameraTarget");
+    worldEnvironmentLocs_[0] = glGetUniformLocation(worldProgram_, "uEnvironmentSun");
+    worldEnvironmentLocs_[1] = glGetUniformLocation(worldProgram_, "uEnvironmentRadiance");
+    worldEnvironmentLocs_[2] = glGetUniformLocation(worldProgram_, "uEnvironmentAmbient");
+    worldEnvironmentLocs_[3] = glGetUniformLocation(worldProgram_, "uEnvironmentHaze");
+    worldEnvironmentLocs_[4] = glGetUniformLocation(worldProgram_, "uEnvironmentHeight");
+    worldEnvironmentLocs_[5] = glGetUniformLocation(worldProgram_, "uEnvironmentNight");
     worldNormalScaleLoc_ = glGetUniformLocation(worldProgram_, "uNormalScale");
     worldMetallicFactorLoc_ = glGetUniformLocation(worldProgram_, "uMetallicFactor");
     worldRoughnessFactorLoc_ = glGetUniformLocation(worldProgram_, "uRoughnessFactor");
@@ -1211,6 +1238,7 @@ void OpenGLRenderBackend::destroyWorldPipeline() {
     worldCameraPosLoc_ = -1;
     worldCameraForwardLoc_ = -1;
     worldCameraTargetLoc_ = -1;
+    worldEnvironmentLocs_.fill(-1);
     worldNormalScaleLoc_ = -1;
     worldMetallicFactorLoc_ = -1;
     worldRoughnessFactorLoc_ = -1;

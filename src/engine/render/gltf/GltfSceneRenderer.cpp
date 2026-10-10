@@ -117,6 +117,7 @@ WorldTextureData makeTextureData(const GltfSceneMaterial& material,
     texture.cameraTargetX = options.cameraTarget[0];
     texture.cameraTargetY = options.cameraTarget[1];
     texture.cameraTargetZ = options.cameraTarget[2];
+    texture.environment = options.environment;
     texture.materialTimeSec = 0.0f;
     return texture;
 }

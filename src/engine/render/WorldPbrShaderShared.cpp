@@ -1,5 +1,6 @@
 #include "engine/render/WorldPbrShaderShared.h"
 
+#include "WorldAtmosphereSource.h"
 #include <iomanip>
 #include <sstream>
 
@@ -512,6 +513,13 @@ std::string injectSharedWorldPbr(std::string_view source, ShaderLanguage languag
     const std::string_view section =
         (language == ShaderLanguage::Hlsl) ? sharedWorldPbrSectionHlsl() : sharedWorldPbrSectionGlsl();
     replaceAll(out, "__PHLOSION_SHARED_WORLD_PBR_SECTION__", section);
+    std::string atmosphere(worldAtmosphereSource);
+    if (hlslLiterals) {
+        replaceAll(atmosphere, "vec3", "float3");
+        replaceAll(atmosphere, "vec2", "float2");
+        replaceAll(atmosphere, "mix(", "lerp(");
+    }
+    replaceAll(out, "__PHLOSION_ENVIRONMENT_SHADER__", atmosphere);
     return out;
 }
 

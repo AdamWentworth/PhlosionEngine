@@ -189,6 +189,7 @@ struct WorldIndexedBatch {
     std::uint32_t skinMatrixCount = 0u;
     const float* sharedSkinMatrices = nullptr;
     std::vector<float> skinMatrices;
+    render::WorldEnvironmentLighting environment;
 
     bool hasGeometry() const {
         const bool hasVertices =

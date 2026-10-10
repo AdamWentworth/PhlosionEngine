@@ -719,7 +719,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
         alignUp(static_cast<std::size_t>(worldVsConstantFrameOffset_), 256u);
     if (vertexWriteOffset + vertexBytes > vertexFrameEnd ||
         indexWriteOffset + indexBytes > indexFrameEnd ||
-        vsConstantsWriteOffset + 256u > vsConstantsFrameEnd) {
+        vsConstantsWriteOffset + kWorldViewConstantStride > vsConstantsFrameEnd) {
         return;
     }
 
@@ -790,7 +790,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
         }
     }
 
-    float vsConstants[40] = {};
+    float vsConstants[kWorldViewConstantFloats] = {};
     packWorldVsConstants(
         viewProjectionMatrix4x4,
         modelMatrix,
@@ -799,6 +799,12 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
         gpuSkinningMode,
         textureData ? textureData->clipSpaceDepthBias : 0.0f,
         vsConstants);
+    const auto environment = engine::render::packWorldEnvironment(
+        textureData ? textureData->environment : engine::render::WorldEnvironmentLighting{});
+    std::memcpy(vsConstants + 40, environment.data(), sizeof(environment));
+    vsConstants[64] = textureData ? textureData->cameraPosX : 0.f;
+    vsConstants[65] = textureData ? textureData->cameraPosY : 7.f;
+    vsConstants[66] = textureData ? textureData->cameraPosZ : 9.f;
     std::memcpy(
         worldVsConstantMappedData_ + vsConstantsWriteOffset,
         vsConstants,
@@ -886,7 +892,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
 
     worldVertexFrameOffset_ = static_cast<UINT>(vertexWriteOffset + vertexBytes);
     worldIndexFrameOffset_ = static_cast<UINT>(indexWriteOffset + indexBytes);
-    worldVsConstantFrameOffset_ = static_cast<UINT>(vsConstantsWriteOffset + 256u);
+    worldVsConstantFrameOffset_ = static_cast<UINT>(vsConstantsWriteOffset + kWorldViewConstantStride);
 #else
     (void)vertices;
     (void)vertexCount;
@@ -1005,9 +1011,9 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
 
     const std::size_t vsConstantsWriteOffset =
         alignUp(static_cast<std::size_t>(worldVsConstantFrameOffset_), 256u);
-    if (vsConstantsWriteOffset + 256u > vsConstantsFrameEnd) return;
+    if (vsConstantsWriteOffset + kWorldViewConstantStride > vsConstantsFrameEnd) return;
 
-    float vsConstants[40] = {};
+    float vsConstants[kWorldViewConstantFloats] = {};
     packWorldVsConstants(
         viewProjectionMatrix4x4,
         modelMatrix,
@@ -1016,6 +1022,12 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
         gpuSkinningMode,
         textureData ? textureData->clipSpaceDepthBias : 0.0f,
         vsConstants);
+    const auto environment = engine::render::packWorldEnvironment(
+        textureData ? textureData->environment : engine::render::WorldEnvironmentLighting{});
+    std::memcpy(vsConstants + 40, environment.data(), sizeof(environment));
+    vsConstants[64] = textureData ? textureData->cameraPosX : 0.f;
+    vsConstants[65] = textureData ? textureData->cameraPosY : 7.f;
+    vsConstants[66] = textureData ? textureData->cameraPosZ : 9.f;
     std::memcpy(
         worldVsConstantMappedData_ + vsConstantsWriteOffset,
         vsConstants,
@@ -1100,6 +1112,6 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     frameTriangles_ += static_cast<std::uint64_t>(mesh.indexCount / 3u) *
                        static_cast<std::uint64_t>(instanceCount);
 
-    worldVsConstantFrameOffset_ = static_cast<UINT>(vsConstantsWriteOffset + 256u);
+    worldVsConstantFrameOffset_ = static_cast<UINT>(vsConstantsWriteOffset + kWorldViewConstantStride);
 }
 #endif

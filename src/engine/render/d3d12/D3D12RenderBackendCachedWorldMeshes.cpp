@@ -391,8 +391,8 @@ void D3D12RenderBackend::drawWorldIndexedMeshCachedInternal(const CachedWorldMes
     const std::size_t vsConstantsFrameEnd =
         static_cast<std::size_t>(worldVsConstantFrameBaseOffset_) +
         static_cast<std::size_t>(worldVsConstantBufferBytesPerFrame_);
-    if (vsConstantsWriteOffset + 256u > vsConstantsFrameEnd) return;
-    float vsConstants[36] = {};
+    if (vsConstantsWriteOffset + kWorldViewConstantStride > vsConstantsFrameEnd) return;
+    float vsConstants[kWorldViewConstantFloats] = {};
     std::memcpy(vsConstants, viewProjectionMatrix4x4, sizeof(float) * 16u);
     std::memcpy(vsConstants + 16u, kIdentity, sizeof(float) * 16u);
     vsConstants[32] = 0.0f;
@@ -447,6 +447,6 @@ void D3D12RenderBackend::drawWorldIndexedMeshCachedInternal(const CachedWorldMes
     commandList_->DrawIndexedInstanced(static_cast<UINT>(mesh.indexCount), 1, 0, 0, 0);
     ++frameDrawCalls_;
     frameTriangles_ += static_cast<std::uint64_t>(mesh.indexCount / 3u);
-    worldVsConstantFrameOffset_ = static_cast<UINT>(vsConstantsWriteOffset + 256u);
+    worldVsConstantFrameOffset_ = static_cast<UINT>(vsConstantsWriteOffset + kWorldViewConstantStride);
 }
 #endif

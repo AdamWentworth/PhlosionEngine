@@ -51,6 +51,7 @@ struct GltfSceneDrawOptions {
     // Optional explicit GPU ownership. Create/release this renderer-owned scope
     // through IWorldResourceScope. Zero retains the legacy unowned cache path.
     engine::render::WorldResourceScopeId resourceScope = 0u;
+    engine::render::WorldEnvironmentLighting environment;
 };
 
 struct GltfSceneDrawStats {

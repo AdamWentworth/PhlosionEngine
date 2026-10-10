@@ -131,7 +131,7 @@ vec3 evaluateDirectPbr(vec3 normal,
     vec3 specular = distribution * geometry * fresnel /
                     max(4.0 * normalDotView * normalDotLight, 1e-4);
     vec3 diffuseWeight = (vec3(1.0) - fresnel) * (1.0 - metallic);
-    const float directIntensity = 0.72 * 3.14159265;
+    vec3 directIntensity = ENV_SUN.w > 0.5 ? ENV_RADIANCE.rgb : vec3(0.72 * 3.14159265);
     return (diffuseWeight * albedo / 3.14159265 + specular) *
            directIntensity * normalDotLight;
 }
@@ -243,7 +243,7 @@ vec3 evaluateWorldMaterial(vec3 albedo,
     vec3 view = safeNormalize(cameraPosition - position, -cameraForward);
     vec3 lightPosition =
         cameraPosition + cameraRight * 0.5 - cameraForward * 0.8660254;
-    vec3 light = safeNormalize(
+    vec3 light = ENV_SUN.w > 0.5 ? ENV_SUN.xyz : safeNormalize(
         lightPosition - cameraTarget, vec3(0.45, 0.86, 0.24));
     vec4 orm = useMetallicRoughnessMap
         ? sampleWorldMaterialTexture(
@@ -274,8 +274,10 @@ vec3 evaluateWorldMaterial(vec3 albedo,
     vec3 diffuseWeight = (vec3(1.0) - fresnel) * (1.0 - metallic);
     vec3 reflection = reflect(-view, normal);
     vec3 environmentIrradiance =
+        ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb * 3.14159265 :
         3.14159265 * sampleNeutralEnvironment(environmentMap, normal, 1.0);
     vec3 environmentRadiance =
+        ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb * 0.5 :
         sampleNeutralEnvironment(environmentMap, reflection, roughness);
     vec3 singleScattering;
     vec3 multiScattering;
@@ -297,7 +299,7 @@ vec3 evaluateWorldMaterial(vec3 albedo,
          multiScattering * cosineWeightedIrradiance) * 0.44;
     specularIbl *= clamp(specularIblScale, 0.0, 1.0);
     specularIbl *= computeSpecularOcclusion(normalDotView, occlusion, roughness);
-    vec3 ambient = diffuseWeight * albedo * 0.56;
+    vec3 ambient = diffuseWeight * albedo * (ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb : vec3(0.56));
     vec3 shaded = direct + diffuseIbl + specularIbl + ambient;
     vec3 emissive = clamp(
         sampleWorldMaterialTexture(

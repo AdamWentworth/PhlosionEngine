@@ -812,6 +812,10 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     const float cameraTargetZ = texture ? texture->cameraTargetZ : 0.0f;
     glUniform3f(worldCameraPosLoc_, cameraPosX, cameraPosY, cameraPosZ);
     glUniform3f(worldCameraForwardLoc_, cameraForwardX, cameraForwardY, cameraForwardZ);
+    const auto environment = engine::render::packWorldEnvironment(
+        texture ? texture->environment : engine::render::WorldEnvironmentLighting{});
+    for (std::size_t i=0; i<environment.size(); ++i)
+        glUniform4fv(worldEnvironmentLocs_[i], 1, environment[i].data());
     if (worldCameraTargetLoc_ >= 0) {
         glUniform3f(worldCameraTargetLoc_, cameraTargetX, cameraTargetY, cameraTargetZ);
     }
