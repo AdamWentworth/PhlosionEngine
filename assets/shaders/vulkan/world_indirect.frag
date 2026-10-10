@@ -23,6 +23,9 @@ layout(set = 1, binding = 0) uniform WorldViewState {
     vec4 environmentHaze;
     vec4 environmentHeight;
     vec4 environmentNight;
+    vec4 environmentMoon;
+    vec4 environmentMoonLight;
+    vec4 environmentCelestial;
 } worldView;
 
 layout(location = 0) in vec2 vertexUv;
@@ -47,6 +50,11 @@ layout(location = 0) out vec4 outColor;
 #define ENV_HAZE worldView.environmentHaze
 #define ENV_HEIGHT worldView.environmentHeight
 #define ENV_NIGHT worldView.environmentNight
+#define ENV_MOON worldView.environmentMoon
+#define ENV_MOON_LIGHT worldView.environmentMoonLight
+#define ENV_CELESTIAL worldView.environmentCelestial
+#define ENV_LUT(uv) vec3(0.0)
+#include "world_atmosphere.glsl"
 #ifndef PHLOSION_PROJECT_MATERIAL
 #include "world_material.glsl"
 #endif
@@ -102,8 +110,6 @@ vec3 encodeWorldSurfaceColor(vec3 linearColor) {
 
 
 
-#define ENV_LUT(uv) vec3(0.0)
-#include "world_atmosphere.glsl"
 void main() {
     WorldIndirectDrawState portableDraw = worldIndirectDraws.states[drawStateIndex];
     if (portableDraw.materialParams.w >= 249.5 && portableDraw.materialParams.w != 254.0) {

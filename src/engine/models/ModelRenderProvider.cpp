@@ -140,7 +140,7 @@ bool createModelRenderProvider(std::uint32_t abi,render::ModelRenderPluginApi* o
     try {
         auto provider=std::make_unique<Provider>();
         provider->supportsPrewarm=abi>=7;
-        provider->supportsEnvironment=abi>=9;
+        provider->supportsEnvironment=abi==render::modelRenderPluginAbi;
         provider->profile=profile?std::move(profile):std::make_shared<ModelProfile>();
         provider->lighting=std::move(lighting);
         *out={abi,sizeof(render::ModelRenderPluginApi),provider.release(),&renderModel,&lastError,&destroy,&sampleNode};

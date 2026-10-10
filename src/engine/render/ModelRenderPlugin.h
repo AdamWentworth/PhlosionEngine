@@ -6,8 +6,8 @@
 
 namespace engine::render {
 
-// ABI 9 appends the shared world environment to runtime model frames.
-inline constexpr std::uint32_t modelRenderPluginAbi = 9;
+// ABI 10 extends the shared world environment with celestial inputs.
+inline constexpr std::uint32_t modelRenderPluginAbi = 10;
 inline constexpr char modelRenderPluginEntryPoint[] = "phlosionModelRenderPluginCreate";
 
 // Project renderers may present cooked models outside the asset inspector.

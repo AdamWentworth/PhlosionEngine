@@ -457,6 +457,9 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
         uniform vec4 uEnvironmentHaze;
         uniform vec4 uEnvironmentHeight;
         uniform vec4 uEnvironmentNight;
+        uniform vec4 uEnvironmentMoon;
+        uniform vec4 uEnvironmentMoonLight;
+        uniform vec4 uEnvironmentCelestial;
         uniform float uMaterialMode;
         uniform float uMaterialTimeSec;
         uniform float uMaterialFlags;
@@ -503,13 +506,17 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
 #define ENV_HAZE uEnvironmentHaze
 #define ENV_HEIGHT uEnvironmentHeight
 #define ENV_NIGHT uEnvironmentNight
+#define ENV_MOON uEnvironmentMoon
+#define ENV_MOON_LIGHT uEnvironmentMoonLight
+#define ENV_CELESTIAL uEnvironmentCelestial
 #define ENV_LUT(uv) textureLod(uTexture, uv, 0.0).rgb
 __PHLOSION_ENVIRONMENT_SHADER__
 __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
         void main() {
             if (ENV_SUN.w > 0.5 && ENV_RADIANCE.w > 0.5) {
                 vec3 radiance = environmentSky(vWorldPos-uCameraPos);
-                FragColor = vec4(resolveWorldSceneColor(tonemapACESFilmic(radiance, ENV_AMBIENT.w)), 1.0);
+                vec3 skyColor = resolveWorldSceneColor(tonemapACESFilmic(radiance, ENV_AMBIENT.w));
+                FragColor = vec4(environmentDitherSky(skyColor, vWorldPos-uCameraPos), 1.0);
                 FragBlendAlpha = vec4(0.0);
                 return;
             }
@@ -800,13 +807,13 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             camRight = safeNormalize(camRight, vec3(1.0, 0.0, 0.0));
             vec3 camUp = safeNormalize(cross(camRight, camForward), vec3(0.0, 1.0, 0.0));
             vec3 v = safeNormalize(uCameraPos - vWorldPos, -camForward);
-            vec3 directColor = ENV_SUN.w > 0.5 ? ENV_RADIANCE.rgb : vec3(1.0);
+            vec3 directColor = ENV_SUN.w > 0.5 ? environmentLightRadiance() : vec3(1.0);
             float directIntensity = ENV_SUN.w > 0.5 ? 1.0 : __PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265;
             vec3 ambientColor = ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb : vec3(1.0);
             float ambientIntensity = ENV_SUN.w > 0.5 ? 1.0 : __PHLOSION_PBR_AMBIENT_INTENSITY__;
 
             vec3 lightPos = uCameraPos + camRight * 0.5 + camUp * 0.0 - camForward * 0.8660254;
-            vec3 l0 = ENV_SUN.w > 0.5 ? ENV_SUN.xyz : safeNormalize(lightPos - uCameraTarget, vec3(0.45, 0.86, 0.24));
+            vec3 l0 = ENV_SUN.w > 0.5 ? environmentLightDirection() : safeNormalize(lightPos - uCameraTarget, vec3(0.45, 0.86, 0.24));
             vec3 direct = evalDirectPbr(
 )GLSL"
         R"GLSL(                n, v, l0, directColor * directIntensity, albedo, F0, roughness, metallic);
@@ -1060,6 +1067,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
     worldEnvironmentLocs_[3] = glGetUniformLocation(worldProgram_, "uEnvironmentHaze");
     worldEnvironmentLocs_[4] = glGetUniformLocation(worldProgram_, "uEnvironmentHeight");
     worldEnvironmentLocs_[5] = glGetUniformLocation(worldProgram_, "uEnvironmentNight");
+    worldEnvironmentLocs_[6] = glGetUniformLocation(worldProgram_, "uEnvironmentMoon");
+    worldEnvironmentLocs_[7] = glGetUniformLocation(worldProgram_, "uEnvironmentMoonLight");
+    worldEnvironmentLocs_[8] = glGetUniformLocation(worldProgram_, "uEnvironmentCelestial");
     worldNormalScaleLoc_ = glGetUniformLocation(worldProgram_, "uNormalScale");
     worldMetallicFactorLoc_ = glGetUniformLocation(worldProgram_, "uMetallicFactor");
     worldRoughnessFactorLoc_ = glGetUniformLocation(worldProgram_, "uRoughnessFactor");

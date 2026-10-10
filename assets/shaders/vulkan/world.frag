@@ -20,6 +20,9 @@ layout(set = 1, binding = 0) uniform WorldViewState {
     vec4 environmentHaze;
     vec4 environmentHeight;
     vec4 environmentNight;
+    vec4 environmentMoon;
+    vec4 environmentMoonLight;
+    vec4 environmentCelestial;
 } worldView;
 layout(set = 1, binding = 1) uniform WorldSpecializedMaterialState {
     vec4 timingFlagsAtlas;
@@ -62,6 +65,11 @@ layout(location = 0) out vec4 outColor;
 #define ENV_HAZE worldView.environmentHaze
 #define ENV_HEIGHT worldView.environmentHeight
 #define ENV_NIGHT worldView.environmentNight
+#define ENV_MOON worldView.environmentMoon
+#define ENV_MOON_LIGHT worldView.environmentMoonLight
+#define ENV_CELESTIAL worldView.environmentCelestial
+#define ENV_LUT(uv) textureLod(baseColorTexture, uv, 0.0).rgb
+#include "world_atmosphere.glsl"
 #ifndef PHLOSION_PROJECT_MATERIAL
 #include "world_material.glsl"
 #endif
@@ -115,12 +123,11 @@ vec3 encodeWorldSurfaceColor(vec3 linearColor) {
 
 
 
-#define ENV_LUT(uv) textureLod(baseColorTexture, uv, 0.0).rgb
-#include "world_atmosphere.glsl"
 void main() {
     if (ENV_SUN.w > 0.5 && ENV_RADIANCE.w > 0.5) {
         vec3 mapped = tonemapACESFilmic(environmentSky(worldPosition-worldView.cameraPosition.xyz), ENV_AMBIENT.w);
-        writeWorldColor(vec4(pushData.shadingParams.w > 0.5 ? mapped : linearToSrgb(mapped), 1.0));
+        vec3 skyColor = pushData.shadingParams.w > 0.5 ? mapped : linearToSrgb(mapped);
+        writeWorldColor(vec4(environmentDitherSky(skyColor, worldPosition-worldView.cameraPosition.xyz), 1.0));
         return;
     }
     if (pushData.materialParams.w >= 249.5 && pushData.materialParams.w != 254.0) {

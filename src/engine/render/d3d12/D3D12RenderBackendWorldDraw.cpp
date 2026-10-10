@@ -258,6 +258,9 @@ void packWorldInstanceVertexData(const IRenderBackend::WorldMeshInstance& instan
 #if defined(_WIN32)
 ID3D12PipelineState* D3D12RenderBackend::selectWorldPipelineState(
     const WorldTextureData* textureData) const {
+    if (textureData && textureData->environment.enabled && textureData->environment.skyDraw &&
+        engine::render::packWorldEnvironment(textureData->environment)[0][3] > 0.5f)
+        return worldSkyPipelineState_.Get();
     const auto blendState = engine::render::world_blend::resolve(
         textureData ? textureData->alphaMode : 0u,
         textureData ? textureData->blendMode : 0u,
@@ -802,9 +805,9 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
     const auto environment = engine::render::packWorldEnvironment(
         textureData ? textureData->environment : engine::render::WorldEnvironmentLighting{});
     std::memcpy(vsConstants + 40, environment.data(), sizeof(environment));
-    vsConstants[64] = textureData ? textureData->cameraPosX : 0.f;
-    vsConstants[65] = textureData ? textureData->cameraPosY : 7.f;
-    vsConstants[66] = textureData ? textureData->cameraPosZ : 9.f;
+    vsConstants[76] = textureData ? textureData->cameraPosX : 0.f;
+    vsConstants[77] = textureData ? textureData->cameraPosY : 7.f;
+    vsConstants[78] = textureData ? textureData->cameraPosZ : 9.f;
     std::memcpy(
         worldVsConstantMappedData_ + vsConstantsWriteOffset,
         vsConstants,
@@ -1025,9 +1028,9 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     const auto environment = engine::render::packWorldEnvironment(
         textureData ? textureData->environment : engine::render::WorldEnvironmentLighting{});
     std::memcpy(vsConstants + 40, environment.data(), sizeof(environment));
-    vsConstants[64] = textureData ? textureData->cameraPosX : 0.f;
-    vsConstants[65] = textureData ? textureData->cameraPosY : 7.f;
-    vsConstants[66] = textureData ? textureData->cameraPosZ : 9.f;
+    vsConstants[76] = textureData ? textureData->cameraPosX : 0.f;
+    vsConstants[77] = textureData ? textureData->cameraPosY : 7.f;
+    vsConstants[78] = textureData ? textureData->cameraPosZ : 9.f;
     std::memcpy(
         worldVsConstantMappedData_ + vsConstantsWriteOffset,
         vsConstants,

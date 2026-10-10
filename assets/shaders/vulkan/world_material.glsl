@@ -131,7 +131,7 @@ vec3 evaluateDirectPbr(vec3 normal,
     vec3 specular = distribution * geometry * fresnel /
                     max(4.0 * normalDotView * normalDotLight, 1e-4);
     vec3 diffuseWeight = (vec3(1.0) - fresnel) * (1.0 - metallic);
-    vec3 directIntensity = ENV_SUN.w > 0.5 ? ENV_RADIANCE.rgb : vec3(0.72 * 3.14159265);
+    vec3 directIntensity = ENV_SUN.w > 0.5 ? environmentLightRadiance() : vec3(0.72 * 3.14159265);
     return (diffuseWeight * albedo / 3.14159265 + specular) *
            directIntensity * normalDotLight;
 }
@@ -243,7 +243,7 @@ vec3 evaluateWorldMaterial(vec3 albedo,
     vec3 view = safeNormalize(cameraPosition - position, -cameraForward);
     vec3 lightPosition =
         cameraPosition + cameraRight * 0.5 - cameraForward * 0.8660254;
-    vec3 light = ENV_SUN.w > 0.5 ? ENV_SUN.xyz : safeNormalize(
+    vec3 light = ENV_SUN.w > 0.5 ? environmentLightDirection() : safeNormalize(
         lightPosition - cameraTarget, vec3(0.45, 0.86, 0.24));
     vec4 orm = useMetallicRoughnessMap
         ? sampleWorldMaterialTexture(

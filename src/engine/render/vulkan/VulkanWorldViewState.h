@@ -16,7 +16,7 @@ struct alignas(16) WorldViewState {
 };
 
 static_assert(std::is_standard_layout_v<WorldViewState>);
-static_assert(sizeof(WorldViewState) == 144u);
+static_assert(sizeof(WorldViewState) == 192u);
 static_assert(offsetof(WorldViewState, cameraPosition) == 0u);
 static_assert(offsetof(WorldViewState, cameraForward) == 16u);
 static_assert(offsetof(WorldViewState, cameraTarget) == 32u);

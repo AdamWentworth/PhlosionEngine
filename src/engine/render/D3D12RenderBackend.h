@@ -500,6 +500,7 @@ private:
     std::unordered_map<std::string, CachedDebugGeometry> cachedDebugLines_;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> worldRootSignature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldPipelineState_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> worldSkyPipelineState_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldBlendPipelineState_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldAdditiveBlendPipelineState_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldPremultipliedBlendPipelineState_;

@@ -33,6 +33,9 @@ cbuffer EnvironmentConstants : register(b0) {
   float4 uEnvironmentHaze;
   float4 uEnvironmentHeight;
   float4 uEnvironmentNight;
+  float4 uEnvironmentMoon;
+  float4 uEnvironmentMoonLight;
+  float4 uEnvironmentCelestial;
   float4 uEnvironmentCamera;
 };
 cbuffer PSConstants : register(b1) {
@@ -104,6 +107,9 @@ struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLO
 #define ENV_HAZE uEnvironmentHaze
 #define ENV_HEIGHT uEnvironmentHeight
 #define ENV_NIGHT uEnvironmentNight
+#define ENV_MOON uEnvironmentMoon
+#define ENV_MOON_LIGHT uEnvironmentMoonLight
+#define ENV_CELESTIAL uEnvironmentCelestial
 #define ENV_LUT(uv) gTex.SampleLevel(gSampCC, uv, 0.0).rgb
 __PHLOSION_ENVIRONMENT_SHADER__
 __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
@@ -117,11 +123,6 @@ int legacyWrapIndex(int index, int size, float mode) {
   return (index % size + size) % size;
 }
 float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
-  if (ENV_SUN.w > 0.5f && ENV_RADIANCE.w > 0.5f) {
-    float3 camera = uEnvironmentCamera.xyz;
-    float3 sky = environmentSky(i.worldPos-camera);
-    return float4(resolveWorldSceneColor(tonemapACESFilmic(sky, ENV_AMBIENT.w)), 1.0f);
-  }
   if (uMaterialMode >= 249.5f && uMaterialMode != 254.0f) {
     float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
     if (uUseTexture > 0.5f) {
@@ -167,6 +168,14 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
 
 float4 main(PSIn i, bool isFrontFace : SV_IsFrontFace) : SV_TARGET {
   return evaluateWorldPixel(i, isFrontFace);
+}
+
+// Keep sky derivatives/uint hashing outside FXC's optimized surface shader.
+// Combining them with the large source-material path corrupts opaque pixels.
+float4 mainSky(PSIn i) : SV_TARGET {
+  float3 ray = i.worldPos-uEnvironmentCamera.xyz;
+  float3 color = resolveWorldSceneColor(tonemapACESFilmic(environmentSky(ray), ENV_AMBIENT.w));
+  return float4(environmentDitherSky(color,ray),1.0f);
 }
 
 struct DualSourcePSOut {
@@ -502,13 +511,13 @@ float3 applyWorldLitModel(PSIn i,
   camRight = safeNormalize(camRight, float3(1.0f, 0.0f, 0.0f));
   float3 camUp = safeNormalize(cross(camRight, camForward), float3(0.0f, 1.0f, 0.0f));
   float3 v = safeNormalize(cameraPos - i.worldPos, -camForward);
-  float3 directColor = ENV_SUN.w > 0.5 ? ENV_RADIANCE.rgb : float3(1.0f, 1.0f, 1.0f);
+  float3 directColor = ENV_SUN.w > 0.5 ? environmentLightRadiance() : float3(1.0f, 1.0f, 1.0f);
   float directIntensity = ENV_SUN.w > 0.5 ? 1.0 : __PHLOSION_PBR_DIRECT_INTENSITY__ * 3.14159265f;
   float3 ambientColor = ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb : float3(1.0f, 1.0f, 1.0f);
   float ambientIntensity = ENV_SUN.w > 0.5 ? 1.0 : __PHLOSION_PBR_AMBIENT_INTENSITY__;
 
   float3 lightPos = cameraPos + camRight * 0.5f + camUp * 0.0f - camForward * 0.8660254f;
-  float3 l0 = ENV_SUN.w > 0.5 ? ENV_SUN.xyz : safeNormalize(lightPos - cameraTarget, float3(0.45f, 0.86f, 0.24f));
+  float3 l0 = ENV_SUN.w > 0.5 ? environmentLightDirection() : safeNormalize(lightPos - cameraTarget, float3(0.45f, 0.86f, 0.24f));
   float3 direct = evalDirectPbr(n, v, l0, directColor * directIntensity, albedo, F0, roughness, metallic);
 
   float NdotV = max(dot(n, v), 0.0f);
@@ -679,6 +688,7 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
 
     Microsoft::WRL::ComPtr<ID3DBlob> vsBlob;
     Microsoft::WRL::ComPtr<ID3DBlob> psBlob;
+    Microsoft::WRL::ComPtr<ID3DBlob> skyPsBlob;
     Microsoft::WRL::ComPtr<ID3DBlob> dualSourcePsBlob;
     Microsoft::WRL::ComPtr<ID3DBlob> errBlob;
     if (!compileHlslWithCache(kVsSource.c_str(),
@@ -734,6 +744,11 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
                 std::string("D3DCompile failed for world dual-source PS: ") + details);
         }
         throw std::runtime_error("D3DCompile failed for world dual-source PS.");
+    }
+    errBlob.Reset();
+    if (!compileHlslWithCache(worldPsSource.c_str(), worldPsSource.size(),
+                              "mainSky", "ps_5_0", d3dCompileFlags(), 0, skyPsBlob, errBlob) || !skyPsBlob) {
+        throw std::runtime_error("D3DCompile failed for world sky PS: " + d3dCompileErrorMessage(errBlob.Get()));
     }
 
     D3D12_DESCRIPTOR_RANGE materialSrvRange{};
@@ -904,6 +919,13 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
                                                     IID_PPV_ARGS(worldPipelineState_.ReleaseAndGetAddressOf()))) ||
         !worldPipelineState_) {
         throw std::runtime_error("CreateGraphicsPipelineState failed for D3D12 world pipeline.");
+    }
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC skyPso = pso;
+    skyPso.PS = {skyPsBlob->GetBufferPointer(), skyPsBlob->GetBufferSize()};
+    skyPso.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    if (FAILED(device_->CreateGraphicsPipelineState(&skyPso,
+            IID_PPV_ARGS(worldSkyPipelineState_.ReleaseAndGetAddressOf()))) || !worldSkyPipelineState_) {
+        throw std::runtime_error("CreateGraphicsPipelineState failed for D3D12 world sky pipeline.");
     }
     D3D12_GRAPHICS_PIPELINE_STATE_DESC blendPso = pso;
     blendPso.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;

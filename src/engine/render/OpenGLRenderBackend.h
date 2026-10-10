@@ -258,7 +258,7 @@ private:
     int worldAlphaWindowMaxLoc_ = -1;
     int worldCameraPosLoc_ = -1;
     int worldCameraForwardLoc_ = -1;
-    std::array<int, 6> worldEnvironmentLocs_{-1,-1,-1,-1,-1,-1};
+    std::array<int, 9> worldEnvironmentLocs_{-1,-1,-1,-1,-1,-1,-1,-1,-1};
     int worldCameraTargetLoc_ = -1;
     int worldNormalScaleLoc_ = -1;
     int worldMetallicFactorLoc_ = -1;

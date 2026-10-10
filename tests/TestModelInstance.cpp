@@ -138,6 +138,8 @@ int main() {
             "Provider accepted pre-environment renderer ABI 7");
         require(!createModelRenderProvider(8, &api) && !api.context,
             "Provider accepted a frame without the environment tail");
+        require(!createModelRenderProvider(9, &api) && !api.context,
+            "Provider accepted the pre-celestial frame layout");
         require(createModelRenderProvider(engine::render::modelRenderPluginAbi, &api), "Provider creation failed");
         struct Release {
             engine::render::ModelRenderPluginApi& api;
@@ -155,9 +157,12 @@ int main() {
             "Repeated preparation unexpectedly draws");
         warm.prewarmOnly=false;
         warm.environment.enabled=true; warm.environment.sunRadiance={1,2,3};
+        warm.environment.moonRadiance={.1f,.2f,.3f};warm.environment.starIntensity=.4f;
         require(api.render(api.context,&warm) && backend.draws>0, "Prepared model failed to render");
         require(backend.environment.enabled && backend.environment.sunRadiance==warm.environment.sunRadiance,
             "Runtime provider dropped shared world lighting");
+        require(backend.environment.moonRadiance==warm.environment.moonRadiance && backend.environment.starIntensity==.4f,
+            "Runtime provider dropped celestial inputs");
         warm.environment={};
         require(api.render(api.context,&warm) && !backend.environment.enabled,
             "World lighting leaked into a later inspection draw");
