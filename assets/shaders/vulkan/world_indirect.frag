@@ -26,6 +26,9 @@ layout(set = 1, binding = 0) uniform WorldViewState {
     vec4 environmentMoon;
     vec4 environmentMoonLight;
     vec4 environmentCelestial;
+    vec4 environmentCloudParams;
+    vec4 environmentCloudOffsets;
+    vec4 environmentCloudTint;
     vec4 pointLights[8];
     mat4 directionalShadowMatrix;
     vec4 directionalShadowParams;
@@ -57,6 +60,9 @@ layout(location = 0) out vec4 outColor;
 #define ENV_MOON worldView.environmentMoon
 #define ENV_MOON_LIGHT worldView.environmentMoonLight
 #define ENV_CELESTIAL worldView.environmentCelestial
+#define ENV_CLOUD_PARAMS worldView.environmentCloudParams
+#define ENV_CLOUD_OFFSETS worldView.environmentCloudOffsets
+#define ENV_CLOUD_TINT worldView.environmentCloudTint
 #define ENV_LUT(uv) vec3(0.0)
 #include "world_atmosphere.glsl"
 #define ENV_POINT(index) worldView.pointLights[index]

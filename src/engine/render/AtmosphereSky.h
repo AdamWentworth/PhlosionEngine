@@ -7,13 +7,14 @@
 
 namespace engine::render {
 
-// Reusable ground-level clear atmosphere. CPU data is built before activation;
+// Reusable ground-level atmosphere and layered clouds. Data is built before activation;
 // GPU data belongs to the caller's world scope, using existing portable draws.
 class AtmosphereSky {
 public:
     AtmosphereSky();
     static std::array<float, 3> referenceRadiance(float sunElevationRadians,
         float viewElevationRadians, float relativeAzimuthRadians);
+    static std::array<float, 2> referenceCloudDensity(float u, float v);
     void prewarm(IRenderBackend& renderer, WorldResourceScopeId scope) const;
     void draw(IRenderBackend& renderer, WorldResourceScopeId scope,
         const WorldEnvironmentLighting& environment,

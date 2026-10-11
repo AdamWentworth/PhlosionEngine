@@ -264,7 +264,7 @@ private:
     int worldAlphaWindowMaxLoc_ = -1;
     int worldCameraPosLoc_ = -1;
     int worldCameraForwardLoc_ = -1;
-    std::array<int, 9> worldEnvironmentLocs_{-1,-1,-1,-1,-1,-1,-1,-1,-1};
+    std::array<int, 12> worldEnvironmentLocs_{-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
     int worldPointLightsLoc_ = -1;
     unsigned int worldDirectionalShadowProgram_ = 0;
     std::vector<int> worldDirectionalShadowUniformLocations_;

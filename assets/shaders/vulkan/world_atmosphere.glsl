@@ -94,7 +94,45 @@ vec3 environmentMoon(vec3 ray) {
         albedo * (0.025+illumination*12.0) * disk;
 }
 
-vec3 environmentSky(vec3 ray) {
+vec3 environmentCloudSample(vec2 uv) {
+    uv -= floor(uv);
+    return ENV_LUT(vec2(1.0+uv.x*256.0,33.0+uv.y*256.0) / vec2(2048.0,290.0));
+}
+
+vec4 environmentCloudLayer(vec3 ray, vec3 camera, bool upper) {
+    float coverage = ENV_CLOUD_PARAMS.x;
+    vec2 offset = upper ? ENV_CLOUD_OFFSETS.zw : ENV_CLOUD_OFFSETS.xy;
+    float altitude = upper ? 1400.0 : 600.0;
+    float scale = upper ? 0.065/1400.0 : 0.11/600.0;
+    // A shallow curved layer keeps horizon intersections finite and smooth.
+    // The stable quadratic form avoids cancellation at the zenith.
+    float height = max(altitude-camera.y,1.0);
+    float shell = height*(120000.0+height);
+    float projected = 60000.0*max(ray.y,0.0);
+    float distanceToLayer = shell/(projected+sqrt(projected*projected+shell));
+    vec2 uv = (camera.xz+ray.xz*distanceToLayer)*scale-offset;
+    vec3 field = environmentCloudSample(uv);
+    float shape = upper ? field.g : field.r;
+    float threshold = mix(0.84,0.12,coverage);
+    float thickness = max(shape-threshold,0.0) * 8.0 * ENV_CLOUD_PARAMS.y;
+    float alpha = (1.0-exp(-thickness)) * smoothstep(threshold-0.045,threshold+0.065,shape);
+    alpha *= smoothstep(0.005,0.06,ray.y) * (upper ? 0.48 : 1.0);
+    vec3 key = environmentLightDirection();
+    vec2 lightOffset = key.xz * 0.028;
+    vec3 facing = environmentCloudSample(uv+lightOffset);
+    float neighbor = upper ? facing.g : facing.r;
+    float edgeLight = clamp((shape-neighbor)*5.0+0.35,0.0,1.0);
+    float silver = pow(max(dot(ray,key),0.0),12.0) * (1.0-alpha);
+    vec3 keyRadiance = environmentMoonIsPrimary() ? ENV_MOON_LIGHT.rgb : ENV_RADIANCE.rgb;
+    vec3 color = ENV_AMBIENT.rgb * mix(0.60,1.65,edgeLight) +
+        keyRadiance * (0.07+edgeLight*0.17+silver*0.28) * ENV_CLOUD_TINT.w;
+    color *= ENV_CLOUD_TINT.rgb;
+    // Distant layers soften into the same horizon haze as the world below.
+    color = mix(ENV_HAZE.rgb,color,smoothstep(0.02,0.22,ray.y));
+    return vec4(color,alpha);
+}
+
+vec3 environmentSky(vec3 ray, vec3 camera) {
     ray = normalize(ray);
     vec3 sun = ENV_SUN.xyz;
     float elevation = asin(clamp(ray.y, 0.0, 1.0));
@@ -106,8 +144,8 @@ vec3 environmentSky(vec3 ray) {
     float lower = floor(layer);
     float column = azimuth / 3.14159265 * 63.0 + 0.5;
     float row = sqrt(elevation / 1.5707963) * 31.0 + 0.5;
-    vec3 a = ENV_LUT(vec2((lower * 64.0 + column) / 2048.0, row / 32.0));
-    vec3 b = ENV_LUT(vec2((min(lower + 1.0, 31.0) * 64.0 + column) / 2048.0, row / 32.0));
+    vec3 a = ENV_LUT(vec2((lower * 64.0 + column) / 2048.0, row / 290.0));
+    vec3 b = ENV_LUT(vec2((min(lower + 1.0, 31.0) * 64.0 + column) / 2048.0, row / 290.0));
     vec3 scattering = mix(a*a, b*b, layer-lower) * 16.0 * ENV_HEIGHT.w;
     float daylight = smoothstep(-0.14, 0.02, sun.y);
     vec3 night = ENV_NIGHT.rgb * mix(1.8, 0.65, pow(max(ray.y, 0.0), 0.35));
@@ -121,8 +159,15 @@ vec3 environmentSky(vec3 ray) {
     if (daylight < 1.0 && ENV_CELESTIAL.w > 0.0)
         stars = environmentStars(ray) * ENV_CELESTIAL.w * (1.0-daylight) * smoothstep(0.02,0.25,ray.y);
     vec3 moon = environmentMoon(ray);
-    return scattering * daylight + night * (1.0-daylight) + ENV_RADIANCE.rgb * (disk*12.0+halo) +
+    vec3 sky = scattering * daylight + night * (1.0-daylight) + ENV_RADIANCE.rgb * (disk*12.0+halo) +
            moon + stars * (1.0-clamp(max(moon.r,max(moon.g,moon.b)),0.0,1.0));
+    if (ENV_CLOUD_PARAMS.x > 0.0 && ENV_CLOUD_PARAMS.y > 0.0 && ray.y > 0.005) {
+        vec4 upper = environmentCloudLayer(ray,camera,true);
+        vec4 lowerCloud = environmentCloudLayer(ray,camera,false);
+        sky = mix(sky,upper.rgb,upper.a);
+        sky = mix(sky,lowerCloud.rgb,lowerCloud.a);
+    }
+    return sky;
 }
 
 vec3 environmentHaze(vec3 color, vec3 position, vec3 camera) {

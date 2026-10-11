@@ -460,6 +460,9 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
         uniform vec4 uEnvironmentMoon;
         uniform vec4 uEnvironmentMoonLight;
         uniform vec4 uEnvironmentCelestial;
+        uniform vec4 uEnvironmentCloudParams;
+        uniform vec4 uEnvironmentCloudOffsets;
+        uniform vec4 uEnvironmentCloudTint;
         uniform float uMaterialMode;
         uniform float uMaterialTimeSec;
         uniform float uMaterialFlags;
@@ -509,6 +512,9 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
 #define ENV_MOON uEnvironmentMoon
 #define ENV_MOON_LIGHT uEnvironmentMoonLight
 #define ENV_CELESTIAL uEnvironmentCelestial
+#define ENV_CLOUD_PARAMS uEnvironmentCloudParams
+#define ENV_CLOUD_OFFSETS uEnvironmentCloudOffsets
+#define ENV_CLOUD_TINT uEnvironmentCloudTint
 #define ENV_LUT(uv) textureLod(uTexture, uv, 0.0).rgb
 __PHLOSION_ENVIRONMENT_SHADER__
 uniform vec4 uWorldPointLights[8];
@@ -526,7 +532,7 @@ __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
         void main() {
             updateEnvironmentDirectionalVisibility(vWorldPos, vWorldNormal, uMaterialMode);
             if (ENV_SUN.w > 0.5 && ENV_RADIANCE.w > 0.5) {
-                vec3 radiance = environmentSky(vWorldPos-uCameraPos);
+                vec3 radiance = environmentSky(vWorldPos-uCameraPos,uCameraPos);
                 vec3 skyColor = resolveWorldSceneColor(tonemapACESFilmic(radiance, ENV_AMBIENT.w));
                 FragColor = vec4(environmentDitherSky(skyColor, vWorldPos-uCameraPos), 1.0);
                 FragBlendAlpha = vec4(0.0);
@@ -1140,6 +1146,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
     worldEnvironmentLocs_[6] = glGetUniformLocation(worldProgram_, "uEnvironmentMoon");
     worldEnvironmentLocs_[7] = glGetUniformLocation(worldProgram_, "uEnvironmentMoonLight");
     worldEnvironmentLocs_[8] = glGetUniformLocation(worldProgram_, "uEnvironmentCelestial");
+    worldEnvironmentLocs_[9] = glGetUniformLocation(worldProgram_, "uEnvironmentCloudParams");
+    worldEnvironmentLocs_[10] = glGetUniformLocation(worldProgram_, "uEnvironmentCloudOffsets");
+    worldEnvironmentLocs_[11] = glGetUniformLocation(worldProgram_, "uEnvironmentCloudTint");
     worldNormalScaleLoc_ = glGetUniformLocation(worldProgram_, "uNormalScale");
     worldMetallicFactorLoc_ = glGetUniformLocation(worldProgram_, "uMetallicFactor");
     worldRoughnessFactorLoc_ = glGetUniformLocation(worldProgram_, "uRoughnessFactor");

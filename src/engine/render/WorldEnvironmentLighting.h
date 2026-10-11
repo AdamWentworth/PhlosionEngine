@@ -41,10 +41,17 @@ struct WorldEnvironmentLighting {
     float moonAngularRadius = 0;
     float moonPhase = 1;
     float starIntensity = 0;
+    // Two periodic sky layers. Offsets are UV displacement; density is optical
+    // thickness and tint is scene-linear. Zero coverage preserves clear sky.
+    float cloudCoverage = 0;
+    float cloudDensity = 1;
+    std::array<float, 4> cloudOffsets{};
+    std::array<float, 3> cloudTint{1, 1, 1};
+    float cloudLightResponse = 1;
     std::array<WorldPointLight, 4> pointLights{};
 };
 
-using WorldEnvironmentUniforms = std::array<std::array<float, 4>, 9>;
+using WorldEnvironmentUniforms = std::array<std::array<float, 4>, 12>;
 
 inline WorldEnvironmentUniforms packWorldEnvironment(const WorldEnvironmentLighting& e) {
     WorldEnvironmentUniforms out{};
@@ -60,6 +67,11 @@ inline WorldEnvironmentUniforms packWorldEnvironment(const WorldEnvironmentLight
         e.moonRadiance[0], e.moonRadiance[1], e.moonRadiance[2], e.moonPhase,
         e.sunAngularRadius, e.sunHaloStrength, e.sunHaloWidth, e.starIntensity};
     for (float v : values) if (!std::isfinite(v)) return out;
+    const std::array cloudValues{e.cloudCoverage, e.cloudDensity,
+        e.cloudOffsets[0], e.cloudOffsets[1], e.cloudOffsets[2], e.cloudOffsets[3],
+        e.cloudTint[0], e.cloudTint[1], e.cloudTint[2], e.cloudLightResponse};
+    for (float v : cloudValues) if (!std::isfinite(v)) return out;
+    if (e.cloudDensity < 0 || e.cloudLightResponse < 0) return out;
     const float length = std::hypot(e.sunDirection[0], e.sunDirection[1], e.sunDirection[2]);
     const float moonLength = std::hypot(e.moonDirection[0], e.moonDirection[1], e.moonDirection[2]);
     if (!std::isfinite(length) || length < 1e-5f || !std::isfinite(moonLength) || moonLength < 1e-5f || e.exposure <= 0 || e.hazeDensity < 0 || e.hazeHeightFalloff < 0) return out;
@@ -77,6 +89,13 @@ inline WorldEnvironmentUniforms packWorldEnvironment(const WorldEnvironmentLight
     out[6] = {e.moonDirection[0]/moonLength,e.moonDirection[1]/moonLength,e.moonDirection[2]/moonLength,std::clamp(e.moonAngularRadius,0.f,.04f)};
     out[7] = {moon[0],moon[1],moon[2],std::clamp(e.moonPhase,0.f,1.f)};
     out[8] = {std::clamp(e.sunAngularRadius,0.f,.04f),std::clamp(e.sunHaloStrength,0.f,1.f),std::clamp(e.sunHaloWidth,.001f,.15f),std::clamp(e.starIntensity,0.f,1.f)};
+    if (e.cloudCoverage > 0 && e.cloudDensity > 0) {
+        out[9] = {std::clamp(e.cloudCoverage,0.f,1.f),std::min(e.cloudDensity,4.f),0,0};
+        for (std::size_t i = 0; i < 4; ++i)
+            out[10][i] = e.cloudOffsets[i] - std::floor(e.cloudOffsets[i]);
+        const auto tint = nonnegative(e.cloudTint);
+        out[11] = {tint[0],tint[1],tint[2],std::min(e.cloudLightResponse,2.f)};
+    }
     return out;
 }
 

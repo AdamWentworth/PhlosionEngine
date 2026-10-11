@@ -518,6 +518,7 @@ std::string injectSharedWorldPbr(std::string_view source, ShaderLanguage languag
     std::string atmosphere(worldAtmosphereSource);
     if (hlslLiterals) {
         replaceAll(atmosphere, "float environmentDirectionalVisibility = 1.0;", "static float environmentDirectionalVisibility = 1.0f;");
+        replaceAll(atmosphere, "vec4", "float4");
         replaceAll(atmosphere, "vec3", "float3");
         replaceAll(atmosphere, "vec2", "float2");
         replaceAll(atmosphere, "mix(", "lerp(");

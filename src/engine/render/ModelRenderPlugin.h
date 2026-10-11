@@ -6,8 +6,8 @@
 
 namespace engine::render {
 
-// ABI 12 adds world-material directional caster/receiver flags.
-inline constexpr std::uint32_t modelRenderPluginAbi = 12;
+// ABI 13 adds bounded layered-cloud inputs to world environment lighting.
+inline constexpr std::uint32_t modelRenderPluginAbi = 13;
 inline constexpr char modelRenderPluginEntryPoint[] = "phlosionModelRenderPluginCreate";
 
 // Project renderers may present cooked models outside the asset inspector.

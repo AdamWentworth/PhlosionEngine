@@ -44,6 +44,9 @@ cbuffer EnvironmentConstants : register(b0) {
   float4 uEnvironmentMoon;
   float4 uEnvironmentMoonLight;
   float4 uEnvironmentCelestial;
+  float4 uEnvironmentCloudParams;
+  float4 uEnvironmentCloudOffsets;
+  float4 uEnvironmentCloudTint;
   float4 uEnvironmentCamera;
   float4 uWorldPointLights[8];
   float4x4 uWorldShadowMatrix;
@@ -123,6 +126,9 @@ struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLO
 #define ENV_MOON uEnvironmentMoon
 #define ENV_MOON_LIGHT uEnvironmentMoonLight
 #define ENV_CELESTIAL uEnvironmentCelestial
+#define ENV_CLOUD_PARAMS uEnvironmentCloudParams
+#define ENV_CLOUD_OFFSETS uEnvironmentCloudOffsets
+#define ENV_CLOUD_TINT uEnvironmentCloudTint
 #define ENV_LUT(uv) gTex.SampleLevel(gSampCC, uv, 0.0).rgb
 __PHLOSION_ENVIRONMENT_SHADER__
 #define ENV_POINT(index) uWorldPointLights[index]
@@ -196,7 +202,7 @@ float4 main(PSIn i, bool isFrontFace : SV_IsFrontFace) : SV_TARGET {
 // Combining them with the large source-material path corrupts opaque pixels.
 float4 mainSky(PSIn i) : SV_TARGET {
   float3 ray = i.worldPos-uEnvironmentCamera.xyz;
-  float3 color = resolveWorldSceneColor(tonemapACESFilmic(environmentSky(ray), ENV_AMBIENT.w));
+  float3 color = resolveWorldSceneColor(tonemapACESFilmic(environmentSky(ray,uEnvironmentCamera.xyz), ENV_AMBIENT.w));
   return float4(environmentDitherSky(color,ray),1.0f);
 }
 

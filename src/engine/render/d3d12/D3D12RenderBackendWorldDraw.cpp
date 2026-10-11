@@ -849,15 +849,15 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
     std::memcpy(vsConstants + 40, environment.data(), sizeof(environment));
     const auto pointLights = engine::render::packWorldPointLights(
         textureData ? textureData->environment : engine::render::WorldEnvironmentLighting{});
-    std::memcpy(vsConstants + 80, pointLights.data(), sizeof(pointLights));
+    std::memcpy(vsConstants + 92, pointLights.data(), sizeof(pointLights));
     const auto shadow = worldShadowReady_ && !worldShadowActive_ && textureData &&
         textureData->environment.enabled && textureData->directionalShadowReceiver
         ? engine::render::packWorldDirectionalShadow(worldShadowView_)
         : engine::render::WorldDirectionalShadowState{};
-    std::memcpy(vsConstants + 112, &shadow, sizeof(shadow));
-    vsConstants[76] = textureData ? textureData->cameraPosX : 0.f;
-    vsConstants[77] = textureData ? textureData->cameraPosY : 7.f;
-    vsConstants[78] = textureData ? textureData->cameraPosZ : 9.f;
+    std::memcpy(vsConstants + 124, &shadow, sizeof(shadow));
+    vsConstants[88] = textureData ? textureData->cameraPosX : 0.f;
+    vsConstants[89] = textureData ? textureData->cameraPosY : 7.f;
+    vsConstants[90] = textureData ? textureData->cameraPosZ : 9.f;
     std::memcpy(
         worldVsConstantMappedData_ + vsConstantsWriteOffset,
         vsConstants,
@@ -1086,15 +1086,15 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     std::memcpy(vsConstants + 40, environment.data(), sizeof(environment));
     const auto pointLights = engine::render::packWorldPointLights(
         textureData ? textureData->environment : engine::render::WorldEnvironmentLighting{});
-    std::memcpy(vsConstants + 80, pointLights.data(), sizeof(pointLights));
+    std::memcpy(vsConstants + 92, pointLights.data(), sizeof(pointLights));
     const auto shadow = worldShadowReady_ && !worldShadowActive_ && textureData &&
         textureData->environment.enabled && textureData->directionalShadowReceiver
         ? engine::render::packWorldDirectionalShadow(worldShadowView_)
         : engine::render::WorldDirectionalShadowState{};
-    std::memcpy(vsConstants + 112, &shadow, sizeof(shadow));
-    vsConstants[76] = textureData ? textureData->cameraPosX : 0.f;
-    vsConstants[77] = textureData ? textureData->cameraPosY : 7.f;
-    vsConstants[78] = textureData ? textureData->cameraPosZ : 9.f;
+    std::memcpy(vsConstants + 124, &shadow, sizeof(shadow));
+    vsConstants[88] = textureData ? textureData->cameraPosX : 0.f;
+    vsConstants[89] = textureData ? textureData->cameraPosY : 7.f;
+    vsConstants[90] = textureData ? textureData->cameraPosZ : 9.f;
     std::memcpy(
         worldVsConstantMappedData_ + vsConstantsWriteOffset,
         vsConstants,
