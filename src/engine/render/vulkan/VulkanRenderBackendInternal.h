@@ -46,6 +46,7 @@ struct VulkanRenderBackendImpl {
         VkFence inFlight = VK_NULL_HANDLE;
         VkQueryPool timestampQueries = VK_NULL_HANDLE;
         VkDescriptorSet worldStateDescriptorSet = VK_NULL_HANDLE;
+        VkDescriptorSet shadowWorldStateDescriptorSet = VK_NULL_HANDLE;
         VkDescriptorSet indexedWorldMaterialDescriptorSet = VK_NULL_HANDLE;
         std::uint32_t indexedWorldMaterialCount = 0u;
         bool indexedWorldMaterialSetBound = false;
@@ -196,6 +197,24 @@ struct VulkanRenderBackendImpl {
     VkRenderPass renderPass = VK_NULL_HANDLE;
     VkRenderPass loadRenderPass = VK_NULL_HANDLE;
     VkRenderPass worldSceneColorRenderPass = VK_NULL_HANDLE;
+    VkRenderPass worldSceneColorLoadRenderPass = VK_NULL_HANDLE;
+    VkRenderPass worldShadowRenderPass = VK_NULL_HANDLE;
+    VkPipeline worldShadowPipeline = VK_NULL_HANDLE;
+    std::array<VkImage, kFramesInFlight> worldShadowImages{};
+    std::array<VkDeviceMemory, kFramesInFlight> worldShadowMemories{};
+    std::array<VkImageView, kFramesInFlight> worldShadowViews{};
+    std::array<VkFramebuffer, kFramesInFlight> worldShadowFramebuffers{};
+    VkSampler worldShadowSampler = VK_NULL_HANDLE;
+    engine::render::WorldDirectionalShadowView worldShadowView{};
+    std::uint32_t worldShadowResolution = 0, shadowSavedWidth = 1, shadowSavedHeight = 1;
+    bool worldShadowActive = false, worldShadowReady = false;
+    void createWorldShadowRenderPass();
+    void updateWorldShadowDescriptors();
+    void prewarmWorldDirectionalShadow(std::uint32_t resolution);
+    bool beginWorldDirectionalShadow(const engine::render::WorldDirectionalShadowView& view);
+    bool endWorldDirectionalShadow();
+    void clearWorldDirectionalShadow();
+    void destroyWorldDirectionalShadow();
 
     VkFormat depthFormat = VK_FORMAT_UNDEFINED;
     std::vector<VkImage> depthImages;

@@ -1,0 +1,5 @@
+#pragma once
+#include <string_view>
+namespace engine::render::world_pbr_shader_shared {
+inline constexpr std::string_view worldShadowSource = R"PHLOSION_SHADER(@PHLOSION_WORLD_SHADOW_SOURCE@)PHLOSION_SHADER";
+}

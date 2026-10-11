@@ -1,4 +1,5 @@
 #include "engine/render/VulkanRenderBackend.h"
+#include "engine/render/WorldDirectionalShadowPolicy.h"
 
 #include "engine/render/vulkan/VulkanRenderBackendInternal.h"
 #include "engine/render/vulkan/VulkanWorldSceneData.h"
@@ -143,6 +144,8 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     texture.blendMode = material.blendMode;
     texture.dualSourceBlendEnabled = material.dualSourceBlendEnabled;
     texture.materialMode = material.materialMode;
+    texture.directionalShadowCaster = engine::render::worldSceneShadowSwitch(material, engine::render::backend::WorldSceneSourceMaterialSwitchCastShadow);
+    texture.directionalShadowReceiver = engine::render::worldSceneShadowSwitch(material, engine::render::backend::WorldSceneSourceMaterialSwitchReceiveShadow);
     texture.clipSpaceDepthBias = material.clipSpaceDepthBias;
     texture.alphaCutoff = material.alphaCutoff;
     texture.normalScale = material.normalScale;

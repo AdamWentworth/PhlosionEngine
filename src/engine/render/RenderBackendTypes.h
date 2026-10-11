@@ -246,6 +246,8 @@ struct WorldTextureData {
     std::uint32_t skinMatrixCount = 0u;
     const float* skinMatrices = nullptr;
     engine::render::WorldEnvironmentLighting environment;
+    std::uint8_t directionalShadowCaster = 1u;
+    std::uint8_t directionalShadowReceiver = 1u;
 };
 
 struct WorldMeshInstance {

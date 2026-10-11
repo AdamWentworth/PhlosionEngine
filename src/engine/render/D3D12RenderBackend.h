@@ -2,11 +2,13 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <unordered_map>
 
 #include "engine/render/IRenderBackend.h"
 #include "engine/render/IWorldDepthControl.h"
+#include "engine/render/IWorldDirectionalShadow.h"
 #include "engine/render/WorldResourceScopeState.h"
 
 struct SDL_Window;
@@ -33,9 +35,13 @@ struct ID3D12Resource;
 struct ID3D12RootSignature;
 #endif
 
-class D3D12RenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl {
+class D3D12RenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow {
 public:
   bool clearWorldDepth() override;
+    void prewarmWorldDirectionalShadow(std::uint32_t resolution) override;
+    bool beginWorldDirectionalShadow(const engine::render::WorldDirectionalShadowView& view) override;
+    bool endWorldDirectionalShadow() override;
+    void clearWorldDirectionalShadow() override;
 
   engine::render::WorldResourceScopeId createWorldResourceScope(std::uint64_t payloadByteLimit) override;
   bool beginWorldResourceScope(engine::render::WorldResourceScopeId id) override;
@@ -363,7 +369,9 @@ private:
         int surfaceHeight,
         float materialPrepMs);
     ID3D12PipelineState* selectWorldPipelineState(
-        const WorldTextureData* textureData) const;
+        const WorldTextureData* textureData, float materialMode);
+    static unsigned worldPipelineVariant(const WorldTextureData* textureData);
+    ID3D12PipelineState* ensureWorldPointLightPipeline(float mode, unsigned variant);
 #endif
     void drawWorldIndexedMeshInternal(const WorldMeshVertex* vertices,
                                       std::size_t vertexCount,
@@ -501,6 +509,18 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> worldRootSignature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldPipelineState_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldSkyPipelineState_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> worldShadowPipelineState_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> worldShadowDepth_;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> worldShadowDsvHeap_;
+    engine::render::WorldDirectionalShadowView worldShadowView_{};
+    std::uint32_t worldShadowResolution_ = 0;
+    bool worldShadowActive_ = false, worldShadowReady_ = false;
+    D3D12_VIEWPORT worldLastViewport_{}, worldShadowSavedViewport_{};
+    D3D12_RECT worldLastScissor_{}, worldShadowSavedScissor_{};
+    void writeWorldShadowSrv(std::uint32_t descriptorIndex);
+    std::function<Microsoft::WRL::ComPtr<ID3D12PipelineState>(float, unsigned)>
+        worldPointLightPipelineFactory_;
+    std::unordered_map<std::uint64_t, Microsoft::WRL::ComPtr<ID3D12PipelineState>> worldPointLightPipelines_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldBlendPipelineState_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldAdditiveBlendPipelineState_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldPremultipliedBlendPipelineState_;

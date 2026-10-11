@@ -73,6 +73,7 @@ int compareStringViews(std::string_view lhs, std::string_view rhs) {
 
 struct AutoInstanceKey {
     render::WorldEnvironmentUniforms environment{};
+    render::WorldPointLightUniforms pointLights{};
     std::string_view geometryCacheKey{};
     bool hasBaseTexture = false;
     bool hasNormalTexture = false;
@@ -103,6 +104,7 @@ struct AutoInstanceKey {
     std::uint8_t dualSourceBlendEnabled = 0u;
     std::uint8_t materialMode = 0u;
     std::uint8_t characterInkingEnabled = 0u;
+    std::uint8_t directionalShadowCaster = 1u, directionalShadowReceiver = 1u;
     float clipSpaceDepthBias = 0.0f;
     float alphaCutoff = 0.0f;
     float alphaWindowMin = 0.0f;
@@ -136,7 +138,7 @@ struct AutoInstanceKey {
     float materialFlipbook1Fps = 0.0f;
 
     bool operator==(const AutoInstanceKey& other) const {
-        return environment == other.environment && geometryCacheKey == other.geometryCacheKey &&
+        return environment == other.environment && pointLights == other.pointLights && geometryCacheKey == other.geometryCacheKey &&
                hasBaseTexture == other.hasBaseTexture &&
                hasNormalTexture == other.hasNormalTexture &&
                hasMetallicRoughnessTexture == other.hasMetallicRoughnessTexture &&
@@ -167,6 +169,8 @@ struct AutoInstanceKey {
                dualSourceBlendEnabled == other.dualSourceBlendEnabled &&
                materialMode == other.materialMode &&
                characterInkingEnabled == other.characterInkingEnabled &&
+               directionalShadowCaster == other.directionalShadowCaster &&
+               directionalShadowReceiver == other.directionalShadowReceiver &&
                clipSpaceDepthBias == other.clipSpaceDepthBias &&
                alphaCutoff == other.alphaCutoff &&
                alphaWindowMin == other.alphaWindowMin &&
@@ -217,6 +221,8 @@ struct AutoInstanceKeyHash {
         std::size_t h = 0u;
         for (const auto& vector : key.environment)
             for (float value : vector) hashCombine(h, std::hash<float>{}(value));
+        for (const auto& vector : key.pointLights)
+            for (float value : vector) hashCombine(h, std::hash<float>{}(value));
         hashCombine(h, std::hash<std::string_view>{}(key.geometryCacheKey));
         hashCombine(h, std::hash<bool>{}(key.hasBaseTexture));
         hashCombine(h, std::hash<bool>{}(key.hasNormalTexture));
@@ -249,6 +255,8 @@ struct AutoInstanceKeyHash {
         hashCombine(h, std::hash<std::uint8_t>{}(key.dualSourceBlendEnabled));
         hashCombine(h, std::hash<std::uint8_t>{}(key.materialMode));
         hashCombine(h, std::hash<std::uint8_t>{}(key.characterInkingEnabled));
+        hashCombine(h, std::hash<std::uint8_t>{}(key.directionalShadowCaster));
+        hashCombine(h, std::hash<std::uint8_t>{}(key.directionalShadowReceiver));
         hashCombine(h, hashFloat(key.clipSpaceDepthBias));
         hashCombine(h, hashFloat(key.alphaCutoff));
         hashCombine(h, hashFloat(key.alphaWindowMin));
@@ -391,6 +399,7 @@ AutoInstanceKey makeAutoInstanceKey(const WorldIndexedBatch& batch) {
     const WorldIndexedBatch& materialBatch = materialTemplateOrSelf(batch);
     AutoInstanceKey key{};
     key.environment = render::packWorldEnvironment(batch.environment);
+    key.pointLights = render::packWorldPointLights(batch.environment);
     key.geometryCacheKey = batch.geometryCacheKey;
     key.hasBaseTexture = resolvedTexturePresent(
         batch,
@@ -459,6 +468,8 @@ AutoInstanceKey makeAutoInstanceKey(const WorldIndexedBatch& batch) {
     key.dualSourceBlendEnabled = effectiveDualSourceBlendEnabled(batch);
     key.materialMode = materialBatch.materialMode;
     key.characterInkingEnabled = materialBatch.characterInkingEnabled;
+    key.directionalShadowCaster = materialBatch.directionalShadowCaster;
+    key.directionalShadowReceiver = materialBatch.directionalShadowReceiver;
     key.clipSpaceDepthBias = batch.clipSpaceDepthBias;
     key.alphaCutoff = effectiveAlphaCutoff(batch);
     key.alphaWindowMin =
@@ -1423,6 +1434,8 @@ IRenderBackend::WorldTextureData toWorldTextureData(const WorldIndexedBatch& bat
     tex.materialFlipbook1Frames = materialBatch.materialFlipbook1Frames;
     tex.materialFlipbook1Fps = materialBatch.materialFlipbook1Fps;
     tex.environment = batch.environment;
+    tex.directionalShadowCaster = materialBatch.directionalShadowCaster;
+    tex.directionalShadowReceiver = materialBatch.directionalShadowReceiver;
     tex.modelMatrix = batch.modelMatrix;
     tex.gpuSkinning = batch.gpuSkinning;
     tex.gpuSkinningMode = batch.gpuSkinningMode;

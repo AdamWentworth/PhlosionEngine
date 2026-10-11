@@ -199,7 +199,7 @@ void OpenGLRenderBackend::beginWorldSceneColorPass(
 }
 
 bool OpenGLRenderBackend::clearWorldDepth() {
-    if (!worldSceneColorPassActive_) return false;
+    if (worldDirectionalShadowActive_ || !worldSceneColorPassActive_) return false;
     GLboolean mask = GL_TRUE;
     glGetBooleanv(GL_DEPTH_WRITEMASK, &mask);
     GLdouble previousClear = 1.0;

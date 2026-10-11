@@ -7,16 +7,22 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 #include "engine/render/IRenderBackend.h"
 #include "engine/render/IWorldDepthControl.h"
+#include "engine/render/IWorldDirectionalShadow.h"
 #include "engine/render/WorldResourceScopeState.h"
 
 class Renderer;
 
-class OpenGLRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl {
+class OpenGLRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow {
 public:
   bool clearWorldDepth() override;
+    void prewarmWorldDirectionalShadow(std::uint32_t resolution) override;
+    bool beginWorldDirectionalShadow(const engine::render::WorldDirectionalShadowView& view) override;
+    bool endWorldDirectionalShadow() override;
+    void clearWorldDirectionalShadow() override;
 
   engine::render::WorldResourceScopeId createWorldResourceScope(std::uint64_t payloadByteLimit) override;
   bool beginWorldResourceScope(engine::render::WorldResourceScopeId id) override;
@@ -259,6 +265,29 @@ private:
     int worldCameraPosLoc_ = -1;
     int worldCameraForwardLoc_ = -1;
     std::array<int, 9> worldEnvironmentLocs_{-1,-1,-1,-1,-1,-1,-1,-1,-1};
+    int worldPointLightsLoc_ = -1;
+    unsigned int worldDirectionalShadowProgram_ = 0;
+    std::vector<int> worldDirectionalShadowUniformLocations_;
+    int worldUniformLocation(int location) const noexcept {
+        if (!worldDirectionalShadowActive_ || !worldDirectionalShadowProgram_) return location;
+        return location >= 0 && static_cast<std::size_t>(location) < worldDirectionalShadowUniformLocations_.size()
+            ? worldDirectionalShadowUniformLocations_[static_cast<std::size_t>(location)] : -1;
+    }
+    int worldDirectionalShadowMatrixLoc_ = -1;
+    int worldDirectionalShadowParamsLoc_ = -1;
+    int worldDirectionalShadowTextureLoc_ = -1;
+    unsigned int worldDirectionalShadowTexture_ = 0, worldDirectionalShadowFramebuffer_ = 0;
+    std::uint32_t worldDirectionalShadowResolution_ = 0;
+    bool worldDirectionalShadowActive_ = false, worldDirectionalShadowReady_ = false;
+    engine::render::WorldDirectionalShadowView worldDirectionalShadowView_;
+    struct DirectionalShadowSavedState {
+        int drawFramebuffer = 0, readFramebuffer = 0, depthFunction = 0;
+        std::array<int, 4> viewport{}, scissor{};
+        std::array<unsigned char, 4> colorMask{};
+        unsigned char depthMask = 1;
+        bool depthEnabled = false, scissorEnabled = false;
+    } worldDirectionalShadowSaved_;
+    void destroyWorldDirectionalShadowResources();
     int worldCameraTargetLoc_ = -1;
     int worldNormalScaleLoc_ = -1;
     int worldMetallicFactorLoc_ = -1;
@@ -422,7 +451,7 @@ private:
         int prevElementArrayBuffer = 0;
         int prevActiveTexture = 0;
         int prevTexture2DOnActive = 0;
-        std::array<int, 8> prevTexture2DOnUnit{0, 0, 0, 0, 0, 0, 0, 0};
+        std::array<int, 9> prevTexture2DOnUnit{};
         bool depthEnabled = false;
         bool blendEnabled = false;
         bool cullEnabled = false;
@@ -440,7 +469,7 @@ private:
         int currentArrayBuffer = 0;
         int currentElementArrayBuffer = 0;
         int currentActiveTexture = 0;
-        std::array<int, 8> currentTexture2DOnUnit{0, 0, 0, 0, 0, 0, 0, 0};
+        std::array<int, 9> currentTexture2DOnUnit{};
         bool currentDepthEnabled = false;
         bool currentBlendEnabled = false;
         bool currentCullEnabled = false;

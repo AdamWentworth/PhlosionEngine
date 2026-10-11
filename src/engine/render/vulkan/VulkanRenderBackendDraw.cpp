@@ -1,4 +1,5 @@
 #include "engine/render/vulkan/VulkanRenderBackendInternal.h"
+#include "engine/render/WorldDirectionalShadowPolicy.h"
 
 #include <algorithm>
 #include <array>
@@ -28,8 +29,10 @@ bool VulkanRenderBackendImpl::bindWorldDescriptorSets(
     const IRenderBackend::WorldTextureData* texture,
     bool instancingEnabled,
     std::uint32_t instanceBaseWordIndex) {
-    const auto viewState =
+    auto viewState =
         engine::render::vulkan_backend::makeWorldViewState(texture);
+    if (worldShadowReady && !worldShadowActive && texture && texture->environment.enabled && texture->directionalShadowReceiver)
+        viewState.directionalShadow = engine::render::packWorldDirectionalShadow(worldShadowView);
     auto specializedMaterialState =
         engine::render::vulkan_backend::makeWorldSpecializedMaterialState(texture);
     if (worldMaterialDebugView > 0 && texture &&
@@ -362,6 +365,13 @@ void VulkanRenderBackendImpl::drawWorldIndexedMeshBuffers(
     const float* viewProjectionMatrix4x4,
     int surfaceWidth,
     int surfaceHeight) {
+    IRenderBackend::WorldTextureData shadowTexture;
+    if (worldShadowActive) {
+        if (!engine::render::worldDirectionalShadowCaster(textureData)) return;
+        viewProjectionMatrix4x4 = worldShadowView.viewProjection.data();
+        surfaceWidth = surfaceHeight = static_cast<int>(worldShadowResolution);
+        if (textureData) { shadowTexture = *textureData; shadowTexture.clipSpaceDepthBias = 0; textureData = &shadowTexture; }
+    }
     if (!frameActive ||
         vertexBuffer == VK_NULL_HANDLE ||
         indexBuffer == VK_NULL_HANDLE ||
@@ -409,7 +419,7 @@ void VulkanRenderBackendImpl::drawWorldIndexedMeshBuffers(
     std::memcpy(push.viewProjection.data(), viewProjectionMatrix4x4, sizeof(float) * 16u);
     const bool drawCharacterOutline =
         textureData &&
-        textureData->characterInkingEnabled != 0u &&
+        !worldShadowActive && textureData->characterInkingEnabled != 0u &&
         textureData->materialMode >= 2u;
     // Keep the textured surface authoritative even when its blend state does
     // not write depth: emit the inverted hull before the surface replay.
@@ -439,7 +449,7 @@ void VulkanRenderBackendImpl::drawWorldIndexedMeshBuffers(
                                 drawInstanceCount;
     }
 
-    bindGraphicsPipeline(commandBuffer, worldPipelines[pipelineIndex]);
+    bindGraphicsPipeline(commandBuffer, worldShadowActive ? worldShadowPipeline : worldPipelines[pipelineIndex]);
     vkCmdPushConstants(commandBuffer,
                        texturedPipelineLayout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,

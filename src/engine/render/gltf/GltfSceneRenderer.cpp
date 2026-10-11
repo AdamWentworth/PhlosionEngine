@@ -154,6 +154,10 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
     if (options.surfaceWidth <= 0 || options.surfaceHeight <= 0) {
         return fail("glTF scene draw needs positive surface dimensions");
     }
+    for (const int node : options.excludedNodes) {
+        if (node < 0 || static_cast<std::size_t>(node) >= asset.nodes.size())
+            return fail("glTF excluded node is out of range");
+    }
     for (const float value : options.tint) {
         if (!std::isfinite(value) || value < 0.0f || value > 1.0f)
             return fail("glTF scene tint must be finite and normalized");
@@ -273,6 +277,8 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
     for (int transparentPass = 0; transparentPass < 2; ++transparentPass) {
     for (std::size_t index = 0u; index < asset.primitives.size(); ++index) {
         const GltfScenePrimitive& primitive = asset.primitives[index];
+        if (std::find(options.excludedNodes.begin(), options.excludedNodes.end(),
+                      primitive.nodeIndex) != options.excludedNodes.end()) continue;
         const bool transparent = options.translucent ||
             asset.materials[primitive.materialIndex].alphaMode == 2u;
         if (transparent != (transparentPass != 0)) continue;

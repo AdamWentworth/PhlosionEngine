@@ -336,7 +336,7 @@ void D3D12RenderBackend::beginWorldSceneColorPass(
 
 bool D3D12RenderBackend::clearWorldDepth() {
 #if defined(_WIN32)
-    if (!worldSceneColorPassActive_ || !commandList_) return false;
+    if (worldShadowActive_ || !worldSceneColorPassActive_ || !commandList_) return false;
     D3D12_CPU_DESCRIPTOR_HANDLE dsv{};
     if (editorSurfaceActive_) dsv = editorSurfaceTarget_.depthDsv;
     else if (dsvHeap_) {

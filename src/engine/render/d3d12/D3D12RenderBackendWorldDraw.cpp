@@ -1,16 +1,20 @@
 #include "engine/render/D3D12RenderBackend.h"
+#include "engine/render/WorldDirectionalShadowPolicy.h"
 #include "engine/render/WorldBlendPolicy.h"
 #include "engine/render/d3d12/D3D12RenderBackendInternal.h"
 #include "engine/core/Environment.h"
 
 #include <algorithm>
+#include <bit>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
 #include <limits>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 
 #if defined(_WIN32)
@@ -256,46 +260,78 @@ void packWorldInstanceVertexData(const IRenderBackend::WorldMeshInstance& instan
 #endif
 
 #if defined(_WIN32)
-ID3D12PipelineState* D3D12RenderBackend::selectWorldPipelineState(
-    const WorldTextureData* textureData) const {
-    if (textureData && textureData->environment.enabled && textureData->environment.skyDraw &&
-        engine::render::packWorldEnvironment(textureData->environment)[0][3] > 0.5f)
-        return worldSkyPipelineState_.Get();
+unsigned D3D12RenderBackend::worldPipelineVariant(const WorldTextureData* textureData) {
     const auto blendState = engine::render::world_blend::resolve(
         textureData ? textureData->alphaMode : 0u,
         textureData ? textureData->blendMode : 0u,
         !textureData || textureData->depthTestEnabled != 0u,
         textureData && textureData->dualSourceBlendEnabled != 0u,
         true);
-    if (!blendState.enabled) return worldPipelineState_.Get();
+    if (!blendState.enabled) return 0;
 
     if (blendState.dualSourceEnabled) {
         if (blendState.depthTestEnabled) {
             return blendState.mode == engine::render::world_blend::Mode::Additive
-                ? worldDualSourceAdditiveBlendPipelineState_.Get()
-                : worldDualSourceBlendPipelineState_.Get();
+                ? 8 : 7;
         }
         return blendState.mode == engine::render::world_blend::Mode::Additive
-            ? worldNoDepthDualSourceAdditiveBlendPipelineState_.Get()
-            : worldNoDepthDualSourceBlendPipelineState_.Get();
+            ? 10 : 9;
     }
 
     if (blendState.depthTestEnabled) {
         if (blendState.mode == engine::render::world_blend::Mode::Additive) {
-            return worldAdditiveBlendPipelineState_.Get();
+            return 2;
         }
         if (blendState.mode == engine::render::world_blend::Mode::Premultiplied) {
-            return worldPremultipliedBlendPipelineState_.Get();
+            return 3;
         }
-        return worldBlendPipelineState_.Get();
+        return 1;
     }
     if (blendState.mode == engine::render::world_blend::Mode::Additive) {
-        return worldNoDepthAdditiveBlendPipelineState_.Get();
+        return 5;
     }
     if (blendState.mode == engine::render::world_blend::Mode::Premultiplied) {
-        return worldNoDepthPremultipliedBlendPipelineState_.Get();
+        return 6;
     }
-    return worldNoDepthBlendPipelineState_.Get();
+    return 4;
+}
+
+ID3D12PipelineState* D3D12RenderBackend::ensureWorldPointLightPipeline(
+    float mode, unsigned variant) {
+    if (!std::isfinite(mode)) throw std::runtime_error("Non-finite local-lit world material mode.");
+    const auto key = std::uint64_t(std::bit_cast<std::uint32_t>(mode)) * 16 + variant;
+    const auto found = worldPointLightPipelines_.find(key);
+    if (found != worldPointLightPipelines_.end()) return found->second.Get();
+    if (!worldPointLightPipelineFactory_)
+        throw std::runtime_error("World local-light pipeline has not been initialized.");
+    return worldPointLightPipelines_.emplace(key, worldPointLightPipelineFactory_(mode, variant)).first->second.Get();
+}
+
+ID3D12PipelineState* D3D12RenderBackend::selectWorldPipelineState(
+    const WorldTextureData* textureData, float materialMode) {
+    if (worldShadowActive_) return worldShadowPipelineState_.Get();
+    if (textureData && textureData->environment.enabled && textureData->environment.skyDraw &&
+        engine::render::packWorldEnvironment(textureData->environment)[0][3] > 0.5f)
+        return worldSkyPipelineState_.Get();
+    const unsigned variant = worldPipelineVariant(textureData);
+    if (textureData && materialMode >= 1.5f && (materialMode < 249.5f || materialMode == 254.0f) &&
+        !(materialMode > 2.5f && materialMode < 3.5f)) {
+        if (worldShadowReady_ && textureData->directionalShadowReceiver && textureData->environment.enabled)
+            return ensureWorldPointLightPipeline(materialMode, variant);
+        const auto lights = engine::render::packWorldPointLights(textureData->environment);
+        for (unsigned slot = 0; slot < 4; ++slot) {
+            const auto& color = lights[slot * 2 + 1];
+            if (color[0] > 0 || color[1] > 0 || color[2] > 0)
+                return ensureWorldPointLightPipeline(materialMode, variant);
+        }
+    }
+    const std::array states{worldPipelineState_.Get(), worldBlendPipelineState_.Get(),
+        worldAdditiveBlendPipelineState_.Get(), worldPremultipliedBlendPipelineState_.Get(),
+        worldNoDepthBlendPipelineState_.Get(), worldNoDepthAdditiveBlendPipelineState_.Get(),
+        worldNoDepthPremultipliedBlendPipelineState_.Get(), worldDualSourceBlendPipelineState_.Get(),
+        worldDualSourceAdditiveBlendPipelineState_.Get(), worldNoDepthDualSourceBlendPipelineState_.Get(),
+        worldNoDepthDualSourceAdditiveBlendPipelineState_.Get()};
+    return states[variant];
 }
 #endif
 
@@ -667,6 +703,11 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
                                                       int surfaceWidth,
                                                       int surfaceHeight) {
 #if defined(_WIN32)
+    if (worldShadowActive_) {
+        if (!engine::render::worldDirectionalShadowCaster(textureData)) return;
+        viewProjectionMatrix4x4 = worldShadowView_.viewProjection.data();
+        surfaceWidth = surfaceHeight = static_cast<int>(worldShadowResolution_);
+    }
     if (!recording_ || !vertices || !indices || vertexCount == 0 || indexCount == 0 || !viewProjectionMatrix4x4) {
         return;
     }
@@ -741,6 +782,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
 
     commandList_->RSSetViewports(1, &vp);
     commandList_->RSSetScissorRects(1, &scissor);
+    if (!worldShadowActive_) { worldLastViewport_ = vp; worldLastScissor_ = scissor; }
 
     ID3D12DescriptorHeap* heaps[] = {srvHeap_.Get()};
     commandList_->SetDescriptorHeaps(1, heaps);
@@ -800,11 +842,19 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
         gpuSkinningEnabled,
         gpuSkinMatrixCount,
         gpuSkinningMode,
-        textureData ? textureData->clipSpaceDepthBias : 0.0f,
+        !worldShadowActive_ && textureData ? textureData->clipSpaceDepthBias : 0.0f,
         vsConstants);
     const auto environment = engine::render::packWorldEnvironment(
         textureData ? textureData->environment : engine::render::WorldEnvironmentLighting{});
     std::memcpy(vsConstants + 40, environment.data(), sizeof(environment));
+    const auto pointLights = engine::render::packWorldPointLights(
+        textureData ? textureData->environment : engine::render::WorldEnvironmentLighting{});
+    std::memcpy(vsConstants + 80, pointLights.data(), sizeof(pointLights));
+    const auto shadow = worldShadowReady_ && !worldShadowActive_ && textureData &&
+        textureData->environment.enabled && textureData->directionalShadowReceiver
+        ? engine::render::packWorldDirectionalShadow(worldShadowView_)
+        : engine::render::WorldDirectionalShadowState{};
+    std::memcpy(vsConstants + 112, &shadow, sizeof(shadow));
     vsConstants[76] = textureData ? textureData->cameraPosX : 0.f;
     vsConstants[77] = textureData ? textureData->cameraPosY : 7.f;
     vsConstants[78] = textureData ? textureData->cameraPosZ : 9.f;
@@ -840,7 +890,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
     displacementHandle.ptr += static_cast<SIZE_T>(srvDescriptorSize_);
     commandList_->SetGraphicsRootDescriptorTable(5, displacementHandle);
     frameIndexedD3d12DescriptorTableSets_ += 1u;
-    ID3D12PipelineState* pso = selectWorldPipelineState(textureData);
+    ID3D12PipelineState* pso = selectWorldPipelineState(textureData, worldPs.materialMode);
     commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     D3D12_VERTEX_BUFFER_VIEW vbv{};
@@ -857,7 +907,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
 
     const bool drawCharacterOutline =
         textureData &&
-        textureData->characterInkingEnabled != 0u &&
+        !worldShadowActive_ && textureData->characterInkingEnabled != 0u &&
         textureData->materialMode >= 2u &&
         safeVertexCount > 0u;
     // The textured surface must follow the inverted hull because blended
@@ -925,6 +975,11 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     std::uint32_t instanceCount,
     int surfaceWidth,
     int surfaceHeight) {
+    if (worldShadowActive_) {
+        if (!engine::render::worldDirectionalShadowCaster(textureData)) return;
+        viewProjectionMatrix4x4 = worldShadowView_.viewProjection.data();
+        surfaceWidth = surfaceHeight = static_cast<int>(worldShadowResolution_);
+    }
     if (!recording_ || !viewProjectionMatrix4x4) return;
     (void)vertices;
     (void)vertexCount;
@@ -954,6 +1009,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
 
     commandList_->RSSetViewports(1, &vp);
     commandList_->RSSetScissorRects(1, &scissor);
+    if (!worldShadowActive_) { worldLastViewport_ = vp; worldLastScissor_ = scissor; }
 
     ID3D12DescriptorHeap* heaps[] = {srvHeap_.Get()};
     commandList_->SetDescriptorHeaps(1, heaps);
@@ -1023,11 +1079,19 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
         gpuSkinningEnabled,
         gpuSkinMatrixCount,
         gpuSkinningMode,
-        textureData ? textureData->clipSpaceDepthBias : 0.0f,
+        !worldShadowActive_ && textureData ? textureData->clipSpaceDepthBias : 0.0f,
         vsConstants);
     const auto environment = engine::render::packWorldEnvironment(
         textureData ? textureData->environment : engine::render::WorldEnvironmentLighting{});
     std::memcpy(vsConstants + 40, environment.data(), sizeof(environment));
+    const auto pointLights = engine::render::packWorldPointLights(
+        textureData ? textureData->environment : engine::render::WorldEnvironmentLighting{});
+    std::memcpy(vsConstants + 80, pointLights.data(), sizeof(pointLights));
+    const auto shadow = worldShadowReady_ && !worldShadowActive_ && textureData &&
+        textureData->environment.enabled && textureData->directionalShadowReceiver
+        ? engine::render::packWorldDirectionalShadow(worldShadowView_)
+        : engine::render::WorldDirectionalShadowState{};
+    std::memcpy(vsConstants + 112, &shadow, sizeof(shadow));
     vsConstants[76] = textureData ? textureData->cameraPosX : 0.f;
     vsConstants[77] = textureData ? textureData->cameraPosY : 7.f;
     vsConstants[78] = textureData ? textureData->cameraPosZ : 9.f;
@@ -1062,7 +1126,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     commandList_->SetGraphicsRootDescriptorTable(5, displacementHandle);
     frameIndexedD3d12DescriptorTableSets_ += 1u;
 
-    ID3D12PipelineState* pso = selectWorldPipelineState(textureData);
+    ID3D12PipelineState* pso = selectWorldPipelineState(textureData, worldPs.materialMode);
     commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     D3D12_VERTEX_BUFFER_VIEW vbv{};
@@ -1079,7 +1143,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
 
     const bool drawCharacterOutline =
         textureData &&
-        textureData->characterInkingEnabled != 0u &&
+        !worldShadowActive_ && textureData->characterInkingEnabled != 0u &&
         textureData->materialMode >= 2u;
     // Keep the cached path in the same outline-then-surface order.
     if (drawCharacterOutline) {

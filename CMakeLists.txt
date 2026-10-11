@@ -121,6 +121,8 @@ foreach(_shader IN LISTS PHLOSION_VULKAN_SHADER_SOURCES)
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/portable_material.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_material.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_atmosphere.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_lighting.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_shadow.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
     elseif (_shader STREQUAL "world_indirect.vert")
         list(APPEND _shader_dependencies
@@ -131,6 +133,8 @@ foreach(_shader IN LISTS PHLOSION_VULKAN_SHADER_SOURCES)
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_indirect_state.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_material.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_atmosphere.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_lighting.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_shadow.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
     endif()
     add_custom_command(
@@ -156,6 +160,8 @@ foreach(_shader IN ITEMS world world_indirect)
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/portable_material.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_material.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_atmosphere.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_lighting.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_shadow.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
     if (_shader STREQUAL "world_indirect")
         list(APPEND _shader_dependencies
@@ -175,6 +181,22 @@ foreach(_shader IN ITEMS world world_indirect)
     )
     list(APPEND PHLOSION_VULKAN_SHADER_OUTPUTS "${_output}")
 endforeach()
+
+set(_shadow_output "${PHLOSION_VULKAN_SHADER_OUTPUT_DIR}/world_shadow.frag.spv")
+add_custom_command(OUTPUT "${_shadow_output}"
+    COMMAND "${PHLOSION_GLSLANG_VALIDATOR}" -V --target-env vulkan1.1
+        "-I${PHLOSION_VULKAN_SHADER_SOURCE_DIR}"
+        -DPHLOSION_WORLD_DIRECTIONAL_SHADOW_PASS=1
+        -o "${_shadow_output}" "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world.frag"
+    DEPENDS "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world.frag"
+        "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_material.glsl"
+        "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/portable_material.glsl"
+        "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_atmosphere.glsl"
+        "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_lighting.glsl"
+        "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_shadow.glsl"
+        "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl"
+    COMMENT "Compiling Phlosion Vulkan directional-shadow shader" VERBATIM)
+list(APPEND PHLOSION_VULKAN_SHADER_OUTPUTS "${_shadow_output}")
 
 add_custom_target(phlosion_vulkan_shaders
     DEPENDS ${PHLOSION_VULKAN_SHADER_OUTPUTS})
@@ -332,6 +354,7 @@ add_library(engine_render STATIC
     src/engine/render/d3d12/D3D12RenderBackendWorldDrawEntryPoints.cpp
     src/engine/render/d3d12/D3D12RenderBackendLifecycle.cpp
     src/engine/render/d3d12/D3D12RenderBackendSceneColor.cpp
+    src/engine/render/d3d12/D3D12RenderBackendDirectionalShadow.cpp
     src/engine/render/d3d12/D3D12TextureUpload.cpp
     src/engine/render/OpenGLRenderBackend.cpp
     src/engine/render/opengl/OpenGLPixelPresenter.cpp
@@ -343,11 +366,13 @@ add_library(engine_render STATIC
     src/engine/render/opengl/OpenGLRenderBackendWorldDraw.cpp
     src/engine/render/opengl/OpenGLRenderBackendWorldBatchSubmission.cpp
     src/engine/render/opengl/OpenGLRenderBackendSceneColor.cpp
+    src/engine/render/opengl/OpenGLRenderBackendDirectionalShadow.cpp
     src/engine/render/opengl/OpenGLRenderBackendWorldCachedMesh.cpp
     src/engine/render/opengl/OpenGLRenderBackendWorldPrewarm.cpp
     src/engine/render/VulkanRenderBackend.cpp
     src/engine/render/vulkan/VulkanRenderBackendLifecycle.cpp
     src/engine/render/vulkan/VulkanRenderBackendSceneColor.cpp
+    src/engine/render/vulkan/VulkanRenderBackendDirectionalShadow.cpp
     src/engine/render/vulkan/VulkanRenderBackendDraw.cpp
     src/engine/render/vulkan/VulkanRenderBackendEditor.cpp
     src/engine/render/vulkan/VulkanRenderBackendSprites.cpp
@@ -1179,4 +1204,10 @@ endif()
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_atmosphere.glsl")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_atmosphere.glsl" PHLOSION_ATMOSPHERE_SOURCE)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WorldAtmosphereSource.h.in" "${CMAKE_CURRENT_BINARY_DIR}/generated/WorldAtmosphereSource.h" @ONLY)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_lighting.glsl")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_lighting.glsl" PHLOSION_LIGHTING_SOURCE)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WorldLightingSource.h.in" "${CMAKE_CURRENT_BINARY_DIR}/generated/WorldLightingSource.h" @ONLY)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_shadow.glsl")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_shadow.glsl" PHLOSION_WORLD_SHADOW_SOURCE)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WorldShadowSource.h.in" "${CMAKE_CURRENT_BINARY_DIR}/generated/WorldShadowSource.h" @ONLY)
 target_include_directories(engine_render PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")

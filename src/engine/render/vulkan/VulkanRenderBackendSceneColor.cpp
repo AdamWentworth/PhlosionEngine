@@ -299,7 +299,7 @@ void VulkanRenderBackendImpl::beginWorldSceneColorPass(
 }
 
 bool VulkanRenderBackendImpl::clearWorldDepth() {
-    if (!frameActive || !worldSceneColorPassActive) return false;
+    if (worldShadowActive || !frameActive || !worldSceneColorPassActive) return false;
     VkExtent2D extent = swapchainExtent;
     if (activeEditorSurface != 0u) {
         const auto found = editorSurfaces.find(activeEditorSurface);

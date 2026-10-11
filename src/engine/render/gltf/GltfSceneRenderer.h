@@ -45,6 +45,9 @@ struct GltfSceneDrawOptions {
     // Upload the same geometry/materials without submitting a visible draw.
     // May be called outside a frame on the renderer's owner thread.
     bool prewarmOnly = false;
+    // Omit primitives attached directly to these nodes. Asset data, hierarchy
+    // and animation palettes remain intact; the span is borrowed for this call.
+    std::span<const int> excludedNodes;
     // Optional per-material factors for animated material inputs. Empty uses
     // authored factors; otherwise supply one linear RGBA value per material.
     std::span<const std::array<float, 4>> baseColorFactors;

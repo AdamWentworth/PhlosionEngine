@@ -1,0 +1,2 @@
+#pragma once
+inline constexpr char worldLightingSource[] = R"LIGHTING(@PHLOSION_LIGHTING_SOURCE@)LIGHTING";

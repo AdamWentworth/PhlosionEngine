@@ -267,6 +267,7 @@ vec3 evaluateWorldMaterial(vec3 albedo,
 
     vec3 direct = evaluateDirectPbr(
         normal, view, light, albedo, reflectanceAtNormal, roughness, metallic);
+    direct += environmentLocalPbr(position, normal, view, albedo, reflectanceAtNormal, roughness, metallic);
 
     float normalDotView = max(dot(normal, view), 0.0);
     vec3 fresnel = fresnelSchlickRoughness(

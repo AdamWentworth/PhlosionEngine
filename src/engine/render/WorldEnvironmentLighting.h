@@ -6,6 +6,14 @@
 
 namespace engine::render {
 
+struct WorldPointLight {
+    std::array<float, 3> position{};
+    float radius = 0;
+    std::array<float, 3> intensity{};
+};
+
+using WorldPointLightUniforms = std::array<std::array<float, 4>, 8>;
+
 // Per-view, per-draw values. Directions point toward the sun; radiance is
 // scene-linear, exposure is a multiplier, and distances/heights are in metres.
 // Disabled inputs preserve the established material and inspection lighting.
@@ -33,6 +41,7 @@ struct WorldEnvironmentLighting {
     float moonAngularRadius = 0;
     float moonPhase = 1;
     float starIntensity = 0;
+    std::array<WorldPointLight, 4> pointLights{};
 };
 
 using WorldEnvironmentUniforms = std::array<std::array<float, 4>, 9>;
@@ -68,6 +77,25 @@ inline WorldEnvironmentUniforms packWorldEnvironment(const WorldEnvironmentLight
     out[6] = {e.moonDirection[0]/moonLength,e.moonDirection[1]/moonLength,e.moonDirection[2]/moonLength,std::clamp(e.moonAngularRadius,0.f,.04f)};
     out[7] = {moon[0],moon[1],moon[2],std::clamp(e.moonPhase,0.f,1.f)};
     out[8] = {std::clamp(e.sunAngularRadius,0.f,.04f),std::clamp(e.sunHaloStrength,0.f,1.f),std::clamp(e.sunHaloWidth,.001f,.15f),std::clamp(e.starIntensity,0.f,1.f)};
+    return out;
+}
+
+inline WorldPointLightUniforms packWorldPointLights(const WorldEnvironmentLighting& e) {
+    WorldPointLightUniforms out{};
+    if (packWorldEnvironment(e)[0][3] == 0) return out;
+    for (std::size_t i = 0; i < e.pointLights.size(); ++i) {
+        const auto& light = e.pointLights[i];
+        const std::array values{light.position[0], light.position[1], light.position[2],
+            light.radius, light.intensity[0], light.intensity[1], light.intensity[2]};
+        for (float value : values) if (!std::isfinite(value)) return {};
+        if (light.radius < 0) return {};
+        if (light.radius == 0) continue;
+        out[i*2] = {light.position[0], light.position[1], light.position[2],
+            std::min(light.radius, 1000.f)};
+        out[i*2+1] = {std::clamp(light.intensity[0], 0.f, 65504.f),
+            std::clamp(light.intensity[1], 0.f, 65504.f),
+            std::clamp(light.intensity[2], 0.f, 65504.f), 0};
+    }
     return out;
 }
 

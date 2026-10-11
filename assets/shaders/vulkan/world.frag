@@ -23,7 +23,11 @@ layout(set = 1, binding = 0) uniform WorldViewState {
     vec4 environmentMoon;
     vec4 environmentMoonLight;
     vec4 environmentCelestial;
+    vec4 pointLights[8];
+    mat4 directionalShadowMatrix;
+    vec4 directionalShadowParams;
 } worldView;
+layout(set = 1, binding = 6) uniform sampler2D directionalShadowTexture;
 layout(set = 1, binding = 1) uniform WorldSpecializedMaterialState {
     vec4 timingFlagsAtlas;
     vec4 rect0;
@@ -52,7 +56,9 @@ layout(location = 4) in vec3 worldPosition;
 layout(location = 5) in vec3 vertexGenerated;
 layout(location = 6) in vec2 vertexSourceUv1;
 layout(location = 7) in vec2 vertexSourceUv2;
-#if defined(PHLOSION_VULKAN_DUAL_SOURCE_BLEND)
+#if defined(PHLOSION_WORLD_DIRECTIONAL_SHADOW_PASS)
+vec4 outColor;
+#elif defined(PHLOSION_VULKAN_DUAL_SOURCE_BLEND)
 layout(location = 0, index = 0) out vec4 outColor;
 layout(location = 0, index = 1) out vec4 outBlendAlpha;
 #else
@@ -70,6 +76,21 @@ layout(location = 0) out vec4 outColor;
 #define ENV_CELESTIAL worldView.environmentCelestial
 #define ENV_LUT(uv) textureLod(baseColorTexture, uv, 0.0).rgb
 #include "world_atmosphere.glsl"
+#if defined(PHLOSION_WORLD_DIRECTIONAL_SHADOW_PASS)
+#define ENV_POINT(index) vec4(0.0)
+#else
+#define ENV_POINT(index) worldView.pointLights[index]
+#endif
+#include "world_lighting.glsl"
+#if defined(PHLOSION_WORLD_DIRECTIONAL_SHADOW_PASS)
+#define WORLD_SHADOW_PARAMS vec4(0.0)
+#else
+#define WORLD_SHADOW_PARAMS worldView.directionalShadowParams
+#endif
+#define WORLD_SHADOW_CLIP(position) (worldView.directionalShadowMatrix * vec4(position, 1.0))
+#define WORLD_SHADOW_SAMPLE(uv) textureLod(directionalShadowTexture, uv, 0.0).r
+#define WORLD_SHADOW_Y -1.0
+#include "world_shadow.glsl"
 #ifndef PHLOSION_PROJECT_MATERIAL
 #include "world_material.glsl"
 #endif
@@ -124,6 +145,7 @@ vec3 encodeWorldSurfaceColor(vec3 linearColor) {
 
 
 void main() {
+    updateEnvironmentDirectionalVisibility(worldPosition, vertexNormal, pushData.materialParams.w);
     if (ENV_SUN.w > 0.5 && ENV_RADIANCE.w > 0.5) {
         vec3 mapped = tonemapACESFilmic(environmentSky(worldPosition-worldView.cameraPosition.xyz), ENV_AMBIENT.w);
         vec3 skyColor = pushData.shadingParams.w > 0.5 ? mapped : linearToSrgb(mapped);

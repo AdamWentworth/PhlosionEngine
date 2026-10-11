@@ -158,7 +158,7 @@ VkPipeline createGraphicsPipeline(
     std::uint8_t blendMode,
     bool dualSourceBlend,
     bool depthTestEnabled,
-    bool depthWriteEnabled) {
+    bool depthWriteEnabled, bool depthOnly = false) {
     const VkPipelineShaderStageCreateInfo stages[2]{
         VkPipelineShaderStageCreateInfo{
             VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -253,7 +253,7 @@ VkPipeline createGraphicsPipeline(
 
     VkPipelineColorBlendStateCreateInfo colorBlend{
         VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    colorBlend.attachmentCount = 1u;
+    colorBlend.attachmentCount = depthOnly ? 0u : 1u;
     colorBlend.pAttachments = &blendAttachment;
 
     constexpr std::array<VkDynamicState, 2> dynamicStates{
@@ -322,6 +322,7 @@ void VulkanRenderBackendImpl::initialize(SDL_Window* sdlWindow,
             kWorldFallback, 1, 1, false, 33071, 33071, false);
         fallbackWorldEmissiveTexture = createTexture(
             kWorldFallback, 1, 1, true, 33071, 33071, false);
+        updateWorldShadowDescriptors();
         createEnvironmentResources();
         fallbackWorldMaterial = createWorldMaterial(
             fallbackWorldTexture,
@@ -351,6 +352,7 @@ void VulkanRenderBackendImpl::initialize(SDL_Window* sdlWindow,
         if (!recreateSwapchain()) {
             throw std::runtime_error("Vulkan swapchain cannot be created for a zero-sized window.");
         }
+        if (worldShadowPipeline) prewarmWorldDirectionalShadow(2048);
         configureScreenshotCapture();
 
         engine::render::parity_contract::RuntimeConfig parityConfig =
@@ -589,7 +591,7 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
                   "vkCreateDescriptorSetLayout(indexed world materials)");
     }
 
-    std::array<VkDescriptorSetLayoutBinding, 6> worldStateBindings{};
+    std::array<VkDescriptorSetLayoutBinding, 7> worldStateBindings{};
     worldStateBindings[0].binding = 0u;
     worldStateBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     worldStateBindings[0].descriptorCount = 1u;
@@ -621,6 +623,10 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     worldStateLayoutInfo.bindingCount =
         static_cast<std::uint32_t>(worldStateBindings.size());
+    worldStateBindings[6].binding = 6u;
+    worldStateBindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    worldStateBindings[6].descriptorCount = 1u;
+    worldStateBindings[6].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     worldStateLayoutInfo.pBindings = worldStateBindings.data();
     requireVk(vkCreateDescriptorSetLayout(
                   device, &worldStateLayoutInfo, nullptr, &worldStateSetLayout),
@@ -646,18 +652,18 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     poolSizes[0].descriptorCount =
         4096u * engine::render::vulkan_backend::kWorldMaterialTextureCount +
-        kFramesInFlight +
+        kFramesInFlight * 3u +
         (descriptorIndexingSupported
              ? kFramesInFlight *
                    engine::render::vulkan_backend::kMaxIndexedWorldMaterials *
                    engine::render::vulkan_backend::kWorldMaterialTextureCount
              : 0u);
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    poolSizes[1].descriptorCount = kFramesInFlight * 3u;
+    poolSizes[1].descriptorCount = kFramesInFlight * 6u;
     poolSizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSizes[2].descriptorCount = kFramesInFlight * 2u;
+    poolSizes[2].descriptorCount = kFramesInFlight * 4u;
     poolSizes[3].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
-    poolSizes[3].descriptorCount = kFramesInFlight;
+    poolSizes[3].descriptorCount = kFramesInFlight * 2u;
     VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     poolInfo.maxSets = 4096u + kFramesInFlight + kFramesInFlight +
@@ -810,6 +816,8 @@ void VulkanRenderBackendImpl::createFrameResources() {
                       &descriptorAllocate,
                       &frame.worldStateDescriptorSet),
                   "vkAllocateDescriptorSets(world state)");
+        requireVk(vkAllocateDescriptorSets(device, &descriptorAllocate, &frame.shadowWorldStateDescriptorSet),
+                  "vkAllocateDescriptorSets(shadow world state)");
         if (descriptorIndexingSupported) {
             descriptorAllocate.pSetLayouts = &indexedWorldMaterialSetLayout;
             requireVk(vkAllocateDescriptorSets(
@@ -849,6 +857,8 @@ void VulkanRenderBackendImpl::createFrameResources() {
             writes.data(),
             0u,
             nullptr);
+        for (auto& write : writes) write.dstSet = frame.shadowWorldStateDescriptorSet;
+        vkUpdateDescriptorSets(device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
     }
 }
 
@@ -1108,6 +1118,22 @@ void VulkanRenderBackendImpl::createRenderPass() {
         static_cast<std::uint32_t>(sceneDependencies.size()),
         worldSceneColorRenderPass,
         "vkCreateRenderPass(world scene color)");
+    sceneColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    sceneColorAttachment.initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    sceneDepthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    sceneDepthAttachment.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    auto loadSceneDependencies = sceneDependencies;
+    auto& begin = loadSceneDependencies[0];
+    begin.srcStageMask |= VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    begin.dstStageMask |= VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    begin.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+    begin.dstAccessMask |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+    auto& end = loadSceneDependencies[1];
+    end.srcStageMask |= VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    end.srcAccessMask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    createCompatibleRenderPass(sceneColorAttachment, sceneDepthAttachment, loadSceneDependencies.data(), 2,
+        worldSceneColorLoadRenderPass, "vkCreateRenderPass(world scene color load)");
+    createWorldShadowRenderPass();
 }
 
 void VulkanRenderBackendImpl::createDepthResources() {
@@ -1173,10 +1199,10 @@ void VulkanRenderBackendImpl::createFramebuffers() {
 }
 
 VkShaderModule VulkanRenderBackendImpl::loadShaderModule(const char* fileName) const {
-    constexpr std::array<std::string_view, 6> profileFiles{
+    constexpr std::array<std::string_view, 7> profileFiles{
         "world.frag.spv", "world_dual_source.frag.spv",
         "world_indirect.frag.spv", "world_indirect_dual_source.frag.spv",
-        "world.vert.spv", "world_indirect.vert.spv"};
+        "world.vert.spv", "world_indirect.vert.spv", "world_shadow.frag.spv"};
     const auto found = std::find(profileFiles.begin(), profileFiles.end(), fileName);
     if (!worldMaterialProfile.empty() && found != profileFiles.end()) {
         const auto &words = worldMaterialProfile.vulkan[static_cast<std::size_t>(found - profileFiles.begin())];
@@ -1219,6 +1245,7 @@ void VulkanRenderBackendImpl::createPipelines() {
     VkShaderModule sceneColorFs = VK_NULL_HANDLE;
     VkShaderModule worldVs = VK_NULL_HANDLE;
     VkShaderModule worldFs = VK_NULL_HANDLE;
+    VkShaderModule shadowFs = VK_NULL_HANDLE;
     VkShaderModule worldDualSourceFs = VK_NULL_HANDLE;
     VkShaderModule worldIndirectVs = VK_NULL_HANDLE;
     VkShaderModule worldIndirectFs = VK_NULL_HANDLE;
@@ -1232,6 +1259,8 @@ void VulkanRenderBackendImpl::createPipelines() {
         sceneColorFs = loadShaderModule("scene_color.frag.spv");
         worldVs = loadShaderModule("world.vert.spv");
         worldFs = loadShaderModule("world.frag.spv");
+        if (worldMaterialProfile.empty() || !worldMaterialProfile.vulkan[6].empty())
+            shadowFs = loadShaderModule("world_shadow.frag.spv");
         if (dualSourceBlendSupported) {
             worldDualSourceFs = loadShaderModule("world_dual_source.frag.spv");
         }
@@ -1329,6 +1358,9 @@ void VulkanRenderBackendImpl::createPipelines() {
             {8u, 0u, VK_FORMAT_R32G32_SFLOAT,
              offsetof(IRenderBackend::WorldMeshVertex, sourceUv2U)},
         };
+        if (shadowFs != VK_NULL_HANDLE)
+            worldShadowPipeline = createGraphicsPipeline(device, worldShadowRenderPass, texturedPipelineLayout,
+                worldVs, shadowFs, worldBinding, worldAttributes, false, 0, false, true, true, true);
         worldPipelines[0] = createGraphicsPipeline(device, renderPass, texturedPipelineLayout,
                                                    worldVs, worldFs, worldBinding, worldAttributes,
                                                    false, 0u, false, true, true);
@@ -1412,6 +1444,7 @@ void VulkanRenderBackendImpl::createPipelines() {
         }
         if (worldVs != VK_NULL_HANDLE) vkDestroyShaderModule(device, worldVs, nullptr);
         if (worldFs != VK_NULL_HANDLE) vkDestroyShaderModule(device, worldFs, nullptr);
+        if (shadowFs != VK_NULL_HANDLE) vkDestroyShaderModule(device, shadowFs, nullptr);
         if (worldDualSourceFs != VK_NULL_HANDLE) {
             vkDestroyShaderModule(device, worldDualSourceFs, nullptr);
         }
@@ -1434,6 +1467,7 @@ void VulkanRenderBackendImpl::createPipelines() {
     vkDestroyShaderModule(device, sceneColorFs, nullptr);
     vkDestroyShaderModule(device, worldVs, nullptr);
     vkDestroyShaderModule(device, worldFs, nullptr);
+    if (shadowFs != VK_NULL_HANDLE) vkDestroyShaderModule(device, shadowFs, nullptr);
     if (worldDualSourceFs != VK_NULL_HANDLE) {
         vkDestroyShaderModule(device, worldDualSourceFs, nullptr);
     }
@@ -1460,6 +1494,8 @@ void VulkanRenderBackendImpl::destroyPipelines() {
     if (worldSceneColorPipeline != VK_NULL_HANDLE) {
         vkDestroyPipeline(device, worldSceneColorPipeline, nullptr);
     }
+    if (worldShadowPipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, worldShadowPipeline, nullptr);
+    worldShadowPipeline = VK_NULL_HANDLE;
     debugPipeline = VK_NULL_HANDLE;
     spritePipeline = VK_NULL_HANDLE;
     worldSceneColorPipeline = VK_NULL_HANDLE;
@@ -1507,6 +1543,8 @@ void VulkanRenderBackendImpl::destroySwapchainResources() {
     }
     renderPass = VK_NULL_HANDLE;
     loadRenderPass = VK_NULL_HANDLE;
+    if (worldSceneColorLoadRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, worldSceneColorLoadRenderPass, nullptr);
+    worldSceneColorLoadRenderPass = VK_NULL_HANDLE;
     worldSceneColorRenderPass = VK_NULL_HANDLE;
     for (VkImageView view : swapchainImageViews) {
         if (view != VK_NULL_HANDLE) vkDestroyImageView(device, view, nullptr);
@@ -1519,6 +1557,7 @@ void VulkanRenderBackendImpl::destroySwapchainResources() {
 }
 
 void VulkanRenderBackendImpl::beginFrame(float r, float g, float b, float a) {
+    clearWorldDirectionalShadow();
     frameActive = false;
     mainRenderPassActive = false;
     worldSceneColorPassActive = false;
@@ -1864,6 +1903,7 @@ void VulkanRenderBackendImpl::shutdown() {
         destroyEnvironmentResources();
         destroyTexture(fallbackSpriteTexture);
         fallbackWorldMaterial = {};
+        destroyWorldDirectionalShadow();
         destroySwapchainResources();
         editorSurfaces.clear();
         if (editorSurfaceSampler != VK_NULL_HANDLE) {

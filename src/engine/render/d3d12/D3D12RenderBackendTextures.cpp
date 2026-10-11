@@ -540,21 +540,6 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
 #if defined(_WIN32)
     engine::render::WorldResourceScopeState::AllocationAttempt attempt(worldScopes_);
     if (!worldScopes_.admitted()) return 0xffffffffu;
-    const bool alreadyContiguous =
-        normalTextureDescriptorIndex == baseTextureDescriptorIndex + 1u &&
-        metallicRoughnessTextureDescriptorIndex == baseTextureDescriptorIndex + 2u &&
-        occlusionTextureDescriptorIndex == baseTextureDescriptorIndex + 3u &&
-        emissiveTextureDescriptorIndex == baseTextureDescriptorIndex + 4u &&
-        envTextureDescriptorIndex == baseTextureDescriptorIndex + 5u &&
-        lightProjectionTextureDescriptorIndex ==
-            baseTextureDescriptorIndex + 6u &&
-        projectedShadowTextureDescriptorIndex ==
-            baseTextureDescriptorIndex + 7u;
-    if (alreadyContiguous && worldScopes_.active() == 0) {
-        attempt.success();
-        return baseTextureDescriptorIndex;
-    }
-
     const WorldMaterialDescriptorBlockKey key{
         baseTextureDescriptorIndex,
         normalTextureDescriptorIndex,
@@ -573,7 +558,7 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
     if (!device_ || !srvHeap_ || srvDescriptorSize_ == 0u) {
         return 0xffffffffu;
     }
-    if (freeWorldMaterialBlocks_.empty() && nextSrvDescriptorIndex_ + 8u >
+    if (freeWorldMaterialBlocks_.empty() && nextSrvDescriptorIndex_ + 9u >
         static_cast<std::uint32_t>(kMaxSrvDescriptors)) {
         return 0xffffffffu;
     }
@@ -611,11 +596,12 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
             dstHandle);
     }
 
+    writeWorldShadowSrv(blockBaseDescriptorIndex + 8u);
     if (reuseBlock) freeWorldMaterialBlocks_.pop_back();
-    else nextSrvDescriptorIndex_ += 8u;
+    else nextSrvDescriptorIndex_ += 9u;
     worldMaterialDescriptorBlocks_.emplace(key, blockBaseDescriptorIndex);
     engine::render::WorldResourceCounts counts;
-    counts.materialDescriptors = 8;
+    counts.materialDescriptors = 9;
     worldScopes_.commit(counts);
     attempt.success();
     return blockBaseDescriptorIndex;

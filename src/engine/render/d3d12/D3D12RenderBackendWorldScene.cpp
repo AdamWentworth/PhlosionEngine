@@ -1,4 +1,5 @@
 #include "engine/render/D3D12RenderBackend.h"
+#include "engine/render/WorldDirectionalShadowPolicy.h"
 
 #include <algorithm>
 #include <vector>
@@ -133,6 +134,8 @@ IRenderBackend::WorldTextureData makeWorldSceneTextureData(
     tex.blendMode = material.blendMode;
     tex.dualSourceBlendEnabled = material.dualSourceBlendEnabled;
     tex.materialMode = material.materialMode;
+    tex.directionalShadowCaster = engine::render::worldSceneShadowSwitch(material, engine::render::backend::WorldSceneSourceMaterialSwitchCastShadow);
+    tex.directionalShadowReceiver = engine::render::worldSceneShadowSwitch(material, engine::render::backend::WorldSceneSourceMaterialSwitchReceiveShadow);
     tex.clipSpaceDepthBias = material.clipSpaceDepthBias;
     tex.alphaCutoff = material.alphaCutoff;
     tex.normalScale = material.normalScale;

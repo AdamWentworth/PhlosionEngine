@@ -2,6 +2,7 @@
 #include "engine/render/NeutralPmrem.h"
 #include "engine/render/RendererParityContract.h"
 #include "engine/render/WorldBlendPolicy.h"
+#include "engine/render/WorldDirectionalShadowPolicy.h"
 #include "engine/core/Environment.h"
 
 #include <chrono>
@@ -93,6 +94,7 @@ void maybeLogPbrBindingOpenGL(const IRenderBackend::WorldTextureData* texture,
     static int sPrinted = 0;
     if (sPrinted >= pbrBindingLogMaxEntries()) return;
     ++sPrinted;
+    const auto localLights = engine::render::packWorldPointLights(texture->environment);
     std::cout
         << "[PBRBind][OpenGL] key=" << (texture->key ? texture->key : "<null>")
         << " mode=" << static_cast<int>(texture->materialMode)
@@ -108,6 +110,9 @@ void maybeLogPbrBindingOpenGL(const IRenderBackend::WorldTextureData* texture,
         << " roughF=" << texture->roughnessFactor
         << " metalF=" << texture->metallicFactor
         << " occF=" << texture->occlusionStrength
+        << " env=" << texture->environment.enabled
+        << " point0=" << localLights[0][0] << "," << localLights[0][1] << "," << localLights[0][2]
+        << "," << localLights[0][3] << ":" << localLights[1][0] << "," << localLights[1][1] << "," << localLights[1][2]
         << "\n";
 }
 
@@ -276,6 +281,11 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
                                                                const float* viewProjectionMatrix4x4,
                                                                int surfaceWidth,
                                                                int surfaceHeight) {
+    if (worldDirectionalShadowActive_) {
+        if (!engine::render::worldDirectionalShadowCaster(texture)) return;
+        viewProjectionMatrix4x4 = worldDirectionalShadowView_.viewProjection.data();
+        surfaceWidth = surfaceHeight = static_cast<int>(worldDirectionalShadowResolution_);
+    }
     if (!vertices || !indices || vertexCount == 0 || indexCount < 3 || !viewProjectionMatrix4x4) return;
     if (surfaceWidth <= 0 || surfaceHeight <= 0) return;
     ensureWorldPipeline();
@@ -662,7 +672,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     GLint prevElementArrayBuffer = 0;
     GLint prevActiveTexture = 0;
     GLint prevTexture2DOnActive = 0;
-    GLint prevTexture2DOnUnit[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    GLint prevTexture2DOnUnit[9] = {};
     GLint prevUniformBuffer = 0;
     GLint prevWorldSkinBufferBinding = 0;
     GLboolean depthEnabled = GL_FALSE;
@@ -684,7 +694,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
         glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &prevElementArrayBuffer);
         glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActiveTexture);
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTexture2DOnActive);
-        for (int unit = 0; unit < 8; ++unit) {
+        for (int unit = 0; unit < 9; ++unit) {
             glActiveTexture(GL_TEXTURE0 + unit);
             glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTexture2DOnUnit[unit]);
         }
@@ -750,16 +760,16 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     }
     setDepthMask(!blendAlpha);
 
-    bindProgram(worldProgram_);
+    bindProgram(worldDirectionalShadowActive_ ? worldDirectionalShadowProgram_ : worldProgram_);
     glBindBufferBase(GL_UNIFORM_BUFFER, kWorldSkinBlockBinding, worldSkinUbo_);
-    glUniformMatrix4fv(worldViewProjLoc_, 1, GL_FALSE, viewProjectionMatrix4x4);
+    glUniformMatrix4fv(worldUniformLocation(worldViewProjLoc_), 1, GL_FALSE, viewProjectionMatrix4x4);
     static constexpr float kIdentityModel[16] = {
         1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
         0.0f, 0.0f, 1.0f, 0.0f,
         0.0f, 0.0f, 0.0f, 1.0f};
     const float* modelMatrix = texture ? texture->modelMatrix.data() : kIdentityModel;
-    glUniformMatrix4fv(worldModelLoc_, 1, GL_FALSE, modelMatrix);
+    glUniformMatrix4fv(worldUniformLocation(worldModelLoc_), 1, GL_FALSE, modelMatrix);
     static constexpr float kIdentityProjectedShadow[16] = {
         1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
@@ -773,34 +783,34 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     static constexpr float kDefaultLightProjectionV[4] = {
         0.0f, 1.0f, 0.0f, 0.0f};
     glUniform4fv(
-        worldLightProjectionUvRowULoc_,
+        worldUniformLocation(worldLightProjectionUvRowULoc_),
         1,
         texture
             ? texture->lightProjectionUvRowU.data()
             : kDefaultLightProjectionU);
     glUniform4fv(
-        worldLightProjectionUvRowVLoc_,
+        worldUniformLocation(worldLightProjectionUvRowVLoc_),
         1,
         texture
             ? texture->lightProjectionUvRowV.data()
             : kDefaultLightProjectionV);
     glUniformMatrix4fv(
-        worldProjectedShadowMatrixLoc_,
+        worldUniformLocation(worldProjectedShadowMatrixLoc_),
         1,
         GL_FALSE,
         texture
             ? texture->projectedShadowMatrix.data()
             : kIdentityProjectedShadow);
     glUniform3f(
-        worldProjectedShadowParamsLoc_,
+        worldUniformLocation(worldProjectedShadowParamsLoc_),
         projectedShadowEnabled ? 1.0f : 0.0f,
         texture
             ? std::max(texture->projectedShadowSamplingScale, 0.0f)
             : 1.0f,
         texture ? std::max(texture->projectedShadowBias, 0.0f) : 0.0f);
     glUniform1f(
-        worldClipSpaceDepthBiasLoc_,
-        texture ? std::max(0.0f, texture->clipSpaceDepthBias) : 0.0f);
+        worldUniformLocation(worldClipSpaceDepthBiasLoc_),
+        !worldDirectionalShadowActive_ && texture ? std::max(0.0f, texture->clipSpaceDepthBias) : 0.0f);
     const float cameraPosX = texture ? texture->cameraPosX : 0.0f;
     const float cameraPosY = texture ? texture->cameraPosY : 7.0f;
     const float cameraPosZ = texture ? texture->cameraPosZ : 9.0f;
@@ -810,97 +820,107 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     const float cameraTargetX = texture ? texture->cameraTargetX : 0.0f;
     const float cameraTargetY = texture ? texture->cameraTargetY : -1.0f;
     const float cameraTargetZ = texture ? texture->cameraTargetZ : 0.0f;
-    glUniform3f(worldCameraPosLoc_, cameraPosX, cameraPosY, cameraPosZ);
-    glUniform3f(worldCameraForwardLoc_, cameraForwardX, cameraForwardY, cameraForwardZ);
+    glUniform3f(worldUniformLocation(worldCameraPosLoc_), cameraPosX, cameraPosY, cameraPosZ);
+    glUniform3f(worldUniformLocation(worldCameraForwardLoc_), cameraForwardX, cameraForwardY, cameraForwardZ);
     const auto environment = engine::render::packWorldEnvironment(
         texture ? texture->environment : engine::render::WorldEnvironmentLighting{});
     for (std::size_t i=0; i<environment.size(); ++i)
-        glUniform4fv(worldEnvironmentLocs_[i], 1, environment[i].data());
+        glUniform4fv(worldUniformLocation(worldEnvironmentLocs_[i]), 1, environment[i].data());
+    const auto pointLights = engine::render::packWorldPointLights(
+        texture ? texture->environment : engine::render::WorldEnvironmentLighting{});
+    glUniform4fv(worldUniformLocation(worldPointLightsLoc_), static_cast<GLsizei>(pointLights.size()), pointLights[0].data());
+    const auto shadow = worldDirectionalShadowReady_ && !worldDirectionalShadowActive_ && texture &&
+            texture->environment.enabled && texture->directionalShadowReceiver
+        ? engine::render::packWorldDirectionalShadow(worldDirectionalShadowView_)
+        : engine::render::WorldDirectionalShadowState{};
+    glUniformMatrix4fv(worldUniformLocation(worldDirectionalShadowMatrixLoc_), 1, GL_FALSE, shadow.viewProjection.data());
+    glUniform4fv(worldUniformLocation(worldDirectionalShadowParamsLoc_), 1, shadow.parameters.data());
+    glUniform1i(worldUniformLocation(worldDirectionalShadowTextureLoc_), 8);
     if (worldCameraTargetLoc_ >= 0) {
-        glUniform3f(worldCameraTargetLoc_, cameraTargetX, cameraTargetY, cameraTargetZ);
+        glUniform3f(worldUniformLocation(worldCameraTargetLoc_), cameraTargetX, cameraTargetY, cameraTargetZ);
     }
-    glUniform1f(worldUseTextureLoc_, useTexture);
+    glUniform1f(worldUniformLocation(worldUseTextureLoc_), useTexture);
     glUniform4f(
-        worldVertexColorMulLoc_,
+        worldUniformLocation(worldVertexColorMulLoc_),
         vertexColorMulR,
         vertexColorMulG,
         vertexColorMulB,
         vertexColorMulA);
     if (worldDualSourceBlendEnabledLoc_ >= 0) {
-        glUniform1f(worldDualSourceBlendEnabledLoc_, dualSourceBlendEnabled ? 1.0f : 0.0f);
+        glUniform1f(worldUniformLocation(worldDualSourceBlendEnabledLoc_), dualSourceBlendEnabled ? 1.0f : 0.0f);
     }
     if (worldUseNormalTextureLoc_ >= 0) {
-        glUniform1f(worldUseNormalTextureLoc_, hasNormalTexture ? 1.0f : 0.0f);
+        glUniform1f(worldUniformLocation(worldUseNormalTextureLoc_), hasNormalTexture ? 1.0f : 0.0f);
     }
     if (worldUseMetallicRoughnessTextureLoc_ >= 0) {
-        glUniform1f(worldUseMetallicRoughnessTextureLoc_, hasMetallicRoughnessTexture ? 1.0f : 0.0f);
+        glUniform1f(worldUniformLocation(worldUseMetallicRoughnessTextureLoc_), hasMetallicRoughnessTexture ? 1.0f : 0.0f);
     }
     if (worldUseOcclusionTextureLoc_ >= 0) {
-        glUniform1f(worldUseOcclusionTextureLoc_, hasOcclusionTexture ? 1.0f : 0.0f);
+        glUniform1f(worldUniformLocation(worldUseOcclusionTextureLoc_), hasOcclusionTexture ? 1.0f : 0.0f);
     }
     if (worldUseEmissiveTextureLoc_ >= 0) {
-        glUniform1f(worldUseEmissiveTextureLoc_, hasEmissiveTexture ? 1.0f : 0.0f);
+        glUniform1f(worldUniformLocation(worldUseEmissiveTextureLoc_), hasEmissiveTexture ? 1.0f : 0.0f);
     }
-    glUniform1f(worldWrapSLoc_, wrapS);
-    glUniform1f(worldWrapTLoc_, wrapT);
-    glUniform1f(worldAlphaModeLoc_, static_cast<GLfloat>(alphaMode));
-    glUniform1f(worldAlphaCutoffLoc_, alphaCutoff);
-    glUniform1f(worldAlphaWindowMinLoc_,
+    glUniform1f(worldUniformLocation(worldWrapSLoc_), wrapS);
+    glUniform1f(worldUniformLocation(worldWrapTLoc_), wrapT);
+    glUniform1f(worldUniformLocation(worldAlphaModeLoc_), static_cast<GLfloat>(alphaMode));
+    glUniform1f(worldUniformLocation(worldAlphaCutoffLoc_), alphaCutoff);
+    glUniform1f(worldUniformLocation(worldAlphaWindowMinLoc_),
                 texture ? std::clamp(texture->alphaWindowMin, 0.0f, 1.0f) : 0.0f);
-    glUniform1f(worldAlphaWindowMaxLoc_,
+    glUniform1f(worldUniformLocation(worldAlphaWindowMaxLoc_),
                 texture ? std::clamp(texture->alphaWindowMax, 0.0f, 1.0f) : 1.0f);
     if (worldNormalScaleLoc_ >= 0) {
-        glUniform1f(worldNormalScaleLoc_, texture ? std::max(0.0f, texture->normalScale) : 1.0f);
+        glUniform1f(worldUniformLocation(worldNormalScaleLoc_), texture ? std::max(0.0f, texture->normalScale) : 1.0f);
     }
     if (worldMetallicFactorLoc_ >= 0) {
         glUniform1f(
-            worldMetallicFactorLoc_,
+            worldUniformLocation(worldMetallicFactorLoc_),
             texture ? std::clamp(texture->metallicFactor, 0.0f, 1.0f) : 1.0f);
     }
     if (worldRoughnessFactorLoc_ >= 0) {
         glUniform1f(
-            worldRoughnessFactorLoc_,
+            worldUniformLocation(worldRoughnessFactorLoc_),
             texture ? std::clamp(texture->roughnessFactor, 0.0f, 1.0f) : 1.0f);
     }
     if (worldOcclusionStrengthLoc_ >= 0) {
-        glUniform1f(worldOcclusionStrengthLoc_, texture
+        glUniform1f(worldUniformLocation(worldOcclusionStrengthLoc_), texture
                                                     ? std::clamp(texture->occlusionStrength, 0.0f,
                                                                  worldMaterialProfile_.modes[texture->materialMode].occlusionMaximum)
                                                     : 1.0f);
     }
     if (worldEmissiveFactorLoc_ >= 0) {
-        glUniform3f(worldEmissiveFactorLoc_,
+        glUniform3f(worldUniformLocation(worldEmissiveFactorLoc_),
                     texture ? std::max(0.0f, texture->emissiveFactorR) : 0.0f,
                     texture ? std::max(0.0f, texture->emissiveFactorG) : 0.0f,
                     texture ? std::max(0.0f, texture->emissiveFactorB) : 0.0f);
     }
     if (worldCharacterInkingEnabledLoc_ >= 0) {
         glUniform1f(
-            worldCharacterInkingEnabledLoc_,
+            worldUniformLocation(worldCharacterInkingEnabledLoc_),
             (texture && texture->characterInkingEnabled != 0u) ? 1.0f : 0.0f);
     }
     if (worldSceneColorPostEnabledLoc_ >= 0) {
         glUniform1f(
-            worldSceneColorPostEnabledLoc_,
+            worldUniformLocation(worldSceneColorPostEnabledLoc_),
             worldSceneColorPassActive_ ? 1.0f : 0.0f);
     }
-    glUniform1f(worldMaterialModeLoc_, static_cast<GLfloat>(materialMode));
-    glUniform1f(worldMaterialTimeLoc_, texture ? texture->materialTimeSec : 0.0f);
-    glUniform1f(worldMaterialFlagsLoc_, texture ? texture->materialFlags : 0.0f);
-    glUniform2f(worldMaterialAtlasSizeLoc_,
+    glUniform1f(worldUniformLocation(worldMaterialModeLoc_), static_cast<GLfloat>(materialMode));
+    glUniform1f(worldUniformLocation(worldMaterialTimeLoc_), texture ? texture->materialTimeSec : 0.0f);
+    glUniform1f(worldUniformLocation(worldMaterialFlagsLoc_), texture ? texture->materialFlags : 0.0f);
+    glUniform2f(worldUniformLocation(worldMaterialAtlasSizeLoc_),
                 texture ? texture->materialAtlasWidth : 0.0f,
                 texture ? texture->materialAtlasHeight : 0.0f);
-    glUniform4f(worldMaterialRect0Loc_,
+    glUniform4f(worldUniformLocation(worldMaterialRect0Loc_),
                 texture ? texture->materialRect0U : 0.0f,
                 texture ? texture->materialRect0V : 0.0f,
                 texture ? texture->materialRect0W : 1.0f,
                 texture ? texture->materialRect0H : 1.0f);
-    glUniform4f(worldMaterialRect1Loc_,
+    glUniform4f(worldUniformLocation(worldMaterialRect1Loc_),
                 texture ? texture->materialRect1U : 0.0f,
                 texture ? texture->materialRect1V : 0.0f,
                 texture ? texture->materialRect1W : 1.0f,
                 texture ? texture->materialRect1H : 1.0f);
-    glUniform4f(worldMaterialFlipbook0Loc_,
+    glUniform4f(worldUniformLocation(worldMaterialFlipbook0Loc_),
                 texture ? texture->materialFlipbook0Cols : 1.0f,
                 texture ? texture->materialFlipbook0Rows : 1.0f,
                 texture ? texture->materialFlipbook0Frames : 1.0f,
@@ -912,7 +932,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             : ((texture && materialMode >= 2u && worldMaterialProfile_.modes[materialMode].openglDebugParameter)
                    ? static_cast<float>(pbrDebugViewMode())
                    : (texture ? texture->materialFlipbook1Fps : 0.0f));
-    glUniform4f(worldMaterialFlipbook1Loc_,
+    glUniform4f(worldUniformLocation(worldMaterialFlipbook1Loc_),
                 texture ? texture->materialFlipbook1Cols : 1.0f,
                 texture ? texture->materialFlipbook1Rows : 1.0f,
                 texture ? texture->materialFlipbook1Frames : 1.0f,
@@ -940,14 +960,16 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
         batchState->lastWorldSkinMatrixCount == static_cast<std::uint32_t>(gpuSkinMatrixCount) &&
         batchState->lastWorldSkinMatrices == skinMatrices;
     if (!canReuseSkinUniforms) {
-        glUniform1f(worldSkinningEnabledLoc_, gpuSkinningEnabled ? 1.0f : 0.0f);
-        glUniform1f(worldSkinningModeLoc_, gpuSkinningMode != 0u ? 1.0f : 0.0f);
-        glUniform1i(worldSkinMatrixCountLoc_, gpuSkinMatrixCount);
+        glUniform1f(worldUniformLocation(worldSkinningEnabledLoc_), gpuSkinningEnabled ? 1.0f : 0.0f);
+        glUniform1f(worldUniformLocation(worldSkinningModeLoc_), gpuSkinningMode != 0u ? 1.0f : 0.0f);
+        glUniform1i(worldUniformLocation(worldSkinMatrixCountLoc_), gpuSkinMatrixCount);
         if (gpuSkinMatrixCount > 0) {
             const std::size_t skinFloatCount =
                 static_cast<std::size_t>(gpuSkinMatrixCount) *
                 (gpuSkinningMode != 0u ? 32u : 16u);
             glBindBuffer(GL_UNIFORM_BUFFER, worldSkinUbo_);
+            // Keep earlier shadow/colour draws on their submitted pose storage.
+            glBufferData(GL_UNIFORM_BUFFER, sizeof(float) * 16u * 256u, nullptr, GL_STREAM_DRAW);
             glBufferSubData(
                 GL_UNIFORM_BUFFER,
                 0,
@@ -964,27 +986,27 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
         }
     }
     if (!batchState || !batchState->worldProgramStaticUniformsApplied) {
-        glUniform1i(worldTextureSamplerLoc_, 0);
-        if (worldNormalTextureSamplerLoc_ >= 0) glUniform1i(worldNormalTextureSamplerLoc_, 1);
-        if (worldMetallicRoughnessTextureSamplerLoc_ >= 0) glUniform1i(worldMetallicRoughnessTextureSamplerLoc_, 2);
-        if (worldOcclusionTextureSamplerLoc_ >= 0) glUniform1i(worldOcclusionTextureSamplerLoc_, 3);
-        if (worldEmissiveTextureSamplerLoc_ >= 0) glUniform1i(worldEmissiveTextureSamplerLoc_, 4);
-        if (worldEnvTextureSamplerLoc_ >= 0) glUniform1i(worldEnvTextureSamplerLoc_, 5);
+        glUniform1i(worldUniformLocation(worldTextureSamplerLoc_), 0);
+        if (worldNormalTextureSamplerLoc_ >= 0) glUniform1i(worldUniformLocation(worldNormalTextureSamplerLoc_), 1);
+        if (worldMetallicRoughnessTextureSamplerLoc_ >= 0) glUniform1i(worldUniformLocation(worldMetallicRoughnessTextureSamplerLoc_), 2);
+        if (worldOcclusionTextureSamplerLoc_ >= 0) glUniform1i(worldUniformLocation(worldOcclusionTextureSamplerLoc_), 3);
+        if (worldEmissiveTextureSamplerLoc_ >= 0) glUniform1i(worldUniformLocation(worldEmissiveTextureSamplerLoc_), 4);
+        if (worldEnvTextureSamplerLoc_ >= 0) glUniform1i(worldUniformLocation(worldEnvTextureSamplerLoc_), 5);
         if (worldLightProjectionTextureSamplerLoc_ >= 0) {
-            glUniform1i(worldLightProjectionTextureSamplerLoc_, 6);
+            glUniform1i(worldUniformLocation(worldLightProjectionTextureSamplerLoc_), 6);
         }
-        glUniform1i(worldProjectedShadowTextureSamplerLoc_, 7);
+        glUniform1i(worldUniformLocation(worldProjectedShadowTextureSamplerLoc_), 7);
         if (worldEnvTexelSizeLoc_ >= 0) {
             glUniform2f(
-                worldEnvTexelSizeLoc_,
+                worldUniformLocation(worldEnvTexelSizeLoc_),
                 neutralPmremAtlas.texelWidth,
                 neutralPmremAtlas.texelHeight);
         }
         if (worldEnvMaxMipLoc_ >= 0) {
-            glUniform1f(worldEnvMaxMipLoc_, neutralPmremAtlas.maxMip);
+            glUniform1f(worldUniformLocation(worldEnvMaxMipLoc_), neutralPmremAtlas.maxMip);
         }
         if (worldEnvRgbmRangeLoc_ >= 0) {
-            glUniform1f(worldEnvRgbmRangeLoc_, neutralPmremAtlas.rgbmRange);
+            glUniform1f(worldUniformLocation(worldEnvRgbmRangeLoc_), neutralPmremAtlas.rgbmRange);
         }
         if (batchState) {
             batchState->worldProgramStaticUniformsApplied = true;
@@ -999,6 +1021,8 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     bindTextureUnit2D(5, boundEnvTexture);
     bindTextureUnit2D(6, boundLightProjectionTexture);
     bindTextureUnit2D(7, boundProjectedShadowTexture);
+    bindTextureUnit2D(8, worldDirectionalShadowReady_ && !worldDirectionalShadowActive_
+        ? worldDirectionalShadowTexture_ : worldFallbackLinearTexture_);
 
     const std::size_t effectiveInstanceCount =
         (instances && instanceCount > 0u) ? instanceCount : 1u;
@@ -1008,7 +1032,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(prevArrayBuffer));
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLuint>(prevElementArrayBuffer));
             glUseProgram(static_cast<GLuint>(prevProgram));
-            for (int unit = 0; unit < 8; ++unit) {
+            for (int unit = 0; unit < 9; ++unit) {
                 glActiveTexture(GL_TEXTURE0 + unit);
                 glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(prevTexture2DOnUnit[unit]));
             }
@@ -1053,14 +1077,8 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
 
     const std::size_t instanceBytes = instanceData.size() * sizeof(OpenGLWorldInstanceVertexData);
     bindArrayBuffer(worldInstanceVbo_);
-    if (instanceBytes > worldInstanceBufferBytes_) {
-        glBufferData(
-            GL_ARRAY_BUFFER,
-            static_cast<GLsizeiptr>(instanceBytes),
-            nullptr,
-            GL_STREAM_DRAW);
-        worldInstanceBufferBytes_ = instanceBytes;
-    }
+    worldInstanceBufferBytes_ = std::max(worldInstanceBufferBytes_, instanceBytes);
+    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(worldInstanceBufferBytes_), nullptr, GL_STREAM_DRAW);
     glBufferSubData(
         GL_ARRAY_BUFFER,
         0,
@@ -1088,9 +1106,9 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     // Draw the inverted hull first. Alpha-blended character surfaces do not
     // necessarily write depth, so replaying the outline last can cover their
     // textured interiors with black.
-    if (drawCharacterOutline) {
-        glUniform1f(worldUseTextureLoc_, 0.0f);
-        glUniform1f(worldMaterialModeLoc_, 3.0f);
+    if (drawCharacterOutline && !worldDirectionalShadowActive_) {
+        glUniform1f(worldUniformLocation(worldUseTextureLoc_), 0.0f);
+        glUniform1f(worldUniformLocation(worldMaterialModeLoc_), 3.0f);
         setDepthMask(false);
         bindVertexArray(vao);
         glDrawElementsInstanced(GL_TRIANGLES,
@@ -1101,8 +1119,8 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
         ++frameDrawCalls_;
         frameTriangles_ += static_cast<std::uint64_t>(safeIndexCount / 3u) *
                            static_cast<std::uint64_t>(effectiveInstanceCount);
-        glUniform1f(worldUseTextureLoc_, useTexture);
-        glUniform1f(worldMaterialModeLoc_, static_cast<GLfloat>(materialMode));
+        glUniform1f(worldUniformLocation(worldUseTextureLoc_), useTexture);
+        glUniform1f(worldUniformLocation(worldMaterialModeLoc_), static_cast<GLfloat>(materialMode));
         setDepthMask(!blendAlpha);
     }
     glDrawElementsInstanced(GL_TRIANGLES,
@@ -1125,7 +1143,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             static_cast<GLuint>(prevWorldSkinBufferBinding));
         glUseProgram(static_cast<GLuint>(prevProgram));
 
-        for (int unit = 0; unit < 8; ++unit) {
+        for (int unit = 0; unit < 9; ++unit) {
             glActiveTexture(GL_TEXTURE0 + unit);
             glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(prevTexture2DOnUnit[unit]));
         }

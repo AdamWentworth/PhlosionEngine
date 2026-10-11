@@ -1,6 +1,8 @@
 #include "engine/render/WorldPbrShaderShared.h"
 
 #include "WorldAtmosphereSource.h"
+#include "WorldLightingSource.h"
+#include "WorldShadowSource.h"
 #include <iomanip>
 #include <sstream>
 
@@ -515,11 +517,29 @@ std::string injectSharedWorldPbr(std::string_view source, ShaderLanguage languag
     replaceAll(out, "__PHLOSION_SHARED_WORLD_PBR_SECTION__", section);
     std::string atmosphere(worldAtmosphereSource);
     if (hlslLiterals) {
+        replaceAll(atmosphere, "float environmentDirectionalVisibility = 1.0;", "static float environmentDirectionalVisibility = 1.0f;");
         replaceAll(atmosphere, "vec3", "float3");
         replaceAll(atmosphere, "vec2", "float2");
         replaceAll(atmosphere, "mix(", "lerp(");
     }
     replaceAll(out, "__PHLOSION_ENVIRONMENT_SHADER__", atmosphere);
+    std::string lighting(worldLightingSource);
+    if (hlslLiterals) {
+        replaceAll(lighting, "vec4", "float4");
+        replaceAll(lighting, "vec3", "float3");
+        // Keep the four-slot HLSL lighting loop explicit in specialized shaders.
+        replaceAll(lighting, "for (int index", "[loop] for (int index");
+    }
+    replaceAll(out, "__PHLOSION_WORLD_LIGHTING_SHADER__", lighting);
+    std::string shadow(worldShadowSource);
+    if (hlslLiterals) {
+        replaceAll(shadow, "vec4", "float4");
+        replaceAll(shadow, "vec3", "float3");
+        replaceAll(shadow, "vec2", "float2");
+        replaceAll(shadow, "inversesqrt(", "rsqrt(");
+        replaceAll(shadow, "mix(", "lerp(");
+    }
+    replaceAll(out, "__PHLOSION_WORLD_SHADOW_SHADER__", shadow);
     return out;
 }
 

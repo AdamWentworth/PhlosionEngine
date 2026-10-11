@@ -110,6 +110,15 @@ void D3D12RenderBackend::prewarmWorldTextureData(const WorldTextureData* texture
         /*logPbrBinding=*/false,
         descriptorBlockIndex,
         useTexture);
+    if (!texture->environment.skyDraw) {
+        // Resolve profile overrides just as the eventual draw does. Prewarm both
+        // scene-color modes so pass activation cannot introduce compilation.
+        for (const bool sceneColor : {false, true}) {
+            const float mode = makeWorldPsConstants(texture, useTexture, sceneColor, &worldMaterialProfile_).materialMode;
+            if (mode >= 1.5f && (mode < 249.5f || mode == 254.0f) && !(mode > 2.5f && mode < 3.5f))
+                (void)ensureWorldPointLightPipeline(mode, worldPipelineVariant(texture));
+        }
+    }
 #else
     (void)texture;
 #endif

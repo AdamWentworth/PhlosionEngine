@@ -2,6 +2,7 @@
 // 32 view elevations. RGB stores sqrt(linear radiance / 16).
 // One dominant directional source keeps the established material cost bounded.
 // Solar and lunar radiance fade at their horizons before the source switches.
+float environmentDirectionalVisibility = 1.0;
 bool environmentMoonIsPrimary() {
     return max(ENV_MOON_LIGHT.r, max(ENV_MOON_LIGHT.g, ENV_MOON_LIGHT.b)) >
            max(ENV_RADIANCE.r, max(ENV_RADIANCE.g, ENV_RADIANCE.b));
@@ -10,7 +11,7 @@ vec3 environmentLightDirection() {
     return environmentMoonIsPrimary() ? ENV_MOON.xyz : ENV_SUN.xyz;
 }
 vec3 environmentLightRadiance() {
-    return environmentMoonIsPrimary() ? ENV_MOON_LIGHT.rgb : ENV_RADIANCE.rgb;
+    return (environmentMoonIsPrimary() ? ENV_MOON_LIGHT.rgb : ENV_RADIANCE.rgb) * environmentDirectionalVisibility;
 }
 
 uint celestialHash(uint seed) {

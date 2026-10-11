@@ -61,7 +61,7 @@ struct WorldMaterialProfile {
     WorldMaterialShaderSource openglVertex;
     WorldMaterialShaderSource d3d12Vertex;
     // Direct/indirect fragments, each standard/dual-source; direct/indirect vertices.
-    std::array<std::vector<std::uint32_t>, 6> vulkan;
+    std::array<std::vector<std::uint32_t>, 7> vulkan;
     std::array<std::vector<WorldMaterialConstantOverride>, 256> d3d12Constants;
     std::array<WorldMaterialModeOptions, 256> modes;
 

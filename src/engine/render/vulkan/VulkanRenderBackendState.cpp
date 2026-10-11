@@ -127,7 +127,7 @@ void VulkanRenderBackendImpl::bindWorldStateDescriptorSets(
     VkDescriptorSet materialDescriptorSet,
     const std::array<std::uint32_t, 4>& dynamicOffsets) {
     const VkDescriptorSet worldStateDescriptorSet =
-        frames[currentFrame].worldStateDescriptorSet;
+        worldShadowActive ? frames[currentFrame].shadowWorldStateDescriptorSet : frames[currentFrame].worldStateDescriptorSet;
     if (boundTexturedDescriptorSet == materialDescriptorSet) {
         vkCmdBindDescriptorSets(
             commandBuffer,
@@ -165,10 +165,10 @@ void VulkanRenderBackendImpl::setViewportAndScissor(
     int surfaceWidth,
     int surfaceHeight) {
     const std::uint32_t width = std::min(
-        swapchainExtent.width,
+        worldShadowActive ? worldShadowResolution : swapchainExtent.width,
         static_cast<std::uint32_t>(std::max(1, surfaceWidth)));
     const std::uint32_t height = std::min(
-        swapchainExtent.height,
+        worldShadowActive ? worldShadowResolution : swapchainExtent.height,
         static_cast<std::uint32_t>(std::max(1, surfaceHeight)));
     if (boundViewportValid &&
         boundViewportWidth == width &&

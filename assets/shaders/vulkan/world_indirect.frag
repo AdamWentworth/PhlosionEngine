@@ -26,7 +26,11 @@ layout(set = 1, binding = 0) uniform WorldViewState {
     vec4 environmentMoon;
     vec4 environmentMoonLight;
     vec4 environmentCelestial;
+    vec4 pointLights[8];
+    mat4 directionalShadowMatrix;
+    vec4 directionalShadowParams;
 } worldView;
+layout(set = 1, binding = 6) uniform sampler2D directionalShadowTexture;
 
 layout(location = 0) in vec2 vertexUv;
 layout(location = 1) in vec4 vertexColor;
@@ -55,6 +59,13 @@ layout(location = 0) out vec4 outColor;
 #define ENV_CELESTIAL worldView.environmentCelestial
 #define ENV_LUT(uv) vec3(0.0)
 #include "world_atmosphere.glsl"
+#define ENV_POINT(index) worldView.pointLights[index]
+#include "world_lighting.glsl"
+#define WORLD_SHADOW_PARAMS worldView.directionalShadowParams
+#define WORLD_SHADOW_CLIP(position) (worldView.directionalShadowMatrix * vec4(position, 1.0))
+#define WORLD_SHADOW_SAMPLE(uv) textureLod(directionalShadowTexture, uv, 0.0).r
+#define WORLD_SHADOW_Y -1.0
+#include "world_shadow.glsl"
 #ifndef PHLOSION_PROJECT_MATERIAL
 #include "world_material.glsl"
 #endif
@@ -112,6 +123,7 @@ vec3 encodeWorldSurfaceColor(vec3 linearColor) {
 
 void main() {
     WorldIndirectDrawState portableDraw = worldIndirectDraws.states[drawStateIndex];
+    updateEnvironmentDirectionalVisibility(worldPosition, vertexNormal, portableDraw.materialParams.w);
     if (portableDraw.materialParams.w >= 249.5 && portableDraw.materialParams.w != 254.0) {
         uint materialIndex = portableDraw.drawParams.x;
         vec4 color = portableMaterial(portableDraw.materialParams.w,

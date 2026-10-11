@@ -9,14 +9,19 @@
 
 #include "engine/render/IRenderBackend.h"
 #include "engine/render/IWorldDepthControl.h"
+#include "engine/render/IWorldDirectionalShadow.h"
 #include "engine/render/WorldResourceScopeState.h"
 
 struct SDL_Window;
 struct VulkanRenderBackendImpl;
 
-class VulkanRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl {
+class VulkanRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow {
 public:
     bool clearWorldDepth() override;
+    void prewarmWorldDirectionalShadow(std::uint32_t resolution) override;
+    bool beginWorldDirectionalShadow(const engine::render::WorldDirectionalShadowView& view) override;
+    bool endWorldDirectionalShadow() override;
+    void clearWorldDirectionalShadow() override;
 
   engine::render::WorldResourceScopeId createWorldResourceScope(std::uint64_t payloadByteLimit) override;
   bool beginWorldResourceScope(engine::render::WorldResourceScopeId id) override;

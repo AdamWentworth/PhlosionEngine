@@ -516,6 +516,46 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
     }
 
     {
+        RecordingBackend filtered;
+        auto filteredOptions = options;
+        const std::array hidden{asset->primitives[0].nodeIndex};
+        filteredOptions.excludedNodes = hidden;
+        GltfSceneDrawStats filteredStats;
+        if (!check(engine::render::gltf::scene::drawGltfSceneAsset(
+                filtered, *asset, pose, filteredOptions, filteredStats, &error) &&
+                filtered.submissions.size() == 1 && filteredStats.drawCalls == 1 &&
+                filtered.submissions[0].geometryKey == asset->primitives[1].geometryKey,
+                "node exclusion removed the wrong primitive")) return false;
+        filtered.submissions.clear();
+        filteredOptions.prewarmOnly = true;
+        if (!check(engine::render::gltf::scene::drawGltfSceneAsset(
+                filtered, *asset, pose, filteredOptions, filteredStats, &error) &&
+                filtered.preparedGeometry == 1 && filtered.preparedTextures == 1 &&
+                filtered.submissions.empty(), "prewarm ignored node exclusion")) return false;
+        filteredOptions.prewarmOnly = false;
+        filteredOptions.translucent = true;
+        if (!check(engine::render::gltf::scene::drawGltfSceneAsset(
+                filtered, *asset, pose, filteredOptions, filteredStats, &error) &&
+                filtered.submissions.size() == 1,
+                "transparent pass ignored node exclusion")) return false;
+        filtered.submissions.clear();
+        const std::array hiddenAll{asset->primitives[0].nodeIndex, asset->primitives[1].nodeIndex};
+        filteredOptions.excludedNodes = hiddenAll;
+        if (!check(engine::render::gltf::scene::drawGltfSceneAsset(
+                filtered, *asset, pose, filteredOptions, filteredStats, &error) &&
+                filtered.submissions.empty() && filteredStats.drawCalls == 0,
+                "excluding every draw node failed")) return false;
+        for (const int invalid : {-1, static_cast<int>(asset->nodes.size())}) {
+            const std::array badNodes{hidden[0], invalid};
+            filteredOptions.excludedNodes = badNodes;
+            filteredStats.drawCalls = 42;
+            if (!check(!engine::render::gltf::scene::drawGltfSceneAsset(
+                    filtered, *asset, pose, filteredOptions, filteredStats, &error) &&
+                    filtered.submissions.empty() && filteredStats.drawCalls == 42,
+                    "invalid node exclusion submitted or overwrote stats")) return false;
+        }
+    }
+    {
         ScopedRecordingBackend scoped;
         GltfSceneDrawOptions managedOptions = options;
         managedOptions.resourceScope = 1u;

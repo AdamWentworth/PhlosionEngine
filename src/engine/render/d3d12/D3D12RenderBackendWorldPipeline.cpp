@@ -6,7 +6,12 @@
 #include "engine/render/d3d12/D3D12RenderBackendPipelineCompile.h"
 
 #include <algorithm>
+#include <bit>
+#include <cctype>
 #include <cstring>
+#include <iomanip>
+#include <limits>
+#include <locale>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -18,6 +23,9 @@ using namespace engine::render::d3d12_pipeline_compile;
 
 void D3D12RenderBackend::createWorldPipeline(bool createBuffers) {
 #if defined(_WIN32)
+    worldShadowPipelineState_.Reset();
+    worldPointLightPipelines_.clear();
+    worldPointLightPipelineFactory_ = {};
     static const std::string kVertexTemplate = R"HLSL(cbuffer VSConstants : register(b0) { float4x4 uViewProj; float4x4 uModel; float4 uSkinMeta; float4 uClipMeta; float4 uEnvironmentSunVs; float4 uEnvironmentRadianceVs; };cbuffer MaterialVsConstants : register(b1) { float _m0,_m1,_m2,_m3,_m4,_m5,_m6,_m7,_m8,_m9,_m10,uMaterialMode,uMaterialTimeSecVs,uMaterialFlagsVs,uMaterialAtlasWidthVs,uMaterialAtlasHeightVs; float4 uMaterialRect0Vs; float4 uMaterialRect1Vs; };StructuredBuffer<float4> gSkinMatrices : register(t7);Texture2D gVertexDisplacementMap : register(t1);SamplerState gVertexSampCC : register(s0);struct InstanceData { float4 model0; float4 model1; float4 model2; float4 model3; float4 color; uint4 skinMeta; };StructuredBuffer<InstanceData> gInstances : register(t6);struct VSIn { float3 pos : POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 nrm : NORMAL; float4 jnts : BLENDINDICES; float4 wgts : BLENDWEIGHT; float4 tan : TANGENT; float2 sourceUv1 : TEXCOORD1; float2 sourceUv2 : TEXCOORD2; };struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 worldPos : TEXCOORD1; float3 worldNormal : TEXCOORD2; float4 worldTangent : TEXCOORD3; float3 generated : TEXCOORD4; float2 sourceUv1 : TEXCOORD5; float2 sourceUv2 : TEXCOORD6; };static const int kMaxSkinMatrices = 128;float4 resolveSkinMeta(InstanceData inst) {  if (inst.skinMeta.x != 0u) return float4(1.0f, (float)inst.skinMeta.y, (float)inst.skinMeta.z, (float)inst.skinMeta.w);  return uSkinMeta;}float4x4 loadPackedMatrix(uint baseFloat4) {  float4 c0 = gSkinMatrices[baseFloat4 + 0u];  float4 c1 = gSkinMatrices[baseFloat4 + 1u];  float4 c2 = gSkinMatrices[baseFloat4 + 2u];  float4 c3 = gSkinMatrices[baseFloat4 + 3u];  return float4x4(c0.x, c1.x, c2.x, c3.x, c0.y, c1.y, c2.y, c3.y, c0.z, c1.z, c2.z, c3.z, c0.w, c1.w, c2.w, c3.w);}float4x4 loadSkinMatrix(float4 skinMeta, int jointIndex, int c) {  const uint jointBase = (uint)skinMeta.w + (uint)(jointIndex * 4);  if (skinMeta.z > 0.5f) {    const uint inverseBindBase = (uint)skinMeta.w + (uint)(c * 4 + jointIndex * 4);    return mul(loadPackedMatrix(jointBase), loadPackedMatrix(inverseBindBase));  }  return loadPackedMatrix(jointBase);}float3 applySkinningPos(VSIn i, float3 localPos, float4 skinMeta) {  if (skinMeta.x < 0.5f) return localPos;  float4 blended = float4(0.0f, 0.0f, 0.0f, 0.0f);  float totalWeight = 0.0f;  int c = (int)skinMeta.y;  int j0 = (int)round(i.jnts.x); float w0 = i.wgts.x;  int j1 = (int)round(i.jnts.y); float w1 = i.wgts.y;  int j2 = (int)round(i.jnts.z); float w2 = i.wgts.z;  int j3 = (int)round(i.jnts.w); float w3 = i.wgts.w;  if (w0 > 0.00001f && j0 >= 0 && j0 < c && j0 < kMaxSkinMatrices) { blended += mul(loadSkinMatrix(skinMeta, j0, c), float4(localPos, 1.0f)) * w0; totalWeight += w0; }  if (w1 > 0.00001f && j1 >= 0 && j1 < c && j1 < kMaxSkinMatrices) { blended += mul(loadSkinMatrix(skinMeta, j1, c), float4(localPos, 1.0f)) * w1; totalWeight += w1; }  if (w2 > 0.00001f && j2 >= 0 && j2 < c && j2 < kMaxSkinMatrices) { blended += mul(loadSkinMatrix(skinMeta, j2, c), float4(localPos, 1.0f)) * w2; totalWeight += w2; }  if (w3 > 0.00001f && j3 >= 0 && j3 < c && j3 < kMaxSkinMatrices) { blended += mul(loadSkinMatrix(skinMeta, j3, c), float4(localPos, 1.0f)) * w3; totalWeight += w3; }  if (totalWeight <= 0.00001f) return localPos;  if (totalWeight < 0.999f) blended += float4(localPos, 1.0f) * (1.0f - totalWeight);  return blended.xyz;}float3 applySkinningNormal(VSIn i, float3 localNormal, float4 skinMeta) {  if (skinMeta.x < 0.5f) return localNormal;  float3 blended = float3(0.0f, 0.0f, 0.0f);  float totalWeight = 0.0f;  int c = (int)skinMeta.y;  int j0 = (int)round(i.jnts.x); float w0 = i.wgts.x;  int j1 = (int)round(i.jnts.y); float w1 = i.wgts.y;  int j2 = (int)round(i.jnts.z); float w2 = i.wgts.z;  int j3 = (int)round(i.jnts.w); float w3 = i.wgts.w;  if (w0 > 0.00001f && j0 >= 0 && j0 < c && j0 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j0, c), localNormal) * w0; totalWeight += w0; }  if (w1 > 0.00001f && j1 >= 0 && j1 < c && j1 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j1, c), localNormal) * w1; totalWeight += w1; }  if (w2 > 0.00001f && j2 >= 0 && j2 < c && j2 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j2, c), localNormal) * w2; totalWeight += w2; }  if (w3 > 0.00001f && j3 >= 0 && j3 < c && j3 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j3, c), localNormal) * w3; totalWeight += w3; }  if (totalWeight <= 0.00001f) return localNormal;  if (totalWeight < 0.999f) blended += localNormal * (1.0f - totalWeight);  float len2 = dot(blended, blended);  return (len2 > 1e-8f) ? normalize(blended) : float3(0.0f, 1.0f, 0.0f);}float4 applySkinningTangent(VSIn i, float4 localTangent, float4 skinMeta) {  if (skinMeta.x < 0.5f) return localTangent;  float3 tangent = localTangent.xyz;  float3 blended = float3(0.0f, 0.0f, 0.0f);  float totalWeight = 0.0f;  int c = (int)skinMeta.y;  int j0 = (int)round(i.jnts.x); float w0 = i.wgts.x;  int j1 = (int)round(i.jnts.y); float w1 = i.wgts.y;  int j2 = (int)round(i.jnts.z); float w2 = i.wgts.z;  int j3 = (int)round(i.jnts.w); float w3 = i.wgts.w;  if (w0 > 0.00001f && j0 >= 0 && j0 < c && j0 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j0, c), tangent) * w0; totalWeight += w0; }  if (w1 > 0.00001f && j1 >= 0 && j1 < c && j1 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j1, c), tangent) * w1; totalWeight += w1; }  if (w2 > 0.00001f && j2 >= 0 && j2 < c && j2 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j2, c), tangent) * w2; totalWeight += w2; }  if (w3 > 0.00001f && j3 >= 0 && j3 < c && j3 < kMaxSkinMatrices) { blended += mul((float3x3)loadSkinMatrix(skinMeta, j3, c), tangent) * w3; totalWeight += w3; }  if (totalWeight <= 0.00001f) return localTangent;  if (totalWeight < 0.999f) blended += tangent * (1.0f - totalWeight);  float len2 = dot(blended, blended);  if (len2 > 1e-8f) blended = normalize(blended);  else blended = tangent;  return float4(blended, localTangent.w);}float4 applyInstancePos(InstanceData inst, float3 localPos) {  return inst.model0 * localPos.x + inst.model1 * localPos.y + inst.model2 * localPos.z + inst.model3;}float3 applyInstanceLinear(InstanceData inst, float3 localDir) {  return inst.model0.xyz * localDir.x + inst.model1.xyz * localDir.y + inst.model2.xyz * localDir.z;}
 __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
 VSOut main(VSIn i, uint instanceId : SV_InstanceID) {  VSOut o;  InstanceData inst = gInstances[instanceId];  float4 skinMeta = resolveSkinMeta(inst);  float3 localPos = i.pos;  float3 localNormal = i.nrm;  float4 localTangent = i.tan;  float normalLengthSquared = dot(localNormal, localNormal);  if (uMaterialMode > 2.5f && uMaterialMode < 3.5f && normalLengthSquared > 1e-10f) localPos += localNormal * rsqrt(normalLengthSquared) * 0.001f;
@@ -37,6 +45,9 @@ cbuffer EnvironmentConstants : register(b0) {
   float4 uEnvironmentMoonLight;
   float4 uEnvironmentCelestial;
   float4 uEnvironmentCamera;
+  float4 uWorldPointLights[8];
+  float4x4 uWorldShadowMatrix;
+  float4 uWorldShadowParams;
 };
 cbuffer PSConstants : register(b1) {
   float uUseTexture;
@@ -89,6 +100,8 @@ Texture2D gEmissiveTex : register(t4);
 Texture2D gEnvTex : register(t5);
 Texture2D gLightProjectionTex : register(t6);
 Texture2D gProjectedShadowTex : register(t7);
+Texture2D<float> gWorldShadowTex : register(t8);
+SamplerState gWorldShadowSampler : register(s9);
 SamplerState gSampCC : register(s0);
 SamplerState gSampRR : register(s1);
 SamplerState gSampCR : register(s2);
@@ -112,6 +125,13 @@ struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLO
 #define ENV_CELESTIAL uEnvironmentCelestial
 #define ENV_LUT(uv) gTex.SampleLevel(gSampCC, uv, 0.0).rgb
 __PHLOSION_ENVIRONMENT_SHADER__
+#define ENV_POINT(index) uWorldPointLights[index]
+__PHLOSION_WORLD_LIGHTING_SHADER__
+#define WORLD_SHADOW_PARAMS uWorldShadowParams
+#define WORLD_SHADOW_CLIP(position) mul(uWorldShadowMatrix, float4(position, 1.0))
+#define WORLD_SHADOW_SAMPLE(uv) gWorldShadowTex.SampleLevel(gWorldShadowSampler, uv, 0.0)
+#define WORLD_SHADOW_Y -1.0
+__PHLOSION_WORLD_SHADOW_SHADER__
 __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
 int legacyWrapIndex(int index, int size, float mode) {
   if (abs(mode - 33071.0f) < 0.5f) return clamp(index, 0, size - 1);
@@ -123,6 +143,7 @@ int legacyWrapIndex(int index, int size, float mode) {
   return (index % size + size) % size;
 }
 float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
+  updateEnvironmentDirectionalVisibility(i.worldPos, i.worldNormal, uMaterialMode);
   if (uMaterialMode >= 249.5f && uMaterialMode != 254.0f) {
     float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
     if (uUseTexture > 0.5f) {
@@ -166,6 +187,7 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
 }
 
 
+void mainShadow(PSIn i, bool isFrontFace : SV_IsFrontFace) { evaluateWorldPixel(i, isFrontFace); }
 float4 main(PSIn i, bool isFrontFace : SV_IsFrontFace) : SV_TARGET {
   return evaluateWorldPixel(i, isFrontFace);
 }
@@ -519,6 +541,7 @@ float3 applyWorldLitModel(PSIn i,
   float3 lightPos = cameraPos + camRight * 0.5f + camUp * 0.0f - camForward * 0.8660254f;
   float3 l0 = ENV_SUN.w > 0.5 ? environmentLightDirection() : safeNormalize(lightPos - cameraTarget, float3(0.45f, 0.86f, 0.24f));
   float3 direct = evalDirectPbr(n, v, l0, directColor * directIntensity, albedo, F0, roughness, metallic);
+  direct += environmentLocalPbr(i.worldPos, n, v, albedo, F0, roughness, metallic);
 
   float NdotV = max(dot(n, v), 0.0f);
   float3 F = fresnelSchlickRoughness(NdotV, F0, roughness);
@@ -712,9 +735,27 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
         engine::render::world_pbr_shader_shared::injectSharedWorldPbr(
             engine::render::injectWorldMaterialProfile(kPsSource, worldMaterialProfile_.empty() ? kDefaultMaterial : worldMaterialProfile_.d3d12),
             engine::render::world_pbr_shader_shared::ShaderLanguage::Hlsl);
+    // Keep the established dispatcher for draws without local lighting. Its
+    // constant zero slots fold away the additional PBR evaluations.
+    std::string unlitPointSource = worldPsSource;
+    const std::string pointMacro = "#define ENV_POINT(index) uWorldPointLights[index]";
+    const auto pointMacroOffset = unlitPointSource.find(pointMacro);
+    if (pointMacroOffset == std::string::npos) throw std::runtime_error("Missing world point-light binding.");
+    unlitPointSource.replace(pointMacroOffset, pointMacro.size(),
+                            "#define ENV_POINT(index) float4(0.0f, 0.0f, 0.0f, 0.0f)");
+    const std::string shadowMacro = "#define WORLD_SHADOW_PARAMS uWorldShadowParams";
+    const auto shadowMacroOffset = unlitPointSource.find(shadowMacro);
+    if (shadowMacroOffset == std::string::npos) throw std::runtime_error("Missing directional-shadow binding.");
+    unlitPointSource.replace(shadowMacroOffset, shadowMacro.size(),
+        "#define WORLD_SHADOW_PARAMS float4(0.0f, 0.0f, 0.0f, 0.0f)");
+    Microsoft::WRL::ComPtr<ID3DBlob> shadowPsBlob;
     errBlob.Reset();
-    if (!compileHlslWithCache(worldPsSource.c_str(),
-                              worldPsSource.size(),
+    if (!compileHlslWithCache(unlitPointSource.data(), unlitPointSource.size(),
+        "mainShadow", "ps_5_0", d3dCompileFlags(), 0, shadowPsBlob, errBlob) || !shadowPsBlob)
+        throw std::runtime_error("D3DCompile failed for world shadow PS: " + d3dCompileErrorMessage(errBlob.Get()));
+    errBlob.Reset();
+    if (!compileHlslWithCache(unlitPointSource.c_str(),
+                              unlitPointSource.size(),
                               "main",
                               "ps_5_0",
                               d3dCompileFlags(),
@@ -729,8 +770,8 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
         throw std::runtime_error("D3DCompile failed for world PS.");
     }
     errBlob.Reset();
-    if (!compileHlslWithCache(worldPsSource.c_str(),
-                              worldPsSource.size(),
+    if (!compileHlslWithCache(unlitPointSource.c_str(),
+                              unlitPointSource.size(),
                               "mainDualSource",
                               "ps_5_0",
                               d3dCompileFlags(),
@@ -753,7 +794,7 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
 
     D3D12_DESCRIPTOR_RANGE materialSrvRange{};
     materialSrvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    materialSrvRange.NumDescriptors = 8;
+    materialSrvRange.NumDescriptors = 9;
     materialSrvRange.BaseShaderRegister = 0;
     materialSrvRange.RegisterSpace = 0;
     materialSrvRange.OffsetInDescriptorsFromTableStart =
@@ -815,7 +856,7 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
         s.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
         return s;
     };
-    std::array<D3D12_STATIC_SAMPLER_DESC, 9> worldSamplers = {
+    std::array<D3D12_STATIC_SAMPLER_DESC, 10> worldSamplers = {
         makeStaticWorldSampler(0, D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  D3D12_TEXTURE_ADDRESS_MODE_CLAMP),  // CC
         makeStaticWorldSampler(1, D3D12_TEXTURE_ADDRESS_MODE_WRAP,   D3D12_TEXTURE_ADDRESS_MODE_WRAP),   // RR
         makeStaticWorldSampler(2, D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  D3D12_TEXTURE_ADDRESS_MODE_WRAP),   // CR
@@ -830,6 +871,8 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
     D3D12_ROOT_SIGNATURE_DESC rsDesc{};
     rsDesc.NumParameters = static_cast<UINT>(_countof(rootParams));
     rsDesc.pParameters = rootParams;
+    worldSamplers[9] = makeStaticWorldSampler(9, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP);
+    worldSamplers[9].Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
     rsDesc.NumStaticSamplers = static_cast<UINT>(worldSamplers.size());
     rsDesc.pStaticSamplers = worldSamplers.data();
     rsDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
@@ -851,7 +894,7 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
         throw std::runtime_error("CreateRootSignature failed for D3D12 world pipeline.");
     }
 
-    D3D12_INPUT_ELEMENT_DESC layout[] = {
+    static const D3D12_INPUT_ELEMENT_DESC layout[] = {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
@@ -920,6 +963,13 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
         !worldPipelineState_) {
         throw std::runtime_error("CreateGraphicsPipelineState failed for D3D12 world pipeline.");
     }
+    auto shadowPso = pso;
+    shadowPso.PS = {shadowPsBlob->GetBufferPointer(), shadowPsBlob->GetBufferSize()};
+    shadowPso.NumRenderTargets = 0;
+    shadowPso.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
+    if (FAILED(device_->CreateGraphicsPipelineState(&shadowPso,
+        IID_PPV_ARGS(worldShadowPipelineState_.ReleaseAndGetAddressOf()))))
+        throw std::runtime_error("CreateGraphicsPipelineState failed for world shadow pipeline.");
     D3D12_GRAPHICS_PIPELINE_STATE_DESC skyPso = pso;
     skyPso.PS = {skyPsBlob->GetBufferPointer(), skyPsBlob->GetBufferSize()};
     skyPso.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
@@ -1039,6 +1089,63 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
         throw std::runtime_error(
             "CreateGraphicsPipelineState failed for D3D12 world no-depth dual-source additive pipeline.");
     }
+
+    // A constant material mode avoids the rejected large composed dispatcher
+    // while retaining level-3 optimization and all material/source factors.
+    // Own shader blobs and use static input layout storage: these descriptions
+    // remain valid after createWorldPipeline returns.
+    worldPointLightPipelineFactory_ =
+        [source = worldPsSource, vertex = vsBlob, root = worldRootSignature_,
+         descriptions = std::array{pso, blendPso, additiveBlendPso, premulBlendPso,
+             noDepthBlendPso, noDepthAdditiveBlendPso, noDepthPremulBlendPso,
+             dualSourceBlendPso, dualSourceAdditivePso, noDepthDualSourceBlendPso,
+             noDepthDualSourceAdditivePso},
+         shaders = std::unordered_map<std::uint64_t, Microsoft::WRL::ComPtr<ID3DBlob>>{},
+         device = device_](float mode, unsigned variant) mutable {
+            const bool dualSource = variant >= 7;
+            const auto shaderKey = std::uint64_t(std::bit_cast<std::uint32_t>(mode)) * 2 + unsigned(dualSource);
+            auto shader = shaders.find(shaderKey);
+            if (shader == shaders.end()) {
+                std::string specialized = source;
+                const std::string declaration = "float uMaterialMode;";
+                const auto declarationOffset = specialized.find(declaration);
+                if (declarationOffset == std::string::npos)
+                    throw std::runtime_error("Missing world material-mode declaration.");
+                specialized.replace(declarationOffset, declaration.size(), "float _pointLightModeStorage;");
+                const std::string identifier = "uMaterialMode";
+                std::ostringstream modeText;
+                modeText.imbue(std::locale::classic());
+                modeText << std::showpoint << std::setprecision(std::numeric_limits<float>::max_digits10) << mode << 'f';
+                const std::string literal = modeText.str();
+                auto isIdentifier = [](char c) {
+                    return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+                };
+                for (std::size_t at = 0; (at = specialized.find(identifier, at)) != std::string::npos;) {
+                    const auto end = at + identifier.size();
+                    if ((at == 0 || !isIdentifier(specialized[at - 1])) &&
+                        (end == specialized.size() || !isIdentifier(specialized[end]))) {
+                        specialized.replace(at, identifier.size(), literal);
+                        at += literal.size();
+                    } else at = end;
+                }
+                Microsoft::WRL::ComPtr<ID3DBlob> blob, errors;
+                if (!compileHlslWithCache(specialized.data(), specialized.size(),
+                        dualSource ? "mainDualSource" : "main", "ps_5_0", d3dCompileFlags(), 0,
+                        blob, errors) || !blob) {
+                    throw std::runtime_error("D3DCompile failed for local-lit material " +
+                        literal + ": " + d3dCompileErrorMessage(errors.Get()));
+                }
+                shader = shaders.emplace(shaderKey, std::move(blob)).first;
+            }
+            auto desc = descriptions.at(variant);
+            desc.pRootSignature = root.Get();
+            desc.VS = {vertex->GetBufferPointer(), vertex->GetBufferSize()};
+            desc.PS = {shader->second->GetBufferPointer(), shader->second->GetBufferSize()};
+            Microsoft::WRL::ComPtr<ID3D12PipelineState> pipeline;
+            if (FAILED(device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(pipeline.GetAddressOf()))))
+                throw std::runtime_error("CreateGraphicsPipelineState failed for local-lit world material.");
+            return pipeline;
+        };
 
     if (!createBuffers) return;
 

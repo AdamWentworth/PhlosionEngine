@@ -84,6 +84,14 @@ bool test_world_material_profile_contract(std::string &outFail) {
         outFail = "Conditional scalar packing or isolated per-mode settings failed.";
         return false;
     }
+    auto shadowProfile = profile;
+    shadowProfile.vulkan[6] = {1,2,3};
+    if (!rejects([&] { shadowProfile.validate(); })) {
+        outFail = "Malformed optional directional-shadow shader was accepted.";
+        return false;
+    }
+    shadowProfile.vulkan[6].assign(words.begin(),words.end());
+    shadowProfile.validate();
     auto incomplete = profile;
     incomplete.vulkan[2].clear();
     if (!rejects([&] { incomplete.validate(); }) ||

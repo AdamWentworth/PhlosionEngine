@@ -96,6 +96,7 @@ void OpenGLRenderBackend::setWorldMaterialProfile(const engine::render::WorldMat
 }
 
 void OpenGLRenderBackend::beginFrame(float r, float g, float b, float a) {
+    clearWorldDirectionalShadow();
     if (!collectWorldResourceScopes()) return;
     ++frameCounter_;
     frameDrawCalls_ = 0u;
@@ -251,6 +252,7 @@ void OpenGLRenderBackend::shutdown() {
     lastGpuFrameMs_ = 0.0f;
     lastGpuFrameValid_ = false;
 
+    destroyWorldDirectionalShadowResources();
     destroyWorldSceneColorResources();
     destroyDebugPipeline();
     destroyWorldPipeline();

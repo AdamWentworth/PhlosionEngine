@@ -202,7 +202,9 @@ void WorldMaterialProfile::validate() const {
         d3d12Vertex.declarations.empty() || d3d12Vertex.evaluation.empty()) {
         throw std::runtime_error("Material profile must provide OpenGL and D3D12 shader sources.");
     }
-    for (const auto &words : vulkan) {
+    for (std::size_t index = 0; index < vulkan.size(); ++index) {
+        const auto& words = vulkan[index];
+        if (index == 6 && words.empty()) continue;
         if (words.size() < 5 || words.front() != 0x07230203u) {
             throw std::runtime_error("Material profile must provide all six valid Vulkan shader variants.");
         }
@@ -255,8 +257,9 @@ WorldMaterialProfile loadWorldMaterialProfile(
     profile.d3d12 = source("d3d12");
     profile.openglVertex = source("opengl_vertex");
     profile.d3d12Vertex = source("d3d12_vertex");
-    constexpr std::array keys{"direct", "direct_dual_source", "indirect", "indirect_dual_source", "direct_vertex", "indirect_vertex"};
+    constexpr std::array keys{"direct", "direct_dual_source", "indirect", "indirect_dual_source", "direct_vertex", "indirect_vertex", "directional_shadow"};
     for (std::size_t index = 0; index < keys.size(); ++index) {
+        if (index == 6 && !json.at("vulkan").contains(keys[index])) continue;
         const auto path = resolveFile(projectRoot, json.at("vulkan").at(keys[index]).get<std::string>());
         const auto bytes = readText(path);
         if (bytes.size() % sizeof(std::uint32_t)) {

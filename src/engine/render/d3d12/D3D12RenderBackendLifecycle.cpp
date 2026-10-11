@@ -43,6 +43,7 @@ engine::log::Sink& d3d12LifecycleLog() {
 
 void D3D12RenderBackend::beginFrame(float r, float g, float b, float a) {
     if (!collectWorldResourceScopes()) return;
+    clearWorldDirectionalShadow();
     ++frameCounter_;
     worldSceneColorPassActive_ = false;
     clearColor_[0] = r;
@@ -539,6 +540,11 @@ void D3D12RenderBackend::shutdown() {
     worldDualSourceBlendPipelineState_.Reset();
     worldPipelineState_.Reset();
     worldSkyPipelineState_.Reset();
+    worldShadowPipelineState_.Reset();
+    worldShadowDepth_.Reset(); worldShadowDsvHeap_.Reset();
+    worldShadowResolution_ = 0; worldShadowActive_ = worldShadowReady_ = false;
+    worldPointLightPipelines_.clear();
+    worldPointLightPipelineFactory_ = {};
     worldRootSignature_.Reset();
     spriteTextures_.clear();
     worldTextures_.clear();

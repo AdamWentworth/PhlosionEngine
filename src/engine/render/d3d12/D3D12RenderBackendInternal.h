@@ -138,10 +138,10 @@ inline float sanitizeWrapMode(int wrapMode) {
     return static_cast<float>(kGlRepeat);
 }
 
-// b0 contains 40 transform floats, nine environment vectors, and a camera
-// vector. It is shared by VS/PS and uses one aligned CBV (two root DWORDs).
-inline constexpr std::size_t kWorldViewConstantFloats = 80u;
-inline constexpr std::size_t kWorldViewConstantStride = 512u;
+// b0 contains 40 transform floats, nine environment vectors, a camera vector
+// and eight point-light vectors. One aligned CBV costs two root DWORDs.
+inline constexpr std::size_t kWorldViewConstantFloats = 132u;
+inline constexpr std::size_t kWorldViewConstantStride = 768u;
 static_assert(kWorldViewConstantFloats*sizeof(float) <= kWorldViewConstantStride);
 
 struct WorldPsConstants {

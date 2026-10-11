@@ -140,6 +140,9 @@ int main() {
             "Provider accepted a frame without the environment tail");
         require(!createModelRenderProvider(9, &api) && !api.context,
             "Provider accepted the pre-celestial frame layout");
+        require(!createModelRenderProvider(11, &api) && !api.context, "Provider accepted pre-shadow ABI 11");
+        require(!createModelRenderProvider(10, &api) && !api.context,
+            "Provider accepted the pre-point-light frame layout");
         require(createModelRenderProvider(engine::render::modelRenderPluginAbi, &api), "Provider creation failed");
         struct Release {
             engine::render::ModelRenderPluginApi& api;
@@ -158,11 +161,14 @@ int main() {
         warm.prewarmOnly=false;
         warm.environment.enabled=true; warm.environment.sunRadiance={1,2,3};
         warm.environment.moonRadiance={.1f,.2f,.3f};warm.environment.starIntensity=.4f;
+        warm.environment.pointLights[0]={{1,2,3},8,{4,5,6}};
         require(api.render(api.context,&warm) && backend.draws>0, "Prepared model failed to render");
         require(backend.environment.enabled && backend.environment.sunRadiance==warm.environment.sunRadiance,
             "Runtime provider dropped shared world lighting");
         require(backend.environment.moonRadiance==warm.environment.moonRadiance && backend.environment.starIntensity==.4f,
             "Runtime provider dropped celestial inputs");
+        require(backend.environment.pointLights[0].intensity==std::array<float,3>{4,5,6},
+            "Runtime provider dropped point lights");
         warm.environment={};
         require(api.render(api.context,&warm) && !backend.environment.enabled,
             "World lighting leaked into a later inspection draw");
@@ -195,6 +201,28 @@ int main() {
         batches::submitWorldIndexedBatches(backend,submissions,&identity[0][0],640,360);
         require(backend.instancedDraws==2,
             "Equivalent signed-zero environment values did not share instancing");
+        submissions[1].environment.pointLights[0]={{1,2,3},8,{4,5,6}};
+        const int beforePointSeparate=backend.draws;
+        batches::submitWorldIndexedBatches(backend,submissions,&identity[0][0],640,360);
+        require(backend.draws==beforePointSeparate+2 && backend.instancedDraws==2,
+            "Instancing merged different point lights");
+        submissions[0].environment=submissions[1].environment;
+        batches::submitWorldIndexedBatches(backend,submissions,&identity[0][0],640,360);
+        require(backend.instancedDraws==3,"Matching point lights prevented instancing");
+        submissions[1].directionalShadowCaster = 0;
+        const int beforeShadowSeparate = backend.draws;
+        batches::submitWorldIndexedBatches(backend,submissions,&identity[0][0],640,360);
+        require(backend.draws==beforeShadowSeparate+2 && backend.instancedDraws==3,
+            "Instancing merged incompatible shadow caster flags");
+        submissions[0].directionalShadowCaster = 0;
+        submissions[1].directionalShadowReceiver = 0;
+        const int beforeReceiverSeparate = backend.draws;
+        batches::submitWorldIndexedBatches(backend,submissions,&identity[0][0],640,360);
+        require(backend.draws==beforeReceiverSeparate+2 && backend.instancedDraws==3,
+            "Instancing merged incompatible shadow receiver flags");
+        submissions[0].directionalShadowReceiver = 0;
+        batches::submitWorldIndexedBatches(backend,submissions,&identity[0][0],640,360);
+        require(backend.instancedDraws==4,"Matching shadow flags prevented instancing");
 
 
         engine::render::ModelNodePoseRequest request;

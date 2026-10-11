@@ -1,4 +1,5 @@
 #include "engine/render/vulkan/VulkanRenderBackendInternal.h"
+#include "engine/render/WorldDirectionalShadowPolicy.h"
 
 #include "engine/core/Environment.h"
 #include "engine/render/vulkan/VulkanWorldIndirectBatch.h"
@@ -57,6 +58,10 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
     const IRenderBackend::WorldSceneFrame& frame,
     const IRenderBackend::WorldSceneView& view) {
     namespace vulkan = engine::render::vulkan_backend;
+    if (worldShadowActive) return false;
+    if (worldShadowReady && view.materials)
+        for (const auto& material : *view.materials)
+            if (!engine::render::worldSceneShadowSwitch(material, engine::render::backend::WorldSceneSourceMaterialSwitchReceiveShadow)) return false;
     if (!indirectWorldSceneEnabled() || !indirectWorldBatchingSupported ||
         indirectWorldPipelineLayout == VK_NULL_HANDLE) {
         return false;
@@ -265,8 +270,10 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
         return false;
     }
 
-    const vulkan::WorldViewState viewState =
+    auto viewState =
         vulkan::makeWorldViewState(&viewTexture);
+    if (worldShadowReady && viewTexture.environment.enabled)
+        viewState.directionalShadow = engine::render::packWorldDirectionalShadow(worldShadowView);
     VkBuffer viewBuffer = VK_NULL_HANDLE;
     VkDeviceSize viewOffset = 0u;
     const VkDeviceSize uniformAlignment = std::max<VkDeviceSize>(
