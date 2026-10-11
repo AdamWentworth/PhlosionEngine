@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 
 namespace engine::render {
 
@@ -49,6 +50,11 @@ struct WorldEnvironmentLighting {
     std::array<float, 3> cloudTint{1, 1, 1};
     float cloudLightResponse = 1;
     std::array<WorldPointLight, 4> pointLights{};
+    // CPU precipitation inputs share the world snapshot without changing GPU uniforms.
+    float rainIntensity = 0;
+    double precipitationSeconds = 0;
+    std::array<float, 2> precipitationWind{};
+    std::uint32_t precipitationSeed = 0;
 };
 
 using WorldEnvironmentUniforms = std::array<std::array<float, 4>, 12>;

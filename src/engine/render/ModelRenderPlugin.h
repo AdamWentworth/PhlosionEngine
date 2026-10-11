@@ -6,8 +6,8 @@
 
 namespace engine::render {
 
-// ABI 13 adds bounded layered-cloud inputs to world environment lighting.
-inline constexpr std::uint32_t modelRenderPluginAbi = 13;
+// ABI 14 adds shared CPU precipitation inputs to world environment lighting.
+inline constexpr std::uint32_t modelRenderPluginAbi = 14;
 inline constexpr char modelRenderPluginEntryPoint[] = "phlosionModelRenderPluginCreate";
 
 // Project renderers may present cooked models outside the asset inspector.

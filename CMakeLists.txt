@@ -399,6 +399,7 @@ add_library(engine_render STATIC
     src/engine/render/RendererParityContract.cpp
     src/engine/render/WorldPbrShaderShared.cpp
     src/engine/render/AtmosphereSky.cpp
+    src/engine/render/RainVolume.cpp
     src/engine/render/WorldMaterialProfile.cpp
     src/engine/render/NeutralPmrem.cpp
     src/engine/render/gltf/ModelFastGltfLoader.cpp
@@ -609,6 +610,10 @@ set_target_properties(PhlosionModelRuntime PhlosionModelPreviewPlugin PROPERTIES
 
 if (PHLOSION_BUILD_TESTS)
     add_executable(PhlosionModelInstanceTests tests/TestModelInstance.cpp)
+    add_executable(PhlosionRainVolumeTests tests/TestRainVolume.cpp)
+    target_link_libraries(PhlosionRainVolumeTests PRIVATE Engine)
+    phlosion_apply_settings(PhlosionRainVolumeTests)
+    add_test(NAME PhlosionRainVolume COMMAND PhlosionRainVolumeTests)
     target_link_libraries(PhlosionModelInstanceTests PRIVATE Phlosion::Models)
     phlosion_apply_settings(PhlosionModelInstanceTests)
     add_test(NAME PhlosionModelInstance COMMAND PhlosionModelInstanceTests)
