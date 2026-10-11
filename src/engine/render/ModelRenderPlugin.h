@@ -6,8 +6,8 @@
 
 namespace engine::render {
 
-// ABI 14 adds shared CPU precipitation inputs to world environment lighting.
-inline constexpr std::uint32_t modelRenderPluginAbi = 14;
+// ABI 15 adds opt-in surface weather and shelter inputs to world lighting.
+inline constexpr std::uint32_t modelRenderPluginAbi = 15;
 inline constexpr char modelRenderPluginEntryPoint[] = "phlosionModelRenderPluginCreate";
 
 // Project renderers may present cooked models outside the asset inspector.

@@ -143,6 +143,7 @@ int main() {
         require(!createModelRenderProvider(11, &api) && !api.context, "Provider accepted pre-shadow ABI 11");
         require(!createModelRenderProvider(12, &api) && !api.context, "Provider accepted pre-cloud ABI 12");
         require(!createModelRenderProvider(13, &api) && !api.context, "Provider accepted pre-rain ABI 13");
+        require(!createModelRenderProvider(14, &api) && !api.context, "Provider accepted pre-surface ABI 14");
         require(!createModelRenderProvider(10, &api) && !api.context,
             "Provider accepted the pre-point-light frame layout");
         require(createModelRenderProvider(engine::render::modelRenderPluginAbi, &api), "Provider creation failed");

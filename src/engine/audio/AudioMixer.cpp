@@ -151,7 +151,7 @@ bool AudioMixer::fadeVoice(AudioVoiceId id, float targetGain,
         [id](const Voice& voice) { return voice.id == id; });
     if (it == voices_.end()) return fail(error, "audio voice is unavailable");
     if (durationFrames == 0u) {
-        if (targetGain == 0.0f) voices_.erase(it);
+        if (targetGain == 0.0f && !it->options.retainWhenSilent) voices_.erase(it);
         else {
             it->gain = targetGain;
             it->fade = {};
@@ -247,7 +247,7 @@ bool AudioMixer::render(std::size_t frames,
             if (voice.finished) continue;
             advanceFade(voice.gain, voice.fade);
             if (voice.gain == 0.0f && voice.fade.remaining == 0u &&
-                voice.fade.target == 0.0f) {
+                voice.fade.target == 0.0f && !voice.options.retainWhenSilent) {
                 voice.finished = true;
                 continue;
             }

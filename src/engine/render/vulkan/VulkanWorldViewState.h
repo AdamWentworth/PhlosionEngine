@@ -19,13 +19,13 @@ struct alignas(16) WorldViewState {
 };
 
 static_assert(std::is_standard_layout_v<WorldViewState>);
-static_assert(sizeof(WorldViewState) == 448u);
+static_assert(sizeof(WorldViewState) == 560u);
 static_assert(offsetof(WorldViewState, cameraPosition) == 0u);
 static_assert(offsetof(WorldViewState, cameraForward) == 16u);
 static_assert(offsetof(WorldViewState, cameraTarget) == 32u);
 static_assert(offsetof(WorldViewState, environment) == 48u);
-static_assert(offsetof(WorldViewState, pointLights) == 240u);
-static_assert(offsetof(WorldViewState, directionalShadow) == 368u);
+static_assert(offsetof(WorldViewState, pointLights) == 352u);
+static_assert(offsetof(WorldViewState, directionalShadow) == 480u);
 
 inline WorldViewState makeWorldViewState(
     const backend::WorldTextureData* texture) {

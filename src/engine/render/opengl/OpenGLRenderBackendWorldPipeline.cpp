@@ -463,6 +463,10 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
         uniform vec4 uEnvironmentCloudParams;
         uniform vec4 uEnvironmentCloudOffsets;
         uniform vec4 uEnvironmentCloudTint;
+        uniform vec4 uWeatherParams;
+        uniform vec4 uWeatherShelters[4];
+        uniform vec4 uWeatherShelterHeights;
+        uniform vec4 uWeatherMaterial;
         uniform float uMaterialMode;
         uniform float uMaterialTimeSec;
         uniform float uMaterialFlags;
@@ -515,6 +519,10 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
 #define ENV_CLOUD_PARAMS uEnvironmentCloudParams
 #define ENV_CLOUD_OFFSETS uEnvironmentCloudOffsets
 #define ENV_CLOUD_TINT uEnvironmentCloudTint
+#define ENV_WEATHER uWeatherParams
+#define ENV_SHELTER(index) uWeatherShelters[index]
+#define ENV_SHELTER_HEIGHT uWeatherShelterHeights
+#define ENV_WEATHER_MATERIAL uWeatherMaterial
 #define ENV_LUT(uv) textureLod(uTexture, uv, 0.0).rgb
 __PHLOSION_ENVIRONMENT_SHADER__
 uniform vec4 uWorldPointLights[8];
@@ -1149,6 +1157,10 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
     worldEnvironmentLocs_[9] = glGetUniformLocation(worldProgram_, "uEnvironmentCloudParams");
     worldEnvironmentLocs_[10] = glGetUniformLocation(worldProgram_, "uEnvironmentCloudOffsets");
     worldEnvironmentLocs_[11] = glGetUniformLocation(worldProgram_, "uEnvironmentCloudTint");
+    worldEnvironmentLocs_[12] = glGetUniformLocation(worldProgram_, "uWeatherParams");
+    for (int i=0;i<4;++i) worldEnvironmentLocs_[13+i] = glGetUniformLocation(worldProgram_, ("uWeatherShelters["+std::to_string(i)+"]").c_str());
+    worldEnvironmentLocs_[17] = glGetUniformLocation(worldProgram_, "uWeatherShelterHeights");
+    worldEnvironmentLocs_[18] = glGetUniformLocation(worldProgram_, "uWeatherMaterial");
     worldNormalScaleLoc_ = glGetUniformLocation(worldProgram_, "uNormalScale");
     worldMetallicFactorLoc_ = glGetUniformLocation(worldProgram_, "uMetallicFactor");
     worldRoughnessFactorLoc_ = glGetUniformLocation(worldProgram_, "uRoughnessFactor");

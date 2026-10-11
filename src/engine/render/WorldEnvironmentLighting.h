@@ -15,6 +15,12 @@ struct WorldPointLight {
 
 using WorldPointLightUniforms = std::array<std::array<float, 4>, 8>;
 
+struct WorldWeatherShelter {
+    // X/Z footprint; only surfaces below the roof remain sheltered.
+    std::array<float, 4> bounds{};
+    float roofHeight = 0;
+};
+
 // Per-view, per-draw values. Directions point toward the sun; radiance is
 // scene-linear, exposure is a multiplier, and distances/heights are in metres.
 // Disabled inputs preserve the established material and inspection lighting.
@@ -55,9 +61,16 @@ struct WorldEnvironmentLighting {
     double precipitationSeconds = 0;
     std::array<float, 2> precipitationWind{};
     std::uint32_t precipitationSeed = 0;
+    float surfaceWetness = 0;
+    float puddleAmount = 0;
+    // Explicit material opt-in prevents weather from changing character/UI rigs.
+    bool surfaceWeatherEnabled = false;
+    bool waterSurface = false;
+    float surfaceAbsorption = 1;
+    std::array<WorldWeatherShelter, 4> weatherShelters{};
 };
 
-using WorldEnvironmentUniforms = std::array<std::array<float, 4>, 12>;
+using WorldEnvironmentUniforms = std::array<std::array<float, 4>, 19>;
 
 inline WorldEnvironmentUniforms packWorldEnvironment(const WorldEnvironmentLighting& e) {
     WorldEnvironmentUniforms out{};
@@ -101,6 +114,22 @@ inline WorldEnvironmentUniforms packWorldEnvironment(const WorldEnvironmentLight
             out[10][i] = e.cloudOffsets[i] - std::floor(e.cloudOffsets[i]);
         const auto tint = nonnegative(e.cloudTint);
         out[11] = {tint[0],tint[1],tint[2],std::min(e.cloudLightResponse,2.f)};
+    }
+    if (e.surfaceWeatherEnabled && std::isfinite(e.surfaceWetness) &&
+        std::isfinite(e.puddleAmount) && std::isfinite(e.surfaceAbsorption) &&
+        std::isfinite(e.rainIntensity) && std::isfinite(e.precipitationSeconds) &&
+        e.precipitationSeconds >= 0 && e.precipitationSeconds <= 8192) {
+        out[12] = {std::clamp(e.surfaceWetness,0.f,1.f),std::clamp(e.puddleAmount,0.f,1.f),
+            std::clamp(e.rainIntensity,0.f,1.f),static_cast<float>(e.precipitationSeconds)};
+        for (std::size_t i=0;i<e.weatherShelters.size();++i) {
+            const auto& shelter=e.weatherShelters[i];
+            bool valid=std::isfinite(shelter.roofHeight);
+            for (float v : shelter.bounds) valid &= std::isfinite(v) && std::abs(v)<=1000000.f;
+            if (valid && shelter.bounds[0]<shelter.bounds[2] && shelter.bounds[1]<shelter.bounds[3]) {
+                out[13+i]=shelter.bounds;out[17][i]=shelter.roofHeight;
+            }
+        }
+        out[18] = {std::clamp(e.surfaceAbsorption,0.f,1.f),e.waterSurface?1.f:0.f,0,0};
     }
     return out;
 }

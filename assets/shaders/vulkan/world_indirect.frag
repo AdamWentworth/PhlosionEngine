@@ -29,6 +29,10 @@ layout(set = 1, binding = 0) uniform WorldViewState {
     vec4 environmentCloudParams;
     vec4 environmentCloudOffsets;
     vec4 environmentCloudTint;
+    vec4 weatherParams;
+    vec4 weatherShelters[4];
+    vec4 weatherShelterHeights;
+    vec4 weatherMaterial;
     vec4 pointLights[8];
     mat4 directionalShadowMatrix;
     vec4 directionalShadowParams;
@@ -63,6 +67,10 @@ layout(location = 0) out vec4 outColor;
 #define ENV_CLOUD_PARAMS worldView.environmentCloudParams
 #define ENV_CLOUD_OFFSETS worldView.environmentCloudOffsets
 #define ENV_CLOUD_TINT worldView.environmentCloudTint
+#define ENV_WEATHER worldView.weatherParams
+#define ENV_SHELTER(index) worldView.weatherShelters[index]
+#define ENV_SHELTER_HEIGHT worldView.weatherShelterHeights
+#define ENV_WEATHER_MATERIAL worldView.weatherMaterial
 #define ENV_LUT(uv) vec3(0.0)
 #include "world_atmosphere.glsl"
 #define ENV_POINT(index) worldView.pointLights[index]

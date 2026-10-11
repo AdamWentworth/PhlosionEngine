@@ -185,11 +185,31 @@ void checkInvalidInputsAndOwnership() {
 
 } // namespace
 
+void checkSilentAmbientPhase() {
+    AudioMixer mixer;
+    const std::array<float, 6> samples{.1f,.1f,.2f,.2f,.3f,.3f};
+    std::shared_ptr<const AudioClip> source;
+    CHECK(AudioClip::create(sampleRate,2,samples,source));
+    AudioPlayOptions options;options.loop=true;options.gain=0;options.retainWhenSilent=true;
+    AudioVoiceId id=0;CHECK(mixer.play(source,options,id));
+    std::array<float,2> output{};
+    CHECK(mixer.render(1,output) && output[0]==0 && mixer.activeVoices()==1);
+    CHECK(mixer.fadeVoice(id,1,0));
+    CHECK(mixer.render(1,output) && near(output[0],.2f));
+    CHECK(mixer.fadeVoice(id,0,1));
+    CHECK(mixer.render(1,output) && output[0]==0 && mixer.activeVoices()==1);
+    CHECK(mixer.fadeVoice(id,0,0) && mixer.activeVoices()==1);
+    CHECK(mixer.fadeVoice(id,1,0));
+    CHECK(mixer.render(1,output) && near(output[0],.1f));
+    mixer.stopAll();CHECK(mixer.activeVoices()==0);
+}
+
 int main() {
     try {
         checkMixAndClipLifetime();
         checkBusesMuteLoopAndReset();
         checkFades();
+        checkSilentAmbientPhase();
         checkSpatialPanAndMotion();
         checkInvalidInputsAndOwnership();
         std::cout << "[PASS] audio mixer contracts\n";

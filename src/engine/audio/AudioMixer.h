@@ -43,6 +43,8 @@ struct AudioPlayOptions {
     bool spatial = false;
     glm::vec3 emitterPosition{0.0f};
     float maxDistance = 50.0f;
+    // Ambient layers may reach silence while retaining their loop phase.
+    bool retainWhenSilent = false;
 };
 
 // Main-thread deterministic mixer. Render fills stereo float PCM; a platform

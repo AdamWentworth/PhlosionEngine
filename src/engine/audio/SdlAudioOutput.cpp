@@ -51,6 +51,7 @@ void SdlAudioOutput::closeDevice() {
     SDL_ClearQueuedAudio(device_);
     SDL_CloseAudioDevice(device_);
     device_ = 0;
+    queueStarted_ = false;
     primingGenerated_ = false;
     mixedAheadFrames_ = 0;
 }
@@ -81,8 +82,10 @@ bool SdlAudioOutput::start(std::string* diagnostic) {
         return fail(diagnostic, "SDL audio device did not match the mixer format");
     }
     device_ = opened;
+    queueStarted_ = false;
     primingGenerated_ = mode_ == AudioQueueMode::Generated;
-    SDL_PauseAudioDevice(device_, primingGenerated_ ? 1 : 0);
+    suspended_ = mode_ == AudioQueueMode::Buffered;
+    SDL_PauseAudioDevice(device_, 1);
     succeed(diagnostic);
     return true;
 }
@@ -101,6 +104,8 @@ bool SdlAudioOutput::pump(std::size_t elapsedFrames, std::string* diagnostic) {
             lastPeak_ = std::max(lastPeak_, std::abs(sample));
         if (device_ != 0) {
             if (queuedFrames() == 0 && !primingGenerated_) {
+                if (queueStarted_) ++underruns_;
+                queueStarted_ = false;
                 SDL_PauseAudioDevice(device_, 1);
                 primingGenerated_ = true;
             }
@@ -120,6 +125,8 @@ bool SdlAudioOutput::pump(std::size_t elapsedFrames, std::string* diagnostic) {
             if (primingGenerated_ && queuedFrames() >= generatedStartFrames) {
                 SDL_PauseAudioDevice(device_, 0);
                 primingGenerated_ = false;
+                suspended_ = false;
+                queueStarted_ = true;
             }
         }
         succeed(diagnostic);
@@ -138,6 +145,10 @@ bool SdlAudioOutput::pump(std::size_t elapsedFrames, std::string* diagnostic) {
     }
     mixedAheadFrames_ -= static_cast<std::int64_t>(elapsedFrames);
     const std::size_t queued = queuedFrames();
+    if (queued == 0 && queueStarted_ && !suspended_) {
+        ++underruns_;
+        queueStarted_ = false;
+    }
     const std::size_t room = queued < maxQueuedFrames ? maxQueuedFrames - queued : 0u;
     const std::size_t due = mixedAheadFrames_ < 0 ?
         static_cast<std::size_t>(-mixedAheadFrames_) : 0u;
@@ -145,6 +156,7 @@ bool SdlAudioOutput::pump(std::size_t elapsedFrames, std::string* diagnostic) {
         targetQueuedFrames - queued : 0u;
     std::size_t framesToMix = std::min(room, std::max(due, refill));
     lastPeak_ = 0.0f;
+    buffer_.clear();
     while (framesToMix > 0u) {
         const std::size_t chunk = std::min<std::size_t>(framesToMix, 4096u);
         buffer_.resize(chunk * 2u);
@@ -160,17 +172,34 @@ bool SdlAudioOutput::pump(std::size_t elapsedFrames, std::string* diagnostic) {
         mixedAheadFrames_ += static_cast<std::int64_t>(chunk);
         framesToMix -= chunk;
     }
+    if (suspended_ && queuedFrames()>0) { SDL_PauseAudioDevice(device_,0);suspended_=false; }
+    if (queuedFrames()>0) queueStarted_=true;
     succeed(diagnostic);
     return true;
 }
 
+void SdlAudioOutput::suspend() {
+    checkOwner();
+    if (device_!=0) {
+        SDL_PauseAudioDevice(device_,1);
+        SDL_ClearQueuedAudio(device_);
+    }
+    suspended_=true;primingGenerated_=mode_==AudioQueueMode::Generated;
+    queueStarted_=false;
+    mixedAheadFrames_=0;lastPeak_=0;buffer_.clear();
+}
+
 void SdlAudioOutput::stopAll() {
     checkOwner();
+    suspended_=false;
+    queueStarted_=false;underruns_=0;
     mixer_.stopAll();
     if (device_ != 0) {
         if (mode_ == AudioQueueMode::Generated) {
             SDL_PauseAudioDevice(device_, 1);
             primingGenerated_ = true;
+        } else {
+            SDL_PauseAudioDevice(device_, 0);
         }
         SDL_ClearQueuedAudio(device_);
     }

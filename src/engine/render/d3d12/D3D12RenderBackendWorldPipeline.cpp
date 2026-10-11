@@ -47,6 +47,10 @@ cbuffer EnvironmentConstants : register(b0) {
   float4 uEnvironmentCloudParams;
   float4 uEnvironmentCloudOffsets;
   float4 uEnvironmentCloudTint;
+  float4 uWeatherParams;
+  float4 uWeatherShelters[4];
+  float4 uWeatherShelterHeights;
+  float4 uWeatherMaterial;
   float4 uEnvironmentCamera;
   float4 uWorldPointLights[8];
   float4x4 uWorldShadowMatrix;
@@ -129,6 +133,10 @@ struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLO
 #define ENV_CLOUD_PARAMS uEnvironmentCloudParams
 #define ENV_CLOUD_OFFSETS uEnvironmentCloudOffsets
 #define ENV_CLOUD_TINT uEnvironmentCloudTint
+#define ENV_WEATHER uWeatherParams
+#define ENV_SHELTER(index) uWeatherShelters[index]
+#define ENV_SHELTER_HEIGHT uWeatherShelterHeights
+#define ENV_WEATHER_MATERIAL uWeatherMaterial
 #define ENV_LUT(uv) gTex.SampleLevel(gSampCC, uv, 0.0).rgb
 __PHLOSION_ENVIRONMENT_SHADER__
 #define ENV_POINT(index) uWorldPointLights[index]

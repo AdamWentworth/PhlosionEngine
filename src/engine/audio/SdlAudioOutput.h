@@ -28,10 +28,15 @@ public:
     bool start(std::string* diagnostic = nullptr);
     bool pump(std::size_t elapsedFrames, std::string* diagnostic = nullptr);
     void stopAll();
+    // Clear device tails while preserving mixer voices and their playback cursors.
+    void suspend();
     void shutdown();
     bool deviceReady() const;
     std::size_t queuedFrames() const;
     float lastPeak() const;
+    // Empty device queue while continuous voices are running; excludes priming/pause.
+    std::uint64_t underrunCount() const { checkOwner();return underruns_; }
+    std::span<const float> lastBlock() const { checkOwner();return buffer_; }
 
 private:
     void checkOwner() const;
@@ -42,6 +47,9 @@ private:
     SDL_AudioDeviceID device_ = 0;
     bool ownsAudioSubsystem_ = false;
     bool primingGenerated_ = false;
+    bool suspended_ = false;
+    bool queueStarted_ = false;
+    std::uint64_t underruns_ = 0;
     std::vector<float> buffer_;
     float lastPeak_ = 0.0f;
     std::int64_t mixedAheadFrames_ = 0;

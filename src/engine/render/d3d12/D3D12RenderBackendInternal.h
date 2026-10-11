@@ -138,9 +138,9 @@ inline float sanitizeWrapMode(int wrapMode) {
     return static_cast<float>(kGlRepeat);
 }
 
-// b0 contains 40 transform floats, twelve environment vectors, a camera vector
-// and eight point-light vectors. One aligned CBV costs two root DWORDs.
-inline constexpr std::size_t kWorldViewConstantFloats = 144u;
+// b0 contains 40 transform floats, nineteen environment vectors, a camera vector,
+// eight point-light vectors and the directional shadow. One CBV costs two DWORDs.
+inline constexpr std::size_t kWorldViewConstantFloats = 172u;
 inline constexpr std::size_t kWorldViewConstantStride = 768u;
 static_assert(kWorldViewConstantFloats*sizeof(float) <= kWorldViewConstantStride);
 

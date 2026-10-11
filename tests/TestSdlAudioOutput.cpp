@@ -67,6 +67,8 @@ void failureSinkRetryAndCleanup() {
         CHECK(output.queuedFrames() <= sampleRate / 6u);
     }
     CHECK(mixer.activeVoices() == 1);
+    output.suspend();
+    CHECK(output.queuedFrames()==0 && mixer.activeVoices()==1);
     output.stopAll();
     CHECK(mixer.activeVoices() == 0);
     CHECK(output.queuedFrames() == 0);
@@ -76,6 +78,11 @@ void failureSinkRetryAndCleanup() {
     CHECK(mixer.activeVoices() == 1);
     output.stopAll();
     CHECK(mixer.play(clip(), looping, id));
+    CHECK(output.pump(800));
+    const auto resumedQueue=output.queuedFrames();
+    CHECK(resumedQueue>0);
+    SDL_Delay(60);
+    CHECK(output.queuedFrames()<resumedQueue); // Buffered stop-after-suspend resumes playback.
     output.shutdown();
     CHECK(!output.deviceReady());
     CHECK(mixer.activeVoices() == 0);
@@ -117,6 +124,9 @@ void generatedBlocksDoNotReadAhead() {
     SDL_Delay(50); // Startup must retain real blocks until the priming threshold.
     CHECK(output.queuedFrames() == 800u);
     CHECK(mixer.activeVoices() == 1u);
+    output.suspend();
+    CHECK(output.queuedFrames()==0 && output.lastPeak()==0 && output.lastBlock().empty());
+    CHECK(mixer.activeVoices()==1u); // Suspend retains the consumed-sample cursor.
     for (int i = 0; i < 11; ++i) CHECK(output.pump(800));
     CHECK(mixer.activeVoices() == 1u); // Exactly 9600 of 10000 samples consumed.
     CHECK(output.pump(400));
@@ -155,6 +165,34 @@ void generatedOverflowReprimes() {
     CHECK(output.queuedFrames() == 800u);
 }
 
+void recordedLoopsSurviveFrameJitter() {
+    CHECK(SDL_setenv("SDL_AUDIODRIVER", "dummy", 1) == 0);
+    AudioPlayOptions looping;looping.loop=true;
+    {
+        AudioMixer mixer;SdlAudioOutput output(mixer,AudioQueueMode::Generated);
+        AudioVoiceId id=0;CHECK(mixer.play(longerClip(),looping,id));CHECK(output.start());
+        for (int i=0;i<3;++i) CHECK(output.pump(800));
+        SDL_Delay(80); // Reproduce starvation with the old simulation-fed ambience.
+        CHECK(output.queuedFrames()==0);CHECK(output.pump(800));
+        CHECK(output.underrunCount()==1);
+    }
+    {
+        AudioMixer mixer;SdlAudioOutput output(mixer);
+        AudioVoiceId id=0;CHECK(mixer.play(longerClip(),looping,id));CHECK(output.start());
+        CHECK(output.pump(800));CHECK(output.queuedFrames()>5000);
+        CHECK(output.pump(1));CHECK(output.lastBlock().empty()); // No stale PCM on a full queue.
+        for (int i=0;i<12;++i) {
+            SDL_Delay(60);
+            CHECK(output.queuedFrames()>0);CHECK(output.pump(2880));
+            CHECK(output.underrunCount()==0 && output.queuedFrames()<=sampleRate/6u);
+        }
+        output.suspend();CHECK(output.queuedFrames()==0);
+        SDL_Delay(160);CHECK(output.pump(800));CHECK(output.underrunCount()==0);
+        SDL_Delay(190);CHECK(output.queuedFrames()==0);CHECK(output.pump(4096));
+        CHECK(output.underrunCount()==1); // Longer stalls remain visible in diagnostics.
+    }
+}
+
 } // namespace
 
 int main() {
@@ -163,6 +201,7 @@ int main() {
         subsystemAndThreadOwnership();
         generatedBlocksDoNotReadAhead();
         generatedOverflowReprimes();
+        recordedLoopsSurviveFrameJitter();
         std::cout << "SDL audio output contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

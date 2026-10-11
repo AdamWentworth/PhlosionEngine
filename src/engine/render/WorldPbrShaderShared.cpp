@@ -522,6 +522,8 @@ std::string injectSharedWorldPbr(std::string_view source, ShaderLanguage languag
         replaceAll(atmosphere, "vec3", "float3");
         replaceAll(atmosphere, "vec2", "float2");
         replaceAll(atmosphere, "mix(", "lerp(");
+        replaceAll(atmosphere, "dFdx(", "ddx(");
+        replaceAll(atmosphere, "dFdy(", "ddy(");
     }
     replaceAll(out, "__PHLOSION_ENVIRONMENT_SHADER__", atmosphere);
     std::string lighting(worldLightingSource);

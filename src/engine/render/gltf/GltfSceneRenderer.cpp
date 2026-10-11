@@ -118,6 +118,9 @@ WorldTextureData makeTextureData(const GltfSceneMaterial& material,
     texture.cameraTargetY = options.cameraTarget[1];
     texture.cameraTargetZ = options.cameraTarget[2];
     texture.environment = options.environment;
+    texture.environment.surfaceAbsorption = std::clamp(material.roughnessFactor,0.f,1.f)*
+        (1.f-std::clamp(material.metallicFactor,0.f,1.f));
+    if (material.unlit || material.alphaMode!=0) texture.environment.surfaceWeatherEnabled=false;
     texture.materialTimeSec = 0.0f;
     return texture;
 }

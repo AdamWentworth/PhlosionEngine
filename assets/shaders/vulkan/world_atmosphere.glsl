@@ -170,7 +170,50 @@ vec3 environmentSky(vec3 ray, vec3 camera) {
     return sky;
 }
 
+// A thin water coat over the retained source material, before atmospheric haze.
+// Reflections are the shared analytic sky; this does not imply scene reflections.
+vec3 environmentWetSurface(vec3 color, vec3 position, vec3 camera) {
+    float wet = ENV_WEATHER.x;
+    if (ENV_SUN.w < 0.5 || wet <= 0.0) return color;
+    vec3 normal=cross(dFdx(position),dFdy(position));
+    float normalLength=length(normal);
+    for (int index=0;index<4;++index) {
+        vec4 bounds=ENV_SHELTER(index);
+        if (bounds.x<bounds.z && bounds.y<bounds.w && position.y<ENV_SHELTER_HEIGHT[index]-.03 &&
+            position.x>bounds.x && position.x<bounds.z && position.z>bounds.y && position.z<bounds.w) return color;
+    }
+    if (normalLength<0.00001) return color;
+    normal/=normalLength;
+    vec3 eye=camera-position;
+    if (length(eye)<0.00001) return color;
+    vec3 view=normalize(eye);
+    if (dot(normal,view)<0.0) normal=-normal;
+    wet*=0.25+0.75*smoothstep(0.2,0.8,normal.y);
+    if (ENV_WEATHER_MATERIAL.y>0.5) {
+        vec2 ripple=vec2(sin(position.x*17.0+position.z*11.0+ENV_WEATHER.w*6.28318530718),
+            cos(position.z*19.0-position.x*7.0+ENV_WEATHER.w*12.56637061436));
+        normal=normalize(normal+vec3(ripple.x,0.0,ripple.y)*ENV_WEATHER.z*0.025);
+    }
+    float nv=max(dot(normal,view),0.0);
+    float fresnel=0.02+0.98*pow(1.0-nv,5.0);
+    vec3 reflection=reflect(-view,normal);
+    vec3 sky=mix(ENV_HAZE.rgb*0.65,ENV_AMBIENT.rgb*1.8,smoothstep(-0.05,0.7,reflection.y));
+    vec3 light=environmentLightDirection();
+    vec3 halfway=view+light;
+    vec3 halfVector=length(halfway)>0.00001?normalize(halfway):normal;
+    float nh=max(dot(normal,halfVector),0.0);
+    float nl=max(dot(normal,light),0.0);
+    float roughness=ENV_WEATHER_MATERIAL.y>0.5?0.14:0.23;
+    float a=roughness*roughness;
+    float d=nh*nh*(a*a-1.0)+1.0;
+    float distribution=a*a/max(3.14159265*d*d,0.00001);
+    vec3 highlight=environmentLightRadiance()*distribution*0.02*nl/max(4.0*nv*nl,0.05);
+    vec3 absorbed=color*(1.0-0.28*wet*ENV_WEATHER_MATERIAL.x);
+    return absorbed*(1.0-fresnel*wet)+(sky*fresnel+highlight)*wet;
+}
+
 vec3 environmentHaze(vec3 color, vec3 position, vec3 camera) {
+    color=environmentWetSurface(color,position,camera);
     if (ENV_SUN.w < 0.5 || ENV_HAZE.w <= 0.0) return color;
     float distanceMetres = length(position-camera);
     float startHeight = max(camera.y-ENV_HEIGHT.x, 0.0);
