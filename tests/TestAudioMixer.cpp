@@ -204,6 +204,32 @@ void checkSilentAmbientPhase() {
     mixer.stopAll();CHECK(mixer.activeVoices()==0);
 }
 
+void checkSpatialRamps() {
+    AudioMixer mixer;AudioVoiceId id=0;
+    const std::array<float,1> source{1};
+    AudioPlayOptions options;options.spatial=true;options.loop=true;
+    options.emitterPosition={10,0,0};options.maxDistance=20;options.spatialFadeFrames=4;
+    CHECK(mixer.play(clip(source),options,id));
+    std::array<float,8> output{};
+    CHECK(mixer.setListener({}, {-1,0,0}));
+    CHECK(mixer.render(4,output));
+    CHECK(near(output[0],.125f) && near(output[1],.375f));
+    CHECK(near(output[6],.5f) && near(output[7],0));
+    CHECK(mixer.setEmitter(id,{30,0,0},20));
+    CHECK(mixer.render(4,output));
+    CHECK(near(output[0],.375f) && near(output[6],0));
+    CHECK(mixer.setEmitter(id,{-10,0,0},20));
+    std::array<float,2> single{};
+    CHECK(mixer.render(1,single) && near(single[1],.125f));
+    // Identical pose updates must not restart a partially completed ramp.
+    CHECK(mixer.setListener({}, {-1,0,0}));
+    CHECK(mixer.render(1,single) && near(single[1],.25f));
+    CHECK(mixer.render(1,single) && near(single[1],.375f));
+    CHECK(mixer.render(1,single) && near(single[1],.5f));
+    options.spatialFadeFrames=sampleRate*31;
+    CHECK(!mixer.play(clip(source),options,id));
+}
+
 int main() {
     try {
         checkMixAndClipLifetime();
@@ -211,6 +237,7 @@ int main() {
         checkFades();
         checkSilentAmbientPhase();
         checkSpatialPanAndMotion();
+        checkSpatialRamps();
         checkInvalidInputsAndOwnership();
         std::cout << "[PASS] audio mixer contracts\n";
         return 0;

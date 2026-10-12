@@ -98,7 +98,7 @@ bool AudioMixer::play(std::shared_ptr<const AudioClip> clip,
     checkOwner();
     if (!clip || !busValid(options.bus) || !gainValid(options.gain) ||
         !positionValid(options.emitterPosition) ||
-        !distanceValid(options.maxDistance) ||
+        !distanceValid(options.maxDistance) || !fadeFramesValid(options.spatialFadeFrames) ||
         (options.spatial && clip->channels() != 1u))
         return fail(error, "invalid audio play request");
     if (voices_.size() >= 64u ||
@@ -109,6 +109,7 @@ bool AudioMixer::play(std::shared_ptr<const AudioClip> clip,
     voice.clip = std::move(clip);
     voice.options = options;
     voice.gain = options.gain;
+    updateSpatial(voice,true);
     voices_.push_back(std::move(voice));
     out = nextVoiceId_++;
     succeed(error);
@@ -213,6 +214,7 @@ bool AudioMixer::setListener(const glm::vec3& position,
         return fail(error, "invalid audio listener");
     listenerPosition_ = position;
     listenerRight_ = glm::normalize(right);
+    for (auto& voice : voices_) updateSpatial(voice);
     succeed(error);
     return true;
 }
@@ -228,8 +230,24 @@ bool AudioMixer::setEmitter(AudioVoiceId id, const glm::vec3& position,
         return fail(error, "spatial audio voice is unavailable");
     it->options.emitterPosition = position;
     it->options.maxDistance = maxDistance;
+    updateSpatial(*it);
     succeed(error);
     return true;
+}
+
+void AudioMixer::updateSpatial(Voice& voice, bool immediate) {
+    if (!voice.options.spatial) return;
+    const auto offset=voice.options.emitterPosition-listenerPosition_;
+    const float distance=glm::length(offset);
+    const float attenuation=(std::max)(0.f,1.f-distance/voice.options.maxDistance);
+    const float pan=distance>1.e-6f?std::clamp(glm::dot(offset/distance,listenerRight_),-1.f,1.f):0;
+    const std::array gains{attenuation*std::sqrt((1-pan)*.5f),attenuation*std::sqrt((1+pan)*.5f)};
+    for (std::size_t i=0;i<2;++i) {
+        if (immediate || voice.options.spatialFadeFrames==0) {
+            voice.spatialGains[i]=gains[i];voice.spatialFades[i]={gains[i],0};
+        } else if (voice.spatialFades[i].target!=gains[i])
+            voice.spatialFades[i]={gains[i],voice.options.spatialFadeFrames};
+    }
 }
 
 bool AudioMixer::render(std::size_t frames,
@@ -256,15 +274,10 @@ bool AudioMixer::render(std::size_t frames,
             float left = samples[source];
             float right = voice.clip->channels() == 2u ? samples[source + 1u] : left;
             if (voice.options.spatial) {
-                const glm::vec3 offset = voice.options.emitterPosition - listenerPosition_;
-                const float distance = glm::length(offset);
-                const float attenuation = (std::max)(
-                    0.0f, 1.0f - distance / voice.options.maxDistance);
-                const float pan = distance > 1.0e-6f ?
-                    std::clamp(glm::dot(offset / distance, listenerRight_),
-                               -1.0f, 1.0f) : 0.0f;
-                left *= attenuation * std::sqrt((1.0f - pan) * 0.5f);
-                right *= attenuation * std::sqrt((1.0f + pan) * 0.5f);
+                advanceFade(voice.spatialGains[0],voice.spatialFades[0]);
+                advanceFade(voice.spatialGains[1],voice.spatialFades[1]);
+                left *= voice.spatialGains[0];
+                right *= voice.spatialGains[1];
             }
             const float gain = muted_ ? 0.0f :
                 masterGain_ * busGains_[static_cast<std::size_t>(voice.options.bus)] *

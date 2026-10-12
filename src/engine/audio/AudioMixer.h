@@ -45,6 +45,8 @@ struct AudioPlayOptions {
     float maxDistance = 50.0f;
     // Ambient layers may reach silence while retaining their loop phase.
     bool retainWhenSilent = false;
+    // Optional channel-gain ramp for moving listeners/emitters; zero is immediate.
+    std::uint32_t spatialFadeFrames = 0;
 };
 
 // Main-thread deterministic mixer. Render fills stereo float PCM; a platform
@@ -91,8 +93,11 @@ private:
         std::size_t frame = 0;
         float gain = 1.0f;
         Fade fade;
+        std::array<float,2> spatialGains{1,1};
+        std::array<Fade,2> spatialFades{};
         bool finished = false;
     };
+    void updateSpatial(Voice&, bool immediate = false);
     void checkOwner() const;
     const std::thread::id owner_;
     std::vector<Voice> voices_;

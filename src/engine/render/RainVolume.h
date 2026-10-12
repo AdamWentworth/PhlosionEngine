@@ -3,6 +3,7 @@
 #include "engine/render/IRenderBackend.h"
 #include "engine/render/IWorldResourceScope.h"
 #include <functional>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
@@ -10,11 +11,18 @@
 #include <glm/glm.hpp>
 
 namespace engine::render {
-struct RainHit { glm::vec3 point{}, normal{0,1,0}; float fraction = 0; };
+struct RainHit { glm::vec3 point{}, normal{0,1,0}; float fraction = 0, water = 0; };
 using RainCoverQuery = std::function<std::optional<RainHit>(glm::vec3, glm::vec3)>;
 struct RainVolumeStats {
     std::size_t drops = 0, impacts = 0, covered = 0, queries = 0;
     std::array<std::size_t,3> bandDrops{};
+    std::size_t solidImpacts=0, waterImpacts=0, impactQuads=0, newImpacts=0;
+};
+struct RainImpact {
+    glm::vec3 point{},normal{0,1,0};
+    double age=0;
+    std::uint32_t id=0;
+    float water=0;
 };
 
 struct RainVisualSettings {
@@ -89,15 +97,21 @@ struct RainLayerSettings { std::array<RainBandSettings,3> bands{}; };
 std::string_view invalidRainBand(const RainBandSettings&,std::size_t band);
 // Optional integrated motion lets an owner change velocity/rate without moving
 // all existing drops by the new speed multiplied by the elapsed play clock.
-struct RainMotion { glm::dvec3 travel{}; double impactSeconds=0; };
+// Monotonically increasing nonzero generation identifies owner resets/wraps.
+// Contacts use the latest accepted view time; older fixed/interpolated views
+// neither rewind them nor spawn again. Zero retains legacy backward-time reset.
+struct RainMotion { glm::dvec3 travel{}; double impactSeconds=0; std::uint64_t generation=0; };
 
 // Analytic, world-anchored rain in a bounded camera-local volume. The owner
 // supplies collision cover and accepted play time, including presentation remainder.
 class RainVolume {
 public:
     static constexpr std::size_t maxDrops = 1215, maxImpacts = 81;
+    static constexpr std::size_t maxImpactQuads = maxImpacts*2;
     RainVolume();
     void setStreakAtlas(std::string key,int tileWidth,int height,std::span<const unsigned char> rgba);
+    // Four crown frames and four ripple frames, in one row. Prepared by the owner.
+    void setImpactAtlas(std::string key,int tileWidth,int height,std::span<const unsigned char> rgba);
     RainVolumeStats build(const WorldEnvironmentLighting&, glm::vec3 camera,
         const RainCoverQuery&, const RainVisualSettings& = {}, const RainMotion* = nullptr,
         const RainLayerSettings* = nullptr);
@@ -106,12 +120,25 @@ public:
         int width, int height) const;
     std::span<const IRenderBackend::WorldMeshVertex> dropVertices() const { return drops_; }
     std::span<const IRenderBackend::WorldMeshVertex> impactVertices() const { return impacts_; }
+    std::span<const RainImpact> visibleImpacts() const { return visibleImpacts_; }
 private:
     IRenderBackend::WorldTextureData texture(bool impact,bool layered=false) const;
     RainVolumeStats buildLayers(const WorldEnvironmentLighting&,glm::vec3,const RainCoverQuery&,
         const RainVisualSettings&,const RainMotion&,const RainLayerSettings&);
+    struct Contact {
+        glm::vec3 point{}, normal{0,1,0};
+        double born=0;
+        std::uint32_t id=0, seed=0;
+        std::size_t band=0;
+        float water=0;
+        bool active=false;
+    };
+    void contact(const RainHit&,glm::vec3 tip,float speed,std::uint32_t id,std::uint32_t seed,std::size_t band,
+        const WorldEnvironmentLighting&,const RainVisualSettings&,RainVolumeStats&);
+    void drawContacts(const WorldEnvironmentLighting&,glm::vec3,const RainVisualSettings&,
+        const RainLayerSettings&,RainVolumeStats&);
     void quad(std::vector<IRenderBackend::WorldMeshVertex>&, glm::vec3 start,
-        glm::vec3 end, glm::vec3 side, glm::vec3 color, float alpha,int tile=-1);
+        glm::vec3 end, glm::vec3 side, glm::vec3 color, float alpha,int tile=-1,int columns=3,int tileWidth=0);
     std::array<unsigned char,32*64*4> streakPixels_{};
     std::array<unsigned char,32*32*4> impactPixels_{};
     std::vector<IRenderBackend::WorldMeshVertex> drops_, impacts_;
@@ -119,6 +146,15 @@ private:
     std::vector<unsigned char> atlasPixels_;
     std::string atlasKey_;
     int tileWidth_=0,atlasHeight_=0;
+    std::vector<unsigned char> impactAtlasPixels_;
+    std::string impactAtlasKey_;
+    int impactTileWidth_=0,impactAtlasHeight_=0;
+    std::array<Contact,maxImpacts> contacts_{};
+    std::vector<RainImpact> visibleImpacts_;
+    double contactSeconds_=-1;
+    std::uint32_t contactSeed_=0;
+    std::uint64_t contactGeneration_=0;
+    bool acceptContacts_=false;
     bool layered_=false;
 };
 } // namespace engine::render
