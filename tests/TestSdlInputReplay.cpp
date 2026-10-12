@@ -6,7 +6,7 @@
 bool test_sdl_replay_controller_isolation(std::string& outFail) {
     const auto path = std::filesystem::temp_directory_path() / "phlosion-controller-replay-test.json";
     try {
-        std::ofstream(path) << R"({"schema":"phlosion-sdl-replay-v1","events":[{"frame":1,"type":"attach"},{"frame":2,"type":"detach"}]})";
+        std::ofstream(path) << R"({"schema":"phlosion-sdl-replay-v1","events":[{"frame":1,"type":"attach"},{"frame":2,"type":"detach"},{"frame":2,"type":"key","key":"Delete","down":true,"mod":64}]})";
         engine::input::SdlInputReplay replay(path);
         const auto check = [](bool value) { if (!value) throw std::runtime_error("Replay controller isolation failed"); };
         SDL_Event button{};
@@ -35,6 +35,17 @@ bool test_sdl_replay_controller_isolation(std::string& outFail) {
         check(!replay.acceptsEvent(axis));
         replay.frame(context);
         check(!replay.acceptsEvent(button));
+        bool shortcut=false;SDL_Event event{};
+        while(SDL_PollEvent(&event)) if(event.type==SDL_KEYDOWN&&event.key.keysym.sym==SDLK_DELETE) {
+            check(event.key.keysym.mod==KMOD_LCTRL&&event.key.windowID==context.windowId);shortcut=true;
+        }
+        check(shortcut);
+        for (const auto mod : {"-1","65536","true"}) {
+            std::ofstream(path)<<"{\"schema\":\"phlosion-sdl-replay-v1\",\"events\":[{\"frame\":1,\"type\":\"key\",\"key\":\"Delete\",\"down\":true,\"mod\":"<<mod<<"}]}";
+            bool rejected=false;
+            try { engine::input::SdlInputReplay invalid(path); } catch(const std::runtime_error&) { rejected=true; }
+            check(rejected);
+        }
         std::filesystem::remove(path);
         return true;
     } catch (const std::exception& error) {

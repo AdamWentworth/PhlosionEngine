@@ -74,10 +74,11 @@ SdlInputReplay::SdlInputReplay(const std::filesystem::path& script) : impl_(std:
             fields(e, {"frame", "type", "focus", "active", "playing", "paused", "viewport_focus", "hover", "text"});
             for (auto i = e.begin(); i != e.end(); ++i) if (i.key() != "frame" && i.key() != "type") boolean(e, i.key().c_str());
         } else if (type == "key") {
-            fields(e, {"frame", "type", "key", "down", "repeat"}); boolean(e, "down");
+            fields(e, {"frame", "type", "key", "down", "repeat", "mod"}); boolean(e, "down");
             check(e.at("key").is_string() && e.at("key").get<std::string>().size() <= 32, "key required");
             check(SDL_GetKeyFromName(e.at("key").get<std::string>().c_str()) != SDLK_UNKNOWN, "unknown key");
             if (e.contains("repeat")) boolean(e, "repeat");
+            if (e.contains("mod")) integer(e,"mod",0,65535);
         } else if (type == "attach" || type == "detach") {
             fields(e, {"frame", "type"}); check(type == "attach" ? !attached : attached, "invalid device lifetime"); attached = type == "attach";
         } else if (type == "axis" || type == "button") {
@@ -119,7 +120,9 @@ void SdlInputReplay::frame(editor::EditorSdlGameInputContext& c) {
         else if (type == "button") check(SDL_JoystickSetVirtualButton(p.pad, e.at("index"), static_cast<Uint8>(e.at("value").get<int>())) == 0, "button failed");
         else if (type == "key") {
             event.type = e.at("down").get<bool>() ? SDL_KEYDOWN : SDL_KEYUP; event.key.windowID = c.windowId;
-            event.key.keysym.sym = SDL_GetKeyFromName(e.at("key").get<std::string>().c_str()); event.key.repeat = e.value("repeat", false) ? 1 : 0; push(event);
+            event.key.keysym.sym = SDL_GetKeyFromName(e.at("key").get<std::string>().c_str());
+            event.key.keysym.mod=static_cast<Uint16>(e.value("mod",0));
+            event.key.repeat = e.value("repeat", false) ? 1 : 0; push(event);
         } else if (type == "mouse") {
             event.type = e.at("down").get<bool>() ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP; event.button.windowID = c.windowId;
             event.button.button = SDL_BUTTON_RIGHT; event.button.x = c.viewport.x + c.viewport.width / 2; event.button.y = c.viewport.y + c.viewport.height / 2; push(event);

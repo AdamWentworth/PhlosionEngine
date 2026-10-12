@@ -23,6 +23,32 @@ int main() try {
         stats.queries<=RainVolume::maxDrops+RainVolume::maxImpacts,"Unbounded rain work");
     for (const auto& v : rain.dropVertices()) check(v.y>=-.001f,"Rain passed through ground");
     const auto original=std::vector(rain.dropVertices().begin(),rain.dropVertices().end());
+    const auto originalImpacts=std::vector(rain.impactVertices().begin(),rain.impactVertices().end());
+    RainVisualSettings steady;
+    rain.build(e,{0,3,0},plane(0),steady);
+    check(original.size()==rain.dropVertices().size() && originalImpacts.size()==rain.impactVertices().size(),"Steady settings changed population");
+    for (std::size_t i=0;i<original.size();++i) check(original[i].x==rain.dropVertices()[i].x &&
+        original[i].a==rain.dropVertices()[i].a,"Explicit steady settings changed geometry");
+    auto light=steady;light.densityScale=.4f;
+    const auto lightStats=rain.build(e,{0,3,0},plane(0),light);
+    check(lightStats.drops<stats.drops && lightStats.drops>0,"Density setting did not affect population");
+    light.densityScale=0;
+    check(rain.build(e,{0,3,0},plane(0),light).queries==0,"Zero profile density retained cover work");
+    auto shallow=steady;shallow.fallSpeed=1;
+    check(invalidRainSetting(shallow)=="wind_response","Shallow cover trajectory accepted");
+    for (const auto& field : rainSettingFields) {
+        auto invalid=steady;invalid.*field.member=std::numeric_limits<float>::quiet_NaN();
+        check(invalidRainSetting(invalid)==field.name,"Non-finite setting accepted");
+    }
+    auto invalid=steady;invalid.impactLifetime=0;
+    bool rejected=false;
+    try { rain.build(e,{0,3,0},plane(0),invalid); } catch (const std::runtime_error&) { rejected=true; }
+    check(rejected,"Invalid settings silently rendered");
+    RainMotion motion{glm::dvec3(4.5,-22,1.25)*e.precipitationSeconds,e.precipitationSeconds};
+    rain.build(e,{0,3,0},plane(0),steady,&motion);
+    check(original.size()==rain.dropVertices().size(),"Integrated baseline changed population");
+    for (std::size_t i=0;i<original.size();++i) check(original[i].x==rain.dropVertices()[i].x &&
+        original[i].y==rain.dropVertices()[i].y,"Integrated baseline changed positions");
     rain.build(e,{0,3,0},plane(0));
     check(original.size()==rain.dropVertices().size(),"Seed is not deterministic");
     for (std::size_t i=0;i<original.size();++i) check(original[i].x==rain.dropVertices()[i].x&&
@@ -60,6 +86,39 @@ int main() try {
     e.precipitationSeconds=0;
     check(rain.build(e,{std::numeric_limits<float>::max(),3,0},plane(0)).queries==0,"Unsafe cell conversion accepted");
     check(rain.build(e,{0,3,0},{}).queries==0,"Uncovered rain was silently enabled");
+    std::vector<unsigned char> atlas(8*3*16*4,255);rain.setStreakAtlas("rain-test-atlas",8,16,atlas);
+    RainLayerSettings layers;
+    layers.bands={RainBandSettings{1,.45f,.65f,.9f,.75f,0,1,8,2,2},
+        RainBandSettings{1,.75f,1,.85f,1,4,2,16,4,4},RainBandSettings{1,.45f,1.4f,.65f,1.25f,10,6,32,8,8}};
+    RainMotion phase{};
+    auto layered=rain.build(e,{0,3,0},plane(0),steady,&phase,&layers);
+    check(layered.drops>0 && layered.bandDrops[0]>0 && layered.bandDrops[1]>0 && layered.bandDrops[2]>0,"Rain distance bands absent");
+    check(layered.bandDrops[0]+layered.bandDrops[1]+layered.bandDrops[2]==layered.drops &&
+        layered.queries<=1296,"Rain bands multiplied the candidate budget");
+    const auto dense=std::vector(rain.dropVertices().begin(),rain.dropVertices().end());
+    for (const auto& v : dense) check(std::isfinite(v.x)&&v.u>=0&&v.u<=1&&v.a<=1,"Invalid atlas geometry");
+    rain.build(e,{.05f,3,0},plane(0),steady,&phase,&layers);
+    bool worldAnchored=false;
+    for(std::size_t i=0;i<dense.size();i+=4) for(std::size_t j=0;j<rain.dropVertices().size();j+=4) {
+        const auto& a=dense[i];const auto& b=dense[i+1];const auto& c=rain.dropVertices()[j];const auto& d=rain.dropVertices()[j+1];
+        if(std::abs(a.x+b.x-c.x-d.x)<.00001f&&std::abs(a.y+b.y-c.y-d.y)<.00001f&&
+            std::abs(a.z+b.z-c.z-d.z)<.00001f) worldAnchored=true;
+    }
+    check(worldAnchored,"Rain bands follow camera translation");
+    auto moderate=steady;moderate.densityScale=.58f;
+    const auto moderateStats=rain.build(e,{0,3,0},plane(0),moderate,&phase,&layers);
+    auto drizzle=steady;drizzle.densityScale=.22f;
+    const auto drizzleStats=rain.build(e,{0,3,0},plane(0),drizzle,&phase,&layers);
+    check(drizzleStats.drops<moderateStats.drops && moderateStats.drops*1.4<layered.drops,"Profile densities remain saturated");
+    phase.travel={8192,8192,8192};rain.build(e,{0,3,0},plane(0),steady,&phase,&layers);
+    check(dense.size()==rain.dropVertices().size(),"Layered motion repetition changed population");
+    for(std::size_t i=0;i<dense.size();++i) check(dense[i].x==rain.dropVertices()[i].x&&
+        dense[i].y==rain.dropVertices()[i].y&&dense[i].z==rain.dropVertices()[i].z,"Layered motion wrap jumped");
+    phase={};rain.build(e,{0,3,0},plane(8),steady,&phase,&layers);
+    for (const auto& v : rain.dropVertices()) check(v.y>=7.99f,"Layered rain leaked beneath roof");
+    auto badBand=layers.bands[0];badBand.speed=.8f;
+    check(invalidRainBand(badBand,0)=="speed","Non-periodic band speed accepted");
+    e.rainIntensity=0;check(rain.build(e,{0,3,0},plane(0),steady,&phase,&layers).queries==0,"Dry layered rain retained work");
     std::cout<<"PASS bounded deterministic rain, cover, camera anchoring, loop and invalid inputs\n";
     return 0;
 } catch (const std::exception& error) { std::cerr<<error.what()<<'\n';return 1; }
