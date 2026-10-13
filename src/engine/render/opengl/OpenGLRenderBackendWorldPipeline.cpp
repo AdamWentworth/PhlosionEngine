@@ -536,13 +536,27 @@ uniform vec4 uDirectionalShadowParams;
 #define WORLD_SHADOW_SAMPLE(uv) textureLod(uDirectionalShadowTexture, uv, 0.0).r
 #define WORLD_SHADOW_Y 1.0
 __PHLOSION_WORLD_SHADOW_SHADER__
+#define VOLUME_SAMPLE(uv) texture(uTexture, uv).a
+__PHLOSION_WORLD_VOLUME_SHADER__
 __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
         void main() {
+#ifdef PHLOSION_VOLUME_ONLY
+            FragColor = worldVolumeColor(vec3(vSourceUv1,vSourceUv2.x),vSourceUv2.y,uMaterialTimeSec,
+                vColor*uVertexColorMul,vUv.x);
+            FragBlendAlpha = vec4(0.0);
+            return;
+#endif
             updateEnvironmentDirectionalVisibility(vWorldPos, vWorldNormal, uMaterialMode);
             if (ENV_SUN.w > 0.5 && ENV_RADIANCE.w > 0.5) {
                 vec3 radiance = environmentSky(vWorldPos-uCameraPos,uCameraPos);
                 vec3 skyColor = resolveWorldSceneColor(tonemapACESFilmic(radiance, ENV_AMBIENT.w));
                 FragColor = vec4(environmentDitherSky(skyColor, vWorldPos-uCameraPos), 1.0);
+                FragBlendAlpha = vec4(0.0);
+                return;
+            }
+            if (uMaterialMode == 249.0) {
+                FragColor = worldVolumeColor(vec3(vSourceUv1,vSourceUv2.x),vSourceUv2.y,
+                    uMaterialTimeSec,vColor*uVertexColorMul,vUv.x);
                 FragBlendAlpha = vec4(0.0);
                 return;
             }
@@ -1072,11 +1086,27 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
         if (depthFs) glDeleteShader(depthFs);
         if (!worldDirectionalShadowProgram_) throw std::runtime_error("Directional depth shader compilation failed.");
     }
+    // Keep volume fragments independent of the large project-material dispatcher.
+    std::string volumeSource = fsSource;
+    const auto versionEnd = volumeSource.find('\n', volumeSource.find("#version"));
+    if (versionEnd == std::string::npos) throw std::runtime_error("Missing world GLSL version.");
+    volumeSource.insert(versionEnd + 1, "#define PHLOSION_VOLUME_ONLY\n");
+    worldVolumeProgram_ = tryLoadWorldProgramBinaryCache(kVs.c_str(), volumeSource);
+    if (!worldVolumeProgram_) {
+        const auto volumeVs = opengl_backend_shader_utils::compileShader(GL_VERTEX_SHADER, kVs.c_str());
+        const auto volumeFs = opengl_backend_shader_utils::compileShader(GL_FRAGMENT_SHADER, volumeSource.c_str());
+        if (volumeVs && volumeFs)
+            worldVolumeProgram_ = linkWorldProgramWithCache(volumeVs, volumeFs, kVs.c_str(), volumeSource);
+        if (volumeVs) glDeleteShader(volumeVs);
+        if (volumeFs) glDeleteShader(volumeFs);
+        if (!worldVolumeProgram_) throw std::runtime_error("Volume shader compilation failed.");
+    }
     GLint uniformCount = 0, nameCapacity = 0;
     glGetProgramiv(worldProgram_, GL_ACTIVE_UNIFORMS, &uniformCount);
     glGetProgramiv(worldProgram_, GL_ACTIVE_UNIFORM_MAX_LENGTH, &nameCapacity);
     std::string uniformName(static_cast<std::size_t>(std::max(1, nameCapacity)), '\0');
     worldDirectionalShadowUniformLocations_.clear();
+    worldVolumeUniformLocations_.clear();
     for (GLint index = 0; index < uniformCount; ++index) {
         GLsizei nameLength = 0;
         GLint arraySize = 0;
@@ -1096,6 +1126,10 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 worldDirectionalShadowUniformLocations_.resize(required, -1);
             worldDirectionalShadowUniformLocations_[static_cast<std::size_t>(sourceLocation)] =
                 glGetUniformLocation(worldDirectionalShadowProgram_, elementName.c_str());
+            if (worldVolumeUniformLocations_.size() < required)
+                worldVolumeUniformLocations_.resize(required, -1);
+            worldVolumeUniformLocations_[static_cast<std::size_t>(sourceLocation)] =
+                glGetUniformLocation(worldVolumeProgram_, elementName.c_str());
         }
     }
 
@@ -1282,6 +1316,9 @@ void OpenGLRenderBackend::destroyWorldPipeline() {
     if (worldDirectionalShadowProgram_) glDeleteProgram(worldDirectionalShadowProgram_);
     worldDirectionalShadowProgram_ = 0;
     worldDirectionalShadowUniformLocations_.clear();
+    if (worldVolumeProgram_) glDeleteProgram(worldVolumeProgram_);
+    worldVolumeProgram_ = 0; worldVolumeActive_ = false;
+    worldVolumeUniformLocations_.clear();
     destroyCachedWorldMeshes();
     if (worldSkinUbo_ != 0) {
         glDeleteBuffers(1, &worldSkinUbo_);

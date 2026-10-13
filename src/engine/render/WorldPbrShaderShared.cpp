@@ -3,6 +3,7 @@
 #include "WorldAtmosphereSource.h"
 #include "WorldLightingSource.h"
 #include "WorldShadowSource.h"
+#include "WorldVolumeSource.h"
 #include <iomanip>
 #include <sstream>
 
@@ -543,6 +544,14 @@ std::string injectSharedWorldPbr(std::string_view source, ShaderLanguage languag
         replaceAll(shadow, "mix(", "lerp(");
     }
     replaceAll(out, "__PHLOSION_WORLD_SHADOW_SHADER__", shadow);
+    std::string volume(worldVolumeSource);
+    if (hlslLiterals) {
+        replaceAll(volume, "vec4", "float4");
+        replaceAll(volume, "vec3", "float3");
+        replaceAll(volume, "vec2", "float2");
+        replaceAll(volume, "return float4(0.0);", "return float4(0.0,0.0,0.0,0.0);");
+    }
+    replaceAll(out, "__PHLOSION_WORLD_VOLUME_SHADER__", volume);
     return out;
 }
 

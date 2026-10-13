@@ -1,0 +1,2 @@
+#pragma once
+inline constexpr const char* worldVolumeSource = R"VOLUME(@PHLOSION_WORLD_VOLUME_SOURCE@)VOLUME";

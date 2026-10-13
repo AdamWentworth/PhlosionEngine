@@ -268,7 +268,13 @@ private:
     int worldPointLightsLoc_ = -1;
     unsigned int worldDirectionalShadowProgram_ = 0;
     std::vector<int> worldDirectionalShadowUniformLocations_;
+    unsigned int worldVolumeProgram_ = 0;
+    bool worldVolumeActive_ = false;
+    std::vector<int> worldVolumeUniformLocations_;
     int worldUniformLocation(int location) const noexcept {
+        if (worldVolumeActive_)
+            return location >= 0 && static_cast<std::size_t>(location) < worldVolumeUniformLocations_.size()
+                ? worldVolumeUniformLocations_[static_cast<std::size_t>(location)] : -1;
         if (!worldDirectionalShadowActive_ || !worldDirectionalShadowProgram_) return location;
         return location >= 0 && static_cast<std::size_t>(location) < worldDirectionalShadowUniformLocations_.size()
             ? worldDirectionalShadowUniformLocations_[static_cast<std::size_t>(location)] : -1;

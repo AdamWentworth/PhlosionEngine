@@ -136,6 +136,8 @@ vec3 hsvToRgb(vec3 hsv) {
         mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), hsv.y);
 }
 
+#define VOLUME_SAMPLE(uv) texture(baseColorTexture, uv).a
+#include "world_volume.glsl"
 #ifdef PHLOSION_PROJECT_MATERIAL
 #include "project_world_declarations.glsl"
 #endif
@@ -158,7 +160,13 @@ vec3 encodeWorldSurfaceColor(vec3 linearColor) {
 
 
 
+layout(constant_id = 0) const bool worldVolumeOnly = false;
 void main() {
+    if (worldVolumeOnly || pushData.materialParams.w == 249.0) {
+        writeWorldColor(worldVolumeColor(vec3(vertexSourceUv1,vertexSourceUv2.x),vertexSourceUv2.y,
+            worldSpecializedMaterial.timingFlagsAtlas.x,vertexColor,vertexUv.x));
+        return;
+    }
     updateEnvironmentDirectionalVisibility(worldPosition, vertexNormal, pushData.materialParams.w);
     if (ENV_SUN.w > 0.5 && ENV_RADIANCE.w > 0.5) {
         vec3 mapped = tonemapACESFilmic(environmentSky(worldPosition-worldView.cameraPosition.xyz,worldView.cameraPosition.xyz), ENV_AMBIENT.w);

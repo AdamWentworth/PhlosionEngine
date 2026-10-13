@@ -17,6 +17,7 @@ struct RainVolumeStats {
     std::size_t drops = 0, impacts = 0, covered = 0, queries = 0;
     std::array<std::size_t,3> bandDrops{};
     std::size_t solidImpacts=0, waterImpacts=0, impactQuads=0, newImpacts=0;
+    std::size_t sprayQuads=0, glowQuads=0, mistQuads=0;
 };
 struct RainImpact {
     glm::vec3 point{},normal{0,1,0};
@@ -35,6 +36,10 @@ struct RainVisualSettings {
     float ambientScale=2, ambientBias=.15f, brightnessMin=.18f, brightnessMax=.85f;
     float impactRateScale=1, impactLifetime=.55f, impactOpacity=.3f;
     float impactRadius=.035f, impactGrowth=.25f;
+    // Contact spray is optional and uses four additional atlas variants.
+    float sprayOpacity=0, sprayRadius=.25f, sprayHeight=.2f;
+    float glowOpacity=0, glowRadius=.1f;
+    float mistOpacity=0, mistRadius=2, mistHeight=1.5f;
 };
 struct RainSettingField {
     std::string_view name;
@@ -67,7 +72,15 @@ inline constexpr std::array rainSettingFields{
     RainSettingField{"impact_lifetime",&RainVisualSettings::impactLifetime,.01f,1},
     RainSettingField{"impact_opacity",&RainVisualSettings::impactOpacity,0,1},
     RainSettingField{"impact_radius",&RainVisualSettings::impactRadius,.001f,.5f},
-    RainSettingField{"impact_growth",&RainVisualSettings::impactGrowth,0,1}
+    RainSettingField{"impact_growth",&RainVisualSettings::impactGrowth,0,1},
+    RainSettingField{"spray_opacity",&RainVisualSettings::sprayOpacity,0,.5f},
+    RainSettingField{"spray_radius",&RainVisualSettings::sprayRadius,.01f,1},
+    RainSettingField{"spray_height",&RainVisualSettings::sprayHeight,.01f,1},
+    RainSettingField{"glow_opacity",&RainVisualSettings::glowOpacity,0,.4f},
+    RainSettingField{"glow_radius",&RainVisualSettings::glowRadius,.01f,.4f},
+    RainSettingField{"mist_opacity",&RainVisualSettings::mistOpacity,0,.6f},
+    RainSettingField{"mist_radius",&RainVisualSettings::mistRadius,.1f,4},
+    RainSettingField{"mist_height",&RainVisualSettings::mistHeight,.1f,4}
 };
 // Returns the invalid field, or an empty view for a valid bounded configuration.
 std::string_view invalidRainSetting(const RainVisualSettings&);
@@ -107,22 +120,35 @@ struct RainMotion { glm::dvec3 travel{}; double impactSeconds=0; std::uint64_t g
 class RainVolume {
 public:
     static constexpr std::size_t maxDrops = 1215, maxImpacts = 81;
-    static constexpr std::size_t maxImpactQuads = maxImpacts*2;
+    static constexpr std::size_t maxImpactQuads = maxImpacts*21;
+    static constexpr std::size_t maxSprayQuads = maxImpacts*8;
+    static constexpr std::size_t maxGlowQuads = maxImpacts, maxMistVolumes = 49, maxMistQuads = maxMistVolumes*16;
+    static constexpr std::size_t maxContactQuads = maxImpactQuads+maxSprayQuads+maxGlowQuads;
+    static constexpr std::size_t maxQueries = maxDrops+maxImpacts+maxMistVolumes;
     RainVolume();
     void setStreakAtlas(std::string key,int tileWidth,int height,std::span<const unsigned char> rgba);
-    // Four crown frames and four ripple frames, in one row. Prepared by the owner.
-    void setImpactAtlas(std::string key,int tileWidth,int height,std::span<const unsigned char> rgba);
+    // 8/12: four splash frames, four ripple frames, optional four spray variants.
+    // 16: three stable splash variants (+ spare), four ripples, four spray, four glow.
+    void setImpactAtlas(std::string key,int tileWidth,int height,std::span<const unsigned char> rgba,int columns=8);
+    void setMistTexture(std::string key,int width,int height,std::span<const unsigned char> rgba);
     RainVolumeStats build(const WorldEnvironmentLighting&, glm::vec3 camera,
         const RainCoverQuery&, const RainVisualSettings& = {}, const RainMotion* = nullptr,
         const RainLayerSettings* = nullptr);
     void prewarm(IRenderBackend&, WorldResourceScopeId) const;
     void draw(IRenderBackend&, WorldResourceScopeId, const float* viewProjection,
-        int width, int height) const;
+        int width, int height,unsigned layerMask=7) const;
     std::span<const IRenderBackend::WorldMeshVertex> dropVertices() const { return drops_; }
     std::span<const IRenderBackend::WorldMeshVertex> impactVertices() const { return impacts_; }
+    std::span<const IRenderBackend::WorldMeshVertex> mistVertices() const { return mist_; }
+    std::span<const IRenderBackend::WorldMeshVertex> sprayVertices() const { return spray_; }
     std::span<const RainImpact> visibleImpacts() const { return visibleImpacts_; }
 private:
     IRenderBackend::WorldTextureData texture(bool impact,bool layered=false) const;
+    IRenderBackend::WorldTextureData mistTexture() const;
+    void buildMist(const WorldEnvironmentLighting&,glm::vec3,const RainCoverQuery&,
+        const RainVisualSettings&,RainVolumeStats&);
+    void densityVolume(std::vector<IRenderBackend::WorldMeshVertex>&,glm::vec3,glm::vec3,
+        float,float,glm::vec3,float,std::uint32_t,int,glm::vec3);
     RainVolumeStats buildLayers(const WorldEnvironmentLighting&,glm::vec3,const RainCoverQuery&,
         const RainVisualSettings&,const RainMotion&,const RainLayerSettings&);
     struct Contact {
@@ -141,14 +167,20 @@ private:
         glm::vec3 end, glm::vec3 side, glm::vec3 color, float alpha,int tile=-1,int columns=3,int tileWidth=0);
     std::array<unsigned char,32*64*4> streakPixels_{};
     std::array<unsigned char,32*32*4> impactPixels_{};
-    std::vector<IRenderBackend::WorldMeshVertex> drops_, impacts_;
+    std::vector<IRenderBackend::WorldMeshVertex> drops_, impacts_, mist_,spray_,fog_;
+    struct FogQuad { std::array<IRenderBackend::WorldMeshVertex,4> vertices; float distance; };
+    std::vector<FogQuad> fogSort_;
     std::vector<std::uint32_t> indices_;
     std::vector<unsigned char> atlasPixels_;
     std::string atlasKey_;
     int tileWidth_=0,atlasHeight_=0;
     std::vector<unsigned char> impactAtlasPixels_;
     std::string impactAtlasKey_;
-    int impactTileWidth_=0,impactAtlasHeight_=0;
+    int impactTileWidth_=0,impactAtlasHeight_=0,impactColumns_=8;
+    std::vector<unsigned char> mistPixels_;
+    std::string mistKey_;
+    int mistWidth_=0,mistHeight_=0;
+    glm::dvec3 acceptedTravel_{};
     std::array<Contact,maxImpacts> contacts_{};
     std::vector<RainImpact> visibleImpacts_;
     double contactSeconds_=-1;

@@ -146,6 +146,8 @@ __PHLOSION_WORLD_LIGHTING_SHADER__
 #define WORLD_SHADOW_SAMPLE(uv) gWorldShadowTex.SampleLevel(gWorldShadowSampler, uv, 0.0)
 #define WORLD_SHADOW_Y -1.0
 __PHLOSION_WORLD_SHADOW_SHADER__
+#define VOLUME_SAMPLE(uv) gTex.Sample(gSampCC, uv).a
+__PHLOSION_WORLD_VOLUME_SHADER__
 __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
 int legacyWrapIndex(int index, int size, float mode) {
   if (abs(mode - 33071.0f) < 0.5f) return clamp(index, 0, size - 1);
@@ -158,6 +160,12 @@ int legacyWrapIndex(int index, int size, float mode) {
 }
 float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
   updateEnvironmentDirectionalVisibility(i.worldPos, i.worldNormal, uMaterialMode);
+#ifndef PHLOSION_WORLD_SURFACE_ONLY
+  if (uMaterialMode == 249.0f) {
+    return worldVolumeColor(float3(i.sourceUv1,i.sourceUv2.x),i.sourceUv2.y,uMaterialTimeSec,
+        i.col*float4(uVertexColorMulR,uVertexColorMulG,uVertexColorMulB,uVertexColorMulA),i.uv.x);
+  }
+#endif
   if (uMaterialMode >= 249.5f && uMaterialMode != 254.0f) {
     float4 tex = float4(1.0f, 1.0f, 1.0f, 1.0f);
     if (uUseTexture > 0.5f) {
@@ -751,7 +759,9 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
             engine::render::world_pbr_shader_shared::ShaderLanguage::Hlsl);
     // Keep the established dispatcher for draws without local lighting. Its
     // constant zero slots fold away the additional PBR evaluations.
-    std::string unlitPointSource = worldPsSource;
+    // FXC corrupts some opaque source materials when the density path shares
+    // this dispatcher. Volume draws use the existing constant-mode factory.
+    std::string unlitPointSource = "#define PHLOSION_WORLD_SURFACE_ONLY\n" + worldPsSource;
     const std::string pointMacro = "#define ENV_POINT(index) uWorldPointLights[index]";
     const auto pointMacroOffset = unlitPointSource.find(pointMacro);
     if (pointMacroOffset == std::string::npos) throw std::runtime_error("Missing world point-light binding.");

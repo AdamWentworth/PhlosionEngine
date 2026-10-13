@@ -449,7 +449,10 @@ void VulkanRenderBackendImpl::drawWorldIndexedMeshBuffers(
                                 drawInstanceCount;
     }
 
-    bindGraphicsPipeline(commandBuffer, worldShadowActive ? worldShadowPipeline : worldPipelines[pipelineIndex]);
+    const bool volume = textureData && textureData->materialMode == 249 &&
+        pipelineIndex == engine::render::vulkan_backend::kFirstStandardBlendPipeline;
+    bindGraphicsPipeline(commandBuffer, worldShadowActive ? worldShadowPipeline :
+        volume ? worldVolumePipeline : worldPipelines[pipelineIndex]);
     vkCmdPushConstants(commandBuffer,
                        texturedPipelineLayout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,

@@ -187,6 +187,8 @@ struct WorldTextureData {
     std::uint8_t dualSourceBlendEnabled = 0u;
     std::uint8_t depthTestEnabled = 1u;
     // Reserved unlit numeric materials, independent of project profiles:
+    // 249: sampled 3D density; sourceUv1.xy/sourceUv2.x = ellipsoid position,
+    // sourceUv2.y = seed, uv.x = integration thickness, materialTimeSec = phase.
     // 250/251: intensity / separate red-intensity and alpha; 252/253: byte TEV
     // versions. Vertex RGBA is high; sourceUv1.xy/sourceUv2.x carry low RGB.
     // 255: ordinary texture * vertex RGBA. These modes never apply lighting.

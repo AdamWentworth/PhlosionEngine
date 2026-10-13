@@ -257,6 +257,7 @@ struct VulkanRenderBackendImpl {
     std::array<
         VkPipeline,
         engine::render::vulkan_backend::kWorldPipelineCount> worldPipelines{};
+    VkPipeline worldVolumePipeline = VK_NULL_HANDLE;
     std::array<
         VkPipeline,
         engine::render::vulkan_backend::kWorldPipelineCount> indirectWorldPipelines{};

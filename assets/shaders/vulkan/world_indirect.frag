@@ -126,6 +126,9 @@ void writeWorldColor(vec4 color) {
 }
 
 bool sceneColorPostEnabled = false;
+uint volumeMaterialIndex = 0u;
+#define VOLUME_SAMPLE(uv) texture(baseColorTextures[nonuniformEXT(volumeMaterialIndex)], uv).a
+#include "world_volume.glsl"
 
 vec3 encodeWorldSurfaceColor(vec3 linearColor) {
     return sceneColorPostEnabled
@@ -138,6 +141,12 @@ vec3 encodeWorldSurfaceColor(vec3 linearColor) {
 void main() {
     WorldIndirectDrawState portableDraw = worldIndirectDraws.states[drawStateIndex];
     updateEnvironmentDirectionalVisibility(worldPosition, vertexNormal, portableDraw.materialParams.w);
+    if (portableDraw.materialParams.w == 249.0) {
+        volumeMaterialIndex=portableDraw.drawParams.x;
+        writeWorldColor(worldVolumeColor(vec3(vertexSourceUv1,vertexSourceUv2.x),vertexSourceUv2.y,
+            portableDraw.specializedTimingFlagsAtlas.x,vertexColor,vertexUv.x));
+        return;
+    }
     if (portableDraw.materialParams.w >= 249.5 && portableDraw.materialParams.w != 254.0) {
         uint materialIndex = portableDraw.drawParams.x;
         vec4 color = portableMaterial(portableDraw.materialParams.w,

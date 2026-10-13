@@ -760,7 +760,9 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     }
     setDepthMask(!blendAlpha);
 
-    bindProgram(worldDirectionalShadowActive_ ? worldDirectionalShadowProgram_ : worldProgram_);
+    worldVolumeActive_ = !worldDirectionalShadowActive_ && materialMode == 249;
+    bindProgram(worldDirectionalShadowActive_ ? worldDirectionalShadowProgram_ :
+        worldVolumeActive_ ? worldVolumeProgram_ : worldProgram_);
     glBindBufferBase(GL_UNIFORM_BUFFER, kWorldSkinBlockBinding, worldSkinUbo_);
     glUniformMatrix4fv(worldUniformLocation(worldViewProjLoc_), 1, GL_FALSE, viewProjectionMatrix4x4);
     static constexpr float kIdentityModel[16] = {

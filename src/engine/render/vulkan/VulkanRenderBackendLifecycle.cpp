@@ -158,7 +158,10 @@ VkPipeline createGraphicsPipeline(
     std::uint8_t blendMode,
     bool dualSourceBlend,
     bool depthTestEnabled,
-    bool depthWriteEnabled, bool depthOnly = false) {
+    bool depthWriteEnabled, bool depthOnly = false, bool volumeOnly = false) {
+    const VkBool32 volumeEnabled = VK_TRUE;
+    const VkSpecializationMapEntry volumeEntry{0u, 0u, sizeof(volumeEnabled)};
+    const VkSpecializationInfo volumeSpecialization{1u, &volumeEntry, sizeof(volumeEnabled), &volumeEnabled};
     const VkPipelineShaderStageCreateInfo stages[2]{
         VkPipelineShaderStageCreateInfo{
             VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -175,7 +178,7 @@ VkPipeline createGraphicsPipeline(
             VK_SHADER_STAGE_FRAGMENT_BIT,
             fragmentShader,
             "main",
-            nullptr},
+            volumeOnly ? &volumeSpecialization : nullptr},
     };
 
     VkPipelineVertexInputStateCreateInfo vertexInput{
@@ -1392,6 +1395,10 @@ void VulkanRenderBackendImpl::createPipelines() {
                     true, blendMode, true, false, false);
             }
         }
+        // The rain volume's standard alpha/depth variant eliminates the material
+        // dispatcher through specialization; other blend variants retain fallback.
+        worldVolumePipeline = createGraphicsPipeline(device, renderPass, texturedPipelineLayout,
+            worldVs, worldFs, worldBinding, worldAttributes, true, 0u, false, true, false, false, true);
         if (indirectWorldBatchingSupported) {
             indirectWorldPipelines[0] = createGraphicsPipeline(
                 device, renderPass, indirectWorldPipelineLayout,
@@ -1496,6 +1503,8 @@ void VulkanRenderBackendImpl::destroyPipelines() {
     }
     if (worldShadowPipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, worldShadowPipeline, nullptr);
     worldShadowPipeline = VK_NULL_HANDLE;
+    if (worldVolumePipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, worldVolumePipeline, nullptr);
+    worldVolumePipeline = VK_NULL_HANDLE;
     debugPipeline = VK_NULL_HANDLE;
     spritePipeline = VK_NULL_HANDLE;
     worldSceneColorPipeline = VK_NULL_HANDLE;
