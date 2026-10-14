@@ -1,7 +1,13 @@
 # Editor Project Extension Boundary
 
 Status: Active
-Last updated: 2026-09-22
+Last updated: 2026-10-13
+
+The editor accepts `--scene=SCENE_ID` to override the initial catalog location
+for the first project opened. The selected ID is provided in the runtime's
+open-context descriptor; subsequent project opens use their own defaults.
+`--open-scene-at=FRAME:SCENE_ID` exercises the normal location selector later in
+the same process, including runtime `openScene`, prewarm and preview routing.
 
 ## Rule
 

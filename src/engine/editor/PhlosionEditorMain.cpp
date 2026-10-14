@@ -75,6 +75,7 @@ struct ScheduledSceneOpen {
 struct Arguments {
     std::filesystem::path project;
     std::string gamePreview;
+    std::string initialScene;
     bool playGamePreview = false;
     std::string assetPreview;
     std::optional<int> assetPreviewAnimation;
@@ -197,7 +198,9 @@ Arguments parseArguments(int argc, char** argv) {
             "--scene-camera-position=";
         constexpr std::string_view sceneCameraTargetPrefix =
             "--scene-camera-target=";
-        if (argument.rfind(projectPrefix, 0u) == 0u) {
+        if (argument.rfind("--scene=", 0u) == 0u) {
+            result.initialScene = argument.substr(8u);
+        } else if (argument.rfind(projectPrefix, 0u) == 0u) {
             result.project = argument.substr(projectPrefix.size());
         } else if (argument.rfind(sceneOpenPrefix, 0u) == 0u) {
             const std::string value = argument.substr(sceneOpenPrefix.size());
@@ -3660,6 +3663,7 @@ int main(int argc, char** argv) {
     int result = 0;
     try {
         const Arguments arguments = parseArguments(argc, argv);
+        std::string initialScene = arguments.initialScene;
         if (SDL_Init(0) != 0) {
             throw std::runtime_error(
                 std::string(
@@ -4190,8 +4194,9 @@ int main(int argc, char** argv) {
                         *pendingProject,
                         renderer,
                         camera,
-                        browserError);
+                        browserError, {}, initialScene);
                 pendingProject.reset();
+                initialScene.clear();
                 if (candidate) {
                     promoteRecentProject(
                         recentProjects,
