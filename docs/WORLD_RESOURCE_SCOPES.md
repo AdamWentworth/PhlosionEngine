@@ -33,6 +33,11 @@ The required ownership path is immutable cached indexed world geometry and its
 cached material textures. Geometry and texture identities are namespaced before
 lookup; the same content/key in two scopes has independent native ownership.
 Geometry keys remain immutable within a scope. Legacy keys are unchanged.
+Direct3D 12 stores cached meshes in the GPU default heap, including managed
+scopes. Temporary upload buffers are released after their copy fence completes;
+normal scope retirement still waits for queued rendering. For timing comparisons,
+`PHLOSION_D3D12_MESH_CACHE_DEFAULT_HEAP=0` retains the upload-heap path. This does
+not change dynamic/transient geometry allocation.
 Environment and fallback textures are shared, unowned, and excluded. Sprite,
 editor surface, transient geometry/instance/skinning, pipeline and frame resources
 are outside this ownership ledger. Dynamic geometry should not be used as an

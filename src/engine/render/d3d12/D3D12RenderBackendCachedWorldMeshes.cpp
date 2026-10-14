@@ -23,7 +23,7 @@ namespace {
 bool worldMeshCacheUseDefaultHeap() {
     static const bool enabled = []() -> bool {
         const auto env = engine::env::get("PHLOSION_D3D12_MESH_CACHE_DEFAULT_HEAP");
-        if (!env.has_value()) return false;
+        if (!env.has_value()) return true;
         const std::string raw = *env;
         if (raw == "0" || raw == "false" || raw == "FALSE" || raw == "off" || raw == "OFF") {
             return false;
@@ -199,8 +199,12 @@ D3D12RenderBackend::CachedWorldMesh* D3D12RenderBackend::ensureCachedWorldMesh(
 
     CachedWorldMesh mesh{};
     mesh.scope = worldScopes_.active();
+    // Cached geometry is immutable. Keep it in GPU-local memory for scoped
+    // scenes too; reading large static meshes from the upload heap every pass
+    // adds PCIe traffic. The copy completes before temporary uploads are freed,
+    // and scope collection waits for the queue before releasing these buffers.
     const bool canUseDefaultHeapCache =
-        worldScopes_.active() == 0 && worldMeshCacheUseDefaultHeap() &&
+        worldMeshCacheUseDefaultHeap() &&
         device_ && commandQueue_ && fence_ && fenceEvent_;
 
     if (canUseDefaultHeapCache) {
