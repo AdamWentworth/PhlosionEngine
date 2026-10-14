@@ -145,7 +145,45 @@ bool OpenGLRenderBackend::ensureWorldSceneColorResources(int width, int height) 
     return true;
 }
 
+bool OpenGLRenderBackend::captureWorldDepthSnapshot() {
+    if (!worldSceneColorPassActive_ || worldSceneColorFbo_ == 0) return false;
+    GLint readFbo = 0, drawFbo = 0, boundTexture = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &readFbo);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &drawFbo);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTexture);
+    if (!worldDepthSnapshotTexture_) glGenTextures(1, &worldDepthSnapshotTexture_);
+    if (!worldDepthSnapshotFbo_) glGenFramebuffers(1, &worldDepthSnapshotFbo_);
+    glBindTexture(GL_TEXTURE_2D, worldDepthSnapshotTexture_);
+    if (worldDepthSnapshotWidth_ != worldSceneColorWidth_ || worldDepthSnapshotHeight_ != worldSceneColorHeight_) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, worldSceneColorWidth_, worldSceneColorHeight_,
+            0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        worldDepthSnapshotWidth_ = worldSceneColorWidth_;
+        worldDepthSnapshotHeight_ = worldSceneColorHeight_;
+    }
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, worldDepthSnapshotFbo_);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, worldDepthSnapshotTexture_, 0);
+    glDrawBuffer(GL_NONE);
+    const bool complete = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    if (complete) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, worldSceneColorFbo_);
+        glBlitFramebuffer(0, 0, worldSceneColorWidth_, worldSceneColorHeight_,
+            0, 0, worldSceneColorWidth_, worldSceneColorHeight_, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    }
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(boundTexture));
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(readFbo));
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(drawFbo));
+    return complete;
+}
+
 void OpenGLRenderBackend::destroyWorldSceneColorResources() {
+    if (worldDepthSnapshotFbo_) glDeleteFramebuffers(1, &worldDepthSnapshotFbo_);
+    if (worldDepthSnapshotTexture_) glDeleteTextures(1, &worldDepthSnapshotTexture_);
+    worldDepthSnapshotFbo_ = worldDepthSnapshotTexture_ = 0;
+    worldDepthSnapshotWidth_ = worldDepthSnapshotHeight_ = 0;
     destroyScreenFeedback();
     worldSceneColorPassActive_ = false;
     if (worldSceneColorFbo_ != 0u) glDeleteFramebuffers(1, &worldSceneColorFbo_);

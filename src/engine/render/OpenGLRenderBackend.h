@@ -19,6 +19,7 @@ class Renderer;
 class OpenGLRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow {
 public:
   bool clearWorldDepth() override;
+  bool captureWorldDepthSnapshot() override;
     void prewarmWorldDirectionalShadow(std::uint32_t resolution) override;
     bool beginWorldDirectionalShadow(const engine::render::WorldDirectionalShadowView& view) override;
     bool endWorldDirectionalShadow() override;
@@ -317,6 +318,9 @@ private:
     unsigned int worldSceneColorFbo_ = 0;
     unsigned int worldSceneColorTexture_ = 0;
     unsigned int worldSceneDepthRenderbuffer_ = 0;
+    unsigned int worldDepthSnapshotTexture_ = 0;
+    unsigned int worldDepthSnapshotFbo_ = 0;
+    int worldDepthSnapshotWidth_ = 0, worldDepthSnapshotHeight_ = 0;
     unsigned int worldSceneColorPostProgram_ = 0;
     unsigned int feedbackProgram_=0, feedbackVao_=0, feedbackMask_=0;
     std::array<unsigned int,2> feedbackTextures_{}, feedbackFbos_{};

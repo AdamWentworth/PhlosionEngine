@@ -354,6 +354,8 @@ struct VulkanRenderBackendImpl {
     void endFrame();
     void beginWorldSceneColorPass(int surfaceWidth, int surfaceHeight);
     bool clearWorldDepth();
+    bool captureWorldDepthSnapshot();
+    Texture* worldDepthSnapshot = nullptr;
     void endWorldSceneColorPass();
     void endWorldSceneColorPass(const engine::render::ScreenFeedbackFrame&);
     void requestResize(int width, int height);

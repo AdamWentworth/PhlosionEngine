@@ -548,6 +548,7 @@ void D3D12RenderBackend::shutdown() {
     worldRootSignature_.Reset();
     spriteTextures_.clear();
     worldTextures_.clear();
+    worldDepthSnapshotDescriptor_ = 0xffffffffu;
     worldMaterialDescriptorBlocks_.clear();
     worldSceneMaterialBindingCache_.clear();
     worldSceneMaterialBindingCacheGeneration_ = 0u;

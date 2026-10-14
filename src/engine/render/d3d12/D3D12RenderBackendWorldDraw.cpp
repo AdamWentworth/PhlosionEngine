@@ -314,7 +314,8 @@ ID3D12PipelineState* D3D12RenderBackend::selectWorldPipelineState(
         engine::render::packWorldEnvironment(textureData->environment)[0][3] > 0.5f)
         return worldSkyPipelineState_.Get();
     const unsigned variant = worldPipelineVariant(textureData);
-    if (materialMode == 249.0f) return ensureWorldPointLightPipeline(materialMode, variant);
+    if (materialMode == 249.0f || (textureData && IWorldDepthControl::isSnapshotTexture(textureData->lightProjectionKey)))
+        return ensureWorldPointLightPipeline(materialMode, variant);
     if (textureData && materialMode >= 1.5f && (materialMode < 249.5f || materialMode == 254.0f) &&
         !(materialMode > 2.5f && materialMode < 3.5f)) {
         if (worldShadowReady_ && textureData->directionalShadowReceiver && textureData->environment.enabled)

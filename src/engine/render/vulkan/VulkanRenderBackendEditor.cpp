@@ -265,7 +265,7 @@ bool VulkanRenderBackendImpl::createEditorSurfaceResources(
             frame.displayColorView);
         createImage(
             depthFormat,
-            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
             depthAspect(depthFormat),
             frame.depth,
             frame.depthMemory,

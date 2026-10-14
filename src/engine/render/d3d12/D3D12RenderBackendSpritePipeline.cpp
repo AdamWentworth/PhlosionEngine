@@ -26,6 +26,7 @@ void D3D12RenderBackend::createSpritePipeline() {
     nextSrvDescriptorIndex_ = 0;
     spriteTextures_.clear();
     worldTextures_.clear();
+    worldDepthSnapshotDescriptor_ = 0xffffffffu;
     worldMaterialDescriptorBlocks_.clear();
     worldSceneMaterialBindingCache_.clear();
     worldSceneMaterialBindingCacheGeneration_ = 0u;

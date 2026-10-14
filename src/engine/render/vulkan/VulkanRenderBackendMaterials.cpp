@@ -1,4 +1,5 @@
 #include "engine/render/vulkan/VulkanRenderBackendInternal.h"
+#include "engine/render/IWorldDepthControl.h"
 
 #include <array>
 #include <cstdint>
@@ -283,6 +284,11 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->lightProjectionMipLevels,
         texture->lightProjectionMipLevelCount);
     if (!lightProjection) lightProjection = &fallbackWorldLinearTexture;
+    if (IWorldDepthControl::isSnapshotTexture(texture->lightProjectionKey)) {
+        if (!worldDepthSnapshot) return nullptr;
+        lightProjection = worldDepthSnapshot;
+        keys[6] = "scene-depth/" + std::to_string(lightProjection->width) + "x" + std::to_string(lightProjection->height);
+    }
 
     Texture* projectedShadow = ensureWorldTextureRaw(
         texture->projectedShadowKey,

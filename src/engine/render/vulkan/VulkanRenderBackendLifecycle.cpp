@@ -1153,7 +1153,7 @@ void VulkanRenderBackendImpl::createDepthResources() {
         imageInfo.arrayLayers = 1u;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-        imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         requireVk(vkCreateImage(device, &imageInfo, nullptr, &depthImages[i]),
                   "vkCreateImage(depth)");
@@ -1904,6 +1904,7 @@ void VulkanRenderBackendImpl::shutdown() {
         for (auto& [_, texture] : worldTextures) destroyTexture(texture);
         for (auto& [_, texture] : spriteTextures) destroyTexture(texture);
         worldTextures.clear();
+        worldDepthSnapshot = nullptr;
         spriteTextures.clear();
         destroyTexture(fallbackWorldTexture);
         destroyTexture(fallbackWorldNormalTexture);

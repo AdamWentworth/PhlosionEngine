@@ -74,6 +74,9 @@ void VulkanRenderBackend::endWorldSceneColorPass() {
 bool VulkanRenderBackend::clearWorldDepth() {
     return impl_ && impl_->clearWorldDepth();
 }
+bool VulkanRenderBackend::captureWorldDepthSnapshot() {
+    return impl_ && impl_->captureWorldDepthSnapshot();
+}
 
 void VulkanRenderBackend::onResize(int width, int height) {
     if (impl_) impl_->requestResize(width, height);

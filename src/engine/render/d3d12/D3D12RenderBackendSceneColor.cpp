@@ -334,6 +334,65 @@ void D3D12RenderBackend::beginWorldSceneColorPass(
 #endif
 }
 
+bool D3D12RenderBackend::captureWorldDepthSnapshot() {
+#if defined(_WIN32)
+    if (!worldSceneColorPassActive_ || !commandList_) return false;
+    ID3D12Resource* source = editorSurfaceActive_ ? editorSurfaceTarget_.depthResource : depthBuffers_[frameIndex_].Get();
+    if (!source) return false;
+    auto description = source->GetDesc();
+    if (description.Format != DXGI_FORMAT_D32_FLOAT || description.SampleDesc.Count != 1) return false;
+    // Square power-of-two buckets bound the whole pool to 4/3 of its largest image.
+    const auto bucket = [](UINT64 value) { UINT64 result = 256; while (result < value) result *= 2; return result; };
+    const auto sourceWidth = description.Width;
+    const auto sourceHeight = description.Height;
+    if (sourceWidth > 8192 || sourceHeight > 8192) return false;
+    description.Width = bucket(std::max<UINT64>(sourceWidth, sourceHeight));
+    description.Height = static_cast<UINT>(description.Width);
+    const std::string key = "scene-depth/" + std::to_string(description.Width) + "x" + std::to_string(description.Height);
+    auto found = worldTextures_.find(key);
+    if (found == worldTextures_.end()) {
+        if (nextSrvDescriptorIndex_ >= kMaxSrvDescriptors) return false;
+        SpriteTexture target;
+        description.Format = DXGI_FORMAT_R32_TYPELESS;
+        description.Flags = D3D12_RESOURCE_FLAG_NONE;
+        D3D12_HEAP_PROPERTIES heap{};
+        heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+        heap.CreationNodeMask = heap.VisibleNodeMask = 1;
+        if (FAILED(device_->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &description,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(target.resource.GetAddressOf())))) return false;
+        target.descriptorIndex = nextSrvDescriptorIndex_++;
+        target.srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+        target.srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        target.srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        target.srvDesc.Texture2D.MipLevels = 1;
+        target.hasSrvDesc = target.valid = true;
+        auto handle = srvHeap_->GetCPUDescriptorHandleForHeapStart();
+        handle.ptr += static_cast<SIZE_T>(target.descriptorIndex) * srvDescriptorSize_;
+        device_->CreateShaderResourceView(target.resource.Get(), &target.srvDesc, handle);
+        found = worldTextures_.emplace(key, std::move(target)).first;
+    }
+    auto& target = found->second;
+    const auto transition = [&](ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition = {resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, before, after};
+        commandList_->ResourceBarrier(1, &barrier);
+    };
+    transition(source, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition(target.resource.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+    D3D12_TEXTURE_COPY_LOCATION from{}, to{};
+    from.pResource = source; from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    to.pResource = target.resource.Get(); to.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    commandList_->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+    transition(source, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    transition(target.resource.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    worldDepthSnapshotDescriptor_ = target.descriptorIndex;
+    return true;
+#else
+    return false;
+#endif
+}
+
 bool D3D12RenderBackend::clearWorldDepth() {
 #if defined(_WIN32)
     if (worldShadowActive_ || !worldSceneColorPassActive_ || !commandList_) return false;

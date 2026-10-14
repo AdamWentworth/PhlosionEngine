@@ -38,6 +38,7 @@ struct ID3D12RootSignature;
 class D3D12RenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow {
 public:
   bool clearWorldDepth() override;
+  bool captureWorldDepthSnapshot() override;
     void prewarmWorldDirectionalShadow(std::uint32_t resolution) override;
     bool beginWorldDirectionalShadow(const engine::render::WorldDirectionalShadowView& view) override;
     bool endWorldDirectionalShadow() override;
@@ -175,6 +176,7 @@ public:
         D3D12_CPU_DESCRIPTOR_HANDLE linearRtv{};
         D3D12_CPU_DESCRIPTOR_HANDLE displayRtv{};
         D3D12_CPU_DESCRIPTOR_HANDLE depthDsv{};
+        ID3D12Resource* depthResource = nullptr;
         std::uint32_t linearSrvDescriptorIndex = 0xffffffffu;
         int width = 0;
         int height = 0;
@@ -606,6 +608,7 @@ private:
     std::uint8_t* spriteVertexMappedData_ = nullptr;
     std::unordered_map<std::string, SpriteTexture> spriteTextures_;
     std::unordered_map<std::string, SpriteTexture> worldTextures_;
+    std::uint32_t worldDepthSnapshotDescriptor_ = 0xffffffffu;
     std::unordered_map<WorldMaterialDescriptorBlockKey,
                        std::uint32_t,
                        WorldMaterialDescriptorBlockKeyHash>

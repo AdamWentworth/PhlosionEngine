@@ -739,6 +739,7 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         textureData->lightProjectionMipLevels,
         textureData->lightProjectionMipLevelCount);
     const std::uint32_t lightProjectionDescriptorIndex =
+        IWorldDepthControl::isSnapshotTexture(textureData->lightProjectionKey) ? worldDepthSnapshotDescriptor_ :
         lightProjectionTex
         ? lightProjectionTex->descriptorIndex
         : worldFallbackOcclusionTextureDescriptorIndex_;

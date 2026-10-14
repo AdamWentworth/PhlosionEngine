@@ -216,8 +216,8 @@ bool D3D12EditorRenderSurface::begin(
             .depthDsv =
                 dsvHeap_->
                     GetCPUDescriptorHandleForHeapStart(),
-            .linearSrvDescriptorIndex =
-                linearSrvDescriptorIndex_,
+            .depthResource = depth_.Get(),
+            .linearSrvDescriptorIndex = linearSrvDescriptorIndex_,
             .width = width_,
             .height = height_});
     return active_;

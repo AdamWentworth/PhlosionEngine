@@ -298,6 +298,90 @@ void VulkanRenderBackendImpl::beginWorldSceneColorPass(
     worldSceneColorPassActive = true;
 }
 
+bool VulkanRenderBackendImpl::captureWorldDepthSnapshot() {
+    if (!frameActive || !worldSceneColorPassActive || worldShadowActive) return false;
+    VkExtent2D extent = swapchainExtent;
+    VkImage source = depthImages.at(acquiredImage);
+    VkFramebuffer framebuffer = worldSceneColorFramebuffers.at(currentFrame * swapchainImages.size() + acquiredImage);
+    if (activeEditorSurface) {
+        auto& editorSurface = editorSurfaces.at(activeEditorSurface);
+        extent = {static_cast<std::uint32_t>(editorSurface.width), static_cast<std::uint32_t>(editorSurface.height)};
+        source = editorSurface.frames[currentFrame].depth;
+        framebuffer = editorSurface.frames[currentFrame].linearFramebuffer;
+    }
+    if (extent.width > 8192 || extent.height > 8192) return false;
+    const auto bucket = [](std::uint32_t value) { std::uint32_t size = 256; while (size < value) size *= 2; return size; };
+    const auto width = bucket(std::max(extent.width, extent.height)), height = width;
+    const std::string key = "scene-depth/" + std::to_string(width) + "x" + std::to_string(height) + "/" + std::to_string(depthFormat);
+    auto found = worldTextures.find(key);
+    bool fresh = found == worldTextures.end();
+    if (fresh) {
+        Texture target;
+        try {
+            VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+            info.imageType = VK_IMAGE_TYPE_2D; info.format = depthFormat;
+            info.extent = {width, height, 1}; info.mipLevels = info.arrayLayers = 1;
+            info.samples = VK_SAMPLE_COUNT_1_BIT; info.tiling = VK_IMAGE_TILING_OPTIMAL;
+            info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+            requireSceneColorVk(vkCreateImage(device, &info, nullptr, &target.image), "create depth snapshot");
+            VkMemoryRequirements requirements{};
+            vkGetImageMemoryRequirements(device, target.image, &requirements);
+            VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+            allocation.allocationSize = requirements.size;
+            allocation.memoryTypeIndex = findMemoryType(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            requireSceneColorVk(vkAllocateMemory(device, &allocation, nullptr, &target.memory), "allocate depth snapshot");
+            requireSceneColorVk(vkBindImageMemory(device, target.image, target.memory, 0), "bind depth snapshot");
+            VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+            view.image = target.image; view.viewType = VK_IMAGE_VIEW_TYPE_2D; view.format = depthFormat;
+            view.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+            requireSceneColorVk(vkCreateImageView(device, &view, nullptr, &target.view), "view depth snapshot");
+            VkSamplerCreateInfo sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+            sampler.magFilter = sampler.minFilter = VK_FILTER_NEAREST;
+            sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+            sampler.addressModeU = sampler.addressModeV = sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            requireSceneColorVk(vkCreateSampler(device, &sampler, nullptr, &target.sampler), "sample depth snapshot");
+            target.width = static_cast<int>(width); target.height = static_cast<int>(height);
+            target.format = depthFormat; target.allocationBytes = requirements.size;
+        } catch (...) { destroyTexture(target); throw; }
+        found = worldTextures.emplace(key, target).first;
+    }
+    auto& target = found->second;
+    const VkCommandBuffer command = frames[currentFrame].commandBuffer;
+    vkCmdEndRenderPass(command);
+    const auto aspect = VK_IMAGE_ASPECT_DEPTH_BIT | (depthFormat == VK_FORMAT_D32_SFLOAT ? 0 : VK_IMAGE_ASPECT_STENCIL_BIT);
+    const auto barrier = [&](VkImage image, VkImageLayout before, VkImageLayout after, VkAccessFlags from, VkAccessFlags to,
+                             VkPipelineStageFlags fromStage, VkPipelineStageFlags toStage) {
+        VkImageMemoryBarrier value{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        value.oldLayout = before; value.newLayout = after; value.image = image;
+        value.srcAccessMask = from; value.dstAccessMask = to;
+        value.srcQueueFamilyIndex = value.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        value.subresourceRange = {static_cast<VkImageAspectFlags>(aspect), 0, 1, 0, 1};
+        vkCmdPipelineBarrier(command, fromStage, toStage, 0, 0, nullptr, 0, nullptr, 1, &value);
+    };
+    barrier(source, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    barrier(target.image, fresh ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, fresh ? 0 : VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    VkImageCopy copy{};
+    copy.srcSubresource = copy.dstSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+    copy.extent = {extent.width, extent.height, 1};
+    vkCmdCopyImage(command, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+    barrier(source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT);
+    barrier(target.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+    pass.renderPass = worldSceneColorLoadRenderPass; pass.framebuffer = framebuffer; pass.renderArea.extent = extent;
+    vkCmdBeginRenderPass(command, &pass, VK_SUBPASS_CONTENTS_INLINE);
+    invalidateSceneColorBindings(*this);
+    setViewportAndScissor(command, static_cast<int>(extent.width), static_cast<int>(extent.height));
+    worldDepthSnapshot = &target;
+    return true;
+}
+
 bool VulkanRenderBackendImpl::clearWorldDepth() {
     if (worldShadowActive || !frameActive || !worldSceneColorPassActive) return false;
     VkExtent2D extent = swapchainExtent;

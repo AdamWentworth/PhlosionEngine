@@ -489,6 +489,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             texture->lightProjectionMipLevelCount)
         : 0u;
     const GLuint boundLightProjectionTexture =
+        texture && IWorldDepthControl::isSnapshotTexture(texture->lightProjectionKey) ? worldDepthSnapshotTexture_ :
         authoredLightProjectionTexture != 0u
         ? authoredLightProjectionTexture
         : fallbackWhiteLinearTexture;
