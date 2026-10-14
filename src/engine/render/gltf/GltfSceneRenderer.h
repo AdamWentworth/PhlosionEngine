@@ -51,6 +51,9 @@ struct GltfSceneDrawOptions {
     // Optional per-material factors for animated material inputs. Empty uses
     // authored factors; otherwise supply one linear RGBA value per material.
     std::span<const std::array<float, 4>> baseColorFactors;
+    // Optional normalized linear RGB emission per material, replacing authored
+    // factors while retaining emissive textures. Empty preserves authored values.
+    std::span<const std::array<float, 3>> emissiveFactors;
     // Optional explicit GPU ownership. Create/release this renderer-owned scope
     // through IWorldResourceScope. Zero retains the legacy unowned cache path.
     engine::render::WorldResourceScopeId resourceScope = 0u;

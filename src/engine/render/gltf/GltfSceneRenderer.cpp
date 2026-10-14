@@ -176,6 +176,14 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
                 if (!std::isfinite(value) || value < 0 || value > 1)
                     return fail("glTF material factors must be finite and normalized");
     }
+    if (!options.emissiveFactors.empty()) {
+        if (options.emissiveFactors.size() != asset.materials.size())
+            return fail("glTF emissive factor count does not match the asset");
+        for (const auto& color : options.emissiveFactors)
+            for (float value : color)
+                if (!std::isfinite(value) || value < 0 || value > 1)
+                    return fail("glTF emissive factors must be finite and normalized");
+    }
     const auto finiteMatrix = [](const std::array<float, 16>& matrix) {
         for (const float value : matrix) {
             if (!std::isfinite(value)) {
@@ -319,6 +327,12 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
             texture.vertexColorMulG = color[1] * options.tint[1];
             texture.vertexColorMulB = color[2] * options.tint[2];
             texture.vertexColorMulA = color[3] * options.tint[3];
+        }
+        if (!options.emissiveFactors.empty()) {
+            const auto& color = options.emissiveFactors[primitive.materialIndex];
+            texture.emissiveFactorR = color[0];
+            texture.emissiveFactorG = color[1];
+            texture.emissiveFactorB = color[2];
         }
 
         if (!palette.empty()) {

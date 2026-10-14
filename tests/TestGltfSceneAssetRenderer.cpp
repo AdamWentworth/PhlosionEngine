@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -446,6 +447,30 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
         if (!check(!engine::render::gltf::scene::drawGltfSceneAsset(
                        backend, *asset, pose, animated, stats, &error) && backend.submissions.empty(),
                    "incorrect material factor count must reject before drawing")) return false;
+    }
+
+    {
+        RecordingBackend backend;
+        GltfSceneDrawStats stats;
+        auto animated = options;
+        std::array<std::array<float,3>,2> colors{{{.8f,.1f,.3f},{0,0,0}}};
+        animated.emissiveFactors = colors;
+        if (!check(engine::render::gltf::scene::drawGltfSceneAsset(
+                backend,*asset,pose,animated,stats,&error) &&
+                nearlyEqual(backend.submissions[0].texture.emissiveFactorR,.8f) &&
+                backend.submissions[1].texture.emissiveFactorB == 0 &&
+                backend.submissions[0].texture.emissiveRgba == asset->materials[0].emissive.rgba.data(),
+                "emission overrides must retain textures and isolate material factors")) return false;
+        for (float bad : {-1.f,1.1f,std::numeric_limits<float>::quiet_NaN()}) {
+            backend.submissions.clear(); colors[1][0]=bad;
+            if (!check(!engine::render::gltf::scene::drawGltfSceneAsset(
+                    backend,*asset,pose,animated,stats,&error) && backend.submissions.empty(),
+                    "invalid emission must reject before any draw")) return false;
+        }
+        backend.submissions.clear(); animated.emissiveFactors=std::span(colors).first(1);
+        if (!check(!engine::render::gltf::scene::drawGltfSceneAsset(
+                backend,*asset,pose,animated,stats,&error) && backend.submissions.empty(),
+                "emission count must match the asset")) return false;
     }
 
     // A pose from another generation is rejected before anything is submitted.
