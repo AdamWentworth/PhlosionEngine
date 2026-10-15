@@ -11,7 +11,11 @@
 #include <glm/glm.hpp>
 
 namespace engine::render {
-struct RainHit { glm::vec3 point{}, normal{0,1,0}; float fraction = 0, water = 0; };
+struct RainHit {
+    glm::vec3 point{}, normal{0,1,0}; float fraction = 0, water = 0;
+    // A surface may block rain while delegating its impacts to another renderer.
+    bool spawnImpact = true;
+};
 using RainCoverQuery = std::function<std::optional<RainHit>(glm::vec3, glm::vec3)>;
 struct RainVolumeStats {
     std::size_t drops = 0, impacts = 0, covered = 0, queries = 0;
@@ -24,6 +28,7 @@ struct RainImpact {
     double age=0;
     std::uint32_t id=0;
     float water=0;
+    float strength=1;
 };
 
 struct RainVisualSettings {
@@ -134,6 +139,10 @@ public:
     RainVolumeStats build(const WorldEnvironmentLighting&, glm::vec3 camera,
         const RainCoverQuery&, const RainVisualSettings& = {}, const RainMotion* = nullptr,
         const RainLayerSettings* = nullptr);
+    // Render an owner-sampled contact snapshot without simulating falling drops.
+    // Age/strength/placement are supplied by the owner; at most maxImpacts entries.
+    RainVolumeStats buildImpacts(const WorldEnvironmentLighting&,glm::vec3 camera,
+        std::span<const RainImpact>,const RainVisualSettings& = {},float motionLifetime=0);
     void prewarm(IRenderBackend&, WorldResourceScopeId) const;
     void draw(IRenderBackend&, WorldResourceScopeId, const float* viewProjection,
         int width, int height,unsigned layerMask=7) const;
@@ -158,11 +167,12 @@ private:
         std::size_t band=0;
         float water=0;
         bool active=false;
+        float strength=1;
     };
     void contact(const RainHit&,glm::vec3 tip,float speed,std::uint32_t id,std::uint32_t seed,std::size_t band,
         const WorldEnvironmentLighting&,const RainVisualSettings&,RainVolumeStats&);
     void drawContacts(const WorldEnvironmentLighting&,glm::vec3,const RainVisualSettings&,
-        const RainLayerSettings&,RainVolumeStats&);
+        const RainLayerSettings&,RainVolumeStats&,bool sampled=false,float motionLifetime=0);
     void quad(std::vector<IRenderBackend::WorldMeshVertex>&, glm::vec3 start,
         glm::vec3 end, glm::vec3 side, glm::vec3 color, float alpha,int tile=-1,int columns=3,int tileWidth=0);
     std::array<unsigned char,32*64*4> streakPixels_{};

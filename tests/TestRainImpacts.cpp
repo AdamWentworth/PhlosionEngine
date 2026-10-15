@@ -172,6 +172,32 @@ void sprayContracts() {
 }
 }
 int main() try {
+    {
+        WorldEnvironmentLighting e;e.enabled=true;e.rainIntensity=1;e.ambientRadiance={.3f,.3f,.3f};
+        RainVolume sampled;
+        sampled.setImpactAtlas("sampled",8,8,std::vector<unsigned char>(8*16*8*4,255),16);
+        RainVisualSettings settings;settings.impactLifetime=.65f;
+        std::array contacts{RainImpact{{0,0,0},{0,1,0},.35,42,1,.8f}};
+        const auto s=sampled.buildImpacts(e,{0,2,0},contacts,settings,.24f);bounds(sampled,s);
+        check(sampled.visibleImpacts().front().strength==.8f,"Sampled strength missing from visible contact snapshot");
+        check(s.waterImpacts==1 && s.impactQuads==1 && s.drops==0 && s.queries==0,"Sampled water ring must outlive crown/droplets without simulating rain");
+        const auto frozen=std::vector(sampled.impactVertices().begin(),sampled.impactVertices().end());
+        sampled.buildImpacts(e,{1,2,0},contacts,settings,.24f);
+        for(std::size_t i=0;i<frozen.size();++i) check(frozen[i].x==sampled.impactVertices()[i].x&&frozen[i].z==sampled.impactVertices()[i].z,"Sampled ring rotates with camera");
+        contacts[0].age=.7;check(sampled.buildImpacts(e,{0,2,0},contacts,settings).impacts==0,"Expired sampled ring retained");
+        contacts[0].age=.1;contacts[0].normal={-.4f,1,0};contacts[0].water=0;
+        const auto sloped=sampled.buildImpacts(e,{0,2,0},contacts,settings);bounds(sampled,sloped);
+        for(const auto& v:sampled.impactVertices()) check(v.y-.4f*v.x>0,"Sampled contact penetrated slope");
+        e.rainIntensity=0;check(sampled.buildImpacts(e,{0,2,0},contacts,settings).impacts==0,"Sampled contacts in dry weather");
+        bool rejected=false;try {sampled.buildImpacts(e,{0,2,0},std::vector<RainImpact>(82),settings);}catch(const std::runtime_error&){rejected=true;}
+        check(rejected,"Unbounded sampled contacts accepted");
+        e.rainIntensity=1;contacts[0].strength=std::numeric_limits<float>::quiet_NaN();rejected=false;
+        try {sampled.buildImpacts(e,{0,2,0},contacts,settings);}catch(const std::runtime_error&){rejected=true;}
+        check(rejected,"Nonfinite sampled strength accepted");
+        e.distantHazeStart=60;e.distantHazeDensity=.003f;e.distantHazeMaxOpacity=.14f;
+        const auto uniform=packWorldEnvironment(e);check(uniform[5][3]==.003f&&uniform[9][2]==60&&uniform[9][3]==.14f,"Distant haze packing lost parameters without clouds");
+        e.distantHazeDensity=-1;check(packWorldEnvironment(e)[0][3]==0,"Invalid distant haze accepted");
+    }
     mistContracts();
     sprayContracts();
     WorldEnvironmentLighting e;e.enabled=true;e.rainIntensity=1;e.precipitationSeed=417;
@@ -237,6 +263,13 @@ int main() try {
     }
     RainVolume roof;prepare(roof);const auto sheltered=roof.build(e,{0,3,0},plane(8),settings,&motion,&bands);
     check(sheltered.covered>0,"Roof failed to cover near rain");
+    RainVolume noRoofImpacts;prepare(noRoofImpacts);
+    const auto rejectedRoof=[&](glm::vec3 p,glm::vec3 d) {
+        auto hit=plane(8)(p,d);if(hit) hit->spawnImpact=false;return hit;
+    };
+    const auto rejectedStats=noRoofImpacts.build(e,{0,3,0},rejectedRoof,settings,&motion,&bands);
+    check(rejectedStats.covered==sheltered.covered && rejectedStats.drops==sheltered.drops && rejectedStats.impacts==0,
+        "Rejecting roof impacts changed rain occlusion or admitted contacts");
     for (const auto& v : roof.impactVertices()) check(v.y>=8.027f,"Splash leaked beneath first roof surface");
     RainVolume invalid;prepare(invalid);
     check(invalid.build(e,{0,3,0},plane(0,std::numeric_limits<float>::quiet_NaN()),settings,&motion,&bands).impacts==0,

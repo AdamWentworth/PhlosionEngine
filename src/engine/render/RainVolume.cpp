@@ -221,7 +221,7 @@ RainVolumeStats RainVolume::build(const WorldEnvironmentLighting& e,glm::vec3 ca
         // Trace the same wind-aligned world column at any camera height.
         top.x+=velocity.x/velocity.y*top.y;top.z+=velocity.z/velocity.y*top.y;
         ++stats.queries;const auto hit=cover(top,direction*128.f);
-        if (!hit||!finite(hit->point)||!finite(hit->normal)||std::abs(hit->normal.y)<.4f) continue;
+        if (!hit||!hit->spawnImpact||!finite(hit->point)||!finite(hit->normal)||std::abs(hit->normal.y)<.4f) continue;
         glm::vec3 normal=glm::normalize(hit->normal);if (normal.y<0) normal=-normal;
         const float distance=glm::length(hit->point-camera);
         const float alpha=intensity*(1-age/s.impactLifetime)*s.impactOpacity*std::clamp((s.horizontalRange-distance)/s.horizontalFade,0.f,1.f);
@@ -234,6 +234,29 @@ RainVolumeStats RainVolume::build(const WorldEnvironmentLighting& e,glm::vec3 ca
     }
     stats.solidImpacts=stats.impacts;stats.impactQuads=stats.impacts;
     if (layers) buildMist(e,camera,cover,s,stats);
+    return stats;
+}
+RainVolumeStats RainVolume::buildImpacts(const WorldEnvironmentLighting& e,glm::vec3 camera,
+    std::span<const RainImpact> impacts,const RainVisualSettings& s,float motionLifetime) {
+    drops_.clear();impacts_.clear();mist_.clear();spray_.clear();fog_.clear();visibleImpacts_.clear();
+    contacts_={};contactSeconds_=0;layered_=true;RainVolumeStats stats;
+    if(impacts.size()>maxImpacts || impactAtlasPixels_.empty() || !invalidRainSetting(s).empty() ||
+        s.mistOpacity!=0 || s.sprayOpacity!=0 || s.glowOpacity!=0 ||
+        !std::isfinite(motionLifetime) || motionLifetime<0 || motionLifetime>1)
+        throw std::runtime_error("Invalid sampled rain contacts/settings");
+    if(!e.enabled || !std::isfinite(e.rainIntensity) || e.rainIntensity<=0 || !finite(camera) ||
+        packWorldEnvironment(e)[0][3]==0) return stats;
+    for(std::size_t i=0;i<impacts.size();++i) {
+        const auto& hit=impacts[i];
+        if(!finite(hit.point)||!finite(hit.normal)||glm::dot(hit.normal,hit.normal)<.0001f ||
+            !std::isfinite(hit.age)||hit.age<0 || !std::isfinite(hit.water)||hit.water<0||hit.water>1 ||
+            !std::isfinite(hit.strength)||hit.strength<0||hit.strength>1)
+            throw std::runtime_error("Invalid sampled rain contact");
+        auto normal=glm::normalize(hit.normal);if(normal.y<0) normal=-normal;
+        if(normal.y<.4f || hit.age>=s.impactLifetime || hit.strength==0) continue;
+        contacts_[i]={hit.point,normal,-hit.age,hit.id,hit.id,0,hit.water,true,hit.strength};
+    }
+    drawContacts(e,camera,s,RainLayerSettings{},stats,true,motionLifetime);
     return stats;
 }
 RainVolumeStats RainVolume::buildLayers(const WorldEnvironmentLighting& e,glm::vec3 camera,
@@ -282,7 +305,7 @@ RainVolumeStats RainVolume::buildLayers(const WorldEnvironmentLighting& e,glm::v
 }
 void RainVolume::contact(const RainHit& hit,glm::vec3 tip,float speed,std::uint32_t id,std::uint32_t seed,std::size_t band,
     const WorldEnvironmentLighting& e,const RainVisualSettings& s,RainVolumeStats& stats) {
-    if (!acceptContacts_ || stats.newImpacts>=maxImpacts || !finite(hit.normal)||
+    if (!acceptContacts_ || !hit.spawnImpact || stats.newImpacts>=maxImpacts || !finite(hit.normal)||
         glm::dot(hit.normal,hit.normal)<.0001f || !std::isfinite(hit.water)||hit.water<0||hit.water>1) return;
     const auto normal=glm::normalize(hit.normal);
     if (std::abs(normal.y)<.4f || random(seed+31)>std::min(1.f,s.impactRateScale*.5f)) return;
@@ -296,7 +319,7 @@ void RainVolume::contact(const RainHit& hit,glm::vec3 tip,float speed,std::uint3
     ++stats.newImpacts;
 }
 void RainVolume::drawContacts(const WorldEnvironmentLighting& e,glm::vec3 camera,const RainVisualSettings& s,
-    const RainLayerSettings& layers,RainVolumeStats& stats) {
+    const RainLayerSettings& layers,RainVolumeStats& stats,bool sampled,float motionLifetime) {
     const float brightness=std::clamp(e.ambientRadiance[1]*s.ambientScale+s.ambientBias,s.brightnessMin,s.brightnessMax);
     const glm::vec3 color=glm::vec3(s.tintR,s.tintG,s.tintB)*brightness;
     for (const auto& entry : contacts_) {
@@ -304,14 +327,15 @@ void RainVolume::drawContacts(const WorldEnvironmentLighting& e,glm::vec3 camera
         const float age=static_cast<float>(contactSeconds_-entry.born);
         if (age<0||age>=s.impactLifetime) continue;
         const float distance=glm::length(entry.point-camera);
-        const float population=std::clamp((std::min(e.rainIntensity*s.densityScale*layers.bands[entry.band].density,1.f)-random(entry.seed+4))*8,0.f,1.f);
+        const float population=sampled?entry.strength:std::clamp((std::min(e.rainIntensity*s.densityScale*layers.bands[entry.band].density,1.f)-random(entry.seed+4))*8,0.f,1.f);
         const float exposure=population*std::clamp((s.horizontalRange-distance)/s.horizontalFade,0.f,1.f)*std::exp(-distance*e.hazeDensity);
         const float alpha=exposure*s.impactOpacity;
         if (alpha<.005f && exposure*s.sprayOpacity<.001f && exposure*s.glowOpacity<.001f) continue;
         const float radius=s.impactRadius*(.8f+random(entry.seed+12)*.4f);
         const auto center=entry.point+entry.normal*.028f;
         bool visible=false;
-        const float crownAge=age/(s.impactLifetime*.45f);
+        const float motionDuration=motionLifetime>0?std::min(motionLifetime,s.impactLifetime):s.impactLifetime;
+        const float crownAge=age/(motionDuration*.45f);
         const auto tangent=glm::normalize(glm::cross(entry.normal,glm::vec3(0,0,1)));
         const auto bitangent=glm::cross(tangent,entry.normal);
         if (impactColumns_==16) {
@@ -329,7 +353,7 @@ void RainVolume::drawContacts(const WorldEnvironmentLighting& e,glm::vec3 camera
                 }
                 visible=true;
             }
-            const float flight=age/s.impactLifetime;
+            const float flight=age/motionDuration;
             for (int droplet=0;droplet<4;++droplet) {
                 const float t=flight*(1.1f+random(entry.seed+droplet+61)*.5f);
                 if (t>=1) continue;
@@ -409,7 +433,7 @@ void RainVolume::drawContacts(const WorldEnvironmentLighting& e,glm::vec3 camera
         }
         if (visible) {
             ++stats.impacts;if (entry.water>0) ++stats.waterImpacts;else ++stats.solidImpacts;
-            visibleImpacts_.push_back({entry.point,entry.normal,age,entry.id,entry.water});
+            visibleImpacts_.push_back({entry.point,entry.normal,age,entry.id,entry.water,entry.strength});
         }
     }
     stats.impactQuads=impacts_.size()/4-(impactColumns_==16?0:stats.sprayQuads)-stats.glowQuads;

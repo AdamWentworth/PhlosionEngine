@@ -214,7 +214,7 @@ vec3 environmentWetSurface(vec3 color, vec3 position, vec3 camera) {
 
 vec3 environmentHaze(vec3 color, vec3 position, vec3 camera) {
     color=environmentWetSurface(color,position,camera);
-    if (ENV_SUN.w < 0.5 || ENV_HAZE.w <= 0.0) return color;
+    if (ENV_SUN.w < 0.5 || (ENV_HAZE.w <= 0.0 && ENV_NIGHT.w <= 0.0)) return color;
     float distanceMetres = length(position-camera);
     float startHeight = max(camera.y-ENV_HEIGHT.x, 0.0);
     float endHeight = max(position.y-ENV_HEIGHT.x, 0.0);
@@ -226,5 +226,13 @@ vec3 environmentHaze(vec3 color, vec3 position, vec3 camera) {
     float densityIntegral = abs(difference) < 0.001
         ? exp(-0.5*(a+b)) : (exp(-a)-exp(-b))/difference;
     float opacity = min(1.0-exp(-ENV_HAZE.w*distanceMetres*densityIntegral), ENV_HEIGHT.z);
+    if (ENV_NIGHT.w > 0.0 && distanceMetres > ENV_CLOUD_PARAMS.z) {
+        float farHeight = max(mix(camera.y,position.y,ENV_CLOUD_PARAMS.z/distanceMetres)-ENV_HEIGHT.x,0.0);
+        float farA = clamp(farHeight*ENV_HEIGHT.y,0.0,40.0);
+        float farDifference = b-farA;
+        float farIntegral = abs(farDifference)<0.001 ? exp(-0.5*(farA+b)) : (exp(-farA)-exp(-b))/farDifference;
+        float distantOpacity = min(1.0-exp(-ENV_NIGHT.w*(distanceMetres-ENV_CLOUD_PARAMS.z)*farIntegral), ENV_CLOUD_PARAMS.w);
+        opacity = 1.0-(1.0-opacity)*(1.0-distantOpacity);
+    }
     return mix(color, ENV_HAZE.rgb, opacity);
 }
