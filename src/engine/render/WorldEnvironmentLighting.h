@@ -59,6 +59,9 @@ struct WorldEnvironmentLighting {
     // CPU precipitation inputs share the world snapshot without changing GPU uniforms.
     float rainIntensity = 0;
     double precipitationSeconds = 0;
+    // Shared active-play clock for CPU environment animation; independent of
+    // precipitation's bounded texture/particle phase and unchanged GPU uniforms.
+    double animationSeconds = 0;
     std::array<float, 2> precipitationWind{};
     std::uint32_t precipitationSeed = 0;
     float surfaceWetness = 0;
