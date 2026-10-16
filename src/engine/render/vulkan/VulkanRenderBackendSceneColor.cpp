@@ -405,6 +405,8 @@ void VulkanRenderBackendImpl::endWorldSceneColorPass() {
     if (!frameActive || !worldSceneColorPassActive) return;
 
     FrameResources& frame = frames[currentFrame];
+    vkCmdPushConstants(frame.commandBuffer,worldSceneColorPipelineLayout,
+        VK_SHADER_STAGE_FRAGMENT_BIT,0u,sizeof(float),&worldBloomStrength);
     vkCmdEndRenderPass(frame.commandBuffer);
     worldSceneColorPassActive = false;
 

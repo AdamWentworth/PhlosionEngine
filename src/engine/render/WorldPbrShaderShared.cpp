@@ -519,18 +519,21 @@ std::string injectSharedWorldPbr(std::string_view source, ShaderLanguage languag
     std::string atmosphere(worldAtmosphereSource);
     if (hlslLiterals) {
         replaceAll(atmosphere, "float environmentDirectionalVisibility = 1.0;", "static float environmentDirectionalVisibility = 1.0f;");
+        replaceAll(atmosphere, "float environmentWetMaterialApplied = 0.0;", "static float environmentWetMaterialApplied = 0.0f;");
         replaceAll(atmosphere, "vec4", "float4");
         replaceAll(atmosphere, "vec3", "float3");
         replaceAll(atmosphere, "vec2", "float2");
         replaceAll(atmosphere, "mix(", "lerp(");
         replaceAll(atmosphere, "dFdx(", "ddx(");
         replaceAll(atmosphere, "dFdy(", "ddy(");
+        replaceAll(atmosphere, "for (int index", "[loop] for (int index");
     }
     replaceAll(out, "__PHLOSION_ENVIRONMENT_SHADER__", atmosphere);
     std::string lighting(worldLightingSource);
     if (hlslLiterals) {
         replaceAll(lighting, "vec4", "float4");
         replaceAll(lighting, "vec3", "float3");
+        replaceAll(lighting, "vec2", "float2");
         // Keep the four-slot HLSL lighting loop explicit in specialized shaders.
         replaceAll(lighting, "for (int index", "[loop] for (int index");
     }
@@ -542,6 +545,8 @@ std::string injectSharedWorldPbr(std::string_view source, ShaderLanguage languag
         replaceAll(shadow, "vec2", "float2");
         replaceAll(shadow, "inversesqrt(", "rsqrt(");
         replaceAll(shadow, "mix(", "lerp(");
+        replaceAll(shadow, "dFdx(", "ddx(");
+        replaceAll(shadow, "dFdy(", "ddy(");
     }
     replaceAll(out, "__PHLOSION_WORLD_SHADOW_SHADER__", shadow);
     std::string volume(worldVolumeSource);

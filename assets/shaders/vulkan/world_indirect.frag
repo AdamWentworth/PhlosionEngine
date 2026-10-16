@@ -36,8 +36,10 @@ layout(set = 1, binding = 0) uniform WorldViewState {
     vec4 pointLights[8];
     mat4 directionalShadowMatrix;
     vec4 directionalShadowParams;
+    vec4 rectLights[64];
 } worldView;
 layout(set = 1, binding = 6) uniform sampler2D directionalShadowTexture;
+layout(set = 1, binding = 7) uniform sampler2D rectLightLut;
 
 layout(location = 0) in vec2 vertexUv;
 layout(location = 1) in vec4 vertexColor;
@@ -74,6 +76,8 @@ layout(location = 0) out vec4 outColor;
 #define ENV_LUT(uv) vec3(0.0)
 #include "world_atmosphere.glsl"
 #define ENV_POINT(index) worldView.pointLights[index]
+#define ENV_RECT(index) worldView.rectLights[index]
+#define ENV_RECT_LUT(uv) textureLod(rectLightLut, uv, 0.0)
 #include "world_lighting.glsl"
 #define WORLD_SHADOW_PARAMS worldView.directionalShadowParams
 #define WORLD_SHADOW_CLIP(position) (worldView.directionalShadowMatrix * vec4(position, 1.0))

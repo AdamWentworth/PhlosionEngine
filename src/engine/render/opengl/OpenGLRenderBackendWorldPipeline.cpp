@@ -526,6 +526,10 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
 #define ENV_LUT(uv) textureLod(uTexture, uv, 0.0).rgb
 __PHLOSION_ENVIRONMENT_SHADER__
 uniform vec4 uWorldPointLights[8];
+uniform vec4 uWorldRectLights[64];
+uniform sampler2D uRectLightLut;
+#define ENV_RECT(index) uWorldRectLights[index]
+#define ENV_RECT_LUT(uv) textureLod(uRectLightLut, uv, 0.0)
 #define ENV_POINT(index) uWorldPointLights[index]
 __PHLOSION_WORLD_LIGHTING_SHADER__
 uniform sampler2D uDirectionalShadowTexture;
@@ -834,6 +838,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
 
             vec3 albedo = clamp(linearColor, 0.0, 1.0);
             float dielectricSpecular = 0.04;
+            environmentWetMaterial(vWorldPos, n, albedo, roughness, dielectricSpecular);
             vec3 F0 = mix(vec3(dielectricSpecular), albedo, metallic);
             vec3 diffuseColor = albedo * (1.0 - metallic);
             const float specularF90 = 1.0;
@@ -1065,6 +1070,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
     std::string depthSource = fsSource;
     for (const auto& [source, replacement] : {
              std::pair{"#define ENV_POINT(index) uWorldPointLights[index]", "#define ENV_POINT(index) vec4(0.0)"},
+             std::pair{"#define ENV_RECT(index) uWorldRectLights[index]", "#define ENV_RECT(index) vec4(0.0)"},
              std::pair{"#define WORLD_SHADOW_PARAMS uDirectionalShadowParams", "#define WORLD_SHADOW_PARAMS vec4(0.0)"}}) {
         const auto offset = depthSource.find(source);
         if (offset == std::string::npos) throw std::runtime_error("Missing depth lighting macro.");
@@ -1156,6 +1162,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
     worldLightProjectionUvRowVLoc_ =
         glGetUniformLocation(worldProgram_, "uLightProjectionUvRowV");
     worldPointLightsLoc_ = glGetUniformLocation(worldProgram_, "uWorldPointLights[0]");
+    worldRectLightsLoc_ = glGetUniformLocation(worldProgram_, "uWorldRectLights[0]");
+    worldRectLightLutLoc_ = glGetUniformLocation(worldProgram_, "uRectLightLut");
     worldDirectionalShadowMatrixLoc_ = glGetUniformLocation(worldProgram_, "uDirectionalShadowMatrix");
     worldDirectionalShadowParamsLoc_ = glGetUniformLocation(worldProgram_, "uDirectionalShadowParams");
     worldDirectionalShadowTextureLoc_ = glGetUniformLocation(worldProgram_, "uDirectionalShadowTexture");
@@ -1363,6 +1371,7 @@ void OpenGLRenderBackend::destroyWorldPipeline() {
     worldLightProjectionUvRowULoc_ = -1;
     worldLightProjectionUvRowVLoc_ = -1;
     worldPointLightsLoc_ = -1;
+    worldRectLightsLoc_ = worldRectLightLutLoc_ = -1;
     worldDirectionalShadowMatrixLoc_ = worldDirectionalShadowParamsLoc_ = worldDirectionalShadowTextureLoc_ = -1;
     worldProjectedShadowTextureSamplerLoc_ = -1;
     worldProjectedShadowMatrixLoc_ = -1;

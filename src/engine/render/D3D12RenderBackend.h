@@ -8,6 +8,7 @@
 
 #include "engine/render/IRenderBackend.h"
 #include "engine/render/IWorldDepthControl.h"
+#include "engine/render/IWorldBloom.h"
 #include "engine/render/IWorldDirectionalShadow.h"
 #include "engine/render/WorldResourceScopeState.h"
 
@@ -35,7 +36,7 @@ struct ID3D12Resource;
 struct ID3D12RootSignature;
 #endif
 
-class D3D12RenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow {
+class D3D12RenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow, public engine::render::IWorldBloom {
 public:
   bool clearWorldDepth() override;
   bool captureWorldDepthSnapshot() override;
@@ -520,6 +521,7 @@ private:
     D3D12_VIEWPORT worldLastViewport_{}, worldShadowSavedViewport_{};
     D3D12_RECT worldLastScissor_{}, worldShadowSavedScissor_{};
     void writeWorldShadowSrv(std::uint32_t descriptorIndex);
+    std::uint32_t worldRectLightLutDescriptor_ = 0;
     std::function<Microsoft::WRL::ComPtr<ID3D12PipelineState>(float, unsigned)>
         worldPointLightPipelineFactory_;
     std::unordered_map<std::uint64_t, Microsoft::WRL::ComPtr<ID3D12PipelineState>> worldPointLightPipelines_;

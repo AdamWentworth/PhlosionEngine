@@ -181,8 +181,8 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
             return fail("glTF emissive factor count does not match the asset");
         for (const auto& color : options.emissiveFactors)
             for (float value : color)
-                if (!std::isfinite(value) || value < 0 || value > 1)
-                    return fail("glTF emissive factors must be finite and normalized");
+                if (!std::isfinite(value) || value < 0 || value > 65504)
+                    return fail("glTF emissive factors must be finite nonnegative radiance within 65504");
     }
     const auto finiteMatrix = [](const std::array<float, 16>& matrix) {
         for (const float value : matrix) {

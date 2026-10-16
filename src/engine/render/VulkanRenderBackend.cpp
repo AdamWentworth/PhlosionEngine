@@ -64,11 +64,15 @@ bool VulkanRenderBackend::beginScreenshotCaptureSequence() {
 void VulkanRenderBackend::beginWorldSceneColorPass(
     int surfaceWidth,
     int surfaceHeight) {
+    if (impl_ && !impl_->worldSceneColorPassActive) {
+        worldBloomStrength_=0;
+        impl_->worldBloomStrength=0;
+    }
     if (impl_) impl_->beginWorldSceneColorPass(surfaceWidth, surfaceHeight);
 }
 
 void VulkanRenderBackend::endWorldSceneColorPass() {
-    if (impl_) impl_->endWorldSceneColorPass();
+    if (impl_) {impl_->worldBloomStrength=worldBloomStrength_;impl_->endWorldSceneColorPass();}
 }
 
 bool VulkanRenderBackend::clearWorldDepth() {
@@ -405,5 +409,6 @@ void VulkanRenderBackend::prewarmDebugSpriteTexture(const char* texturePath) {
 }
 
 void VulkanRenderBackend::endWorldSceneColorPass(const engine::render::ScreenFeedbackFrame& frame) {
+    impl_->worldBloomStrength=worldBloomStrength_;
     impl_->endWorldSceneColorPass(frame);
 }

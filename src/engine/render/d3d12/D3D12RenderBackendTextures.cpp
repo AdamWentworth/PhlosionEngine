@@ -558,7 +558,7 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
     if (!device_ || !srvHeap_ || srvDescriptorSize_ == 0u) {
         return 0xffffffffu;
     }
-    if (freeWorldMaterialBlocks_.empty() && nextSrvDescriptorIndex_ + 9u >
+    if (freeWorldMaterialBlocks_.empty() && nextSrvDescriptorIndex_ + 10u >
         static_cast<std::uint32_t>(kMaxSrvDescriptors)) {
         return 0xffffffffu;
     }
@@ -583,6 +583,8 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
         }
     }
 
+    const auto* rectLut=findWorldTextureByDescriptorIndex(worldRectLightLutDescriptor_);
+    if (!rectLut || !rectLut->valid || !rectLut->resource || !rectLut->hasSrvDesc) return 0xffffffffu;
     const bool reuseBlock = !freeWorldMaterialBlocks_.empty();
     const std::uint32_t blockBaseDescriptorIndex = reuseBlock ? freeWorldMaterialBlocks_.back() : nextSrvDescriptorIndex_;
     D3D12_CPU_DESCRIPTOR_HANDLE heapCpuBase = srvHeap_->GetCPUDescriptorHandleForHeapStart();
@@ -597,11 +599,14 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
     }
 
     writeWorldShadowSrv(blockBaseDescriptorIndex + 8u);
+    auto lutHandle=heapCpuBase;
+    lutHandle.ptr+=static_cast<SIZE_T>(blockBaseDescriptorIndex+9u)*srvDescriptorSize_;
+    device_->CreateShaderResourceView(rectLut->resource.Get(),&rectLut->srvDesc,lutHandle);
     if (reuseBlock) freeWorldMaterialBlocks_.pop_back();
-    else nextSrvDescriptorIndex_ += 9u;
+    else nextSrvDescriptorIndex_ += 10u;
     worldMaterialDescriptorBlocks_.emplace(key, blockBaseDescriptorIndex);
     engine::render::WorldResourceCounts counts;
-    counts.materialDescriptors = 9;
+    counts.materialDescriptors = 10;
     worldScopes_.commit(counts);
     attempt.success();
     return blockBaseDescriptorIndex;

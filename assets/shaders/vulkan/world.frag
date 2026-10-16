@@ -33,8 +33,10 @@ layout(set = 1, binding = 0) uniform WorldViewState {
     vec4 pointLights[8];
     mat4 directionalShadowMatrix;
     vec4 directionalShadowParams;
+    vec4 rectLights[64];
 } worldView;
 layout(set = 1, binding = 6) uniform sampler2D directionalShadowTexture;
+layout(set = 1, binding = 7) uniform sampler2D rectLightLut;
 layout(set = 1, binding = 1) uniform WorldSpecializedMaterialState {
     vec4 timingFlagsAtlas;
     vec4 rect0;
@@ -95,6 +97,12 @@ layout(location = 0) out vec4 outColor;
 #else
 #define ENV_POINT(index) worldView.pointLights[index]
 #endif
+#if defined(PHLOSION_WORLD_DIRECTIONAL_SHADOW_PASS)
+#define ENV_RECT(index) vec4(0.0)
+#else
+#define ENV_RECT(index) worldView.rectLights[index]
+#endif
+#define ENV_RECT_LUT(uv) textureLod(rectLightLut, uv, 0.0)
 #include "world_lighting.glsl"
 #if defined(PHLOSION_WORLD_DIRECTIONAL_SHADOW_PASS)
 #define WORLD_SHADOW_PARAMS vec4(0.0)

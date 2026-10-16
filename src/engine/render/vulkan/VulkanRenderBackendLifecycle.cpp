@@ -1,3 +1,4 @@
+#include "engine/render/AreaLightLut.h"
 #include "engine/render/vulkan/VulkanRenderBackendInternal.h"
 #include "engine/render/vulkan/VulkanSpriteInstanceState.h"
 
@@ -325,6 +326,18 @@ void VulkanRenderBackendImpl::initialize(SDL_Window* sdlWindow,
             kWorldFallback, 1, 1, false, 33071, 33071, false);
         fallbackWorldEmissiveTexture = createTexture(
             kWorldFallback, 1, 1, true, 33071, 33071, false);
+        rectLightLutTexture = createTextureRgba16Float(engine::render::areaLightLut.data(),
+            engine::render::areaLightLutWidth, engine::render::areaLightLutHeight, 33071, 33071, false);
+        for (auto& frame : frames) {
+            VkDescriptorImageInfo image{rectLightLutTexture.sampler, rectLightLutTexture.view,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+            for (auto set : {frame.worldStateDescriptorSet, frame.shadowWorldStateDescriptorSet}) {
+                VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                write.dstSet=set; write.dstBinding=7; write.descriptorCount=1;
+                write.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; write.pImageInfo=&image;
+                vkUpdateDescriptorSets(device,1,&write,0,nullptr);
+            }
+        }
         updateWorldShadowDescriptors();
         createEnvironmentResources();
         fallbackWorldMaterial = createWorldMaterial(
@@ -594,7 +607,7 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
                   "vkCreateDescriptorSetLayout(indexed world materials)");
     }
 
-    std::array<VkDescriptorSetLayoutBinding, 7> worldStateBindings{};
+    std::array<VkDescriptorSetLayoutBinding, 8> worldStateBindings{};
     worldStateBindings[0].binding = 0u;
     worldStateBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     worldStateBindings[0].descriptorCount = 1u;
@@ -630,6 +643,8 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
     worldStateBindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     worldStateBindings[6].descriptorCount = 1u;
     worldStateBindings[6].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    worldStateBindings[7] = worldStateBindings[6];
+    worldStateBindings[7].binding = 7u;
     worldStateLayoutInfo.pBindings = worldStateBindings.data();
     requireVk(vkCreateDescriptorSetLayout(
                   device, &worldStateLayoutInfo, nullptr, &worldStateSetLayout),
@@ -655,7 +670,7 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     poolSizes[0].descriptorCount =
         4096u * engine::render::vulkan_backend::kWorldMaterialTextureCount +
-        kFramesInFlight * 3u +
+        kFramesInFlight * 5u +
         (descriptorIndexingSupported
              ? kFramesInFlight *
                    engine::render::vulkan_backend::kMaxIndexedWorldMaterials *
@@ -707,6 +722,9 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
         VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     sceneColorLayoutInfo.setLayoutCount = 1u;
     sceneColorLayoutInfo.pSetLayouts = &worldSceneColorSetLayout;
+    const VkPushConstantRange scenePostRange{VK_SHADER_STAGE_FRAGMENT_BIT,0u,sizeof(float)};
+    sceneColorLayoutInfo.pushConstantRangeCount=1u;
+    sceneColorLayoutInfo.pPushConstantRanges=&scenePostRange;
     requireVk(vkCreatePipelineLayout(
                   device,
                   &sceneColorLayoutInfo,
@@ -1906,6 +1924,7 @@ void VulkanRenderBackendImpl::shutdown() {
         worldTextures.clear();
         worldDepthSnapshot = nullptr;
         spriteTextures.clear();
+        destroyTexture(rectLightLutTexture);
         destroyTexture(fallbackWorldTexture);
         destroyTexture(fallbackWorldNormalTexture);
         destroyTexture(fallbackWorldLinearTexture);

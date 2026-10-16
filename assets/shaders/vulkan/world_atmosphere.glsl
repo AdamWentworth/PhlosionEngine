@@ -170,50 +170,65 @@ vec3 environmentSky(vec3 ray, vec3 camera) {
     return sky;
 }
 
-// A thin water coat over the retained source material, before atmospheric haze.
-// Reflections are the shared analytic sky; this does not imply scene reflections.
-vec3 environmentWetSurface(vec3 color, vec3 position, vec3 camera) {
-    float wet = ENV_WEATHER.x;
-    if (ENV_SUN.w < 0.5 || wet <= 0.0) return color;
-    vec3 normal=cross(dFdx(position),dFdy(position));
-    float normalLength=length(normal);
+// PBR surfaces apply weather before lighting, retaining their mapped normal and
+// roughness. Legacy materials receive only dampening in the haze boundary.
+float environmentWetMaterialApplied = 0.0;
+float environmentSurfaceWetness(vec3 position, vec3 normal) {
+    if (ENV_SUN.w < 0.5 || ENV_WEATHER.x <= 0.0) return 0.0;
+    float exposure = 1.0;
     for (int index=0;index<4;++index) {
         vec4 bounds=ENV_SHELTER(index);
-        if (bounds.x<bounds.z && bounds.y<bounds.w && position.y<ENV_SHELTER_HEIGHT[index]-.03 &&
-            position.x>bounds.x && position.x<bounds.z && position.z>bounds.y && position.z<bounds.w) return color;
+        if (bounds.x<bounds.z && bounds.y<bounds.w) {
+            vec2 q=abs(position.xz-(bounds.xy+bounds.zw)*0.5)-(bounds.zw-bounds.xy)*0.5;
+            float distanceToEdge=length(max(q,vec2(0.0,0.0)))+min(max(q.x,q.y),0.0);
+            // Splash/drift transition around the roof edge, rather than a binary
+            // rectangle cut in the ground. The roof's upper surface stays wet.
+            float belowRoof=1.0-smoothstep(ENV_SHELTER_HEIGHT[index]-.15,ENV_SHELTER_HEIGHT[index],position.y);
+            exposure*=mix(1.0,smoothstep(-.8,.35,distanceToEdge),belowRoof);
+        }
     }
-    if (normalLength<0.00001) return color;
-    normal/=normalLength;
-    vec3 eye=camera-position;
-    if (length(eye)<0.00001) return color;
-    vec3 view=normalize(eye);
-    if (dot(normal,view)<0.0) normal=-normal;
-    wet*=0.25+0.75*smoothstep(0.2,0.8,normal.y);
+    return ENV_WEATHER.x*exposure*(0.25+0.75*smoothstep(0.2,0.8,abs(normal.y)));
+}
+
+vec2 environmentWaterNoiseCorner(vec2 cell) {
+    uint seed=celestialHash(uint(int(cell.x))*1597334677u ^ uint(int(cell.y))*3812015801u);
+    return vec2(float(seed&65535u),float(seed>>16u))/32767.5-vec2(1.0,1.0);
+}
+vec2 environmentWaterNoise(vec2 position) {
+    vec2 cell=floor(position),f=position-cell;
+    f=f*f*(3.0-2.0*f);
+    return mix(mix(environmentWaterNoiseCorner(cell),environmentWaterNoiseCorner(cell+vec2(1.0,0.0)),f.x),
+        mix(environmentWaterNoiseCorner(cell+vec2(0.0,1.0)),environmentWaterNoiseCorner(cell+vec2(1.0,1.0)),f.x),f.y);
+}
+
+void environmentWetMaterial(vec3 position, inout vec3 normal, inout vec3 albedo,
+                            inout float roughness, inout float dielectricSpecular) {
+    environmentWetMaterialApplied=1.0;
+    float wet=environmentSurfaceWetness(position,normal);
+    if (wet<=0.0) return;
     if (ENV_WEATHER_MATERIAL.y>0.5) {
-        vec2 ripple=vec2(sin(position.x*17.0+position.z*11.0+ENV_WEATHER.w*6.28318530718),
-            cos(position.z*19.0-position.x*7.0+ENV_WEATHER.w*12.56637061436));
-        normal=normalize(normal+vec3(ripple.x,0.0,ripple.y)*ENV_WEATHER.z*0.025);
+        dielectricSpecular=0.02;
+        vec2 p=position.xz*6.0;
+        vec2 ripple=environmentWaterNoise(p+vec2(.7,-.4)*ENV_WEATHER.w);
+        ripple+=.5*environmentWaterNoise(p*2.17+vec2(-.5,.9)*ENV_WEATHER.w+vec2(17.0,31.0));
+        float footprint=dot(dFdx(p),dFdx(p))+dot(dFdy(p),dFdy(p));
+        // Small, irregular micro-ripples; suppress undersampled detail at distance.
+        normal=normalize(normal+vec3(ripple.x,0.0,ripple.y)*ENV_WEATHER.z*.012/(1.0+footprint));
+        return;
     }
-    float nv=max(dot(normal,view),0.0);
-    float fresnel=0.02+0.98*pow(1.0-nv,5.0);
-    vec3 reflection=reflect(-view,normal);
-    vec3 sky=mix(ENV_HAZE.rgb*0.65,ENV_AMBIENT.rgb*1.8,smoothstep(-0.05,0.7,reflection.y));
-    vec3 light=environmentLightDirection();
-    vec3 halfway=view+light;
-    vec3 halfVector=length(halfway)>0.00001?normalize(halfway):normal;
-    float nh=max(dot(normal,halfVector),0.0);
-    float nl=max(dot(normal,light),0.0);
-    float roughness=ENV_WEATHER_MATERIAL.y>0.5?0.14:0.23;
-    float a=roughness*roughness;
-    float d=nh*nh*(a*a-1.0)+1.0;
-    float distribution=a*a/max(3.14159265*d*d,0.00001);
-    vec3 highlight=environmentLightRadiance()*distribution*0.02*nl/max(4.0*nv*nl,0.05);
-    vec3 absorbed=color*(1.0-0.28*wet*ENV_WEATHER_MATERIAL.x);
-    return absorbed*(1.0-fresnel*wet)+(sky*fresnel+highlight)*wet;
+    albedo*=1.0-0.28*wet*ENV_WEATHER_MATERIAL.x;
+    // Retain rough ground's microstructure; smooth water belongs to water draws.
+    // Authored roughness is a conservative proxy, not a measured porosity map.
+    float wetRoughness=max(.16,roughness*(.55+.35*smoothstep(.65,.95,roughness)));
+    roughness=mix(roughness,wetRoughness,wet);
 }
 
 vec3 environmentHaze(vec3 color, vec3 position, vec3 camera) {
-    color=environmentWetSurface(color,position,camera);
+    if (environmentWetMaterialApplied<0.5 && ENV_WEATHER.x>0.0) {
+        vec3 normal=cross(dFdx(position),dFdy(position));
+        normal/=max(length(normal),0.00001);
+        color*=1.0-0.28*environmentSurfaceWetness(position,normal)*ENV_WEATHER_MATERIAL.x;
+    }
     if (ENV_SUN.w < 0.5 || (ENV_HAZE.w <= 0.0 && ENV_NIGHT.w <= 0.0)) return color;
     float distanceMetres = length(position-camera);
     float startHeight = max(camera.y-ENV_HEIGHT.x, 0.0);

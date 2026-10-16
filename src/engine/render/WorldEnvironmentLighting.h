@@ -15,6 +15,16 @@ struct WorldPointLight {
 
 using WorldPointLightUniforms = std::array<std::array<float, 4>, 8>;
 
+// One-sided rectangular emitter. Cross(halfU, halfV) points out of its luminous
+// face; axes are perpendicular world-space half extents, radiance is linear.
+struct WorldRectLight {
+    std::array<float, 3> position{};
+    float range = 0;
+    std::array<float, 3> halfU{}, halfV{}, radiance{};
+};
+inline constexpr std::size_t worldRectLightCapacity = 16;
+using WorldRectLightUniforms = std::array<std::array<float, 4>, worldRectLightCapacity * 4>;
+
 struct WorldWeatherShelter {
     // X/Z footprint; only surfaces below the roof remain sheltered.
     std::array<float, 4> bounds{};
@@ -73,6 +83,7 @@ struct WorldEnvironmentLighting {
     bool waterSurface = false;
     float surfaceAbsorption = 1;
     std::array<WorldWeatherShelter, 4> weatherShelters{};
+    std::array<WorldRectLight, worldRectLightCapacity> rectLights{};
 };
 
 using WorldEnvironmentUniforms = std::array<std::array<float, 4>, 19>;
@@ -157,6 +168,37 @@ inline WorldPointLightUniforms packWorldPointLights(const WorldEnvironmentLighti
         out[i*2+1] = {std::clamp(light.intensity[0], 0.f, 65504.f),
             std::clamp(light.intensity[1], 0.f, 65504.f),
             std::clamp(light.intensity[2], 0.f, 65504.f), 0};
+    }
+    return out;
+}
+
+inline bool validWorldRectLight(const WorldRectLight& light) {
+    for (const auto& v : {light.position, light.halfU, light.halfV, light.radiance})
+        for (float x : v) if (!std::isfinite(x) || std::abs(x) > 1000000.f) return false;
+    if (!std::isfinite(light.range) || light.range < 0 || light.range > 1000) return false;
+    if (light.range == 0) return true;
+    float u2 = 0, v2 = 0, uv = 0;
+    for (std::size_t i = 0; i < 3; ++i) {
+        u2 += light.halfU[i] * light.halfU[i];
+        v2 += light.halfV[i] * light.halfV[i];
+        uv += light.halfU[i] * light.halfV[i];
+        if (light.radiance[i] < 0 || light.radiance[i] > 65504) return false;
+    }
+    return u2 >= 1e-6f && v2 >= 1e-6f && u2 <= 10000 && v2 <= 10000 &&
+        std::abs(uv) <= .001f * std::sqrt(u2 * v2);
+}
+
+inline WorldRectLightUniforms packWorldRectLights(const WorldEnvironmentLighting& e) {
+    WorldRectLightUniforms out{};
+    if (packWorldEnvironment(e)[0][3] == 0) return out;
+    for (std::size_t i = 0; i < e.rectLights.size(); ++i) {
+        const auto& l = e.rectLights[i];
+        if (!validWorldRectLight(l)) return {};
+        if (l.range == 0) continue;
+        out[4*i] = {l.position[0], l.position[1], l.position[2], l.range};
+        out[4*i+1] = {l.halfU[0], l.halfU[1], l.halfU[2], 0};
+        out[4*i+2] = {l.halfV[0], l.halfV[1], l.halfV[2], 0};
+        out[4*i+3] = {l.radiance[0], l.radiance[1], l.radiance[2], 0};
     }
     return out;
 }

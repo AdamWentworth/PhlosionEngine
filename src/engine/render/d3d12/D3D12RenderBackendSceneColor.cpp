@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include "engine/render/ScreenFeedbackShaders.h"
+#include "engine/render/SceneBloomShader.h"
 #include <stdexcept>
 
 #include "engine/render/d3d12/D3D12RenderBackendInternal.h"
@@ -43,6 +44,11 @@ VSOut main(uint vertexId : SV_VertexID) {
     static constexpr char kPsSource[] = R"HLSL(
 Texture2D<float4> gLinearSceneColor : register(t0);
 SamplerState gSceneSampler : register(s0);
+cbuffer ScenePost : register(b0) { float bloomStrength; };
+float2 sceneSize() { uint w,h;gLinearSceneColor.GetDimensions(w,h);return float2(w,h); }
+#define SCENE_SIZE sceneSize()
+#define SCENE_SAMPLE(uv) gLinearSceneColor.SampleLevel(gSceneSampler,uv,0)
+__PHLOSION_SCENE_BLOOM__
 struct PSIn {
   float4 position : SV_POSITION;
   float2 uv : TEXCOORD0;
@@ -56,6 +62,7 @@ float linearToSrgbChannel(float linearColor) {
 }
 float4 main(PSIn input) : SV_TARGET {
   float4 scene = gLinearSceneColor.Sample(gSceneSampler, input.uv);
+  scene.rgb=sceneBloom(input.uv,scene.rgb,bloomStrength);
   return float4(
       linearToSrgbChannel(scene.r),
       linearToSrgbChannel(scene.g),
@@ -82,9 +89,10 @@ float4 main(PSIn input) : SV_TARGET {
             "D3DCompile failed for world scene-color VS.");
     }
     errors.Reset();
+    const auto pixelSource=engine::render::injectSceneBloom(kPsSource,true);
     if (!compileHlslWithCache(
-            kPsSource,
-            sizeof(kPsSource) - 1u,
+            pixelSource.data(),
+            pixelSource.size(),
             "main",
             "ps_5_0",
             d3dCompileFlags(),
@@ -93,7 +101,8 @@ float4 main(PSIn input) : SV_TARGET {
             errors) ||
         !psBlob) {
         throw std::runtime_error(
-            "D3DCompile failed for world scene-color PS.");
+            "D3DCompile failed for world scene-color PS: "+
+            (errors?std::string(static_cast<const char*>(errors->GetBufferPointer()),errors->GetBufferSize()):std::string("no diagnostics")));
     }
 
     D3D12_DESCRIPTOR_RANGE srvRange{};
@@ -110,6 +119,11 @@ float4 main(PSIn input) : SV_TARGET {
     rootParameter.DescriptorTable.NumDescriptorRanges = 1u;
     rootParameter.DescriptorTable.pDescriptorRanges = &srvRange;
     rootParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    D3D12_ROOT_PARAMETER postParameter{};
+    postParameter.ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    postParameter.Constants={0u,0u,1u};
+    postParameter.ShaderVisibility=D3D12_SHADER_VISIBILITY_PIXEL;
+    const D3D12_ROOT_PARAMETER rootParameters[]={rootParameter,postParameter};
 
     D3D12_STATIC_SAMPLER_DESC sampler{};
     sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
@@ -124,8 +138,8 @@ float4 main(PSIn input) : SV_TARGET {
     sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     D3D12_ROOT_SIGNATURE_DESC rootDesc{};
-    rootDesc.NumParameters = 1u;
-    rootDesc.pParameters = &rootParameter;
+    rootDesc.NumParameters = 2u;
+    rootDesc.pParameters = rootParameters;
     rootDesc.NumStaticSamplers = 1u;
     rootDesc.pStaticSamplers = &sampler;
     rootDesc.Flags =
@@ -285,6 +299,7 @@ void D3D12RenderBackend::beginWorldSceneColorPass(
         worldSceneColorPassActive_) {
         return;
     }
+    worldBloomStrength_=0;
 
     D3D12_RESOURCE_BARRIER barrier{};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -482,6 +497,7 @@ void D3D12RenderBackend::endWorldSceneColorPass() {
         static_cast<UINT64>(sceneColorDescriptorIndex) *
         static_cast<UINT64>(srvDescriptorSize_);
     commandList_->SetGraphicsRootDescriptorTable(0u, sceneSrv);
+    commandList_->SetGraphicsRoot32BitConstants(1u,1u,&worldBloomStrength_,0u);
     commandList_->IASetPrimitiveTopology(
         D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commandList_->DrawInstanced(3u, 1u, 0u, 0u);

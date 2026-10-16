@@ -140,8 +140,8 @@ inline float sanitizeWrapMode(int wrapMode) {
 
 // b0 contains 40 transform floats, nineteen environment vectors, a camera vector,
 // eight point-light vectors and the directional shadow. One CBV costs two DWORDs.
-inline constexpr std::size_t kWorldViewConstantFloats = 172u;
-inline constexpr std::size_t kWorldViewConstantStride = 768u;
+inline constexpr std::size_t kWorldViewConstantFloats = 428u;
+inline constexpr std::size_t kWorldViewConstantStride = 1792u;
 static_assert(kWorldViewConstantFloats*sizeof(float) <= kWorldViewConstantStride);
 
 struct WorldPsConstants {

@@ -228,6 +228,15 @@ int main() {
         require(backend.instancedDraws==4,"Matching shadow flags prevented instancing");
 
 
+        submissions[1].environment.rectLights[0]={{0,4,0},12,{1,0,0},{0,0,.2f},{4,2,1}};
+        const int beforeRectSeparate=backend.draws;
+        batches::submitWorldIndexedBatches(backend,submissions,&identity[0][0],640,360);
+        require(backend.draws==beforeRectSeparate+2 && backend.instancedDraws==4,
+            "Instancing merged different rectangular emitters");
+        submissions[0].environment=submissions[1].environment;
+        batches::submitWorldIndexedBatches(backend,submissions,&identity[0][0],640,360);
+        require(backend.instancedDraws==5,"Matching rectangle lights prevented instancing");
+
         engine::render::ModelNodePoseRequest request;
         request.assetId = "lamp"; request.phloPath = path.c_str(); request.nodeName = "bulb";
         engine::render::ModelNodePoseResult result;

@@ -1,0 +1,2 @@
+#pragma once
+inline constexpr const char* sceneBloomSource=R"BLOOM(@PHLOSION_SCENE_BLOOM_SOURCE@)BLOOM";

@@ -42,7 +42,7 @@ contracts link it.
 | Example | `examples/public_asset_fixture/FixtureSession.h/.cpp` | `PhlosionArchiveSession` lifecycle: initial A activation, failed replacement, valid replacement, bounded preparation |
 | Example | `examples/public_asset_fixture/FixturePresentation.h/.cpp` | Camera, rigid motion, cached indexed draws, role rectangles and handshake JSON |
 | Example | `examples/public_asset_fixture/FixtureRuntimeMain.cpp` | Standalone hidden-window host (`PublicAssetFixtureRuntime`) |
-| Example | `examples/public_asset_fixture/FixtureEditorPlugin.cpp` | Real editor project plugin (`PublicAssetFixtureEditorPlugin`) using ABI 35 |
+| Example | `examples/public_asset_fixture/FixtureEditorPlugin.cpp` | Real editor project plugin (`PublicAssetFixtureEditorPlugin`) using ABI 36 |
 | Example | `examples/public_asset_fixture/README.md` | Directory ownership and sample/verification split |
 | Verification | `tools/public_asset_fixture/FixtureImageGuard.h/.cpp` | PNG load/save, viewport detection, image metrics, checker/expected-content checks, synthetic capture builder and contact-sheet composition |
 | Verification | `tools/public_asset_fixture/FixtureGuardMain.cpp` | `PublicAssetFixtureGuard detect|compare|expect|matrix|synth|echo` |

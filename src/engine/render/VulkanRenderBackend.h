@@ -9,13 +9,14 @@
 
 #include "engine/render/IRenderBackend.h"
 #include "engine/render/IWorldDepthControl.h"
+#include "engine/render/IWorldBloom.h"
 #include "engine/render/IWorldDirectionalShadow.h"
 #include "engine/render/WorldResourceScopeState.h"
 
 struct SDL_Window;
 struct VulkanRenderBackendImpl;
 
-class VulkanRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow {
+class VulkanRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow, public engine::render::IWorldBloom {
 public:
     bool clearWorldDepth() override;
   bool captureWorldDepthSnapshot() override;

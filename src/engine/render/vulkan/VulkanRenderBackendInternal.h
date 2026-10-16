@@ -278,6 +278,7 @@ struct VulkanRenderBackendImpl {
     Texture fallbackWorldLinearTexture;
     Texture fallbackWorldEmissiveTexture;
     Texture neutralPmremTexture;
+    Texture rectLightLutTexture;
     Texture fallbackSpriteTexture;
     WorldMaterial fallbackWorldMaterial;
     std::vector<VkDescriptorSet> worldSceneMaterialDescriptorSets;
@@ -297,6 +298,7 @@ struct VulkanRenderBackendImpl {
     bool boundViewportValid = false;
     bool mainRenderPassActive = false;
     bool worldSceneColorPassActive = false;
+    float worldBloomStrength = 0;
     bool editorSurfacePassActive = false;
     std::uint64_t activeEditorSurface = 0u;
     std::uint64_t nextEditorSurface = 1u;

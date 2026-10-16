@@ -453,15 +453,15 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
         RecordingBackend backend;
         GltfSceneDrawStats stats;
         auto animated = options;
-        std::array<std::array<float,3>,2> colors{{{.8f,.1f,.3f},{0,0,0}}};
+        std::array<std::array<float,3>,2> colors{{{8.f,1.f,3.f},{0,0,0}}};
         animated.emissiveFactors = colors;
         if (!check(engine::render::gltf::scene::drawGltfSceneAsset(
                 backend,*asset,pose,animated,stats,&error) &&
-                nearlyEqual(backend.submissions[0].texture.emissiveFactorR,.8f) &&
+                nearlyEqual(backend.submissions[0].texture.emissiveFactorR,8.f) &&
                 backend.submissions[1].texture.emissiveFactorB == 0 &&
                 backend.submissions[0].texture.emissiveRgba == asset->materials[0].emissive.rgba.data(),
-                "emission overrides must retain textures and isolate material factors")) return false;
-        for (float bad : {-1.f,1.1f,std::numeric_limits<float>::quiet_NaN()}) {
+                "HDR emission overrides must retain textures and isolate material factors")) return false;
+        for (float bad : {-1.f,65505.f,std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()}) {
             backend.submissions.clear(); colors[1][0]=bad;
             if (!check(!engine::render::gltf::scene::drawGltfSceneAsset(
                     backend,*asset,pose,animated,stats,&error) && backend.submissions.empty(),

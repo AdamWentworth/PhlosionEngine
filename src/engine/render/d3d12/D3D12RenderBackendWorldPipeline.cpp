@@ -55,6 +55,7 @@ cbuffer EnvironmentConstants : register(b0) {
   float4 uWorldPointLights[8];
   float4x4 uWorldShadowMatrix;
   float4 uWorldShadowParams;
+  float4 uWorldRectLights[64];
 };
 cbuffer PSConstants : register(b1) {
   float uUseTexture;
@@ -108,6 +109,7 @@ Texture2D gEnvTex : register(t5);
 Texture2D gLightProjectionTex : register(t6);
 Texture2D gProjectedShadowTex : register(t7);
 Texture2D<float> gWorldShadowTex : register(t8);
+Texture2D gRectLightLut : register(t9);
 SamplerState gWorldShadowSampler : register(s9);
 SamplerState gSampCC : register(s0);
 SamplerState gSampRR : register(s1);
@@ -140,6 +142,8 @@ struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLO
 #define ENV_LUT(uv) gTex.SampleLevel(gSampCC, uv, 0.0).rgb
 __PHLOSION_ENVIRONMENT_SHADER__
 #define ENV_POINT(index) uWorldPointLights[index]
+#define ENV_RECT(index) uWorldRectLights[index]
+#define ENV_RECT_LUT(uv) gRectLightLut.SampleLevel(gSampCC, uv, 0.0)
 __PHLOSION_WORLD_LIGHTING_SHADER__
 #define WORLD_SHADOW_PARAMS uWorldShadowParams
 #define WORLD_SHADOW_CLIP(position) mul(uWorldShadowMatrix, float4(position, 1.0))
@@ -540,6 +544,7 @@ float3 applyWorldLitModel(PSIn i,
   float dielectricSpecular = useSpecularStrengthTexture
       ? saturate(specularIntensity) * saturate(orm.a)
       : 0.04f;
+  environmentWetMaterial(i.worldPos, n, albedo, roughness, dielectricSpecular);
   float3 F0 = lerp(
 )HLSL"
         R"HLSL(      float3(dielectricSpecular, dielectricSpecular, dielectricSpecular),
@@ -767,6 +772,10 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
     if (pointMacroOffset == std::string::npos) throw std::runtime_error("Missing world point-light binding.");
     unlitPointSource.replace(pointMacroOffset, pointMacro.size(),
                             "#define ENV_POINT(index) float4(0.0f, 0.0f, 0.0f, 0.0f)");
+    const std::string rectMacro = "#define ENV_RECT(index) uWorldRectLights[index]";
+    const auto rectOffset = unlitPointSource.find(rectMacro);
+    if (rectOffset == std::string::npos) throw std::runtime_error("Missing rectangle-light binding.");
+    unlitPointSource.replace(rectOffset, rectMacro.size(), "#define ENV_RECT(index) float4(0.0f,0.0f,0.0f,0.0f)");
     const std::string shadowMacro = "#define WORLD_SHADOW_PARAMS uWorldShadowParams";
     const auto shadowMacroOffset = unlitPointSource.find(shadowMacro);
     if (shadowMacroOffset == std::string::npos) throw std::runtime_error("Missing directional-shadow binding.");
@@ -818,7 +827,7 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
 
     D3D12_DESCRIPTOR_RANGE materialSrvRange{};
     materialSrvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    materialSrvRange.NumDescriptors = 9;
+    materialSrvRange.NumDescriptors = 10;
     materialSrvRange.BaseShaderRegister = 0;
     materialSrvRange.RegisterSpace = 0;
     materialSrvRange.OffsetInDescriptorsFromTableStart =

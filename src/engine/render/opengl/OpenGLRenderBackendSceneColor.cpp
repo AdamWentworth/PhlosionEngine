@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include "engine/render/ScreenFeedbackShaders.h"
+#include "engine/render/SceneBloomShader.h"
 
 #include <glad/glad.h>
 
@@ -27,6 +28,10 @@ constexpr const char* kSceneColorFragmentShader = R"GLSL(
     in vec2 vUv;
     uniform sampler2D uLinearSceneColor;
     out vec4 FragColor;
+    uniform float uBloomStrength;
+    #define SCENE_SIZE vec2(textureSize(uLinearSceneColor,0))
+    #define SCENE_SAMPLE(uv) textureLod(uLinearSceneColor,uv,0.0)
+    __PHLOSION_SCENE_BLOOM__
 
     vec3 linearToSrgb(vec3 linearColor) {
         vec3 c = clamp(linearColor, 0.0, 1.0);
@@ -38,6 +43,7 @@ constexpr const char* kSceneColorFragmentShader = R"GLSL(
 
     void main() {
         vec4 scene = texture(uLinearSceneColor, vUv);
+        scene.rgb=sceneBloom(vUv,scene.rgb,uBloomStrength);
         // This is a completed view with its background already composited.
         // Material alpha must not fade the whole view again in the editor UI.
         FragColor = vec4(linearToSrgb(scene.rgb), 1.0);
@@ -54,7 +60,7 @@ bool OpenGLRenderBackend::ensureWorldSceneColorResources(int width, int height) 
         const GLuint vs = opengl_backend_shader_utils::compileShader(
             GL_VERTEX_SHADER, kSceneColorVertexShader);
         const GLuint fs = opengl_backend_shader_utils::compileShader(
-            GL_FRAGMENT_SHADER, kSceneColorFragmentShader);
+            GL_FRAGMENT_SHADER, engine::render::injectSceneBloom(kSceneColorFragmentShader).c_str());
         if (vs == 0u || fs == 0u) {
             if (vs != 0u) glDeleteShader(vs);
             if (fs != 0u) glDeleteShader(fs);
@@ -67,6 +73,7 @@ bool OpenGLRenderBackend::ensureWorldSceneColorResources(int width, int height) 
         if (worldSceneColorPostProgram_ == 0u) return false;
         worldSceneColorPostSamplerLoc_ =
             glGetUniformLocation(worldSceneColorPostProgram_, "uLinearSceneColor");
+        worldSceneBloomLoc_=glGetUniformLocation(worldSceneColorPostProgram_,"uBloomStrength");
         glGenVertexArrays(1, &worldSceneColorPostVao_);
         if (worldSceneColorPostSamplerLoc_ < 0 || worldSceneColorPostVao_ == 0u) {
             destroyWorldSceneColorResources();
@@ -211,6 +218,7 @@ void OpenGLRenderBackend::beginWorldSceneColorPass(
     int surfaceWidth,
     int surfaceHeight) {
     if (worldSceneColorPassActive_) return;
+    worldBloomStrength_=0;
 
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &worldSceneColorPrevDrawFbo_);
     glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &worldSceneColorPrevReadFbo_);
@@ -291,6 +299,7 @@ void OpenGLRenderBackend::endWorldSceneColorPass() {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, worldSceneColorTexture_);
     glUniform1i(worldSceneColorPostSamplerLoc_, 0);
+    glUniform1f(worldSceneBloomLoc_,worldBloomStrength_);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     ++frameDrawCalls_;
     ++frameTriangles_;

@@ -553,6 +553,9 @@ unsigned int OpenGLRenderBackend::ensureWorldTextureRawHalfFloat(const char* key
                  GL_HALF_FLOAT,
                  rgba16f);
 
+    // Upload binds on the active unit, including when requested inside a batch.
+    worldIndexedBatchSubmissionState_.currentTexture2DOnUnit.fill(-1);
+
     TextureCacheEntry entry;
     entry.textureId = textureId;
     entry.width = width;
@@ -642,5 +645,6 @@ void OpenGLRenderBackend::clearTextureCaches() {
     worldFallbackLinearTexture_ = 0;
     worldFallbackFlatNormalTexture_ = 0;
     worldNeutralPmremTexture_ = 0;
+    worldRectLightLut_ = 0;
     spriteFallbackTexture_ = 0;
 }

@@ -320,6 +320,12 @@ ID3D12PipelineState* D3D12RenderBackend::selectWorldPipelineState(
         !(materialMode > 2.5f && materialMode < 3.5f)) {
         if (worldShadowReady_ && textureData->directionalShadowReceiver && textureData->environment.enabled)
             return ensureWorldPointLightPipeline(materialMode, variant);
+        const auto rectLights = engine::render::packWorldRectLights(textureData->environment);
+        for (unsigned slot=0;slot<engine::render::worldRectLightCapacity;++slot) {
+            const auto& color=rectLights[slot*4+3];
+            if (color[0]>0 || color[1]>0 || color[2]>0)
+                return ensureWorldPointLightPipeline(materialMode,variant);
+        }
         const auto lights = engine::render::packWorldPointLights(textureData->environment);
         for (unsigned slot = 0; slot < 4; ++slot) {
             const auto& color = lights[slot * 2 + 1];
@@ -852,6 +858,9 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
     const auto pointLights = engine::render::packWorldPointLights(
         textureData ? textureData->environment : engine::render::WorldEnvironmentLighting{});
     std::memcpy(vsConstants + 120, pointLights.data(), sizeof(pointLights));
+    const auto rectLights = engine::render::packWorldRectLights(
+        textureData ? textureData->environment : engine::render::WorldEnvironmentLighting{});
+    std::memcpy(vsConstants + 172, rectLights.data(), sizeof(rectLights));
     const auto shadow = worldShadowReady_ && !worldShadowActive_ && textureData &&
         textureData->environment.enabled && textureData->directionalShadowReceiver
         ? engine::render::packWorldDirectionalShadow(worldShadowView_)
@@ -1089,6 +1098,9 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     const auto pointLights = engine::render::packWorldPointLights(
         textureData ? textureData->environment : engine::render::WorldEnvironmentLighting{});
     std::memcpy(vsConstants + 120, pointLights.data(), sizeof(pointLights));
+    const auto rectLights = engine::render::packWorldRectLights(
+        textureData ? textureData->environment : engine::render::WorldEnvironmentLighting{});
+    std::memcpy(vsConstants + 172, rectLights.data(), sizeof(rectLights));
     const auto shadow = worldShadowReady_ && !worldShadowActive_ && textureData &&
         textureData->environment.enabled && textureData->directionalShadowReceiver
         ? engine::render::packWorldDirectionalShadow(worldShadowView_)

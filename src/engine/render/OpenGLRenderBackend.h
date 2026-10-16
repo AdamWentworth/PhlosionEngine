@@ -11,12 +11,13 @@
 
 #include "engine/render/IRenderBackend.h"
 #include "engine/render/IWorldDepthControl.h"
+#include "engine/render/IWorldBloom.h"
 #include "engine/render/IWorldDirectionalShadow.h"
 #include "engine/render/WorldResourceScopeState.h"
 
 class Renderer;
 
-class OpenGLRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow {
+class OpenGLRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow, public engine::render::IWorldBloom {
 public:
   bool clearWorldDepth() override;
   bool captureWorldDepthSnapshot() override;
@@ -267,6 +268,8 @@ private:
     int worldCameraForwardLoc_ = -1;
     std::array<int, 19> worldEnvironmentLocs_{-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
     int worldPointLightsLoc_ = -1;
+    int worldRectLightsLoc_ = -1, worldRectLightLutLoc_ = -1;
+    unsigned int worldRectLightLut_ = 0;
     unsigned int worldDirectionalShadowProgram_ = 0;
     std::vector<int> worldDirectionalShadowUniformLocations_;
     unsigned int worldVolumeProgram_ = 0;
@@ -330,6 +333,7 @@ private:
     void destroyScreenFeedback();
     unsigned int worldSceneColorPostVao_ = 0;
     int worldSceneColorPostSamplerLoc_ = -1;
+    int worldSceneBloomLoc_ = -1;
     int worldSceneColorWidth_ = 0;
     int worldSceneColorHeight_ = 0;
     bool worldSceneColorPassActive_ = false;
@@ -461,7 +465,7 @@ private:
         int prevElementArrayBuffer = 0;
         int prevActiveTexture = 0;
         int prevTexture2DOnActive = 0;
-        std::array<int, 9> prevTexture2DOnUnit{};
+        std::array<int, 10> prevTexture2DOnUnit{};
         bool depthEnabled = false;
         bool blendEnabled = false;
         bool cullEnabled = false;
@@ -479,7 +483,7 @@ private:
         int currentArrayBuffer = 0;
         int currentElementArrayBuffer = 0;
         int currentActiveTexture = 0;
-        std::array<int, 9> currentTexture2DOnUnit{};
+        std::array<int, 10> currentTexture2DOnUnit{};
         bool currentDepthEnabled = false;
         bool currentBlendEnabled = false;
         bool currentCullEnabled = false;

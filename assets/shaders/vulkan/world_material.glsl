@@ -260,6 +260,7 @@ vec3 evaluateWorldMaterial(vec3 albedo,
         ? clamp(dielectricSpecularIntensity, 0.0, 1.0) *
               clamp(orm.a, 0.0, 1.0)
         : 0.04;
+    environmentWetMaterial(position, normal, albedo, roughness, dielectricSpecular);
     vec3 reflectanceAtNormal = mix(
         vec3(dielectricSpecular),
         albedo,

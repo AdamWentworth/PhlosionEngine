@@ -74,6 +74,7 @@ int compareStringViews(std::string_view lhs, std::string_view rhs) {
 struct AutoInstanceKey {
     render::WorldEnvironmentUniforms environment{};
     render::WorldPointLightUniforms pointLights{};
+    render::WorldRectLightUniforms rectLights{};
     std::string_view geometryCacheKey{};
     bool hasBaseTexture = false;
     bool hasNormalTexture = false;
@@ -138,7 +139,7 @@ struct AutoInstanceKey {
     float materialFlipbook1Fps = 0.0f;
 
     bool operator==(const AutoInstanceKey& other) const {
-        return environment == other.environment && pointLights == other.pointLights && geometryCacheKey == other.geometryCacheKey &&
+        return environment == other.environment && pointLights == other.pointLights && rectLights == other.rectLights && geometryCacheKey == other.geometryCacheKey &&
                hasBaseTexture == other.hasBaseTexture &&
                hasNormalTexture == other.hasNormalTexture &&
                hasMetallicRoughnessTexture == other.hasMetallicRoughnessTexture &&
@@ -222,6 +223,8 @@ struct AutoInstanceKeyHash {
         for (const auto& vector : key.environment)
             for (float value : vector) hashCombine(h, std::hash<float>{}(value));
         for (const auto& vector : key.pointLights)
+            for (float value : vector) hashCombine(h, std::hash<float>{}(value));
+        for (const auto& vector : key.rectLights)
             for (float value : vector) hashCombine(h, std::hash<float>{}(value));
         hashCombine(h, std::hash<std::string_view>{}(key.geometryCacheKey));
         hashCombine(h, std::hash<bool>{}(key.hasBaseTexture));
@@ -400,6 +403,7 @@ AutoInstanceKey makeAutoInstanceKey(const WorldIndexedBatch& batch) {
     AutoInstanceKey key{};
     key.environment = render::packWorldEnvironment(batch.environment);
     key.pointLights = render::packWorldPointLights(batch.environment);
+    key.rectLights = render::packWorldRectLights(batch.environment);
     key.geometryCacheKey = batch.geometryCacheKey;
     key.hasBaseTexture = resolvedTexturePresent(
         batch,

@@ -1,3 +1,4 @@
+#include "engine/render/AreaLightLut.h"
 #include "engine/render/D3D12RenderBackend.h"
 #include "engine/render/DxgiAdapterSelection.h"
 #include "engine/render/DebugGeometry.h"
@@ -799,6 +800,12 @@ void D3D12RenderBackend::initDeviceAndSwapchain(const std::string& preferredAdap
 
     stageStart = std::chrono::steady_clock::now();
     createSpritePipeline();
+    const auto* rectLut = ensureWorldTextureRawHalfFloat("__world_rect_ltc_v1__",
+        engine::render::areaLightLut.data(), engine::render::areaLightLutWidth,
+        engine::render::areaLightLutHeight, 33071, 33071);
+    if (!rectLut) throw std::runtime_error("Unable to upload rectangle-light LUT.");
+    worldRectLightLutDescriptor_=rectLut->descriptorIndex;
+
     stageEnd = std::chrono::steady_clock::now();
     d3d12LifecycleLog().info(
         "[Renderer][D3D12][Startup] createSpritePipeline=" +
