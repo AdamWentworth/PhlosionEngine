@@ -153,3 +153,38 @@ The final normal D3D12 launch passes, staged DLL hashes match, and all native
 sessions have exited. GPU monitoring recorded GPU 0 reaching 99% / 1965MHz and
 GPU 1 remaining idle. Source assets remain unchanged. The reflection work is
 saved as the next authorized engine/game checkpoint after the foundation commits.
+
+## Below-plane submission culling trial — not retained
+
+The reflection checkpoint is engine `91f135a` and game `7aebbb7`. A subsequent
+trial added an optional world-space half-space to the generic glTF draw adapter,
+rejecting whole static PBR bounds below the reflected water plane. Intersections,
+contact, numerical slack, missing/invalid bounds, skinning, custom vertex materials
+and prewarm retained their prior paths. Invalid caller planes failed preflight.
+
+The engine contracts and five game environment/weather contracts passed. All twelve
+station/battle API/host viewports plus dry/oblique controls were pixel-identical
+to the checkpoint, with unchanged scene state and existing content/parity limits.
+Six matched 1080p timing images were also identical. No shader or source asset
+changed. However, only one of the station GLB's 196 primitives was entirely below
+the selected water height: the compacted forecourt.
+
+Both controls below retain reflections, shadows, HDR, bloom, bounce and heavy
+rain. They use 200 warm samples, frames 30-229, on the same RTX 2060 SUPER and
+driver as the checkpoint. Runs were sequential with Cyberpunk closed. A timing
+snapshot records GPU 0 at 1935MHz with no video decoding and GPU 1 idle.
+
+| API | GPU culling off/on ms | Host culling off/on ms |
+| --- | ---: | ---: |
+| OpenGL | 36.700 / 37.082 | 38.790 / 39.235 |
+| Vulkan | 24.043 / 23.762 | 75.222 / 74.312 |
+| D3D12 | 20.412 / 20.386 | 20.188 / 20.241 |
+
+The 0.026ms D3D12 difference and mixed API results do not establish a useful
+speedup. The trial and its diagnostic toggle were removed; runtime sources return
+to the reflection checkpoint. Candidate patches, CPU/native checks, exact image
+comparisons and raw timing remain under engine/game
+`artifacts/lighting-foundation/reflection-culling`. Do not claim this as an accepted
+optimization or a higher Cyberpunk parity score. Profile the remaining capture
+work before choosing a larger optimization. Emissive-sign coverage and roughness
+filtering remain the next visual gaps; the existing frame-cost flags still apply.

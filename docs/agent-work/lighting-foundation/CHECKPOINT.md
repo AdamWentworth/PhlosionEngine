@@ -27,6 +27,9 @@ The next pass targets reflected-scene submission cost before expanding coverage.
 Preserve the current appearance, compare matched on/off timing, and retain the
 existing performance guides. The roughly 75% foundation estimate discussed with
 the user is qualitative feature coverage, not measured Cyberpunk image parity.
+The below-plane static-culling trial was visually exact but did not establish a
+useful speedup, so its runtime changes were removed. REFLECTIONS.md retains the
+measurements and rejected-candidate evidence; the frame-cost flags remain open.
 
 ## Colored diffuse bounce — previous verified pass
 
