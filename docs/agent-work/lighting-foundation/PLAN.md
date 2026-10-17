@@ -114,3 +114,18 @@ Evidence: engine/game `artifacts/lighting-foundation/frame-cost`.
 The retained candidate enables the early check on Vulkan/D3D12 and preserves
 OpenGL's original ordering after an inconsistent GL trial. `FRAME_COST.md` records
 both the slow trial and repeat, matched images, cost breakdown and acceptance.
+
+## Shadow submission follow-up
+
+Authorized after engine ebe4d1b / game b23efa5. Separate current-thread CPU time
+from wall time, then profile repeated Vulkan geometry, material and state work.
+The measured first target is texture identity formatting inside material lookup:
+replace repeated string-stream setup with integer `to_chars` and direct appends,
+preserving cache-key precedence, anonymous identity, sampling fields and scope.
+Keep cache lifetime, allocations, geometry validation, animation, shaders and
+all scene settings unchanged. Verify legacy key compatibility and native images,
+repeat matched timing without temporary profiling, and cover runtime/editor on
+all APIs plus the shared character consumers. Evidence goes under
+`artifacts/lighting-foundation/shadow-submission` in the affected repositories.
+Accepted measurements, native checks and remaining targets are recorded in
+[SUBMISSION.md](SUBMISSION.md).

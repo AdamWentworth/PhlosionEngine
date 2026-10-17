@@ -6,7 +6,34 @@ and normal-launch checks. Performance limitations remain below. Earlier phase
 notes are historical. Checkpoint commits were authorized on 2026-10-17; no
 numerical Cyberpunk parity is claimed.
 
-## Current follow-up: frame cost
+## Current follow-up: Vulkan submission
+
+Starting from engine ebe4d1b / game b23efa5, profile current-thread CPU time and
+repeated Vulkan submission work. Material lookup was the main measured cost;
+locale-heavy string-stream texture-key construction is replaced with `to_chars`
+and direct string appends. Cache identities, lifetimes, resource scopes, GPU
+commands, lighting and scene content remain unchanged. Temporary profiling is
+removed from the production code.
+
+Matched 1080p heavy-wet-night host median falls 73.569 to 49.943ms (32.1%) on
+Vulkan. A diagnostic repeat reduces mean current-thread CPU time from 50.078 to
+30.156ms. Timing images and scene state remain pixel-identical on all APIs, with
+unchanged warm resource totals. GL/D3D12 keep their existing implementation and
+show only small run variation; the default D3D12 launch gains no new speedup.
+Vulkan host p99 remains 76.150ms, so 60 FPS is still unqualified. GPU duration also
+falls, but shader work is unchanged and clock coverage is incomplete.
+
+56 engine checks and five game contracts pass. All 36 public reflection images,
+27 station/battle/control/signage images and twelve shared character images are
+unchanged. Twelve native shadow probes, all API/host content/parity checks and
+normal D3D12 launch pass. Both engine editor builds and staged game/model plugins
+are current. Blender/GLB hashes and 120s daylight / 180s Hybrid rain defaults are
+unchanged; ModelSupport and Autochess source remain untouched. The optimization
+is accepted for the next engine/game checkpoint. See [SUBMISSION.md](SUBMISSION.md) and each repository's
+`artifacts/lighting-foundation/shadow-submission` for the exact method, diagnostics,
+temporary profiler, matched controls and verification evidence.
+
+## Previous follow-up: frame cost
 
 Starting from engine fa7ae72 / game 45f42ca, the lighting shader checks local
 shadow visibility before LTC integration on Vulkan/D3D12 and skips only exactly

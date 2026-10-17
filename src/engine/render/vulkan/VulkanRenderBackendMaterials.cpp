@@ -1,9 +1,9 @@
 #include "engine/render/vulkan/VulkanRenderBackendInternal.h"
 #include "engine/render/IWorldDepthControl.h"
+#include "engine/render/vulkan/VulkanWorldTextureKey.h"
 
 #include <array>
 #include <cstdint>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -14,31 +14,6 @@ void requireVkMaterial(VkResult result, const char* operation) {
         throw std::runtime_error(
             std::string(operation) + " failed with VkResult " + std::to_string(result) + ".");
     }
-}
-
-std::string resolvedTextureKey(const char* key,
-                               const char* cacheKey,
-                               const unsigned char* rgba,
-                               int width,
-                               int height,
-                               int wrapS,
-                               int wrapT,
-                               bool srgb,
-                               std::uint32_t authoredMipLevelCount) {
-    std::ostringstream out;
-    if (cacheKey && cacheKey[0] != '\0') {
-        out << cacheKey;
-    } else if (key && key[0] != '\0') {
-        out << key;
-    } else {
-        out << "anonymous@" << reinterpret_cast<std::uintptr_t>(rgba);
-    }
-    out << '|' << width << 'x' << height
-        << "|ws=" << wrapS
-        << "|wt=" << wrapT
-        << "|mips=" << authoredMipLevelCount
-        << (srgb ? "|srgb" : "|linear");
-    return out.str();
 }
 
 std::string materialKey(const std::array<
@@ -70,7 +45,7 @@ VulkanRenderBackendImpl::Texture* VulkanRenderBackendImpl::ensureWorldTextureRaw
     if (!rgba || width <= 0 || height <= 0) return nullptr;
     engine::render::WorldResourceScopeState::AllocationAttempt attempt(worldScopes);
     if (!worldScopes.admitted()) return nullptr;
-    const std::string resolved = worldScopes.key(resolvedTextureKey(
+    const std::string resolved = worldScopes.key(engine::render::vulkan_backend::resolvedWorldTextureKey(
         key,
         cacheKey,
         rgba,
