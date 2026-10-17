@@ -1041,7 +1041,7 @@ if (PHLOSION_BUILD_TESTS)
         list(APPEND _feedback_test_apis d3d12)
     endif()
     foreach(api IN LISTS _feedback_test_apis)
-        foreach(mode on off offscreen reversed dry clipped occluded reset extent-change)
+        foreach(mode on off offscreen reversed dry clipped occluded reset extent-change emissive emissive-rough emissive-off)
             add_test(NAME PhlosionPlanarReflection-${api}-${mode} COMMAND PhlosionPlanarReflectionTests ${api} ${mode}
                 "${CMAKE_CURRENT_BINARY_DIR}/planar-reflection-tests/${api}-${mode}.png")
             set_tests_properties(PhlosionPlanarReflection-${api}-${mode} PROPERTIES RUN_SERIAL TRUE TIMEOUT 180

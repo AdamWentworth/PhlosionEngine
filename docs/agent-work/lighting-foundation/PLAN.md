@@ -82,3 +82,21 @@ source-off, daylight and camera controls; and recorded GPU cost for renderer cha
 No visual baselines or thresholds are relaxed to hide regressions. Shared shader
 changes also require the affected Autochess character/editor smoke coverage.
 Keep exact commands, artifacts and limitations in CHECKPOINT.md at phase boundaries.
+
+## Reflected emission and wet-surface filter follow-up
+
+Authorized after checkpoint engine 1130af5 / game 533eb44. Include emissive
+geometry in the generic capture; the game's existing per-material overrides
+suppress only the canopy emitters already represented by rectangle specular.
+Signs, screens and unrelated emissive materials retain their authored emission
+and fixture gain. Do not raise source intensity or change source assets.
+
+Replace the five-sample cross with a normalized nine-sample 2D Gaussian,
+corrected for viewport aspect and padded targets. This remains an image-space
+roughness approximation, not GGX prefiltering, SSR or a Cyberpunk shader port.
+Keep dry/rough-sand gates and the existing DFG energy response. Verify reflected
+emissive texture shape with illumination absent, emission-off, roughness edge
+spread and unchanged main-view signs, then the station/battle API-host matrix,
+wet/dry/day/source-off/oblique controls, shared character checks and GPU timings.
+Evidence goes under `artifacts/lighting-foundation/reflection-quality` in each
+affected repository; the earlier reflection captures remain the baseline.

@@ -55,7 +55,7 @@ inline WorldPlanarReflectionUniforms packWorldPlanarReflection(const WorldPlanar
     for (int row = 0; row < 4; ++row)
         for (int col = 0; col < 4; ++col)
             result[row][col] = view.viewProjection[col * 4 + row];
-    result[4] = {view.height, view.receiverTolerance, .012f, -1};
+    result[4] = {view.height, view.receiverTolerance, static_cast<float>(view.heightPixels)/view.width, -1};
     result[5] = {1, 1, 0, .5f / static_cast<float>(view.width < view.heightPixels ? view.width : view.heightPixels)};
     return result;
 }

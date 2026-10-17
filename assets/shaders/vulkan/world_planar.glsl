@@ -1,17 +1,30 @@
-// Scene radiance only: analytic source reflections remain in the direct BRDF.
-// Capture excludes emission, preventing a second copy of the same light energy.
+// Capture includes emissive geometry. Callers should suppress only emitters
+// already represented by an analytic area source in the direct specular BRDF.
 bool worldReflectionCapture() { return PLANAR(4).w < -0.5; }
 bool worldReflectionFrontFace(bool front) { return worldReflectionCapture() ? !front : front; }
 void worldReflectionClip(vec3 position, float materialMode) {
     if (worldReflectionCapture() && materialMode > 0.5 && position.y < PLANAR(4).x + .012)
         discard;
 }
-vec3 worldReflectionEmission(vec3 emission) {
-    return worldReflectionCapture() ? vec3(0.0,0.0,0.0) : emission;
-}
+// Keep this hook for existing composed material packages. Emission selection
+// belongs to the caller's capture material overrides, not a blanket shader gate.
+vec3 worldReflectionEmission(vec3 emission) { return emission; }
 vec3 worldPlanarTap(vec2 uv) {
     vec2 margin=PLANAR(5).xy*PLANAR(5).w;
     return PLANAR_SAMPLE(clamp(uv,margin,PLANAR(5).xy-margin)).rgb;
+}
+vec3 worldPlanarFiltered(vec2 uv, float roughness) {
+    // Nine bilinear taps form a normalized, symmetric 2D Gaussian instead of
+    // separate cross-shaped copies. This is a bounded image-space approximation,
+    // not a GGX-prefiltered radiance hierarchy. Correct for viewport aspect and
+    // the padded texture bucket so the footprint is circular in pixels.
+    vec2 radius=PLANAR(5).xy*vec2(PLANAR(4).z,1.0)*(.02*roughness*roughness*1.182426);
+    vec3 center=worldPlanarTap(uv)*.162102;
+    vec3 axial=worldPlanarTap(uv+vec2(radius.x,0))+worldPlanarTap(uv-vec2(radius.x,0));
+    axial+=worldPlanarTap(uv+vec2(0,radius.y))+worldPlanarTap(uv-vec2(0,radius.y));
+    vec3 diagonal=worldPlanarTap(uv+radius)+worldPlanarTap(uv-radius);
+    diagonal+=worldPlanarTap(uv+vec2(radius.x,-radius.y))+worldPlanarTap(uv+vec2(-radius.x,radius.y));
+    return center+axial*.120259+diagonal*.0892155;
 }
 vec3 worldPlanarSpecular(vec3 fallback, vec3 position, vec3 normal, vec3 view, vec3 f0, float roughness) {
     if (PLANAR(4).w < .5 || ENV_WEATHER.x <= 0.0 || abs(normal.y) < .8 ||
@@ -31,12 +44,7 @@ vec3 worldPlanarSpecular(vec3 fallback, vec3 position, vec3 normal, vec3 view, v
     if (weight <= 0.0) return fallback;
     if (PLANAR(5).z > .5) uv.y = 1.0-uv.y;
     uv *= PLANAR(5).xy;
-    vec2 radius = PLANAR(5).xy * PLANAR(4).z * roughness * roughness;
-    vec3 radiance = worldPlanarTap(uv) * .4;
-    radiance += worldPlanarTap(uv+vec2(radius.x,0)) * .15;
-    radiance += worldPlanarTap(uv-vec2(radius.x,0)) * .15;
-    radiance += worldPlanarTap(uv+vec2(0,radius.y)) * .15;
-    radiance += worldPlanarTap(uv-vec2(0,radius.y)) * .15;
+    vec3 radiance = worldPlanarFiltered(uv,roughness);
     // Split-sum GGX DFG in the visible hemisphere, matching local two-sided
     // lighting while leaving the legacy dry/directional normal policy intact.
     float nv=max(dot(normal,view),0.0);

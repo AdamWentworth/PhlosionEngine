@@ -27,17 +27,20 @@ retain their previous rendering. Editor surfaces use the same path as runtime.
 
 Only wet, approximately horizontal receivers near the plane use the capture.
 Roughness fades it out between 0.25 and 0.55; rough sand keeps its existing
-response. Small water normal perturbations disturb the projected image. Five
-filtered samples approximate roughness blur; this is not GGX prefiltering.
+response. Small water normal perturbations disturb the projected image. Nine
+bilinear samples form a normalized 2D Gaussian with an aspect-correct footprint.
+This approximates roughness blur; it is not GGX prefiltering.
 The response replaces the corresponding environment-specular contribution and
 uses the existing GGX split-sum approximation, dielectric reflectance and
 specular scale. It does not add an unweighted colored image to the ground.
 
-Capture emission is omitted because the analytic local-light BRDF already
-supplies source reflections. This avoids counting each canopy source twice while
-adding reflected lit geometry. A consequence is that emissive signage without
-a matching analytic source is not represented in this first scene-reflection
-layer. Rain, droplets and other transparent effects are also excluded.
+Capture includes emissive geometry. PokemonCyberpunk suppresses only the six
+canopy fixture material emissions during capture because their analytic area
+sources already supply their highlights. Signs, screens and unrelated emission
+remain, with live fixture gain. The main-view factors and reported fixture state
+are kept separate from capture overrides. The bar's grouped point lights remain
+art-directed proxies; this is not an exact energy-matched source decomposition.
+Rain, droplets and other transparent effects are still excluded.
 
 The reflected scene can contain objects outside the main camera. The reflection
 view boundary blends back to existing ambient/neutral environment lighting;
@@ -46,7 +49,7 @@ receiver plane, not arbitrary curved/vertical reflectors, multiple water heights
 or a general SSR/probe/RT system. It is an engine choice suited to this location,
 not a recovery of Cyberpunk 2077's SSR implementation.
 
-## Verification
+## Verification of initial reflection checkpoint
 
 Public native tests exercise an independently projected colored object, a fully
 off-screen object, reversed winding, an opaque blocker, below-plane clipping,
@@ -188,3 +191,106 @@ comparisons and raw timing remain under engine/game
 optimization or a higher Cyberpunk parity score. Profile the remaining capture
 work before choosing a larger optimization. Emissive-sign coverage and roughness
 filtering remain the next visual gaps; the existing frame-cost flags still apply.
+
+## Reflected signage and roughness filtering — 2026-10-17 follow-up
+
+This follow-up starts from engine 1130af5 / game 533eb44. The engine now captures
+emissive radiance in both default and composed PBR materials. The game selects
+the six analytic rectangle emitters for capture-only suppression through its
+existing glTF emission overrides; visible factors and fixture telemetry remain
+unchanged. Non-rectangle signs/screens and unrelated material emission survive.
+There is no new provider ABI, scene asset, light intensity or weather setting.
+
+The old five-tap cross is replaced by a normalized nine-bilinear-tap 2D Gaussian.
+Radius grows with roughness squared; its horizontal scale accounts for capture
+aspect, including D3D12/Vulkan padded buckets. Clear puddles stay sharp, rougher
+water softens, and the existing rough-sand/dry rejection and DFG response remain.
+This is a small spatial-filter improvement. It does not add mip prefiltering,
+depth-dependent GGX convolution, temporal reconstruction, general SSR or probes.
+
+The 49 selected engine tests pass: projection, 36 native reflection cases, nine
+HDR/bloom/feedback cases, engine contracts, semantic boundary and material
+composition. The native emissive test uses a textured E with all illumination
+zero. Its reflection preserves the holes, disappears when emission is zero,
+and leaves the visible sign identical between smooth/rough receivers. Independent
+edge analysis measures 10–90% widths of 2.06–2.09px at roughness .06 and
+2.57–2.60px at .4; maximum API MAE is .035525/255. Run
+`tools/verify_planar_quality.py build-presentation/planar-reflection-tests
+--output <report.json>` after CTest. Five game environment/weather tests and five
+affected Autochess renderer/material CPU contracts also pass.
+
+Evidence for this follow-up is under `artifacts/lighting-foundation/reflection-quality`
+in engine, game and Autochess. Removing the emission helper initially broke
+default shaders and an existing composed character material package; the latter
+repeated compilation each frame and reached the 450-second capture timeout.
+The final implementation retains `worldReflectionEmission` as an identity hook,
+preserving both current and already-composed shader callers. This supersedes the
+intermediate direct-return edits; default/material shader call sites remain
+unchanged. The full 49 engine tests, native emission/filter oracle and five game
+contracts pass again after rebuilding all hosts/providers. An Autochess link failed on its
+OpenGLRenderBackend object (LNK1163); deleting that build object and rebuilding
+resolved it without a source change. Initial failure logs are retained.
+
+The six station and six battle API/host captures pass the existing content and
+parity checks: maximum station API MAE 1.329876/255, host MAE .0000172/255,
+and battle MAE .626544/255. All seven lighting controls and seven reflection
+controls pass, including the independently projected actor, unchanged sky,
+localized bloom and exact dry/legacy-HDR equality. Nineteen matched station,
+battle and lighting-control images differ from the prior checkpoint by at most
+.000607/255 mean error; dry and noon are pixel-identical. The front view remains
+effectively unchanged because it mainly shows analytic canopy highlights and
+clear puddles. This is a targeted coverage/filtering improvement, not a broad
+lighting change or a new numerical Cyberpunk parity score.
+
+Final shared-consumer verification passes after restoring the compatibility hook:
+six Autochess runtime cohort images and six editor body/eyes/stage images all
+match the preceding reflection checkpoint pixel-for-pixel. Expected-content and
+API/host thresholds remain unchanged. The separate runtime and paired editor/
+plugin builds are source-bound; PokemonModelSupport and Autochess source remain
+clean. All 36 public reflection images also match the intermediate implementation
+exactly after the hook restoration. These preservation reports live in engine
+`public-compat-preservation.json` and Autochess `final/*-preservation.json` within
+the follow-up evidence root. Cold shader startup remains slow (the first D3D12
+cohort took several minutes); it is separate from warm-frame GPU measurements.
+
+The final six station and six battle captures are pixel-identical to the
+pre-compatibility follow-up captures. A separate oblique view uses an existing
+forecourt puddle to show the bar lettering at a grazing angle; it does not alter
+the main camera, puddle placement or source intensities. All six API/host signage
+views pass (maximum MAE .782897/255). A D3D12 emission-on/off pair disables bloom
+and keeps the point/rectangle illumination, fixture gains and weather identical:
+691 pixels inside the independently projected authored puddle change by more
+than two channel values. This isolates reflected glyph emission from the visible
+sign's halo. A preliminary steep doorway-puddle view was faint; the final oblique
+view and isolation evidence live under game `reflection-quality/final`.
+
+Final sequential 1920x1080 heavy-wet-night controls on RTX 2060 SUPER, driver
+617.42, retain shadows, HDR, bloom, bounce and rain. Each result uses 200 warm
+frames (30-229), with the complete planar path toggled off/on:
+
+| API | GPU off/on ms | Host off/on ms | Added GPU ms |
+| --- | ---: | ---: | ---: |
+| OpenGL | 32.889 / 37.988 | 35.232 / 40.113 | 5.099 |
+| Vulkan | 21.274 / 24.588 | 66.423 / 77.518 | 3.314 |
+| D3D12 | 16.982 / 20.166 | 17.023 / 20.175 | 3.184 |
+
+All three exceed the unchanged +1.5ms GPU / +2ms host review guides. D3D12's
+reflection-on GPU p99 is 21.155ms and host p99 40.583ms; this does not qualify
+sustained 60 FPS. These toggles measure the whole reflection path, not the extra
+four filter samples alone. Differences from the earlier checkpoint's separate
+timing run do not establish a speedup. `final/reflection-performance.json` retains
+the medians, tails and flags. The concurrent GPU monitor records no video decode,
+GPU 0 reaching 97% / 1980MHz, and GPU 1 idle at 1MiB. Cyberpunk and other game/editor
+processes were absent before these sequential timing runs.
+
+Final editor scene switching passes on OpenGL, Vulkan and D3D12: five alternating
+station/reference visits each, with stable resource counts and cleared station
+fixtures/bounce in the Colosseum reference. The Blender source and derived station
+GLB retain their recorded SHA-256 hashes. All three staged game/model DLLs match
+the rebuilt providers. Scene-switch traces and staged-binary proof are in game
+`reflection-quality/final`.
+
+The final normal D3D12 editor launcher probe passes with the station and Hybrid
+rain/CP audio selected. Default 120-second daylight and 180-second rain periods
+are unchanged. All hidden verification processes exited. The new code is ready
+for normal project launch; the performance flags above remain open.
