@@ -303,6 +303,8 @@ void D3D12RenderBackend::beginWorldSceneColorPass(
     worldBloomStrength_=0;
     worldSceneRadianceExposure_=0;
     worldDiffuseProbes_={};
+    worldPlanarReflection_={};
+    worldPlanarDescriptor_=0xffffffffu;
 
     D3D12_RESOURCE_BARRIER barrier{};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -405,6 +407,81 @@ bool D3D12RenderBackend::captureWorldDepthSnapshot() {
     transition(source, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
     transition(target.resource.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     worldDepthSnapshotDescriptor_ = target.descriptorIndex;
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool D3D12RenderBackend::beginWorldPlanarReflection(const engine::render::WorldPlanarReflectionView& view) {
+#if defined(_WIN32)
+    if (!worldSceneColorPassActive_ || worldShadowActive_ || worldPlanarReflection_[4][3]<0 ||
+        view.width<=0 || view.heightPixels<=0) return false;
+    worldPlanarReflectionView_=view;
+    worldPlanarReflection_=engine::render::packWorldPlanarReflection(view);
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv=editorSurfaceActive_ ? editorSurfaceTarget_.linearRtv : rtvHeap_->GetCPUDescriptorHandleForHeapStart();
+    if (!editorSurfaceActive_) rtv.ptr+=static_cast<SIZE_T>(kFrameCount)*rtvDescriptorSize_;
+    const float black[]{0,0,0,1};
+    commandList_->ClearRenderTargetView(rtv,black,0,nullptr);
+    clearWorldDepth();
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool D3D12RenderBackend::endWorldPlanarReflection() {
+#if defined(_WIN32)
+    if (!worldSceneColorPassActive_ || worldPlanarReflection_[4][3]>=0) return false;
+    auto* source=editorSurfaceActive_ ? editorSurfaceTarget_.linearColor : worldSceneColorTarget_.Get();
+    auto desc=source->GetDesc();
+    const auto& view=worldPlanarReflectionView_;
+    if (view.width>static_cast<int>(desc.Width) || view.heightPixels>static_cast<int>(desc.Height))
+        throw std::runtime_error("Reflection capture exceeds scene target");
+    UINT size=256; while (size<static_cast<UINT>(std::max(view.width,view.heightPixels))) size*=2;
+    if (size>8192) throw std::runtime_error("Reflection target exceeds size limit");
+    const std::string key="planar/"+std::to_string(frameIndex_)+"/"+std::to_string(size);
+    auto found=worldTextures_.find(key);
+    if (found==worldTextures_.end()) {
+        if (nextSrvDescriptorIndex_>=kMaxSrvDescriptors) throw std::runtime_error("Reflection descriptor budget exhausted");
+        SpriteTexture target;
+        desc.Width=desc.Height=size; desc.Flags=D3D12_RESOURCE_FLAG_NONE;
+        D3D12_HEAP_PROPERTIES heap{}; heap.Type=D3D12_HEAP_TYPE_DEFAULT;
+        heap.CreationNodeMask=heap.VisibleNodeMask=1;
+        if (FAILED(device_->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&desc,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,nullptr,IID_PPV_ARGS(target.resource.GetAddressOf()))))
+            throw std::runtime_error("Reflection image allocation failed");
+        target.descriptorIndex=nextSrvDescriptorIndex_++;
+        target.srvDesc.Format=desc.Format; target.srvDesc.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;
+        target.srvDesc.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        target.srvDesc.Texture2D.MipLevels=1; target.hasSrvDesc=target.valid=true;
+        auto handle=srvHeap_->GetCPUDescriptorHandleForHeapStart();
+        handle.ptr+=static_cast<SIZE_T>(target.descriptorIndex)*srvDescriptorSize_;
+        device_->CreateShaderResourceView(target.resource.Get(),&target.srvDesc,handle);
+        found=worldTextures_.emplace(key,std::move(target)).first;
+    }
+    auto& target=found->second;
+    const auto transition=[&](ID3D12Resource* resource,D3D12_RESOURCE_STATES from,D3D12_RESOURCE_STATES to) {
+        D3D12_RESOURCE_BARRIER barrier{}; barrier.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition={resource,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,from,to};
+        commandList_->ResourceBarrier(1,&barrier);
+    };
+    transition(source,D3D12_RESOURCE_STATE_RENDER_TARGET,D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition(target.resource.Get(),D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_DEST);
+    D3D12_TEXTURE_COPY_LOCATION from{},to{};
+    from.pResource=source; from.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    to.pResource=target.resource.Get(); to.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    const D3D12_BOX box{0,0,0,static_cast<UINT>(view.width),static_cast<UINT>(view.heightPixels),1};
+    commandList_->CopyTextureRegion(&to,0,0,0,&from,&box);
+    transition(source,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_RENDER_TARGET);
+    transition(target.resource.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    auto rtv=editorSurfaceActive_ ? editorSurfaceTarget_.linearRtv : rtvHeap_->GetCPUDescriptorHandleForHeapStart();
+    if (!editorSurfaceActive_) rtv.ptr+=static_cast<SIZE_T>(kFrameCount)*rtvDescriptorSize_;
+    const float black[]{0,0,0,1}; commandList_->ClearRenderTargetView(rtv,black,0,nullptr);
+    clearWorldDepth();
+    worldPlanarDescriptor_=target.descriptorIndex;
+    worldPlanarReflection_[4][3]=1;
+    worldPlanarReflection_[5]={static_cast<float>(view.width)/size,static_cast<float>(view.heightPixels)/size,1,.5f/static_cast<float>(std::min(view.width,view.heightPixels))};
     return true;
 #else
     return false;

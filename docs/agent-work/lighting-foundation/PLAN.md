@@ -36,7 +36,9 @@ The follow-up static shadow submission optimization is specified and measured
 in SHADOW_CULLING.md; it preserves the accepted appearance before further visual work.
 Static, live-relit diffuse bounce is functionally verified in BOUNCE.md, with
 measured cost and cold-start limitations retained for follow-up.
-Scene reflections remain a separate later renderer milestone.
+Flat wet-surface scene reflections are implemented under REFLECTIONS.md. This
+captures live reflected geometry, including off-screen objects; it does not yet
+provide general SSR, local reflection probes or ray tracing.
 
 1. Fixture emission: retain four continuous pink perimeter runs and two blue
    ceiling runs, with uniform healthy colors and steady intensity. Make the pink

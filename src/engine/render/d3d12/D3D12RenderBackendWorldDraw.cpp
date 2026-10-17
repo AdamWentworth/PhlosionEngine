@@ -43,6 +43,12 @@ void D3D12RenderBackend::bindWorldDiffuseProbes() {
     }
     const auto offset=(frameIndex_*kDiffuseProbePacketsPerFrame+worldDiffuseProbePacketCount_-1)*kDiffuseProbePacketStride;
     commandList_->SetGraphicsRootConstantBufferView(6,worldDiffuseProbeBuffer_->GetGPUVirtualAddress()+offset);
+    const auto planar=worldShadowActive_ ? engine::render::WorldPlanarReflectionUniforms{} : worldPlanarReflection_;
+    commandList_->SetGraphicsRoot32BitConstants(7,24,planar.data(),0);
+    const auto descriptor=worldPlanarDescriptor_!=0xffffffffu ? worldPlanarDescriptor_ : ensureFallbackSpriteTexture()->descriptorIndex;
+    auto handle=srvHeap_->GetGPUDescriptorHandleForHeapStart();
+    handle.ptr+=static_cast<UINT64>(descriptor)*srvDescriptorSize_;
+    commandList_->SetGraphicsRootDescriptorTable(8,handle);
 #endif
 }
 void D3D12RenderBackend::bindWorldMaterialConstants(const void* data, std::size_t viewOffset, bool outline) {
@@ -742,6 +748,10 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
                                                       int surfaceWidth,
                                                       int surfaceHeight) {
 #if defined(_WIN32)
+    if (worldPlanarReflection_[4][3]<0 && !worldShadowActive_) {
+        viewProjectionMatrix4x4=worldPlanarReflectionView_.viewProjection.data();
+        surfaceWidth=worldPlanarReflectionView_.width; surfaceHeight=worldPlanarReflectionView_.heightPixels;
+    }
     if (worldShadowActive_) {
         if (!engine::render::worldDirectionalShadowCaster(textureData)) return;
         viewProjectionMatrix4x4 = worldShadowView_.viewProjection.data();
@@ -1018,6 +1028,10 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     std::uint32_t instanceCount,
     int surfaceWidth,
     int surfaceHeight) {
+    if (worldPlanarReflection_[4][3]<0 && !worldShadowActive_) {
+        viewProjectionMatrix4x4=worldPlanarReflectionView_.viewProjection.data();
+        surfaceWidth=worldPlanarReflectionView_.width; surfaceHeight=worldPlanarReflectionView_.heightPixels;
+    }
     if (worldShadowActive_) {
         if (!engine::render::worldDirectionalShadowCaster(textureData)) return;
         viewProjectionMatrix4x4 = worldShadowView_.viewProjection.data();

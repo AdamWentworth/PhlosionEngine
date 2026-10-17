@@ -107,7 +107,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float sourceNormalScale) {
             // Keep OpenGL tangent-space face handling tied to native front-face
             // classification for stable normal-map response.
-            bool isFrontFace = gl_FrontFacing;
+            bool isFrontFace = worldReflectionFrontFace(gl_FrontFacing);
             float faceDirection = isFrontFace ? 1.0 : -1.0;
             vec3 n = normalize(vWorldNormal);
             if (dot(n, n) < 1e-6) {
@@ -234,6 +234,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 specularIBL = envRadiance * singleScattering + multiScattering * cosineWeightedIrradiance;
             diffuseIBL *= __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
             specularIBL *= __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+            specularIBL = worldPlanarSpecular(specularIBL, vWorldPos, n, v, F0, roughness);
 #include "material/opengl_surface_ibl.glsl"
             diffuseIBL *= ao;
             float specularOcclusion = computeSpecularOcclusion(NdotV, ao, roughness);
@@ -253,5 +254,5 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 1.0);
             vec3 emissive = emissiveTex * max(uEmissiveFactor, vec3(0.0));
 #include "material/opengl_surface_response.glsl"
-            return max(shaded + emissive, vec3(0.0));
+            return max(shaded + worldReflectionEmission(emissive), vec3(0.0));
         }

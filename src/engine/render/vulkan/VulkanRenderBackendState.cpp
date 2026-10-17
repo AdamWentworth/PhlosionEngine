@@ -126,16 +126,18 @@ void VulkanRenderBackendImpl::bindWorldStateDescriptorSets(
     VkCommandBuffer commandBuffer,
     VkDescriptorSet materialDescriptorSet,
     const std::array<std::uint32_t, 4>& dynamicOffsets) {
+    const auto planarSet=worldPlanarDescriptor ? worldPlanarDescriptor : worldPlanarFallback;
     const VkDescriptorSet worldStateDescriptorSet =
         worldShadowActive ? frames[currentFrame].shadowWorldStateDescriptorSet : frames[currentFrame].worldStateDescriptorSet;
     if (boundTexturedDescriptorSet == materialDescriptorSet) {
+        const std::array<VkDescriptorSet,2> viewSets{worldStateDescriptorSet,planarSet};
         vkCmdBindDescriptorSets(
             commandBuffer,
             VK_PIPELINE_BIND_POINT_GRAPHICS,
             texturedPipelineLayout,
             1u,
-            1u,
-            &worldStateDescriptorSet,
+            2u,
+            viewSets.data(),
             static_cast<std::uint32_t>(dynamicOffsets.size()),
             dynamicOffsets.data());
         ++frameDescriptorBindCalls;
@@ -143,9 +145,10 @@ void VulkanRenderBackendImpl::bindWorldStateDescriptorSets(
         return;
     }
 
-    const std::array<VkDescriptorSet, 2> descriptorSets{
+    const std::array<VkDescriptorSet, 3> descriptorSets{
         materialDescriptorSet,
         worldStateDescriptorSet,
+        planarSet,
     };
     vkCmdBindDescriptorSets(
         commandBuffer,

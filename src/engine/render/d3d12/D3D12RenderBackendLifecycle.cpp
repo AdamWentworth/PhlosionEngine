@@ -555,6 +555,8 @@ void D3D12RenderBackend::shutdown() {
     spriteTextures_.clear();
     worldTextures_.clear();
     worldDepthSnapshotDescriptor_ = 0xffffffffu;
+    worldPlanarDescriptor_=0xffffffffu;
+    worldPlanarReflection_={};
     worldMaterialDescriptorBlocks_.clear();
     worldSceneMaterialBindingCache_.clear();
     worldSceneMaterialBindingCacheGeneration_ = 0u;

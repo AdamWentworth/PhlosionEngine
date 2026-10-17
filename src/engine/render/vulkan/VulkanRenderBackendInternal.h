@@ -310,6 +310,14 @@ struct VulkanRenderBackendImpl {
     float worldBloomStrength = 0;
     float worldSceneRadianceExposure = 0;
     engine::render::WorldDiffuseProbeUniforms worldDiffuseProbes{};
+    engine::render::WorldPlanarReflectionUniforms worldPlanarReflection{};
+    engine::render::WorldPlanarReflectionView worldPlanarReflectionView{};
+    VkDescriptorSet worldPlanarDescriptor = VK_NULL_HANDLE;
+    VkDescriptorSet worldPlanarFallback = VK_NULL_HANDLE;
+    bool beginWorldPlanarReflection(const engine::render::WorldPlanarReflectionView&);
+    bool endWorldPlanarReflection();
+    VkDescriptorSet createPlanarDescriptor(const Texture&);
+
     bool editorSurfacePassActive = false;
     std::uint64_t activeEditorSurface = 0u;
     std::uint64_t nextEditorSurface = 1u;

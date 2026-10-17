@@ -58,7 +58,7 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
     const IRenderBackend::WorldSceneFrame& frame,
     const IRenderBackend::WorldSceneView& view) {
     namespace vulkan = engine::render::vulkan_backend;
-    if (worldShadowActive) return false;
+    if (worldShadowActive || worldPlanarReflection[4][3]<0) return false;
     if (worldShadowReady && view.materials)
         for (const auto& material : *view.materials)
             if (!engine::render::worldSceneShadowSwitch(material, engine::render::backend::WorldSceneSourceMaterialSwitchReceiveShadow)) return false;
@@ -278,6 +278,7 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
     viewState.cameraPosition[3] = worldSceneColorPassActive && worldSceneRadianceExposure > 0 ? 1.f : 0.f;
     if (!worldShadowActive && viewTexture.environment.enabled) viewState.localShadows = worldLocalShadows_.uniforms;
     if (!worldShadowActive && viewTexture.environment.enabled) viewState.diffuseProbes = worldDiffuseProbes;
+    if (!worldShadowActive) viewState.planar=worldPlanarReflection;
     VkBuffer viewBuffer = VK_NULL_HANDLE;
     VkDeviceSize viewOffset = 0u;
     const VkDeviceSize uniformAlignment = std::max<VkDeviceSize>(
@@ -294,9 +295,10 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
     }
 
     FrameResources& frameResources = frames[currentFrame];
-    const std::array<VkDescriptorSet, 2> descriptorSets{
+    const std::array<VkDescriptorSet, 3> descriptorSets{
         frameResources.indexedWorldMaterialDescriptorSet,
         frameResources.worldStateDescriptorSet,
+        worldPlanarDescriptor ? worldPlanarDescriptor : worldPlanarFallback,
     };
     const std::array<std::uint32_t, 4> dynamicOffsets{
         static_cast<std::uint32_t>(viewOffset),

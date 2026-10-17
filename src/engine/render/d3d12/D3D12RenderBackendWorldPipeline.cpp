@@ -145,6 +145,11 @@ struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLO
 #define ENV_WEATHER_MATERIAL uWeatherMaterial
 #define ENV_LUT(uv) gTex.SampleLevel(gSampCC, uv, 0.0).rgb
 __PHLOSION_ENVIRONMENT_SHADER__
+cbuffer PlanarConstants : register(b3) { float4 uWorldPlanar[6]; };
+Texture2D gWorldPlanarTexture : register(t10);
+#define PLANAR(index) uWorldPlanar[index]
+#define PLANAR_SAMPLE(uv) gWorldPlanarTexture.SampleLevel(gSampCC,uv,0.0)
+__PHLOSION_WORLD_PLANAR_SHADER__
 #define ENV_POINT(index) uWorldPointLights[index]
 #define ENV_RECT(index) uWorldRectLights[index]
 #define ENV_BOUNCE(index) uWorldDiffuseProbes[index]
@@ -170,6 +175,8 @@ int legacyWrapIndex(int index, int size, float mode) {
   return (index % size + size) % size;
 }
 float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
+  worldReflectionClip(i.worldPos,uMaterialMode);
+  isFrontFace = worldReflectionFrontFace(isFrontFace);
   updateEnvironmentDirectionalVisibility(i.worldPos, i.worldNormal, uMaterialMode);
 #ifndef PHLOSION_WORLD_SURFACE_ONLY
   if (uMaterialMode == 249.0f) {
@@ -596,6 +603,7 @@ float3 applyWorldLitModel(PSIn i,
   float3 specularIBL = envRadiance * singleScattering + multiScattering * cosineWeightedIrradiance;
   diffuseIBL *= __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
   specularIBL *= __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+  specularIBL = worldPlanarSpecular(specularIBL, i.worldPos, n, v, F0, roughness);
   diffuseIBL *= ao;
   float specularOcclusion = computeSpecularOcclusion(NdotV, ao, roughness);
   specularIBL *= specularOcclusion;
@@ -609,7 +617,7 @@ float3 applyWorldLitModel(PSIn i,
       : float3(1.0f, 1.0f, 1.0f);
   float3 emissive = emissiveTex * max(emissiveFactor, float3(0.0f, 0.0f, 0.0f));
 
-  return max(shaded + emissive, float3(0.0f, 0.0f, 0.0f));
+  return max(shaded + worldReflectionEmission(emissive), float3(0.0f, 0.0f, 0.0f));
 }
 
 float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraPos, float3 cameraForwardPacked) {
@@ -853,7 +861,17 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
     vertexDisplacementSrvRange.OffsetInDescriptorsFromTableStart =
         D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParams[7]{};
+    D3D12_DESCRIPTOR_RANGE planarRange{};
+    planarRange.RangeType=D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    planarRange.NumDescriptors=1; planarRange.BaseShaderRegister=10;
+    planarRange.OffsetInDescriptorsFromTableStart=D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    D3D12_ROOT_PARAMETER rootParams[9]{};
+    rootParams[7].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rootParams[7].Constants={3,0,24};
+    rootParams[7].ShaderVisibility=D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParams[8].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParams[8].DescriptorTable={1,&planarRange};
+    rootParams[8].ShaderVisibility=D3D12_SHADER_VISIBILITY_PIXEL;
     rootParams[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParams[6].Descriptor.ShaderRegister = 2;
     rootParams[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;

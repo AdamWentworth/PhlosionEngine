@@ -249,7 +249,7 @@ bool VulkanRenderBackendImpl::createEditorSurfaceResources(
             editorSurface.frames[frameIndex];
         createImage(
             VK_FORMAT_R16G16B16A16_SFLOAT,
-            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                 VK_IMAGE_USAGE_SAMPLED_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT,
             frame.linearColor,
@@ -257,7 +257,7 @@ bool VulkanRenderBackendImpl::createEditorSurfaceResources(
             frame.linearColorView);
         createImage(
             swapchainFormat,
-            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                 VK_IMAGE_USAGE_SAMPLED_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT,
             frame.displayColor,

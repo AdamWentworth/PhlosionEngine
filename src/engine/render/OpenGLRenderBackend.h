@@ -15,16 +15,19 @@
 #include "engine/render/IWorldBloom.h"
 #include "engine/render/IWorldSceneRadiance.h"
 #include "engine/render/WorldDiffuseProbes.h"
+#include "engine/render/IWorldPlanarReflection.h"
 #include "engine/render/IWorldDirectionalShadow.h"
 #include "engine/render/IWorldLocalShadow.h"
 #include "engine/render/WorldResourceScopeState.h"
 
 class Renderer;
 
-class OpenGLRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow, public IWorldLocalShadow, public engine::render::IWorldBloom, public engine::render::IWorldSceneRadiance, public engine::render::IWorldDiffuseProbes {
+class OpenGLRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow, public IWorldLocalShadow, public engine::render::IWorldBloom, public engine::render::IWorldSceneRadiance, public engine::render::IWorldDiffuseProbes, public engine::render::IWorldPlanarReflection {
 public:
   bool clearWorldDepth() override;
-  bool captureWorldDepthSnapshot() override;
+  bool beginWorldPlanarReflection(const engine::render::WorldPlanarReflectionView&) override;
+    bool endWorldPlanarReflection() override;
+    bool captureWorldDepthSnapshot() override;
     void prewarmWorldLocalShadows() override;
     void clearWorldLocalShadows() override;
     bool beginWorldLocalShadow(std::uint32_t index, const engine::render::WorldDirectionalShadowView& view) override;
@@ -277,6 +280,10 @@ private:
     std::array<int, 19> worldEnvironmentLocs_{-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
     int worldPointLightsLoc_ = -1;
     int worldRectLightsLoc_ = -1, worldRectLightLutLoc_ = -1;
+    int worldPlanarLoc_ = -1;
+    int worldPlanarTextureLoc_ = -1;
+    unsigned int worldPlanarTexture_ = 0;
+    int worldPlanarWidth_ = 0, worldPlanarHeight_ = 0;
     int worldDiffuseProbesLoc_ = -1;
     bool worldDiffuseProbesUploaded_ = false;
     engine::render::WorldDiffuseProbeUniforms lastWorldDiffuseProbes_{};
@@ -483,7 +490,7 @@ private:
         int prevElementArrayBuffer = 0;
         int prevActiveTexture = 0;
         int prevTexture2DOnActive = 0;
-        std::array<int, 10> prevTexture2DOnUnit{};
+        std::array<int, 11> prevTexture2DOnUnit{};
         bool depthEnabled = false;
         bool blendEnabled = false;
         bool cullEnabled = false;
@@ -501,7 +508,7 @@ private:
         int currentArrayBuffer = 0;
         int currentElementArrayBuffer = 0;
         int currentActiveTexture = 0;
-        std::array<int, 10> currentTexture2DOnUnit{};
+        std::array<int, 11> currentTexture2DOnUnit{};
         bool currentDepthEnabled = false;
         bool currentBlendEnabled = false;
         bool currentCullEnabled = false;

@@ -55,7 +55,7 @@ void VulkanRenderBackendImpl::createWorldSceneColorResources() {
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
         imageInfo.usage =
-            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
             VK_IMAGE_USAGE_SAMPLED_BIT;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         requireSceneColorVk(
@@ -398,6 +398,119 @@ bool VulkanRenderBackendImpl::clearWorldDepth() {
     rect.rect.extent = extent;
     rect.layerCount = 1;
     vkCmdClearAttachments(frames[currentFrame].commandBuffer, 1, &clear, 1, &rect);
+    return true;
+}
+
+VkDescriptorSet VulkanRenderBackendImpl::createPlanarDescriptor(const Texture& texture) {
+    VkDescriptorSet set=VK_NULL_HANDLE;
+    VkDescriptorSetAllocateInfo allocation{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    allocation.descriptorPool=descriptorPool; allocation.descriptorSetCount=1;
+    allocation.pSetLayouts=&worldSceneColorSetLayout;
+    requireSceneColorVk(vkAllocateDescriptorSets(device,&allocation,&set),"allocate reflection sampler");
+    VkDescriptorImageInfo image{texture.sampler,texture.view,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    write.dstSet=set; write.descriptorCount=1;
+    write.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; write.pImageInfo=&image;
+    vkUpdateDescriptorSets(device,1,&write,0,nullptr);
+    return set;
+}
+
+bool VulkanRenderBackendImpl::beginWorldPlanarReflection(const engine::render::WorldPlanarReflectionView& view) {
+    if (!frameActive || !worldSceneColorPassActive || worldShadowActive || worldPlanarReflection[4][3]<0 ||
+        view.width<=0 || view.heightPixels<=0) return false;
+    worldPlanarReflectionView=view;
+    worldPlanarReflection=engine::render::packWorldPlanarReflection(view);
+    VkClearAttachment color{}; color.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+    color.clearValue.color={{0,0,0,1}};
+    VkClearRect rect{}; rect.layerCount=1;
+    rect.rect.extent={static_cast<std::uint32_t>(view.width),static_cast<std::uint32_t>(view.heightPixels)};
+    vkCmdClearAttachments(frames[currentFrame].commandBuffer,1,&color,1,&rect);
+    clearWorldDepth();
+    return true;
+}
+
+bool VulkanRenderBackendImpl::endWorldPlanarReflection() {
+    if (!frameActive || !worldSceneColorPassActive || worldPlanarReflection[4][3]>=0) return false;
+    VkExtent2D extent=swapchainExtent;
+    auto source=worldSceneColorImages[currentFrame];
+    auto framebuffer=worldSceneColorFramebuffers.at(currentFrame*swapchainImages.size()+acquiredImage);
+    if (activeEditorSurface) {
+        auto& editorTarget=editorSurfaces.at(activeEditorSurface);
+        extent={static_cast<std::uint32_t>(editorTarget.width),static_cast<std::uint32_t>(editorTarget.height)};
+        source=editorTarget.frames[currentFrame].linearColor;
+        framebuffer=editorTarget.frames[currentFrame].linearFramebuffer;
+    }
+    const auto& view=worldPlanarReflectionView;
+    if (view.width>static_cast<int>(extent.width) || view.heightPixels>static_cast<int>(extent.height))
+        throw std::runtime_error("Reflection capture exceeds scene target");
+    std::uint32_t size=256; while (size<static_cast<std::uint32_t>(std::max(view.width,view.heightPixels))) size*=2;
+    if (size>8192) throw std::runtime_error("Reflection target exceeds size limit");
+    const std::string key="planar/"+std::to_string(currentFrame)+"/"+std::to_string(size);
+    auto found=worldTextures.find(key);
+    const bool fresh=found==worldTextures.end();
+    if (fresh) {
+        Texture target;
+        try {
+            VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+            info.imageType=VK_IMAGE_TYPE_2D; info.format=VK_FORMAT_R16G16B16A16_SFLOAT;
+            info.extent={size,size,1}; info.mipLevels=info.arrayLayers=1;
+            info.samples=VK_SAMPLE_COUNT_1_BIT; info.tiling=VK_IMAGE_TILING_OPTIMAL;
+            info.usage=VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT;
+            requireSceneColorVk(vkCreateImage(device,&info,nullptr,&target.image),"create reflection image");
+            VkMemoryRequirements requirements{}; vkGetImageMemoryRequirements(device,target.image,&requirements);
+            VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+            allocation.allocationSize=requirements.size;
+            allocation.memoryTypeIndex=findMemoryType(requirements.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            requireSceneColorVk(vkAllocateMemory(device,&allocation,nullptr,&target.memory),"allocate reflection image");
+            requireSceneColorVk(vkBindImageMemory(device,target.image,target.memory,0),"bind reflection image");
+            VkImageViewCreateInfo imageView{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+            imageView.image=target.image; imageView.viewType=VK_IMAGE_VIEW_TYPE_2D; imageView.format=info.format;
+            imageView.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+            requireSceneColorVk(vkCreateImageView(device,&imageView,nullptr,&target.view),"view reflection image");
+            VkSamplerCreateInfo sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+            sampler.magFilter=sampler.minFilter=VK_FILTER_LINEAR;
+            sampler.addressModeU=sampler.addressModeV=sampler.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            requireSceneColorVk(vkCreateSampler(device,&sampler,nullptr,&target.sampler),"create reflection sampler");
+            target.format=info.format; target.width=target.height=static_cast<int>(size);
+            target.allocationBytes=requirements.size;
+            target.descriptorSet=createPlanarDescriptor(target);
+        } catch (...) { destroyTexture(target); throw; }
+        found=worldTextures.emplace(key,target).first;
+    }
+    auto& target=found->second;
+    auto command=frames[currentFrame].commandBuffer;
+    vkCmdEndRenderPass(command);
+    const auto barrier=[&](VkImage image,VkImageLayout before,VkImageLayout after,VkAccessFlags from,VkAccessFlags to,
+                           VkPipelineStageFlags fromStage,VkPipelineStageFlags toStage) {
+        VkImageMemoryBarrier value{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        value.oldLayout=before; value.newLayout=after; value.image=image;
+        value.srcAccessMask=from; value.dstAccessMask=to;
+        value.srcQueueFamilyIndex=value.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
+        value.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+        vkCmdPipelineBarrier(command,fromStage,toStage,0,0,nullptr,0,nullptr,1,&value);
+    };
+    // The scene pass ends in shader-read layout for its ordinary display pass.
+    barrier(source,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT);
+    barrier(target.image,fresh?VK_IMAGE_LAYOUT_UNDEFINED:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        fresh?0:VK_ACCESS_SHADER_READ_BIT,VK_ACCESS_TRANSFER_WRITE_BIT,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT);
+    VkImageCopy copy{}; copy.srcSubresource=copy.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};
+    copy.extent={static_cast<std::uint32_t>(view.width),static_cast<std::uint32_t>(view.heightPixels),1};
+    vkCmdCopyImage(command,source,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,target.image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&copy);
+    barrier(source,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+    barrier(target.image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_ACCESS_TRANSFER_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    const std::array<VkClearValue,2> clear{VkClearValue{{{0,0,0,1}}},VkClearValue{{{1,0}}}};
+    VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+    pass.renderPass=worldSceneColorRenderPass; pass.framebuffer=framebuffer; pass.renderArea.extent=extent;
+    pass.clearValueCount=2; pass.pClearValues=clear.data();
+    vkCmdBeginRenderPass(command,&pass,VK_SUBPASS_CONTENTS_INLINE);
+    invalidateSceneColorBindings(*this);
+    worldPlanarDescriptor=target.descriptorSet;
+    worldPlanarReflection[4][3]=1;
+    worldPlanarReflection[5]={static_cast<float>(view.width)/size,static_cast<float>(view.heightPixels)/size,1,.5f/static_cast<float>(std::min(view.width,view.heightPixels))};
     return true;
 }
 

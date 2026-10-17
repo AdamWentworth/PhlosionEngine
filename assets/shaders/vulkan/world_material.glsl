@@ -155,7 +155,7 @@ vec3 mappedWorldNormal(vec2 uv,
                        sampler2D map,
                        float textureDetailLodBias,
                        float normalScale) {
-    float faceDirection = gl_FrontFacing ? 1.0 : -1.0;
+    float faceDirection = worldReflectionFrontFace(gl_FrontFacing) ? 1.0 : -1.0;
     vec3 normal = safeNormalize(sourceNormal, vec3(0.0, 1.0, 0.0)) * faceDirection;
     if (normalScale <= 0.0) return normal;
     vec3 texel = sampleWorldMaterialTexture(
@@ -178,7 +178,7 @@ vec3 mappedWorldNormal(vec2 uv,
         tangent = safeNormalize(tangent - normal * dot(normal, tangent), vec3(1.0, 0.0, 0.0));
         vec3 bitangent = safeNormalize(cross(normal, tangent), vec3(0.0, 0.0, 1.0)) *
                          (sourceTangent.w < 0.0 ? -1.0 : 1.0);
-        if (!gl_FrontFacing) {
+        if (!worldReflectionFrontFace(gl_FrontFacing)) {
             tangent = -tangent;
             bitangent = -bitangent;
         }
@@ -300,6 +300,7 @@ vec3 evaluateWorldMaterial(vec3 albedo,
     vec3 specularIbl =
         (environmentRadiance * singleScattering +
          multiScattering * cosineWeightedIrradiance) * 0.44;
+    specularIbl = worldPlanarSpecular(specularIbl, position, normal, view, reflectanceAtNormal, roughness);
     specularIbl *= clamp(specularIblScale, 0.0, 1.0);
     specularIbl *= computeSpecularOcclusion(normalDotView, occlusion, roughness);
     vec3 ambient = diffuseWeight * albedo * (ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb : vec3(0.56));
@@ -311,5 +312,5 @@ vec3 evaluateWorldMaterial(vec3 albedo,
         1.0) *
                     max(emissiveFactor, vec3(0.0));
 
-    return max(shaded + emissive, vec3(0.0));
+    return max(shaded + worldReflectionEmission(emissive), vec3(0.0));
 }

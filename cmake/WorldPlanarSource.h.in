@@ -1,0 +1,2 @@
+#pragma once
+inline constexpr const char* worldPlanarSource = R"PLANAR(@PHLOSION_PLANAR_SOURCE@)PLANAR";

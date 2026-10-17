@@ -357,6 +357,10 @@ void D3D12RenderBackend::drawWorldIndexedMeshCachedInternal(const CachedWorldMes
                                                             const float* viewProjectionMatrix4x4,
                                                             int surfaceWidth,
                                                             int surfaceHeight) {
+    if (worldPlanarReflection_[4][3]<0 && !worldShadowActive_) {
+        viewProjectionMatrix4x4=worldPlanarReflectionView_.viewProjection.data();
+        surfaceWidth=worldPlanarReflectionView_.width; surfaceHeight=worldPlanarReflectionView_.heightPixels;
+    }
     if (!recording_ || !viewProjectionMatrix4x4) return;
     if (!mesh.valid || !mesh.vertexBuffer || !mesh.indexBuffer || mesh.indexCount < 3u) return;
     if (surfaceWidth <= 0 || surfaceHeight <= 0) return;

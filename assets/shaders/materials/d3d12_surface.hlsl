@@ -84,6 +84,7 @@ float3 applyWorldLitModel(PSIn i,
   float3 specularIBL = envRadiance * singleScattering + multiScattering * cosineWeightedIrradiance;
   diffuseIBL *= __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
   specularIBL *= __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+  specularIBL = worldPlanarSpecular(specularIBL, i.worldPos, n, v, F0, roughness);
 #include "material/d3d12_surface_ibl.hlsl"
   diffuseIBL *= ao;
   float specularOcclusion = computeSpecularOcclusion(NdotV, ao, roughness);
@@ -98,5 +99,5 @@ float3 applyWorldLitModel(PSIn i,
       : float3(1.0f, 1.0f, 1.0f);
   float3 emissive = emissiveTex * max(emissiveFactor, float3(0.0f, 0.0f, 0.0f));
 #include "material/d3d12_surface_response.hlsl"
-  return max(shaded + emissive, float3(0.0f, 0.0f, 0.0f));
+  return max(shaded + worldReflectionEmission(emissive), float3(0.0f, 0.0f, 0.0f));
 }

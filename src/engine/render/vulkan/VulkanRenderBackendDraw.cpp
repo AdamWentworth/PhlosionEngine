@@ -38,6 +38,7 @@ bool VulkanRenderBackendImpl::bindWorldDescriptorSets(
     if (!worldShadowActive && texture && texture->environment.enabled && texture->directionalShadowReceiver)
         viewState.localShadows = worldLocalShadows_.uniforms;
     if (!worldShadowActive && texture && texture->environment.enabled) viewState.diffuseProbes = worldDiffuseProbes;
+    if (!worldShadowActive) viewState.planar=worldPlanarReflection;
     auto specializedMaterialState =
         engine::render::vulkan_backend::makeWorldSpecializedMaterialState(texture);
     if (worldMaterialDebugView > 0 && texture &&
@@ -371,6 +372,10 @@ void VulkanRenderBackendImpl::drawWorldIndexedMeshBuffers(
     int surfaceWidth,
     int surfaceHeight) {
     IRenderBackend::WorldTextureData shadowTexture;
+    if (worldPlanarReflection[4][3]<0 && !worldShadowActive) {
+        viewProjectionMatrix4x4=worldPlanarReflectionView.viewProjection.data();
+        surfaceWidth=worldPlanarReflectionView.width; surfaceHeight=worldPlanarReflectionView.heightPixels;
+    }
     if (worldShadowActive) {
         if (!engine::render::worldDirectionalShadowCaster(textureData)) return;
         viewProjectionMatrix4x4 = worldShadowView.viewProjection.data();

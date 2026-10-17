@@ -126,6 +126,7 @@ foreach(_shader IN LISTS PHLOSION_VULKAN_SHADER_SOURCES)
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_atmosphere.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_volume.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_lighting.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_planar.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_shadow.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
     elseif (_shader STREQUAL "world_indirect.vert")
@@ -139,6 +140,7 @@ foreach(_shader IN LISTS PHLOSION_VULKAN_SHADER_SOURCES)
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_atmosphere.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_volume.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_lighting.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_planar.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_shadow.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
     endif()
@@ -167,6 +169,7 @@ foreach(_shader IN ITEMS world world_indirect)
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_atmosphere.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_volume.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_lighting.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_planar.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_shadow.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
     if (_shader STREQUAL "world_indirect")
@@ -200,6 +203,7 @@ add_custom_command(OUTPUT "${_shadow_output}"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_atmosphere.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_volume.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_lighting.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_planar.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_shadow.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl"
     COMMENT "Compiling Phlosion Vulkan directional-shadow shader" VERBATIM)
@@ -1025,6 +1029,10 @@ if (PHLOSION_BUILD_TESTS)
     add_executable(PhlosionScreenFeedbackTests tests/TestScreenFeedback.cpp)
     target_link_libraries(PhlosionScreenFeedbackTests PRIVATE Phlosion::Render Phlosion::Platform)
     phlosion_apply_settings(PhlosionScreenFeedbackTests)
+    add_executable(PhlosionPlanarReflectionTests tests/TestPlanarReflection.cpp)
+    target_link_libraries(PhlosionPlanarReflectionTests PRIVATE Phlosion::Render Phlosion::Platform)
+    phlosion_apply_settings(PhlosionPlanarReflectionTests)
+    add_test(NAME PhlosionPlanarProjection COMMAND PhlosionPlanarReflectionTests)
     add_executable(PhlosionSceneRadianceTests tests/TestSceneRadiance.cpp)
     target_link_libraries(PhlosionSceneRadianceTests PRIVATE Phlosion::Render Phlosion::Platform)
     phlosion_apply_settings(PhlosionSceneRadianceTests)
@@ -1033,6 +1041,12 @@ if (PHLOSION_BUILD_TESTS)
         list(APPEND _feedback_test_apis d3d12)
     endif()
     foreach(api IN LISTS _feedback_test_apis)
+        foreach(mode on off offscreen reversed dry clipped occluded reset extent-change)
+            add_test(NAME PhlosionPlanarReflection-${api}-${mode} COMMAND PhlosionPlanarReflectionTests ${api} ${mode}
+                "${CMAKE_CURRENT_BINARY_DIR}/planar-reflection-tests/${api}-${mode}.png")
+            set_tests_properties(PhlosionPlanarReflection-${api}-${mode} PROPERTIES RUN_SERIAL TRUE TIMEOUT 180
+                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+        endforeach()
         foreach(mode ramp bloom feedback)
             add_test(NAME PhlosionSceneRadiance-${api}-${mode} COMMAND PhlosionSceneRadianceTests ${api} ${mode}
                 "${CMAKE_CURRENT_BINARY_DIR}/scene-radiance-tests/${api}-${mode}.png")
@@ -1258,6 +1272,9 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_atmosphere.glsl" PHLOSION_ATMOSPHERE_SOURCE)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WorldAtmosphereSource.h.in" "${CMAKE_CURRENT_BINARY_DIR}/generated/WorldAtmosphereSource.h" @ONLY)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_lighting.glsl")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_planar.glsl")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_planar.glsl" PHLOSION_PLANAR_SOURCE)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WorldPlanarSource.h.in" "${CMAKE_CURRENT_BINARY_DIR}/generated/WorldPlanarSource.h" @ONLY)
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_lighting.glsl" PHLOSION_LIGHTING_SOURCE)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WorldLightingSource.h.in" "${CMAKE_CURRENT_BINARY_DIR}/generated/WorldLightingSource.h" @ONLY)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_shadow.glsl")

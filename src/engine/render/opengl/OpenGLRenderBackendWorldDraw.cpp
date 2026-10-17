@@ -284,6 +284,10 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
                                                                const float* viewProjectionMatrix4x4,
                                                                int surfaceWidth,
                                                                int surfaceHeight) {
+    if (worldPlanarReflection_[4][3]<0 && !worldDirectionalShadowActive_) {
+        viewProjectionMatrix4x4=worldPlanarReflectionView_.viewProjection.data();
+        surfaceWidth=worldPlanarReflectionView_.width; surfaceHeight=worldPlanarReflectionView_.heightPixels;
+    }
     if (worldDirectionalShadowActive_) {
         if (!engine::render::worldDirectionalShadowCaster(texture)) return;
         viewProjectionMatrix4x4 = worldDirectionalShadowView_.viewProjection.data();
@@ -682,7 +686,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     GLint prevElementArrayBuffer = 0;
     GLint prevActiveTexture = 0;
     GLint prevTexture2DOnActive = 0;
-    GLint prevTexture2DOnUnit[10] = {};
+    GLint prevTexture2DOnUnit[11] = {};
     GLint prevUniformBuffer = 0;
     GLint prevWorldSkinBufferBinding = 0;
     GLboolean depthEnabled = GL_FALSE;
@@ -704,7 +708,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
         glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &prevElementArrayBuffer);
         glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActiveTexture);
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTexture2DOnActive);
-        for (int unit = 0; unit < 10; ++unit) {
+        for (int unit = 0; unit < 11; ++unit) {
             glActiveTexture(GL_TEXTURE0 + unit);
             glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTexture2DOnUnit[unit]);
         }
@@ -858,6 +862,10 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
         texture ? texture->environment : engine::render::WorldEnvironmentLighting{});
     glUniform4fv(worldUniformLocation(worldRectLightsLoc_), static_cast<GLsizei>(rectLights.size()), rectLights[0].data());
     glUniform1i(worldUniformLocation(worldRectLightLutLoc_), 9);
+    const auto planar = worldDirectionalShadowActive_ ? engine::render::WorldPlanarReflectionUniforms{} : worldPlanarReflection_;
+    glUniform4fv(worldUniformLocation(worldPlanarLoc_), 6, planar[0].data());
+    glUniform1i(worldUniformLocation(worldPlanarTextureLoc_), 10);
+    bindTextureUnit2D(10, worldPlanarTexture_);
     if (!worldDirectionalShadowActive_ && !worldVolumeActive_ && worldDiffuseProbesLoc_ >= 0 &&
         (!worldDiffuseProbesUploaded_ || lastWorldDiffuseProbes_ != worldDiffuseProbes_)) {
         glUniform4fv(worldDiffuseProbesLoc_, static_cast<GLsizei>(worldDiffuseProbes_.size()), worldDiffuseProbes_[0].data());
@@ -1060,7 +1068,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(prevArrayBuffer));
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLuint>(prevElementArrayBuffer));
             glUseProgram(static_cast<GLuint>(prevProgram));
-            for (int unit = 0; unit < 10; ++unit) {
+            for (int unit = 0; unit < 11; ++unit) {
                 glActiveTexture(GL_TEXTURE0 + unit);
                 glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(prevTexture2DOnUnit[unit]));
             }
@@ -1171,7 +1179,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             static_cast<GLuint>(prevWorldSkinBufferBinding));
         glUseProgram(static_cast<GLuint>(prevProgram));
 
-        for (int unit = 0; unit < 10; ++unit) {
+        for (int unit = 0; unit < 11; ++unit) {
             glActiveTexture(GL_TEXTURE0 + unit);
             glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(prevTexture2DOnUnit[unit]));
         }

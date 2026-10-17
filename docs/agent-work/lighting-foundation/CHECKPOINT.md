@@ -6,7 +6,29 @@ and normal-launch checks. Performance limitations remain below. Earlier phase
 notes are historical. Checkpoint commits were authorized on 2026-10-17; no
 numerical Cyberpunk parity is claimed.
 
-## Colored diffuse bounce — latest verified pass
+## Saved foundation and reflection follow-up
+
+The authorized foundation checkpoint is committed: engine `ef447b4` / `47a2cab`,
+PokemonModelSupport `e4039c9`, Autochess `eef446d1`, and PokemonCyberpunk
+`6fcfbb2` / `3dfe5a7`. Game dependency pins match those shared-source revisions.
+No pushes were requested or performed.
+
+The next visual pass adds live scene reflections on flat wet forecourt receivers.
+It is functionally verified in all three APIs and both hosts. Its matched heavy-rain
+GPU cost is +4.68/+3.58/+3.02ms (GL/Vulkan/D3D12), above the existing guide;
+performance optimization remains required. The redundant initial sky draw is
+removed, with all twelve final field/battle images preserved pixel-for-pixel.
+See [REFLECTIONS.md](REFLECTIONS.md) for its contract, native acceptance and cost.
+It is saved as the next authorized engine/game checkpoint; it does not change
+PokemonModelSupport, Autochess source, authored assets, rain or the six light
+strengths. Broader SSR/probe/RT coverage and emissive-sign reflections remain open.
+
+The next pass targets reflected-scene submission cost before expanding coverage.
+Preserve the current appearance, compare matched on/off timing, and retain the
+existing performance guides. The roughly 75% foundation estimate discussed with
+the user is qualitative feature coverage, not measured Cyberpunk image parity.
+
+## Colored diffuse bounce — previous verified pass
 
 The engine bakes one diffuse bounce from static glTF geometry into 32 directional
 irradiance probes beneath the canopy. Six independent unit-source bases are
@@ -53,9 +75,9 @@ startup evidence and game `artifacts/lighting-foundation/bounce/rtx2060` reports
 The preservation snapshot has 422 files: 387 unchanged, 35 intentional engine/game
 overlaps and 14 new files. Model-support and Autochess source are unchanged.
 Canonical Blender and private station.glb hashes remain unchanged. Binaries are
-rebuilt/staged and this work is checkpointed at the user's request. Next visual milestone: material-aware
-scene reflections, including off-screen fallback; the current wet highlights
-still represent light sources rather than reflected scene geometry.
+rebuilt/staged and this work is checkpointed at the user's request. At that
+checkpoint the wet highlights represented only light sources. The subsequent
+scene-reflection work is recorded above and in REFLECTIONS.md.
 
 ## Static shadow culling — previous accepted pass
 

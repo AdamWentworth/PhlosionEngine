@@ -78,6 +78,8 @@ void VulkanRenderBackend::beginWorldSceneColorPass(
         worldBloomStrength_=0;
         setWorldSceneRadianceExposure(0);
         setWorldDiffuseProbes({});
+        impl_->worldPlanarReflection={};
+        impl_->worldPlanarDescriptor=VK_NULL_HANDLE;
         impl_->worldBloomStrength=0;
     }
     if (impl_) impl_->beginWorldSceneColorPass(surfaceWidth, surfaceHeight);
@@ -89,6 +91,12 @@ void VulkanRenderBackend::endWorldSceneColorPass() {
 
 bool VulkanRenderBackend::clearWorldDepth() {
     return impl_ && impl_->clearWorldDepth();
+}
+bool VulkanRenderBackend::beginWorldPlanarReflection(const engine::render::WorldPlanarReflectionView& view) {
+    return impl_ && impl_->beginWorldPlanarReflection(view);
+}
+bool VulkanRenderBackend::endWorldPlanarReflection() {
+    return impl_ && impl_->endWorldPlanarReflection();
 }
 bool VulkanRenderBackend::captureWorldDepthSnapshot() {
     return impl_ && impl_->captureWorldDepthSnapshot();

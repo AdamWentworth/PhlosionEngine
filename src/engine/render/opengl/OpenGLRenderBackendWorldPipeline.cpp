@@ -526,6 +526,11 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
 #define ENV_WEATHER_MATERIAL uWeatherMaterial
 #define ENV_LUT(uv) textureLod(uTexture, uv, 0.0).rgb
 __PHLOSION_ENVIRONMENT_SHADER__
+uniform vec4 uWorldPlanar[6];
+uniform sampler2D uWorldPlanarTexture;
+#define PLANAR(index) uWorldPlanar[index]
+#define PLANAR_SAMPLE(uv) textureLod(uWorldPlanarTexture,uv,0.0)
+__PHLOSION_WORLD_PLANAR_SHADER__
 uniform vec4 uWorldPointLights[8];
 uniform vec4 uWorldRectLights[64];
         uniform vec4 uWorldDiffuseProbes[483];
@@ -551,6 +556,7 @@ __PHLOSION_WORLD_SHADOW_SHADER__
 __PHLOSION_WORLD_VOLUME_SHADER__
 __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
         void main() {
+            worldReflectionClip(vWorldPos,uMaterialMode);
 #ifdef PHLOSION_VOLUME_ONLY
             FragColor = worldVolumeColor(vec3(vSourceUv1,vSourceUv2.x),vSourceUv2.y,uMaterialTimeSec,
                 vColor*uVertexColorMul,vUv.x);
@@ -762,7 +768,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             float sourceNormalScale) {
             // Keep OpenGL tangent-space face handling tied to native front-face
             // classification for stable normal-map response.
-            bool isFrontFace = gl_FrontFacing;
+            bool isFrontFace = worldReflectionFrontFace(gl_FrontFacing);
             float faceDirection = isFrontFace ? 1.0 : -1.0;
             vec3 n = normalize(vWorldNormal);
             if (dot(n, n) < 1e-6) {
@@ -890,6 +896,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 specularIBL = envRadiance * singleScattering + multiScattering * cosineWeightedIrradiance;
             diffuseIBL *= __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
             specularIBL *= __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
+            specularIBL = worldPlanarSpecular(specularIBL, vWorldPos, n, v, F0, roughness);
             diffuseIBL *= ao;
             float specularOcclusion = computeSpecularOcclusion(NdotV, ao, roughness);
             specularIBL *= specularOcclusion;
@@ -908,7 +915,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
                 1.0);
             vec3 emissive = emissiveTex * max(uEmissiveFactor, vec3(0.0));
 
-            return max(shaded + emissive, vec3(0.0));
+            return max(shaded + worldReflectionEmission(emissive), vec3(0.0));
         }
 
         vec3 applyCharacterInking(vec3 linearColor, vec3 n) {
@@ -937,7 +944,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
         R"GLSL(
             FragBlendAlpha = vec4(0.0);
             if (uMaterialMode > 2.5 && uMaterialMode < 3.5) {
-                if (gl_FrontFacing) discard;
+                if (worldReflectionFrontFace(gl_FrontFacing)) discard;
                 FragColor = vec4(0.0, 0.0, 0.0, 1.0);
                 return;
             }
@@ -1183,6 +1190,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
         glGetUniformLocation(worldProgram_, "uLightProjectionUvRowV");
     worldPointLightsLoc_ = glGetUniformLocation(worldProgram_, "uWorldPointLights[0]");
     worldRectLightsLoc_ = glGetUniformLocation(worldProgram_, "uWorldRectLights[0]");
+    worldPlanarLoc_ = glGetUniformLocation(worldProgram_, "uWorldPlanar[0]");
+    worldPlanarTextureLoc_ = glGetUniformLocation(worldProgram_, "uWorldPlanarTexture");
     worldDiffuseProbesLoc_ = glGetUniformLocation(worldProgram_, "uWorldDiffuseProbes[0]");
     worldDiffuseProbesUploaded_ = false;
     worldRectLightLutLoc_ = glGetUniformLocation(worldProgram_, "uRectLightLut");

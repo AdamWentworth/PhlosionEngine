@@ -7,6 +7,7 @@
 #include "engine/render/RenderBackendTypes.h"
 #include "engine/render/IWorldLocalShadow.h"
 #include "engine/render/WorldDiffuseProbes.h"
+#include "engine/render/IWorldPlanarReflection.h"
 
 namespace engine::render::vulkan_backend {
 
@@ -21,10 +22,11 @@ struct alignas(16) WorldViewState {
     std::array<float,4> shadowAtlasUv{0,0,1,1};
     engine::render::WorldLocalShadowUniforms localShadows{};
     engine::render::WorldDiffuseProbeUniforms diffuseProbes{};
+    engine::render::WorldPlanarReflectionUniforms planar{};
 };
 
 static_assert(std::is_standard_layout_v<WorldViewState>);
-static_assert(sizeof(WorldViewState) == 3136u + sizeof(engine::render::WorldDiffuseProbeUniforms));
+static_assert(sizeof(WorldViewState) == 3232u + sizeof(engine::render::WorldDiffuseProbeUniforms));
 static_assert(offsetof(WorldViewState, cameraPosition) == 0u);
 static_assert(offsetof(WorldViewState, cameraForward) == 16u);
 static_assert(offsetof(WorldViewState, cameraTarget) == 32u);

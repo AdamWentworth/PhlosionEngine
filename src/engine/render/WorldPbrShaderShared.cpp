@@ -2,6 +2,7 @@
 
 #include "WorldAtmosphereSource.h"
 #include "WorldLightingSource.h"
+#include "WorldPlanarSource.h"
 #include "WorldShadowSource.h"
 #include "WorldVolumeSource.h"
 #include <iomanip>
@@ -533,6 +534,14 @@ std::string injectSharedWorldPbr(std::string_view source, ShaderLanguage languag
         replaceAll(atmosphere, "for (int index", "[loop] for (int index");
     }
     replaceAll(out, "__PHLOSION_ENVIRONMENT_SHADER__", atmosphere);
+    std::string planar(worldPlanarSource);
+    if (hlslLiterals) {
+        replaceAll(planar, "vec4", "float4");
+        replaceAll(planar, "vec3", "float3");
+        replaceAll(planar, "vec2", "float2");
+        replaceAll(planar, "mix(", "lerp(");
+    }
+    replaceAll(out, "__PHLOSION_WORLD_PLANAR_SHADER__", planar);
     std::string lighting(worldLightingSource);
     if (hlslLiterals) {
         replaceAll(lighting, "vec4", "float4");

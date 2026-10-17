@@ -390,6 +390,7 @@ void VulkanRenderBackendImpl::initialize(SDL_Window* sdlWindow,
                 vkUpdateDescriptorSets(device,1,&write,0,nullptr);
             }
         }
+        worldPlanarFallback=createPlanarDescriptor(fallbackWorldLinearTexture);
         updateWorldShadowDescriptors();
         createEnvironmentResources();
         fallbackWorldMaterial = createWorldMaterial(
@@ -769,9 +770,10 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
     texturedPushRange.size = static_cast<std::uint32_t>(sizeof(WorldPushConstants));
     VkPipelineLayoutCreateInfo texturedLayoutInfo{
         VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    const std::array<VkDescriptorSetLayout, 2> texturedSetLayouts{
+    const std::array<VkDescriptorSetLayout, 3> texturedSetLayouts{
         textureSetLayout,
         worldStateSetLayout,
+        worldSceneColorSetLayout,
     };
     texturedLayoutInfo.setLayoutCount = static_cast<std::uint32_t>(texturedSetLayouts.size());
     texturedLayoutInfo.pSetLayouts = texturedSetLayouts.data();
@@ -825,9 +827,10 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
               "vkCreateSampler(world scene color)");
 
     if (descriptorIndexingSupported) {
-        const std::array<VkDescriptorSetLayout, 2> indirectSetLayouts{
+        const std::array<VkDescriptorSetLayout, 3> indirectSetLayouts{
             indexedWorldMaterialSetLayout,
             worldStateSetLayout,
+            worldSceneColorSetLayout,
         };
         VkPushConstantRange indirectPushRange{};
         indirectPushRange.stageFlags =

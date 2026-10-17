@@ -39,6 +39,7 @@ layout(set = 1, binding = 0) uniform WorldViewState {
     vec4 shadowAtlasUv;
     vec4 localShadows[96];
     vec4 diffuseProbes[483];
+    vec4 planar[6];
 } worldView;
 layout(set = 1, binding = 6) uniform sampler2D directionalShadowTexture;
 layout(set = 1, binding = 7) uniform sampler2D rectLightLut;
@@ -98,6 +99,10 @@ layout(location = 0) out vec4 outColor;
 #define ENV_WEATHER_MATERIAL worldView.weatherMaterial
 #define ENV_LUT(uv) textureLod(baseColorTexture, uv, 0.0).rgb
 #include "world_atmosphere.glsl"
+layout(set = 2, binding = 0) uniform sampler2D worldPlanarTexture;
+#define PLANAR(index) worldView.planar[index]
+#define PLANAR_SAMPLE(uv) textureLod(worldPlanarTexture,uv,0.0)
+#include "world_planar.glsl"
 #if defined(PHLOSION_WORLD_DIRECTIONAL_SHADOW_PASS)
 #define ENV_POINT(index) vec4(0.0)
 #else
@@ -184,6 +189,7 @@ vec3 encodeWorldSurfaceColor(vec3 linearColor) {
 
 layout(constant_id = 0) const bool worldVolumeOnly = false;
 void main() {
+    worldReflectionClip(worldPosition,pushData.materialParams.w);
     if (worldVolumeOnly || pushData.materialParams.w == 249.0) {
         writeWorldColor(worldVolumeColor(vec3(vertexSourceUv1,vertexSourceUv2.x),vertexSourceUv2.y,
             worldSpecializedMaterial.timingFlagsAtlas.x,vertexColor,vertexUv.x));
@@ -212,7 +218,7 @@ void main() {
     float materialMode = pushData.materialParams.w;
 
     if (materialMode > 2.5 && materialMode < 3.5) {
-        if (gl_FrontFacing) discard;
+        if (worldReflectionFrontFace(gl_FrontFacing)) discard;
         writeWorldColor(vec4(0.0, 0.0, 0.0, 1.0));
         return;
     }

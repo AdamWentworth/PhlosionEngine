@@ -188,7 +188,42 @@ bool OpenGLRenderBackend::captureWorldDepthSnapshot() {
     return complete;
 }
 
+bool OpenGLRenderBackend::beginWorldPlanarReflection(const engine::render::WorldPlanarReflectionView& view) {
+    if (!worldSceneColorPassActive_ || worldDirectionalShadowActive_ || worldPlanarReflection_[4][3] < 0 ||
+        view.width <= 0 || view.heightPixels <= 0 || view.width > worldSceneColorWidth_ || view.heightPixels > worldSceneColorHeight_)
+        return false;
+    worldPlanarReflectionView_=view;
+    worldPlanarReflection_=engine::render::packWorldPlanarReflection(view);
+    glDisable(GL_SCISSOR_TEST); glDepthMask(GL_TRUE);
+    glClearColor(0,0,0,1); glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+    return true;
+}
+
+bool OpenGLRenderBackend::endWorldPlanarReflection() {
+    if (!worldSceneColorPassActive_ || worldPlanarReflection_[4][3] >= 0) return false;
+    const auto& view=worldPlanarReflectionView_;
+    GLint bound=0; glGetIntegerv(GL_TEXTURE_BINDING_2D,&bound);
+    if (!worldPlanarTexture_) glGenTextures(1,&worldPlanarTexture_);
+    glBindTexture(GL_TEXTURE_2D,worldPlanarTexture_);
+    if (worldPlanarWidth_!=view.width || worldPlanarHeight_!=view.heightPixels) {
+        glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA16F,view.width,view.heightPixels,0,GL_RGBA,GL_HALF_FLOAT,nullptr);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+        worldPlanarWidth_=view.width; worldPlanarHeight_=view.heightPixels;
+    }
+    glCopyTexSubImage2D(GL_TEXTURE_2D,0,0,0,0,0,view.width,view.heightPixels);
+    glBindTexture(GL_TEXTURE_2D,static_cast<GLuint>(bound));
+    glDisable(GL_SCISSOR_TEST); glDepthMask(GL_TRUE);
+    glClearColor(0,0,0,1); glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+    worldPlanarReflection_[4][3]=1;
+    return true;
+}
+
 void OpenGLRenderBackend::destroyWorldSceneColorResources() {
+    if (worldPlanarTexture_) glDeleteTextures(1, &worldPlanarTexture_);
+    worldPlanarTexture_=0; worldPlanarWidth_=worldPlanarHeight_=0; worldPlanarReflection_={};
     if (worldDepthSnapshotFbo_) glDeleteFramebuffers(1, &worldDepthSnapshotFbo_);
     if (worldDepthSnapshotTexture_) glDeleteTextures(1, &worldDepthSnapshotTexture_);
     worldDepthSnapshotFbo_ = worldDepthSnapshotTexture_ = 0;
@@ -223,6 +258,7 @@ void OpenGLRenderBackend::beginWorldSceneColorPass(
     worldBloomStrength_=0;
     worldSceneRadianceExposure_=0;
     worldDiffuseProbes_={};
+    worldPlanarReflection_={};
 
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &worldSceneColorPrevDrawFbo_);
     glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &worldSceneColorPrevReadFbo_);

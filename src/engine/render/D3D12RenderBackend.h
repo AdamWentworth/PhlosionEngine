@@ -11,6 +11,7 @@
 #include "engine/render/IWorldBloom.h"
 #include "engine/render/IWorldSceneRadiance.h"
 #include "engine/render/WorldDiffuseProbes.h"
+#include "engine/render/IWorldPlanarReflection.h"
 #include "engine/render/IWorldDirectionalShadow.h"
 #include "engine/render/IWorldLocalShadow.h"
 #include "engine/render/WorldResourceScopeState.h"
@@ -39,10 +40,12 @@ struct ID3D12Resource;
 struct ID3D12RootSignature;
 #endif
 
-class D3D12RenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow, public IWorldLocalShadow, public engine::render::IWorldBloom, public engine::render::IWorldSceneRadiance, public engine::render::IWorldDiffuseProbes {
+class D3D12RenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow, public IWorldLocalShadow, public engine::render::IWorldBloom, public engine::render::IWorldSceneRadiance, public engine::render::IWorldDiffuseProbes, public engine::render::IWorldPlanarReflection {
 public:
   bool clearWorldDepth() override;
-  bool captureWorldDepthSnapshot() override;
+  bool beginWorldPlanarReflection(const engine::render::WorldPlanarReflectionView&) override;
+    bool endWorldPlanarReflection() override;
+    bool captureWorldDepthSnapshot() override;
     void prewarmWorldLocalShadows() override;
     void clearWorldLocalShadows() override;
     bool beginWorldLocalShadow(std::uint32_t index, const engine::render::WorldDirectionalShadowView& view) override;
@@ -626,6 +629,7 @@ private:
     std::uint8_t* spriteVertexMappedData_ = nullptr;
     std::unordered_map<std::string, SpriteTexture> spriteTextures_;
     std::unordered_map<std::string, SpriteTexture> worldTextures_;
+    std::uint32_t worldPlanarDescriptor_ = 0xffffffffu;
     std::uint32_t worldDepthSnapshotDescriptor_ = 0xffffffffu;
     std::unordered_map<WorldMaterialDescriptorBlockKey,
                        std::uint32_t,
