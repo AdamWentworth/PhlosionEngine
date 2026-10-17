@@ -6,7 +6,34 @@ and normal-launch checks. Performance limitations remain below. Earlier phase
 notes are historical. Checkpoint commits were authorized on 2026-10-17; no
 numerical Cyberpunk parity is claimed.
 
-## Current follow-up: reflected emission and roughness
+## Current follow-up: frame cost
+
+Starting from engine fa7ae72 / game 45f42ca, the lighting shader checks local
+shadow visibility before LTC integration on Vulkan/D3D12 and skips only exactly
+zero contributions. OpenGL retains its previous ordering after an inconsistent
+trial. Light strengths, shadow quality, scene content and material ABI are unchanged.
+Game tracing now separates field/battle reflection host work; it remains opt-in.
+
+Matched heavy-wet-night 1080p images are pixel-identical on all three APIs. Final
+GPU control/candidate medians are 38.301/37.909ms GL, 24.154/22.264ms Vulkan and
+20.257/19.893ms D3D12. GL's small difference is variation, not an optimization
+claim. Earlier Vulkan savings were smaller; D3D12's final saving is .364ms (1.8%).
+Host tails and repeated shadow/submission costs remain substantial. This is not
+60 FPS qualification or a new numerical Cyberpunk parity claim.
+
+55 engine checks, five game contracts and all 36 public reflection-image equality
+checks pass. All 27 field/battle/control/signage images exactly preserve the prior
+checkpoint, and all twelve native shadow probes pass. Normal launch and shared
+runtime/editor material checks pass; all twelve shared images preserve the prior
+checkpoint exactly. Both editor build directories and staged game/model plugins
+are current. Source Blender/GLB hashes and 120s daylight / 180s Hybrid weather
+defaults are unchanged; ModelSupport and Autochess source remain untouched.
+The small optimization is accepted and saved as the next engine/game checkpoint.
+See [FRAME_COST.md](FRAME_COST.md)
+and each repository's `artifacts/lighting-foundation/frame-cost` for the exact
+inputs, rejected/outlier evidence, raw timing and final verification status.
+
+## Previous follow-up: reflected emission and roughness
 
 The `reflection-quality` follow-up retains sign/screen emission in planar captures,
 with game-owned capture overrides suppressing only the six analytic canopy

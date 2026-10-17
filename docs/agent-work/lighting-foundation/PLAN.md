@@ -100,3 +100,17 @@ spread and unchanged main-view signs, then the station/battle API-host matrix,
 wet/dry/day/source-off/oblique controls, shared character checks and GPU timings.
 Evidence goes under `artifacts/lighting-foundation/reflection-quality` in each
 affected repository; the earlier reflection captures remain the baseline.
+
+## Frame-cost follow-up
+
+Authorized after engine fa7ae72 / game 45f42ca. Measure matched feature-off
+controls and host scopes before choosing an optimization. Preserve source assets,
+light strengths, weather, shadows, bounce, reflections and main camera. The first
+candidate checks local-shadow visibility before expensive area-light integration,
+skipping only contributions with exactly zero visibility. Retain it only after
+native equality/content checks and repeated warm timing establish a benefit.
+All three APIs and shared material consumers remain required; no threshold changes.
+Evidence: engine/game `artifacts/lighting-foundation/frame-cost`.
+The retained candidate enables the early check on Vulkan/D3D12 and preserves
+OpenGL's original ordering after an inconsistent GL trial. `FRAME_COST.md` records
+both the slow trial and repeat, matched images, cost breakdown and acceptance.

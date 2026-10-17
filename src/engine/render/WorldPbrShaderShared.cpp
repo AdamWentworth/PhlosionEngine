@@ -550,6 +550,9 @@ std::string injectSharedWorldPbr(std::string_view source, ShaderLanguage languag
         replaceAll(lighting, "mix(", "lerp(");
         // Keep the four-slot HLSL lighting loop explicit in specialized shaders.
         replaceAll(lighting, "for (int index", "[loop] for (int index");
+    } else {
+        // Early visibility had unstable NVIDIA OpenGL timing; keep its original LTC ordering.
+        lighting.insert(0, "#define PHLOSION_EARLY_LOCAL_SHADOW 0\n");
     }
     replaceAll(out, "__PHLOSION_WORLD_LIGHTING_SHADER__", lighting);
     std::string shadow(worldShadowSource);

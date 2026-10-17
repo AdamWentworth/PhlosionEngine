@@ -1,5 +1,8 @@
 // LTC edge integral adapted from Heitz, Dupuy, Hill and Neubelt (SIGGRAPH 2016).
 // Attribution and redistribution terms: third_party/ltc/LICENSE.
+#ifndef PHLOSION_EARLY_LOCAL_SHADOW
+#define PHLOSION_EARLY_LOCAL_SHADOW 1
+#endif
 float environmentLocalShadowVisibility(int index, vec3 position, vec3 normal);
 
 // Static one-bounce irradiance, relit from live sources. No direct emitter term.
@@ -140,8 +143,15 @@ vec3 environmentLocalDiffuse(vec3 position, vec3 normal, vec3 view, vec3 albedo)
     vec3 tangent=rectTangent(normal,view);
     for (int index=0;index<16;++index) {
         vec3 delta,u,v,radiance;
+#if PHLOSION_EARLY_LOCAL_SHADOW
+        if (!environmentRectSample(index,position,delta,u,v,radiance)) continue;
+        float visibility=environmentLocalShadowVisibility(index,position,normal);
+        if (visibility<=0.0) continue;
+        result+=albedo*radiance*rectIntegral(delta,u,v,normal,tangent,vec4(1.0,0.0,0.0,1.0))*visibility;
+#else
         if (environmentRectSample(index,position,delta,u,v,radiance))
             result+=albedo*radiance*rectIntegral(delta,u,v,normal,tangent,vec4(1.0,0.0,0.0,1.0))*environmentLocalShadowVisibility(index,position,normal);
+#endif
     }
     return result+albedo*environmentDiffuseProbeIrradiance(position,normal)/3.14159265;
 }
@@ -183,10 +193,18 @@ vec3 environmentLocalPbr(vec3 position, vec3 normal, vec3 view,
     for (int index=0;index<16;++index) {
         vec3 delta,u,v,radiance;
         if (!environmentRectSample(index,position,delta,u,v,radiance)) continue;
+#if PHLOSION_EARLY_LOCAL_SHADOW
+        float visibility=environmentLocalShadowVisibility(index,position,normal);
+        if (visibility<=0.0) continue;
+#endif
         float diffuse=rectIntegral(delta,u,v,normal,tangent,vec4(1.0,0.0,0.0,1.0));
         float specular=rectIntegral(delta,u,v,normal,tangent,ltc);
         vec3 fresnel=f0*amplitude.x+(vec3(1.0,1.0,1.0)-f0)*amplitude.y;
+#if PHLOSION_EARLY_LOCAL_SHADOW
+        result+=radiance*((vec3(1.0,1.0,1.0)-f0)*(1.0-metallic)*albedo*diffuse+fresnel*specular)*visibility;
+#else
         result+=radiance*((vec3(1.0,1.0,1.0)-f0)*(1.0-metallic)*albedo*diffuse+fresnel*specular)*environmentLocalShadowVisibility(index,position,normal);
+#endif
     }
     return result+(vec3(1.0,1.0,1.0)-f0)*(1.0-metallic)*albedo*
         environmentDiffuseProbeIrradiance(position,normal)/3.14159265;
