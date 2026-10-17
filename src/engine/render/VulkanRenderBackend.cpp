@@ -61,11 +61,23 @@ bool VulkanRenderBackend::beginScreenshotCaptureSequence() {
     return true;
 }
 
+void VulkanRenderBackend::setWorldDiffuseProbes(const engine::render::WorldDiffuseProbeUniforms& value) {
+    IWorldDiffuseProbes::setWorldDiffuseProbes(value);
+    if (impl_) impl_->worldDiffuseProbes = value;
+}
+
+void VulkanRenderBackend::setWorldSceneRadianceExposure(float exposure) {
+    IWorldSceneRadiance::setWorldSceneRadianceExposure(exposure);
+    if (impl_) impl_->worldSceneRadianceExposure = exposure;
+}
+
 void VulkanRenderBackend::beginWorldSceneColorPass(
     int surfaceWidth,
     int surfaceHeight) {
     if (impl_ && !impl_->worldSceneColorPassActive) {
         worldBloomStrength_=0;
+        setWorldSceneRadianceExposure(0);
+        setWorldDiffuseProbes({});
         impl_->worldBloomStrength=0;
     }
     if (impl_) impl_->beginWorldSceneColorPass(surfaceWidth, surfaceHeight);

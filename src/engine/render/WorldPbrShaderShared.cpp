@@ -36,10 +36,12 @@ std::string_view sharedWorldPbrSectionGlsl() {
         }
 
         vec3 linearToneMapping(vec3 color, float toneMappingExposure) {
+    if (WORLD_SCENE_RADIANCE) return color;
             return clamp(toneMappingExposure * color, 0.0, 1.0);
         }
 
         vec3 tonemapACESFilmic(vec3 color, float toneMappingExposure) {
+    if (WORLD_SCENE_RADIANCE) return color;
             const mat3 ACESInputMat = mat3(
                 vec3(0.59719, 0.07600, 0.02840),
                 vec3(0.35458, 0.90834, 0.13383),
@@ -259,6 +261,7 @@ float3 rrtAndOdtFit(float3 v) {
 }
 
 float3 linearToneMapping(float3 color, float toneMappingExposure) {
+    if (WORLD_SCENE_RADIANCE) return color;
   return clamp(
       toneMappingExposure * color,
       float3(0.0f, 0.0f, 0.0f),
@@ -280,6 +283,7 @@ float3 acesOutputMul(float3 c) {
 }
 
 float3 tonemapACESFilmic(float3 color, float toneMappingExposure) {
+    if (WORLD_SCENE_RADIANCE) return color;
   color *= toneMappingExposure / 0.6f;
   color = acesInputMul(color);
   color = rrtAndOdtFit(color);
@@ -534,6 +538,7 @@ std::string injectSharedWorldPbr(std::string_view source, ShaderLanguage languag
         replaceAll(lighting, "vec4", "float4");
         replaceAll(lighting, "vec3", "float3");
         replaceAll(lighting, "vec2", "float2");
+        replaceAll(lighting, "mix(", "lerp(");
         // Keep the four-slot HLSL lighting loop explicit in specialized shaders.
         replaceAll(lighting, "for (int index", "[loop] for (int index");
     }

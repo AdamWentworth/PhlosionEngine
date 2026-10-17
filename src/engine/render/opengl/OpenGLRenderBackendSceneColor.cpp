@@ -29,6 +29,8 @@ constexpr const char* kSceneColorFragmentShader = R"GLSL(
     uniform sampler2D uLinearSceneColor;
     out vec4 FragColor;
     uniform float uBloomStrength;
+    uniform float uSceneExposure;
+    #define SCENE_EXPOSURE uSceneExposure
     #define SCENE_SIZE vec2(textureSize(uLinearSceneColor,0))
     #define SCENE_SAMPLE(uv) textureLod(uLinearSceneColor,uv,0.0)
     __PHLOSION_SCENE_BLOOM__
@@ -43,10 +45,10 @@ constexpr const char* kSceneColorFragmentShader = R"GLSL(
 
     void main() {
         vec4 scene = texture(uLinearSceneColor, vUv);
-        scene.rgb=sceneBloom(vUv,scene.rgb,uBloomStrength);
+        scene.rgb=sceneDisplayMap(sceneBloom(vUv,scene.rgb,uBloomStrength));
         // This is a completed view with its background already composited.
         // Material alpha must not fade the whole view again in the editor UI.
-        FragColor = vec4(linearToSrgb(scene.rgb), 1.0);
+        FragColor = vec4(sceneDitherDisplay(linearToSrgb(scene.rgb),vUv), 1.0);
     }
 )GLSL";
 
@@ -113,16 +115,16 @@ bool OpenGLRenderBackend::ensureWorldSceneColorResources(int width, int height) 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    // The captured pre-gamma target is a four-byte-per-pixel UNORM image.
+    // Preserve world radiance until the completed view is mapped to display.
     glTexImage2D(
         GL_TEXTURE_2D,
         0,
-        GL_RGBA8,
+        GL_RGBA16F,
         width,
         height,
         0,
         GL_RGBA,
-        GL_UNSIGNED_BYTE,
+        GL_HALF_FLOAT,
         nullptr);
 
     glBindRenderbuffer(GL_RENDERBUFFER, worldSceneDepthRenderbuffer_);
@@ -219,6 +221,8 @@ void OpenGLRenderBackend::beginWorldSceneColorPass(
     int surfaceHeight) {
     if (worldSceneColorPassActive_) return;
     worldBloomStrength_=0;
+    worldSceneRadianceExposure_=0;
+    worldDiffuseProbes_={};
 
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &worldSceneColorPrevDrawFbo_);
     glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &worldSceneColorPrevReadFbo_);
@@ -300,6 +304,7 @@ void OpenGLRenderBackend::endWorldSceneColorPass() {
     glBindTexture(GL_TEXTURE_2D, worldSceneColorTexture_);
     glUniform1i(worldSceneColorPostSamplerLoc_, 0);
     glUniform1f(worldSceneBloomLoc_,worldBloomStrength_);
+    glUniform1f(glGetUniformLocation(worldSceneColorPostProgram_,"uSceneExposure"),worldSceneRadianceExposure_);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     ++frameDrawCalls_;
     ++frameTriangles_;
@@ -362,7 +367,7 @@ void OpenGLRenderBackend::endWorldSceneColorPass(const engine::render::ScreenFee
         glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);glDisable(GL_STENCIL_TEST);
         if(!feedbackProgram_) {
             const auto vs=opengl_backend_shader_utils::compileShader(GL_VERTEX_SHADER,screenFeedbackGlVs);
-            const auto fs=opengl_backend_shader_utils::compileShader(GL_FRAGMENT_SHADER,screenFeedbackGlFs);
+            const auto fs=opengl_backend_shader_utils::compileShader(GL_FRAGMENT_SHADER,injectSceneBloom(screenFeedbackGlFs).c_str());
             if(vs && fs) feedbackProgram_=opengl_backend_shader_utils::linkProgram(vs,fs);
             if(vs)glDeleteShader(vs);if(fs)glDeleteShader(fs);
             if(!feedbackProgram_)throw std::runtime_error("Could not compile screen feedback shaders");
@@ -383,6 +388,7 @@ void OpenGLRenderBackend::endWorldSceneColorPass(const engine::render::ScreenFee
         } else if(feedbackSequence_!=frame.sequence) throw std::runtime_error("Screen feedback must be seeded before playback");
         glDisable(GL_DEPTH_TEST);glDisable(GL_BLEND);glDisable(GL_SCISSOR_TEST);glDisable(GL_FRAMEBUFFER_SRGB);glDisable(GL_CULL_FACE);
         glUseProgram(feedbackProgram_);glBindVertexArray(feedbackVao_);
+        glUniform4f(glGetUniformLocation(feedbackProgram_,"scenePost"),worldBloomStrength_,worldSceneRadianceExposure_,0,0);
         glUniform1i(glGetUniformLocation(feedbackProgram_,"sceneImage"),0);
         glUniform1i(glGetUniformLocation(feedbackProgram_,"historyImage"),1);
         glUniform1i(glGetUniformLocation(feedbackProgram_,"maskImage"),2);

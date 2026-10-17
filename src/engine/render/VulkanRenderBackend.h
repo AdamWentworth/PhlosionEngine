@@ -10,16 +10,23 @@
 #include "engine/render/IRenderBackend.h"
 #include "engine/render/IWorldDepthControl.h"
 #include "engine/render/IWorldBloom.h"
+#include "engine/render/IWorldSceneRadiance.h"
+#include "engine/render/WorldDiffuseProbes.h"
 #include "engine/render/IWorldDirectionalShadow.h"
+#include "engine/render/IWorldLocalShadow.h"
 #include "engine/render/WorldResourceScopeState.h"
 
 struct SDL_Window;
 struct VulkanRenderBackendImpl;
 
-class VulkanRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow, public engine::render::IWorldBloom {
+class VulkanRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow, public IWorldLocalShadow, public engine::render::IWorldBloom, public engine::render::IWorldSceneRadiance, public engine::render::IWorldDiffuseProbes {
 public:
     bool clearWorldDepth() override;
   bool captureWorldDepthSnapshot() override;
+    void prewarmWorldLocalShadows() override;
+    void clearWorldLocalShadows() override;
+    bool beginWorldLocalShadow(std::uint32_t index, const engine::render::WorldDirectionalShadowView& view) override;
+    bool endWorldLocalShadow() override;
     void prewarmWorldDirectionalShadow(std::uint32_t resolution) override;
     bool beginWorldDirectionalShadow(const engine::render::WorldDirectionalShadowView& view) override;
     bool endWorldDirectionalShadow() override;
@@ -77,6 +84,8 @@ public:
     bool supportsWorldIndexedMeshInstancing() const override { return true; }
     bool supportsWorldSceneFastPath() const override;
     bool getWorldSceneFastPathCaps(WorldSceneFastPathCaps& outCaps) const override;
+    void setWorldSceneRadianceExposure(float exposure) override;
+    void setWorldDiffuseProbes(const engine::render::WorldDiffuseProbeUniforms&) override;
     void beginWorldSceneColorPass(int surfaceWidth, int surfaceHeight) override;
     void endWorldSceneColorPass() override;
     void endWorldSceneColorPass(const engine::render::ScreenFeedbackFrame&) override;

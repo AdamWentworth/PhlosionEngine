@@ -115,7 +115,8 @@ foreach(_shader IN LISTS PHLOSION_VULKAN_SHADER_SOURCES)
     set(_output "${PHLOSION_VULKAN_SHADER_OUTPUT_DIR}/${_shader}.spv")
     set(_shader_dependencies "${_source}")
     if (_shader STREQUAL "screen_feedback.frag")
-        list(APPEND _shader_dependencies "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/screen_feedback_common.glsl")
+        list(APPEND _shader_dependencies "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/screen_feedback_common.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/scene_bloom.glsl")
     elseif (_shader STREQUAL "scene_color.frag")
         list(APPEND _shader_dependencies "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/scene_bloom.glsl")
     elseif (_shader STREQUAL "world.frag")
@@ -404,6 +405,8 @@ add_library(engine_render STATIC
     src/engine/render/ModelCache.cpp
     src/engine/render/RendererParityContract.cpp
     src/engine/render/WorldPbrShaderShared.cpp
+    src/engine/render/WorldDiffuseProbes.cpp
+    src/engine/render/gltf/GltfDiffuseProbeBake.cpp
     src/engine/render/AtmosphereSky.cpp
     src/engine/render/RainVolume.cpp
     src/engine/render/WorldMaterialProfile.cpp
@@ -616,6 +619,14 @@ set_target_properties(PhlosionModelRuntime PhlosionModelPreviewPlugin PROPERTIES
 
 if (PHLOSION_BUILD_TESTS)
     add_executable(PhlosionModelInstanceTests tests/TestModelInstance.cpp)
+    add_executable(PhlosionDiffuseProbeTests tests/TestDiffuseProbes.cpp)
+    target_link_libraries(PhlosionDiffuseProbeTests PRIVATE Engine)
+    phlosion_apply_settings(PhlosionDiffuseProbeTests)
+    add_test(NAME PhlosionDiffuseProbes COMMAND PhlosionDiffuseProbeTests)
+    add_executable(PhlosionVulkanPipelineCacheTests tests/TestVulkanPipelineCache.cpp)
+    target_link_libraries(PhlosionVulkanPipelineCacheTests PRIVATE Engine Vulkan::Vulkan)
+    phlosion_apply_settings(PhlosionVulkanPipelineCacheTests)
+    add_test(NAME PhlosionVulkanPipelineCache COMMAND PhlosionVulkanPipelineCacheTests)
     add_executable(PhlosionRainVolumeTests tests/TestRainVolume.cpp)
     target_link_libraries(PhlosionRainVolumeTests PRIVATE Engine)
     phlosion_apply_settings(PhlosionRainVolumeTests)
@@ -624,6 +635,10 @@ if (PHLOSION_BUILD_TESTS)
     target_link_libraries(PhlosionRainImpactsTests PRIVATE Engine)
     phlosion_apply_settings(PhlosionRainImpactsTests)
     add_test(NAME PhlosionRainImpacts COMMAND PhlosionRainImpactsTests)
+    add_executable(PhlosionLocalShadowTests tests/TestLocalShadows.cpp)
+    target_link_libraries(PhlosionLocalShadowTests PRIVATE Engine)
+    phlosion_apply_settings(PhlosionLocalShadowTests)
+    add_test(NAME PhlosionLocalShadows COMMAND PhlosionLocalShadowTests)
     add_executable(PhlosionRectLightTests tests/TestRectLights.cpp)
     target_link_libraries(PhlosionRectLightTests PRIVATE Engine)
     phlosion_apply_settings(PhlosionRectLightTests)
@@ -634,6 +649,9 @@ if (PHLOSION_BUILD_TESTS)
 endif()
 
 add_library(Phlosion::Runtime ALIAS engine_runtime)
+add_executable(PhlosionDiffuseProbeBake EXCLUDE_FROM_ALL tools/render/DiffuseProbeBake.cpp)
+target_link_libraries(PhlosionDiffuseProbeBake PRIVATE Engine)
+phlosion_apply_settings(PhlosionDiffuseProbeBake)
 add_library(Phlosion::EditorCore ALIAS engine_editor_core)
 add_library(Phlosion::VfxPreview ALIAS engine_tools_vfx_preview)
 include(cmake/PhlosionVfx.cmake)
@@ -1007,11 +1025,20 @@ if (PHLOSION_BUILD_TESTS)
     add_executable(PhlosionScreenFeedbackTests tests/TestScreenFeedback.cpp)
     target_link_libraries(PhlosionScreenFeedbackTests PRIVATE Phlosion::Render Phlosion::Platform)
     phlosion_apply_settings(PhlosionScreenFeedbackTests)
+    add_executable(PhlosionSceneRadianceTests tests/TestSceneRadiance.cpp)
+    target_link_libraries(PhlosionSceneRadianceTests PRIVATE Phlosion::Render Phlosion::Platform)
+    phlosion_apply_settings(PhlosionSceneRadianceTests)
     set(_feedback_test_apis opengl vulkan)
     if(WIN32)
         list(APPEND _feedback_test_apis d3d12)
     endif()
     foreach(api IN LISTS _feedback_test_apis)
+        foreach(mode ramp bloom feedback)
+            add_test(NAME PhlosionSceneRadiance-${api}-${mode} COMMAND PhlosionSceneRadianceTests ${api} ${mode}
+                "${CMAKE_CURRENT_BINARY_DIR}/scene-radiance-tests/${api}-${mode}.png")
+            set_tests_properties(PhlosionSceneRadiance-${api}-${mode} PROPERTIES RUN_SERIAL TRUE TIMEOUT 120
+                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+        endforeach()
         add_test(NAME PhlosionScreenFeedback-${api} COMMAND PhlosionScreenFeedbackTests ${api}
             "${CMAKE_CURRENT_BINARY_DIR}/screen-feedback-tests/${api}.png")
         set_tests_properties(PhlosionScreenFeedback-${api} PROPERTIES RUN_SERIAL TRUE TIMEOUT 120

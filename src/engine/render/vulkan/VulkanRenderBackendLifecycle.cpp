@@ -1,6 +1,15 @@
 #include "engine/render/AreaLightLut.h"
 #include "engine/render/vulkan/VulkanRenderBackendInternal.h"
 #include "engine/render/vulkan/VulkanSpriteInstanceState.h"
+#include "engine/render/vulkan/VulkanPipelineCacheData.h"
+#include "engine/core/Paths.h"
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
@@ -30,6 +39,48 @@
 #endif
 
 namespace {
+
+std::filesystem::path pipelineCachePath(const VkPhysicalDeviceProperties& device) {
+    std::ostringstream name;
+    name<<std::hex<<device.vendorID<<'-'<<device.deviceID<<'-'<<device.driverVersion;
+    for(auto byte:device.pipelineCacheUUID) name<<'-'<<unsigned(byte);
+    return std::filesystem::path(engine::paths::data("cache/shaders/vulkan"))/(name.str()+".vkcache");
+}
+std::vector<std::uint8_t> readPipelineCache(const VkPhysicalDeviceProperties& device) {
+    using namespace engine::render::vulkan_backend;
+    if(engine::env::flagEnabled("PHLOSION_DISABLE_VULKAN_PIPELINE_CACHE")) return {};
+    std::ifstream input(pipelineCachePath(device),std::ios::binary|std::ios::ate);
+    if(!input) return {};
+    const auto size=input.tellg();
+    if(size<=0||size>static_cast<std::streamoff>(kMaxPipelineCacheBytes+sizeof(PipelineCacheFileHeader))) return {};
+    std::vector<std::uint8_t> file(static_cast<std::size_t>(size));input.seekg(0);
+    if(!input.read(reinterpret_cast<char*>(file.data()),size)) return {};
+    const auto data=decodePipelineCache(file,device);
+    return {data.begin(),data.end()};
+}
+void storePipelineCache(VkDevice device,VkPipelineCache cache,const VkPhysicalDeviceProperties& properties) noexcept {
+    using namespace engine::render::vulkan_backend;
+    if(cache==VK_NULL_HANDLE||engine::env::flagEnabled("PHLOSION_DISABLE_VULKAN_PIPELINE_CACHE")) return;
+    try {
+        std::size_t size=0;
+        if(vkGetPipelineCacheData(device,cache,&size,nullptr)!=VK_SUCCESS||size>kMaxPipelineCacheBytes) return;
+        std::vector<std::uint8_t> data(size);
+        if(vkGetPipelineCacheData(device,cache,&size,data.data())!=VK_SUCCESS) return;
+        data.resize(size);const auto file=encodePipelineCache(data,properties);if(file.empty()) return;
+        const auto path=pipelineCachePath(properties);std::error_code ec;
+        std::filesystem::create_directories(path.parent_path(),ec);if(ec) return;
+        const auto temporary=path.string()+"."+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".tmp";
+        {std::ofstream output(temporary,std::ios::binary);output.write(reinterpret_cast<const char*>(file.data()),static_cast<std::streamsize>(file.size()));
+            output.close();if(!output){std::filesystem::remove(temporary,ec);return;}}
+#ifdef _WIN32
+        const bool replaced=MoveFileExW(std::filesystem::path(temporary).c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=0;
+#else
+        std::filesystem::rename(temporary,path,ec);const bool replaced=!ec;
+#endif
+        if(!replaced) std::filesystem::remove(temporary,ec);
+        else std::cout<<"[Vulkan][PipelineCache] stored_bytes="<<data.size()<<'\n';
+    } catch(...) { /* An optional cache must never prevent shutdown. */ }
+}
 
 [[noreturn]] void throwVk(const char* operation, VkResult result) {
     throw std::runtime_error(
@@ -149,6 +200,7 @@ VkCompositeAlphaFlagBitsKHR chooseCompositeAlpha(VkCompositeAlphaFlagsKHR suppor
 
 VkPipeline createGraphicsPipeline(
     VkDevice device,
+    VkPipelineCache pipelineCache,
     VkRenderPass renderPass,
     VkPipelineLayout layout,
     VkShaderModule vertexShader,
@@ -287,7 +339,7 @@ VkPipeline createGraphicsPipeline(
 
     VkPipeline pipeline = VK_NULL_HANDLE;
     requireVk(
-        vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1u, &createInfo, nullptr, &pipeline),
+        vkCreateGraphicsPipelines(device, pipelineCache, 1u, &createInfo, nullptr, &pipeline),
         "vkCreateGraphicsPipelines");
     return pipeline;
 }
@@ -557,6 +609,17 @@ void VulkanRenderBackendImpl::createDevice() {
     createInfo.ppEnabledExtensionNames = extensions.data();
     createInfo.pEnabledFeatures = &enabledFeatures;
     requireVk(vkCreateDevice(physicalDevice, &createInfo, nullptr, &device), "vkCreateDevice");
+    // Reuse shader compilation across blend/depth variants and swapchain rebuilds.
+    auto cached=readPipelineCache(physicalDeviceProperties);
+    VkPipelineCacheCreateInfo cacheInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+    cacheInfo.initialDataSize=cached.size();cacheInfo.pInitialData=cached.empty()?nullptr:cached.data();
+    auto cacheResult=vkCreatePipelineCache(device,&cacheInfo,nullptr,&pipelineCache);
+    if(cacheResult!=VK_SUCCESS&&!cached.empty()) {
+        cached.clear();cacheInfo.initialDataSize=0;cacheInfo.pInitialData=nullptr;
+        cacheResult=vkCreatePipelineCache(device,&cacheInfo,nullptr,&pipelineCache);
+    }
+    requireVk(cacheResult,"vkCreatePipelineCache");
+    std::cout<<"[Vulkan][PipelineCache] loaded_bytes="<<cached.size()<<'\n';
     vkGetDeviceQueue(device, graphicsQueueFamily, 0u, &graphicsQueue);
     vkGetDeviceQueue(device, presentQueueFamily, 0u, &presentQueue);
 }
@@ -722,7 +785,7 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
         VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     sceneColorLayoutInfo.setLayoutCount = 1u;
     sceneColorLayoutInfo.pSetLayouts = &worldSceneColorSetLayout;
-    const VkPushConstantRange scenePostRange{VK_SHADER_STAGE_FRAGMENT_BIT,0u,sizeof(float)};
+    const VkPushConstantRange scenePostRange{VK_SHADER_STAGE_FRAGMENT_BIT,0u,sizeof(float)*2};
     sceneColorLayoutInfo.pushConstantRangeCount=1u;
     sceneColorLayoutInfo.pPushConstantRanges=&scenePostRange;
     requireVk(vkCreatePipelineLayout(
@@ -1117,6 +1180,7 @@ void VulkanRenderBackendImpl::createRenderPass() {
         "vkCreateRenderPass(load)");
 
     VkAttachmentDescription sceneColorAttachment = colorAttachment;
+    sceneColorAttachment.format = VK_FORMAT_R16G16B16A16_SFLOAT;
     sceneColorAttachment.finalLayout =
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     VkAttachmentDescription sceneDepthAttachment = depthAttachment;
@@ -1299,7 +1363,7 @@ void VulkanRenderBackendImpl::createPipelines() {
             {0u, 0u, VK_FORMAT_R32G32_SFLOAT, offsetof(DebugVertex, x)},
             {1u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(DebugVertex, r)},
         };
-        debugPipeline = createGraphicsPipeline(device,
+        debugPipeline = createGraphicsPipeline(device, pipelineCache,
                                                renderPass,
                                                debugPipelineLayout,
                                                debugVs,
@@ -1324,7 +1388,7 @@ void VulkanRenderBackendImpl::createPipelines() {
             {2u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
              offsetof(engine::render::vulkan_backend::SpriteInstanceState, color)},
         };
-        spritePipeline = createGraphicsPipeline(device,
+        spritePipeline = createGraphicsPipeline(device, pipelineCache,
                                                 renderPass,
                                                 texturedPipelineLayout,
                                                 spriteVs,
@@ -1342,7 +1406,7 @@ void VulkanRenderBackendImpl::createPipelines() {
         const std::vector<VkVertexInputAttributeDescription>
             sceneColorAttributes{};
         worldSceneColorPipeline = createGraphicsPipeline(
-            device,
+            device, pipelineCache,
             loadRenderPass,
             worldSceneColorPipelineLayout,
             sceneColorVs,
@@ -1380,62 +1444,27 @@ void VulkanRenderBackendImpl::createPipelines() {
              offsetof(IRenderBackend::WorldMeshVertex, sourceUv2U)},
         };
         if (shadowFs != VK_NULL_HANDLE)
-            worldShadowPipeline = createGraphicsPipeline(device, worldShadowRenderPass, texturedPipelineLayout,
+            worldShadowPipeline = createGraphicsPipeline(device, pipelineCache, worldShadowRenderPass, texturedPipelineLayout,
                 worldVs, shadowFs, worldBinding, worldAttributes, false, 0, false, true, true, true);
-        worldPipelines[0] = createGraphicsPipeline(device, renderPass, texturedPipelineLayout,
-                                                   worldVs, worldFs, worldBinding, worldAttributes,
-                                                   false, 0u, false, true, true);
-        worldPipelines[1] = createGraphicsPipeline(device, renderPass, texturedPipelineLayout,
-                                                   worldVs, worldFs, worldBinding, worldAttributes,
-                                                   false, 0u, false, false, false);
-        for (std::uint8_t blendMode = 0u; blendMode < 3u; ++blendMode) {
-            const std::size_t base = 2u + static_cast<std::size_t>(blendMode) * 2u;
-            worldPipelines[base] = createGraphicsPipeline(device, renderPass, texturedPipelineLayout,
-                                                          worldVs, worldFs, worldBinding, worldAttributes,
-                                                          true, blendMode, false, true, false);
-            worldPipelines[base + 1u] = createGraphicsPipeline(
-                device, renderPass, texturedPipelineLayout,
-                worldVs, worldFs, worldBinding, worldAttributes,
-                true, blendMode, false, false, false);
-        }
-        if (dualSourceBlendSupported) {
-            for (std::uint8_t blendMode = 0u; blendMode < 2u; ++blendMode) {
-                const std::size_t base =
-                    engine::render::vulkan_backend::kFirstDualSourceBlendPipeline +
-                    static_cast<std::size_t>(blendMode) * 2u;
-                worldPipelines[base] = createGraphicsPipeline(
-                    device, renderPass, texturedPipelineLayout,
-                    worldVs, worldDualSourceFs, worldBinding, worldAttributes,
-                    true, blendMode, true, true, false);
-                worldPipelines[base + 1u] = createGraphicsPipeline(
-                    device, renderPass, texturedPipelineLayout,
-                    worldVs, worldDualSourceFs, worldBinding, worldAttributes,
-                    true, blendMode, true, false, false);
-            }
-        }
-        // The rain volume's standard alpha/depth variant eliminates the material
-        // dispatcher through specialization; other blend variants retain fallback.
-        worldVolumePipeline = createGraphicsPipeline(device, renderPass, texturedPipelineLayout,
-            worldVs, worldFs, worldBinding, worldAttributes, true, 0u, false, true, false, false, true);
-        if (indirectWorldBatchingSupported) {
-            indirectWorldPipelines[0] = createGraphicsPipeline(
-                device, renderPass, indirectWorldPipelineLayout,
-                worldIndirectVs, worldIndirectFs, worldBinding, worldAttributes,
-                false, 0u, false, true, true);
-            indirectWorldPipelines[1] = createGraphicsPipeline(
-                device, renderPass, indirectWorldPipelineLayout,
-                worldIndirectVs, worldIndirectFs, worldBinding, worldAttributes,
-                false, 0u, false, false, false);
+        for (bool sceneColor : {false, true}) {
+            auto& targetPipelines = sceneColor ? sceneWorldPipelines : this->worldPipelines;
+            auto& targetVolumePipeline = sceneColor ? sceneWorldVolumePipeline : this->worldVolumePipeline;
+            auto& targetIndirectPipelines = sceneColor ? sceneIndirectWorldPipelines : this->indirectWorldPipelines;
+            const auto targetPass = sceneColor ? worldSceneColorRenderPass : this->renderPass;
+            targetPipelines[0] = createGraphicsPipeline(device, pipelineCache, targetPass, texturedPipelineLayout,
+                                                       worldVs, worldFs, worldBinding, worldAttributes,
+                                                       false, 0u, false, true, true);
+            targetPipelines[1] = createGraphicsPipeline(device, pipelineCache, targetPass, texturedPipelineLayout,
+                                                       worldVs, worldFs, worldBinding, worldAttributes,
+                                                       false, 0u, false, false, false);
             for (std::uint8_t blendMode = 0u; blendMode < 3u; ++blendMode) {
-                const std::size_t base =
-                    2u + static_cast<std::size_t>(blendMode) * 2u;
-                indirectWorldPipelines[base] = createGraphicsPipeline(
-                    device, renderPass, indirectWorldPipelineLayout,
-                    worldIndirectVs, worldIndirectFs, worldBinding, worldAttributes,
-                    true, blendMode, false, true, false);
-                indirectWorldPipelines[base + 1u] = createGraphicsPipeline(
-                    device, renderPass, indirectWorldPipelineLayout,
-                    worldIndirectVs, worldIndirectFs, worldBinding, worldAttributes,
+                const std::size_t base = 2u + static_cast<std::size_t>(blendMode) * 2u;
+                targetPipelines[base] = createGraphicsPipeline(device, pipelineCache, targetPass, texturedPipelineLayout,
+                                                              worldVs, worldFs, worldBinding, worldAttributes,
+                                                              true, blendMode, false, true, false);
+                targetPipelines[base + 1u] = createGraphicsPipeline(
+                    device, pipelineCache, targetPass, texturedPipelineLayout,
+                    worldVs, worldFs, worldBinding, worldAttributes,
                     true, blendMode, false, false, false);
             }
             if (dualSourceBlendSupported) {
@@ -1443,16 +1472,57 @@ void VulkanRenderBackendImpl::createPipelines() {
                     const std::size_t base =
                         engine::render::vulkan_backend::kFirstDualSourceBlendPipeline +
                         static_cast<std::size_t>(blendMode) * 2u;
-                    indirectWorldPipelines[base] = createGraphicsPipeline(
-                        device, renderPass, indirectWorldPipelineLayout,
-                        worldIndirectVs, worldIndirectDualSourceFs,
-                        worldBinding, worldAttributes,
+                    targetPipelines[base] = createGraphicsPipeline(
+                        device, pipelineCache, targetPass, texturedPipelineLayout,
+                        worldVs, worldDualSourceFs, worldBinding, worldAttributes,
                         true, blendMode, true, true, false);
-                    indirectWorldPipelines[base + 1u] = createGraphicsPipeline(
-                        device, renderPass, indirectWorldPipelineLayout,
-                        worldIndirectVs, worldIndirectDualSourceFs,
-                        worldBinding, worldAttributes,
+                    targetPipelines[base + 1u] = createGraphicsPipeline(
+                        device, pipelineCache, targetPass, texturedPipelineLayout,
+                        worldVs, worldDualSourceFs, worldBinding, worldAttributes,
                         true, blendMode, true, false, false);
+                }
+            }
+            // The rain volume's standard alpha/depth variant eliminates the material
+            // dispatcher through specialization; other blend variants retain fallback.
+            targetVolumePipeline = createGraphicsPipeline(device, pipelineCache, targetPass, texturedPipelineLayout,
+                worldVs, worldFs, worldBinding, worldAttributes, true, 0u, false, true, false, false, true);
+            if (indirectWorldBatchingSupported) {
+                targetIndirectPipelines[0] = createGraphicsPipeline(
+                    device, pipelineCache, targetPass, indirectWorldPipelineLayout,
+                    worldIndirectVs, worldIndirectFs, worldBinding, worldAttributes,
+                    false, 0u, false, true, true);
+                targetIndirectPipelines[1] = createGraphicsPipeline(
+                    device, pipelineCache, targetPass, indirectWorldPipelineLayout,
+                    worldIndirectVs, worldIndirectFs, worldBinding, worldAttributes,
+                    false, 0u, false, false, false);
+                for (std::uint8_t blendMode = 0u; blendMode < 3u; ++blendMode) {
+                    const std::size_t base =
+                        2u + static_cast<std::size_t>(blendMode) * 2u;
+                    targetIndirectPipelines[base] = createGraphicsPipeline(
+                        device, pipelineCache, targetPass, indirectWorldPipelineLayout,
+                        worldIndirectVs, worldIndirectFs, worldBinding, worldAttributes,
+                        true, blendMode, false, true, false);
+                    targetIndirectPipelines[base + 1u] = createGraphicsPipeline(
+                        device, pipelineCache, targetPass, indirectWorldPipelineLayout,
+                        worldIndirectVs, worldIndirectFs, worldBinding, worldAttributes,
+                        true, blendMode, false, false, false);
+                }
+                if (dualSourceBlendSupported) {
+                    for (std::uint8_t blendMode = 0u; blendMode < 2u; ++blendMode) {
+                        const std::size_t base =
+                            engine::render::vulkan_backend::kFirstDualSourceBlendPipeline +
+                            static_cast<std::size_t>(blendMode) * 2u;
+                        targetIndirectPipelines[base] = createGraphicsPipeline(
+                            device, pipelineCache, targetPass, indirectWorldPipelineLayout,
+                            worldIndirectVs, worldIndirectDualSourceFs,
+                            worldBinding, worldAttributes,
+                            true, blendMode, true, true, false);
+                        targetIndirectPipelines[base + 1u] = createGraphicsPipeline(
+                            device, pipelineCache, targetPass, indirectWorldPipelineLayout,
+                            worldIndirectVs, worldIndirectDualSourceFs,
+                            worldBinding, worldAttributes,
+                            true, blendMode, true, false, false);
+                    }
                 }
             }
         }
@@ -1523,6 +1593,14 @@ void VulkanRenderBackendImpl::destroyPipelines() {
     worldShadowPipeline = VK_NULL_HANDLE;
     if (worldVolumePipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, worldVolumePipeline, nullptr);
     worldVolumePipeline = VK_NULL_HANDLE;
+    if (sceneWorldVolumePipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, sceneWorldVolumePipeline, nullptr);
+    sceneWorldVolumePipeline = VK_NULL_HANDLE;
+    for (auto* family : {&sceneWorldPipelines, &sceneIndirectWorldPipelines}) {
+        for (auto& pipeline : *family) {
+            if (pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, pipeline, nullptr);
+            pipeline = VK_NULL_HANDLE;
+        }
+    }
     debugPipeline = VK_NULL_HANDLE;
     spritePipeline = VK_NULL_HANDLE;
     worldSceneColorPipeline = VK_NULL_HANDLE;
@@ -1912,6 +1990,7 @@ void VulkanRenderBackendImpl::shutdown() {
     if (device != VK_NULL_HANDLE) vkDeviceWaitIdle(device);
 
     if (device != VK_NULL_HANDLE) {
+        storePipelineCache(device,pipelineCache,physicalDeviceProperties);
         destroyBuffer(screenshotReadback);
         destroyCachedWorldMeshes();
         indexedWorldMaterials.clear();
@@ -1994,9 +2073,11 @@ void VulkanRenderBackendImpl::shutdown() {
         }
         if (commandPool != VK_NULL_HANDLE) vkDestroyCommandPool(device, commandPool, nullptr);
         destroyScreenFeedback();
+        if (pipelineCache != VK_NULL_HANDLE) vkDestroyPipelineCache(device, pipelineCache, nullptr);
         vkDestroyDevice(device, nullptr);
     }
     device = VK_NULL_HANDLE;
+    pipelineCache = VK_NULL_HANDLE;
     commandPool = VK_NULL_HANDLE;
     debugPipelineLayout = VK_NULL_HANDLE;
     texturedPipelineLayout = VK_NULL_HANDLE;
@@ -2169,8 +2250,8 @@ void VulkanRenderBackendImpl::createScreenFeedbackPipeline() {
     try {
         fs=loadShaderModule("screen_feedback.frag.spv");
         VkVertexInputBindingDescription binding{0,0,VK_VERTEX_INPUT_RATE_VERTEX};
-        feedbackPipeline=createGraphicsPipeline(device,feedbackRenderPass,feedbackLayout,vs,fs,binding,{},false,0,false,false,false);
-        feedbackDisplayPipeline=createGraphicsPipeline(device,loadRenderPass,feedbackLayout,vs,fs,binding,{},false,0,false,false,false);
+        feedbackPipeline=createGraphicsPipeline(device, pipelineCache,feedbackRenderPass,feedbackLayout,vs,fs,binding,{},false,0,false,false,false);
+        feedbackDisplayPipeline=createGraphicsPipeline(device, pipelineCache,loadRenderPass,feedbackLayout,vs,fs,binding,{},false,0,false,false,false);
     } catch(...) {if(fs)vkDestroyShaderModule(device,fs,nullptr);vkDestroyShaderModule(device,vs,nullptr);throw;}
     vkDestroyShaderModule(device,fs,nullptr);vkDestroyShaderModule(device,vs,nullptr);
 }

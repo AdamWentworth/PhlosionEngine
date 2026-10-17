@@ -9,7 +9,10 @@
 #include "engine/render/IRenderBackend.h"
 #include "engine/render/IWorldDepthControl.h"
 #include "engine/render/IWorldBloom.h"
+#include "engine/render/IWorldSceneRadiance.h"
+#include "engine/render/WorldDiffuseProbes.h"
 #include "engine/render/IWorldDirectionalShadow.h"
+#include "engine/render/IWorldLocalShadow.h"
 #include "engine/render/WorldResourceScopeState.h"
 
 struct SDL_Window;
@@ -36,10 +39,14 @@ struct ID3D12Resource;
 struct ID3D12RootSignature;
 #endif
 
-class D3D12RenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow, public engine::render::IWorldBloom {
+class D3D12RenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow, public IWorldLocalShadow, public engine::render::IWorldBloom, public engine::render::IWorldSceneRadiance, public engine::render::IWorldDiffuseProbes {
 public:
   bool clearWorldDepth() override;
   bool captureWorldDepthSnapshot() override;
+    void prewarmWorldLocalShadows() override;
+    void clearWorldLocalShadows() override;
+    bool beginWorldLocalShadow(std::uint32_t index, const engine::render::WorldDirectionalShadowView& view) override;
+    bool endWorldLocalShadow() override;
     void prewarmWorldDirectionalShadow(std::uint32_t resolution) override;
     bool beginWorldDirectionalShadow(const engine::render::WorldDirectionalShadowView& view) override;
     bool endWorldDirectionalShadow() override;
@@ -214,6 +221,8 @@ private:
     void releaseDepthResources();
     void createDebugPipeline();
     void createWorldPipeline(bool createBuffers = true);
+    void bindWorldDiffuseProbes();
+    void bindWorldMaterialConstants(const void*, std::size_t viewOffset, bool outline = false);
     void createSpritePipeline();
     void createWorldSceneColorPipeline();
     void createScreenFeedbackPipeline();
@@ -512,9 +521,12 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> worldRootSignature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldPipelineState_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldSkyPipelineState_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> worldSceneSkyPipelineState_;
+    std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, 11> worldScenePipelines_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldShadowPipelineState_;
     Microsoft::WRL::ComPtr<ID3D12Resource> worldShadowDepth_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> worldShadowDsvHeap_;
+    engine::render::WorldLocalShadowAtlas worldLocalShadows_;
     engine::render::WorldDirectionalShadowView worldShadowView_{};
     std::uint32_t worldShadowResolution_ = 0;
     bool worldShadowActive_ = false, worldShadowReady_ = false;
@@ -550,6 +562,10 @@ private:
     std::uint32_t worldIndexFrameBaseOffset_ = 0;
     std::uint32_t worldIndexFrameOffset_ = 0;
     std::uint8_t* worldIndexMappedData_ = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12Resource> worldDiffuseProbeBuffer_;
+    std::uint8_t* worldDiffuseProbeMapped_ = nullptr;
+    std::uint32_t worldDiffuseProbePacketCount_ = 0;
+    engine::render::WorldDiffuseProbeUniforms lastWorldDiffuseProbes_{};
     Microsoft::WRL::ComPtr<ID3D12Resource> worldVsConstantBuffer_;
     std::uint64_t worldVsConstantBufferGpuAddress_ = 0;
     std::uint32_t worldVsConstantBufferSize_ = 0;

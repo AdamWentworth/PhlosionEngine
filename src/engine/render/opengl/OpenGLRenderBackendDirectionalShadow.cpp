@@ -3,6 +3,9 @@
 #include <glad/glad.h>
 
 void OpenGLRenderBackend::prewarmWorldDirectionalShadow(std::uint32_t resolution) {
+    if (resolution < 128 || resolution > 4096 || (resolution & (resolution - 1)))
+        throw std::invalid_argument("Invalid shadow resolution.");
+    if (worldLocalShadows_.enabled) resolution = engine::render::localShadowAtlasResolution;
     if (worldDirectionalShadowActive_ || resolution < 128 || resolution > 4096 ||
         (resolution & (resolution - 1)) != 0)
         throw std::runtime_error("Invalid directional shadow preparation.");
@@ -56,11 +59,12 @@ void OpenGLRenderBackend::prewarmWorldDirectionalShadow(std::uint32_t resolution
 bool OpenGLRenderBackend::beginWorldDirectionalShadow(
     const engine::render::WorldDirectionalShadowView& view) {
     if (worldDirectionalShadowActive_) return false;
-    clearWorldDirectionalShadow();
+    if (worldLocalShadows_.activeLight < 0) clearWorldDirectionalShadow();
     if (!engine::render::validWorldDirectionalShadowView(view) ||
-        !worldDirectionalShadowTexture_ || view.resolution != worldDirectionalShadowResolution_ ||
+        !worldDirectionalShadowTexture_ || view.resolution != (worldLocalShadows_.enabled ? (worldLocalShadows_.activeLight >= 0 ? 1024u : 2048u) : worldDirectionalShadowResolution_) ||
         worldIndexedBatchSubmissionState_.active) return false;
     worldDirectionalShadowView_ = view;
+    if (worldLocalShadows_.activeLight < 0) worldLocalShadows_.directionalView = view;
     auto& saved = worldDirectionalShadowSaved_;
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &saved.drawFramebuffer);
     glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &saved.readFramebuffer);
@@ -72,8 +76,10 @@ bool OpenGLRenderBackend::beginWorldDirectionalShadow(
     saved.scissorEnabled = glIsEnabled(GL_SCISSOR_TEST) == GL_TRUE;
     saved.depthEnabled = glIsEnabled(GL_DEPTH_TEST) == GL_TRUE;
     glBindFramebuffer(GL_FRAMEBUFFER, worldDirectionalShadowFramebuffer_);
-    glViewport(0, 0, static_cast<GLsizei>(view.resolution), static_cast<GLsizei>(view.resolution));
-    glDisable(GL_SCISSOR_TEST);
+    const auto tile = worldLocalShadows_.offset();
+    glViewport(tile[0], tile[1], view.resolution, view.resolution);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(tile[0], tile[1], view.resolution, view.resolution);
     glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
     glDepthMask(GL_TRUE);
     GLdouble clearDepth = 1;
@@ -106,6 +112,7 @@ void OpenGLRenderBackend::clearWorldDirectionalShadow() {
     if (worldDirectionalShadowActive_) endWorldDirectionalShadow();
     worldDirectionalShadowReady_ = false;
     worldDirectionalShadowView_ = {};
+    worldLocalShadows_.clear();
 }
 
 void OpenGLRenderBackend::destroyWorldDirectionalShadowResources() {
@@ -114,4 +121,28 @@ void OpenGLRenderBackend::destroyWorldDirectionalShadowResources() {
     if (worldDirectionalShadowTexture_) glDeleteTextures(1, &worldDirectionalShadowTexture_);
     worldDirectionalShadowFramebuffer_ = worldDirectionalShadowTexture_ = 0;
     worldDirectionalShadowResolution_ = 0;
+}
+
+void OpenGLRenderBackend::prewarmWorldLocalShadows() {
+    if (worldDirectionalShadowActive_) throw std::runtime_error("Cannot prepare local shadows during a shadow pass.");
+    worldLocalShadows_.enabled = true;
+    prewarmWorldDirectionalShadow(engine::render::localShadowAtlasResolution);
+}
+void OpenGLRenderBackend::clearWorldLocalShadows() {
+    if (worldDirectionalShadowActive_ && worldLocalShadows_.activeLight >= 0) endWorldLocalShadow();
+    else if (worldDirectionalShadowActive_) endWorldDirectionalShadow();
+    worldLocalShadows_.clear();
+    worldLocalShadows_.directionalView = worldDirectionalShadowView_;
+}
+bool OpenGLRenderBackend::beginWorldLocalShadow(std::uint32_t index, const engine::render::WorldDirectionalShadowView& view) {
+    if (worldDirectionalShadowActive_ || !worldLocalShadows_.begin(index, view)) return false;
+    if (beginWorldDirectionalShadow(view)) return true;
+    worldLocalShadows_.activeLight = -1;
+    return false;
+}
+bool OpenGLRenderBackend::endWorldLocalShadow() {
+    if (worldLocalShadows_.activeLight < 0 || !endWorldDirectionalShadow()) return false;
+    worldLocalShadows_.finish(worldDirectionalShadowView_);
+    worldDirectionalShadowView_ = worldLocalShadows_.directionalView;
+    return true;
 }

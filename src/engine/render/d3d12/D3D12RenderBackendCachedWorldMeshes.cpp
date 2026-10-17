@@ -394,6 +394,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshCachedInternal(const CachedWorldMes
     ID3D12DescriptorHeap* heaps[] = {srvHeap_.Get()};
     commandList_->SetDescriptorHeaps(1, heaps);
     commandList_->SetGraphicsRootSignature(worldRootSignature_.Get());
+    bindWorldDiffuseProbes();
     static constexpr float kIdentity[16] = {
         1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
@@ -429,11 +430,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshCachedInternal(const CachedWorldMes
             static_cast<std::uint64_t>(worldInstanceFrameBaseOffset_));
     const WorldPsConstants worldPs = makeWorldPsConstants(
         nullptr, useTexture, worldSceneColorPassActive_, &worldMaterialProfile_);
-    commandList_->SetGraphicsRoot32BitConstants(
-        1,
-        static_cast<UINT>(sizeof(WorldPsConstants) / sizeof(float)),
-        &worldPs,
-        0);
+    bindWorldMaterialConstants(&worldPs, vsConstantsWriteOffset);
     D3D12_GPU_DESCRIPTOR_HANDLE materialHandle = srvHeap_->GetGPUDescriptorHandleForHeapStart();
     materialHandle.ptr += static_cast<SIZE_T>(materialDescriptorBlockIndex) *
                           static_cast<SIZE_T>(srvDescriptorSize_);

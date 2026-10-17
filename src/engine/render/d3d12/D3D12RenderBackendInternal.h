@@ -10,6 +10,8 @@
 #include "engine/render/IRenderBackend.h"
 
 namespace engine::render::d3d12_internal {
+inline constexpr std::size_t kDiffuseProbePacketStride=7936u; // 483 vec4, aligned to 256
+inline constexpr std::size_t kDiffuseProbePacketsPerFrame=64u;
 
 using DebugVertex = engine::render::debug::Vertex2D;
 
@@ -140,8 +142,10 @@ inline float sanitizeWrapMode(int wrapMode) {
 
 // b0 contains 40 transform floats, nineteen environment vectors, a camera vector,
 // eight point-light vectors and the directional shadow. One CBV costs two DWORDs.
-inline constexpr std::size_t kWorldViewConstantFloats = 428u;
-inline constexpr std::size_t kWorldViewConstantStride = 1792u;
+inline constexpr std::size_t kWorldViewConstantFloats = 816u;
+inline constexpr std::size_t kWorldMaterialConstantOffset = 3328u;
+inline constexpr std::size_t kWorldOutlineConstantOffset = 3584u;
+inline constexpr std::size_t kWorldViewConstantStride = 3840u;
 static_assert(kWorldViewConstantFloats*sizeof(float) <= kWorldViewConstantStride);
 
 struct WorldPsConstants {
@@ -183,8 +187,8 @@ struct WorldPsConstants {
     float projectedShadowBias = 0.0f;
     // Projected-shadow coordinates are affine/orthographic, so w is exactly
     // one. Store the three meaningful rows instead of a full float4x4. This
-    // leaves room for the two transformed cloud-projection rows while keeping
-    // the complete root signature below D3D12's 64-DWORD limit.
+    // preserves the established packed layout for the two cloud projection rows.
+    // Material constants now use a CBV instead of 56 root DWORDs.
     std::array<float, 4> projectedShadowRowX{
         1.0f, 0.0f, 0.0f, 0.0f};
     std::array<float, 4> projectedShadowRowY{
@@ -199,16 +203,16 @@ struct WorldPsConstants {
 
 static_assert(
     sizeof(WorldPsConstants) == 56u * sizeof(float),
-    "D3D12 world pixel constants must leave room for the other root parameters.");
+    "D3D12 material constants must match the shader CBV layout.");
 
 inline WorldPsConstants makeWorldPsConstants(
     const IRenderBackend::WorldTextureData *textureData,
     float useTexture,
-    bool sceneColorPostEnabled = false,
+    float sceneColorPostEnabled = 0,
     const WorldMaterialProfile *profile = nullptr) {
     WorldPsConstants constants;
     constants.useTexture = useTexture;
-    constants.sceneColorPostEnabled = sceneColorPostEnabled ? 1.0f : 0.0f;
+    constants.sceneColorPostEnabled = sceneColorPostEnabled;
     if (!textureData) return constants;
     constants.wrapS = sanitizeWrapMode(textureData->wrapS);
     constants.wrapT = sanitizeWrapMode(textureData->wrapT);

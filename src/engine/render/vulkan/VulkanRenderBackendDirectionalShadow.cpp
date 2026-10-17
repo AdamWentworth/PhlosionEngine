@@ -65,6 +65,9 @@ void VulkanRenderBackendImpl::updateWorldShadowDescriptors() {
 
 void VulkanRenderBackendImpl::prewarmWorldDirectionalShadow(std::uint32_t resolution) {
     if (resolution < 128 || resolution > 4096 || (resolution & (resolution - 1)))
+        throw std::invalid_argument("Invalid shadow resolution.");
+    if (worldLocalShadows_.enabled) resolution = engine::render::localShadowAtlasResolution;
+    if (resolution < 128 || resolution > 4096 || (resolution & (resolution - 1)))
         throw std::invalid_argument("Invalid directional-shadow resolution.");
     if (worldShadowResolution == resolution && worldShadowPipeline && !worldShadowActive) return;
     if (!device || frameActive || !worldShadowPipeline)
@@ -127,20 +130,24 @@ void VulkanRenderBackendImpl::prewarmWorldDirectionalShadow(std::uint32_t resolu
 
 bool VulkanRenderBackendImpl::beginWorldDirectionalShadow(const engine::render::WorldDirectionalShadowView& view) {
     if (worldShadowActive) return false;
-    worldShadowReady = false;
+    if (worldLocalShadows_.activeLight < 0) { worldShadowReady = false; worldLocalShadows_.clear(); }
     if (!frameActive || !worldSceneColorPassActive || !engine::render::validWorldDirectionalShadowView(view) ||
-        view.resolution != worldShadowResolution || !worldShadowPipeline) return false;
-    worldShadowView = view; shadowSavedWidth = boundViewportWidth; shadowSavedHeight = boundViewportHeight;
+        view.resolution != (worldLocalShadows_.enabled ? (worldLocalShadows_.activeLight >= 0 ? 1024u : 2048u) : worldShadowResolution) || !worldShadowPipeline) return false;
+    worldShadowView = view;
+    if (worldLocalShadows_.activeLight < 0) worldLocalShadows_.directionalView = view;
+    shadowSavedWidth = boundViewportWidth; shadowSavedHeight = boundViewportHeight;
     auto cmd = frames[currentFrame].commandBuffer;
     vkCmdEndRenderPass(cmd);
     VkClearValue clear{}; clear.depthStencil = {1, 0};
     VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     pass.renderPass = worldShadowRenderPass; pass.framebuffer = worldShadowFramebuffers[currentFrame];
-    pass.renderArea.extent = {worldShadowResolution, worldShadowResolution};
+    const auto tile = worldLocalShadows_.offset();
+    pass.renderArea.offset = {int32_t(tile[0]), int32_t(tile[1])};
+    pass.renderArea.extent = {view.resolution, view.resolution};
     pass.clearValueCount = 1; pass.pClearValues = &clear;
     vkCmdBeginRenderPass(cmd, &pass, VK_SUBPASS_CONTENTS_INLINE);
     worldShadowActive = true; resetBindings(*this);
-    setViewportAndScissor(cmd, worldShadowResolution, worldShadowResolution);
+    setViewportAndScissor(cmd, view.resolution, view.resolution);
     return true;
 }
 
@@ -165,7 +172,7 @@ bool VulkanRenderBackendImpl::endWorldDirectionalShadow() {
 
 void VulkanRenderBackendImpl::clearWorldDirectionalShadow() {
     if (worldShadowActive) endWorldDirectionalShadow();
-    worldShadowReady = false; worldShadowView = {};
+    worldShadowReady = false; worldShadowView = {}; worldLocalShadows_.clear();
 }
 
 void VulkanRenderBackendImpl::destroyWorldDirectionalShadow() {
@@ -186,3 +193,32 @@ void VulkanRenderBackend::prewarmWorldDirectionalShadow(std::uint32_t resolution
 bool VulkanRenderBackend::beginWorldDirectionalShadow(const engine::render::WorldDirectionalShadowView& view) { return impl_ && impl_->beginWorldDirectionalShadow(view); }
 bool VulkanRenderBackend::endWorldDirectionalShadow() { return impl_ && impl_->endWorldDirectionalShadow(); }
 void VulkanRenderBackend::clearWorldDirectionalShadow() { if (impl_) impl_->clearWorldDirectionalShadow(); }
+
+void VulkanRenderBackendImpl::prewarmWorldLocalShadows() {
+    if (worldShadowActive) throw std::runtime_error("Cannot prepare local shadows during a shadow pass.");
+    worldLocalShadows_.enabled = true;
+    prewarmWorldDirectionalShadow(engine::render::localShadowAtlasResolution);
+}
+void VulkanRenderBackendImpl::clearWorldLocalShadows() {
+    if (worldShadowActive && worldLocalShadows_.activeLight >= 0) endWorldLocalShadow();
+    else if (worldShadowActive) endWorldDirectionalShadow();
+    worldLocalShadows_.clear();
+    worldLocalShadows_.directionalView = worldShadowView;
+}
+bool VulkanRenderBackendImpl::beginWorldLocalShadow(std::uint32_t index, const engine::render::WorldDirectionalShadowView& view) {
+    if (worldShadowActive || !worldLocalShadows_.begin(index, view)) return false;
+    if (beginWorldDirectionalShadow(view)) return true;
+    worldLocalShadows_.activeLight = -1;
+    return false;
+}
+bool VulkanRenderBackendImpl::endWorldLocalShadow() {
+    if (worldLocalShadows_.activeLight < 0 || !endWorldDirectionalShadow()) return false;
+    worldLocalShadows_.finish(worldShadowView);
+    worldShadowView = worldLocalShadows_.directionalView;
+    return true;
+}
+
+void VulkanRenderBackend::prewarmWorldLocalShadows() { if (impl_) impl_->prewarmWorldLocalShadows(); }
+void VulkanRenderBackend::clearWorldLocalShadows() { if (impl_) impl_->clearWorldLocalShadows(); }
+bool VulkanRenderBackend::beginWorldLocalShadow(std::uint32_t index, const engine::render::WorldDirectionalShadowView& view) { return impl_ && impl_->beginWorldLocalShadow(index, view); }
+bool VulkanRenderBackend::endWorldLocalShadow() { return impl_ && impl_->endWorldLocalShadow(); }

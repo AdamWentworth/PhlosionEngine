@@ -164,7 +164,7 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
         const std::size_t pipelineIndex = vulkan::worldPipelineIndex(
             &texture, dualSourceBlendSupported);
         if (pipelineIndex >= indirectWorldPipelines.size() ||
-            indirectWorldPipelines[pipelineIndex] == VK_NULL_HANDLE) {
+            (worldSceneColorPassActive ? sceneIndirectWorldPipelines : indirectWorldPipelines)[pipelineIndex] == VK_NULL_HANDLE) {
             return false;
         }
         drawStates.push_back(vulkan::makeWorldIndirectDrawState(
@@ -196,7 +196,7 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
             material.characterInkingEnabled != 0u &&
             material.materialMode >= 2u;
         if (drawCharacterOutline) {
-            if (indirectWorldPipelines[2u] == VK_NULL_HANDLE) return false;
+            if ((worldSceneColorPassActive ? sceneIndirectWorldPipelines : indirectWorldPipelines)[2u] == VK_NULL_HANDLE) return false;
             outlineStates.push_back(
                 vulkan::makeWorldIndirectOutlineDrawState(drawStates.back()));
             outlineCommands.push_back(command);
@@ -274,6 +274,10 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
         vulkan::makeWorldViewState(&viewTexture);
     if (worldShadowReady && viewTexture.environment.enabled)
         viewState.directionalShadow = engine::render::packWorldDirectionalShadow(worldShadowView);
+    viewState.shadowAtlasUv = worldLocalShadows_.directionalUv();
+    viewState.cameraPosition[3] = worldSceneColorPassActive && worldSceneRadianceExposure > 0 ? 1.f : 0.f;
+    if (!worldShadowActive && viewTexture.environment.enabled) viewState.localShadows = worldLocalShadows_.uniforms;
+    if (!worldShadowActive && viewTexture.environment.enabled) viewState.diffuseProbes = worldDiffuseProbes;
     VkBuffer viewBuffer = VK_NULL_HANDLE;
     VkDeviceSize viewOffset = 0u;
     const VkDeviceSize uniformAlignment = std::max<VkDeviceSize>(
@@ -321,7 +325,7 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
     for (const vulkan::WorldIndirectRun& run : runs) {
         bindGraphicsPipeline(
             commandBuffer,
-            indirectWorldPipelines[run.key.pipelineIndex]);
+            (worldSceneColorPassActive ? sceneIndirectWorldPipelines : indirectWorldPipelines)[run.key.pipelineIndex]);
         VkBuffer geometryBuffer = VK_NULL_HANDLE;
         static_assert(sizeof(geometryBuffer) <= sizeof(run.key.geometryBufferKey));
         std::memcpy(

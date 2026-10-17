@@ -29,7 +29,7 @@ float environmentShadowVisibility(vec3 position, vec3 normal) {
         for (int x = -1; x <= 1; ++x) {
             vec2 tap = centre + vec2(float(x), float(y)) * texelSize;
             float depth = min(tap.x, tap.y) < 0.0 || max(tap.x, tap.y) > 1.0
-                ? 1.0 : WORLD_SHADOW_SAMPLE(tap);
+                ? 1.0 : WORLD_SHADOW_SAMPLE(WORLD_SHADOW_ATLAS.xy + tap * WORLD_SHADOW_ATLAS.zw);
             float planeDepth = referenceDepth + clamp(dot(depthGradient, tap - uv), -0.01, 0.01);
             visibility += step(planeDepth, depth);
         }
@@ -41,4 +41,42 @@ void updateEnvironmentDirectionalVisibility(vec3 position, vec3 normal, float mo
     environmentDirectionalVisibility = 1.0;
     if (mode >= 1.5 && (mode < 249.5 || mode == 254.0) && !(mode > 2.5 && mode < 3.5))
         environmentDirectionalVisibility = environmentShadowVisibility(position, normal);
+}
+
+
+float environmentLocalShadowVisibility(int index, vec3 position, vec3 normal) {
+    vec4 parameters = WORLD_LOCAL_SHADOW(index*6+4);
+    if (parameters.x <= 0.0 || ENV_SUN.w < 0.5) return 1.0;
+    float n2 = dot(normal,normal);
+    if (n2 > 0.00000001) {
+        normal *= inversesqrt(n2);
+        float signToLight = dot(normal, ENV_RECT(index*4).xyz-position) < 0.0 ? -1.0 : 1.0;
+        position += normal * (signToLight * parameters.z);
+    }
+    vec4 projected = WORLD_LOCAL_SHADOW(index*6)*position.x +
+        WORLD_LOCAL_SHADOW(index*6+1)*position.y +
+        WORLD_LOCAL_SHADOW(index*6+2)*position.z + WORLD_LOCAL_SHADOW(index*6+3);
+    if (projected.w <= 0.00000001) return 1.0;
+    vec3 clip = projected.xyz/projected.w;
+    vec2 uv = clip.xy*vec2(0.5,WORLD_SHADOW_Y*0.5)+vec2(0.5,0.5);
+    float referenceDepth = clip.z*0.5+0.5-parameters.y;
+    vec3 dx = dFdx(vec3(uv,referenceDepth)), dy = dFdy(vec3(uv,referenceDepth));
+    float determinant = dx.x*dy.y-dx.y*dy.x;
+    vec2 gradient = vec2(0.0,0.0);
+    if (abs(determinant)>0.00000000000000000001)
+        gradient=vec2(dy.y*dx.z-dx.y*dy.z,dx.x*dy.z-dy.x*dx.z)/determinant;
+    if (max(abs(clip.x),max(abs(clip.y),abs(clip.z))) >= 1.0) return 1.0;
+    vec4 tile = WORLD_LOCAL_SHADOW(index*6+5);
+    vec2 centre = (floor(uv/parameters.w)+vec2(0.5,0.5))*parameters.w;
+    float visibility = 0.0;
+    for (int y=-1;y<=1;++y) {
+        for (int x=-1;x<=1;++x) {
+            vec2 tap=centre+vec2(float(x),float(y))*parameters.w;
+            float depth=min(tap.x,tap.y)<0.0 || max(tap.x,tap.y)>1.0 ? 1.0 :
+                WORLD_SHADOW_SAMPLE(tile.xy+tap*tile.zw);
+            float receiver=referenceDepth+clamp(dot(gradient,tap-uv),-0.01,0.01);
+            visibility+=step(receiver,depth);
+        }
+    }
+    return mix(1.0,visibility/9.0,parameters.x);
 }

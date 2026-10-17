@@ -109,6 +109,10 @@ struct GltfScenePrimitive {
     // cached indexed geometry.
     std::string geometryKey;
     std::size_t triangleCount = 0u;
+    // Local-space bounds computed from decoded positions, not accessor metadata.
+    // Missing bounds in manually constructed assets disable culling.
+    std::array<float, 3> boundsMin{}, boundsMax{};
+    bool boundsValid = false;
 };
 
 struct GltfSceneNode {

@@ -19,6 +19,7 @@ float3 encodeWorldSurfaceColor(float3 linearColor) {
 }
 
 float3 resolveWorldSceneColor(float3 linearColor) {
+    if (WORLD_SCENE_RADIANCE) return max(linearColor, float3(0.0,0.0,0.0));
   float3 clamped = saturate(linearColor);
   return (uSceneColorPostEnabled > 0.5f)
       ? clamped

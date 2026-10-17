@@ -660,6 +660,92 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
                    draw.geometryKey == materialAsset->primitives[0].geometryKey,
                    "source alpha/wrapping or opaque-before-blended order was lost")) return false;
     }
+    // Imported bounds must enclose decoded vertices, even if accessor metadata
+    // is absent. Opt-in culling must never affect skinning or prewarm.
+    for (const auto& primitive : asset->primitives) {
+        if (!check(primitive.boundsValid, "import did not compute bounds")) return false;
+        for (const auto& v : primitive.vertices) {
+            const std::array position{v.x,v.y,v.z};
+            for (int axis=0;axis<3;++axis)
+                if (!check(position[axis]>=primitive.boundsMin[axis] &&
+                           position[axis]<=primitive.boundsMax[axis],
+                           "decoded vertex outside imported bounds")) return false;
+        }
+    }
+    {
+        auto boxAsset = *asset;
+        boxAsset.primitives = {asset->primitives[1]};
+        auto& box = boxAsset.primitives.front();
+        box.skinIndex = -1;
+        box.boundsMin = {-.5f,-.5f,-.5f}; box.boundsMax = {.5f,.5f,.5f};
+        auto boxPose = pose;
+        boxPose.palettes = {{}};
+        boxPose.global[box.nodeIndex] = glm::mat4(1.f);
+        GltfSceneDrawOptions culledOptions;
+        culledOptions.surfaceWidth=320; culledOptions.surfaceHeight=180;
+        culledOptions.cullingViewProjection = culledOptions.viewProjectionMatrix;
+        const auto setMatrix=[](auto& out,const glm::mat4& matrix) {
+            std::copy_n(glm::value_ptr(matrix),16,out.begin());
+        };
+        const auto expectDraws=[&](unsigned expected,const char* label) {
+            RecordingBackend b; GltfSceneDrawStats s;
+            return check(engine::render::gltf::scene::drawGltfSceneAsset(
+                b,boxAsset,boxPose,culledOptions,s,&error) &&
+                b.submissions.size()==expected && s.drawCalls==expected &&
+                s.culledDraws==1-expected &&
+                s.culledTriangles==(1-expected)*box.indices.size()/3 &&
+                b.batchDepth==0, label);
+        };
+        if (!expectDraws(1,"inside box culled")) return false;
+        for (int axis=0;axis<3;++axis) for (float sign : {-1.f,1.f}) {
+            glm::vec3 offset(0); offset[axis]=sign*2;
+            setMatrix(culledOptions.instanceTransform,glm::translate(glm::mat4(1),offset));
+            if (!expectDraws(0,"outside box submitted")) return false;
+            offset[axis]=sign*1.5f;
+            setMatrix(culledOptions.instanceTransform,glm::translate(glm::mat4(1),offset));
+            if (!expectDraws(1,"plane-touching box culled")) return false;
+        }
+        // Instance + animated node placement, mirrored scale and shear.
+        boxPose.global[box.nodeIndex]=glm::translate(glm::mat4(1),glm::vec3(-2,0,0));
+        setMatrix(culledOptions.instanceTransform,glm::translate(glm::mat4(1),glm::vec3(2,0,0)));
+        if (!expectDraws(1,"composed node transform ignored")) return false;
+        boxPose.global[box.nodeIndex]=glm::mat4(1);
+        auto transform=glm::scale(glm::mat4(1),glm::vec3(-6,3,.5f)); transform[1][0]=4;
+        setMatrix(culledOptions.instanceTransform,transform);
+        if (!expectDraws(1,"frustum-enclosing sheared box culled")) return false;
+        *culledOptions.cullingViewProjection=culledOptions.viewProjectionMatrix;
+        setMatrix(culledOptions.instanceTransform,glm::mat4(1));
+        setMatrix(*culledOptions.cullingViewProjection,glm::perspective(glm::radians(90.f),1.f,.1f,10.f));
+        if (!expectDraws(1,"eye-crossing box culled")) return false;
+        setMatrix(culledOptions.instanceTransform,glm::translate(glm::mat4(1),glm::vec3(0,0,2)));
+        if (!expectDraws(0,"behind-eye box submitted")) return false;
+        box.boundsValid=false;
+        if (!expectDraws(1,"missing bounds did not fail open")) return false;
+        box.boundsValid=true; box.boundsMin[0]=2;
+        if (!expectDraws(1,"invalid bounds did not fail open")) return false;
+        box.boundsMin[0]=-.5f; culledOptions.materialMode=248;
+        if (!expectDraws(1,"custom vertex material was culled")) return false;
+        culledOptions.materialMode=2; culledOptions.prewarmOnly=true;
+        RecordingBackend warm; GltfSceneDrawStats warmStats;
+        if (!check(engine::render::gltf::scene::drawGltfSceneAsset(warm,boxAsset,boxPose,
+            culledOptions,warmStats,&error) && warm.preparedGeometry==1 &&
+            warm.preparedTextures==1 && warmStats.culledDraws==0,
+            "outside primitive skipped prewarm")) return false;
+        culledOptions.prewarmOnly=false;
+        (*culledOptions.cullingViewProjection)[0]=std::numeric_limits<float>::quiet_NaN();
+        warmStats.drawCalls=99;
+        if (!check(!engine::render::gltf::scene::drawGltfSceneAsset(warm,boxAsset,boxPose,
+            culledOptions,warmStats,&error) && warm.submissions.empty() &&
+            warmStats.drawCalls==99,"nonfinite culling matrix accepted")) return false;
+        // Far outside in every plane: the skinned mesh still gets its palette.
+        culledOptions.cullingViewProjection=culledOptions.viewProjectionMatrix;
+        setMatrix(culledOptions.instanceTransform,glm::translate(glm::mat4(1),glm::vec3(10000)));
+        RecordingBackend rig; GltfSceneDrawStats rigStats;
+        if (!check(engine::render::gltf::scene::drawGltfSceneAsset(rig,*asset,pose,
+            culledOptions,rigStats,&error) && rigStats.culledDraws==1 &&
+            rigStats.skinnedDraws==1 && rig.submissions.size()==1,
+            "skinned mesh was culled using bind-pose bounds")) return false;
+    }
     outFail.clear();
     return true;
 }

@@ -120,6 +120,7 @@ void D3D12RenderBackend::drawWorldTriangles(const WorldTriangle* triangles,
         commandList_->SetDescriptorHeaps(1, heaps);
     }
     commandList_->SetGraphicsRootSignature(worldRootSignature_.Get());
+    bindWorldDiffuseProbes();
     float vsConstants[kWorldViewConstantFloats] = {};
     packWorldVsConstants(viewProjectionMatrix4x4, nullptr, false, 0u, 0u, 0.0f, vsConstants);
     std::memcpy(
@@ -139,11 +140,7 @@ void D3D12RenderBackend::drawWorldTriangles(const WorldTriangle* triangles,
             static_cast<std::uint64_t>(worldInstanceFrameBaseOffset_));
     const WorldPsConstants worldPs = makeWorldPsConstants(
         nullptr, useTexture, worldSceneColorPassActive_, &worldMaterialProfile_);
-    commandList_->SetGraphicsRoot32BitConstants(
-        1,
-        static_cast<UINT>(sizeof(WorldPsConstants) / sizeof(float)),
-        &worldPs,
-        0);
+    bindWorldMaterialConstants(&worldPs, vsConstantsWriteOffset);
     D3D12_GPU_DESCRIPTOR_HANDLE materialHandle = srvHeap_->GetGPUDescriptorHandleForHeapStart();
     materialHandle.ptr += static_cast<SIZE_T>(materialDescriptorBlockIndex) *
                           static_cast<SIZE_T>(srvDescriptorSize_);

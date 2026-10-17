@@ -36,8 +36,9 @@ struct ScreenFeedbackUniform {
     // xy=history size, z=mode (0 seed / 1 feedback / 2 display), w=pass count.
     std::array<float,4> control{};
     std::array<ScreenFeedbackPass,4> passes{};
+    std::array<float,4> scenePost{}; // x=bloom, y=scene exposure (zero is legacy)
 };
-static_assert(sizeof(ScreenFeedbackUniform)==208);
+static_assert(sizeof(ScreenFeedbackUniform)==224);
 inline void validateScreenFeedback(const ScreenFeedbackFrame& frame) {
     if (!frame.sequence || frame.width<1 || frame.height<1 || frame.width>2048 || frame.height>2048 ||
         !frame.maskRgba || frame.maskKey.empty() || frame.maskWidth<1 || frame.maskHeight<1 ||

@@ -24,9 +24,9 @@ uint celestialHash(uint seed) {
 float celestialRandom(uint seed) { return float(celestialHash(seed) & 65535u) / 65535.0; }
 
 vec3 environmentDitherSky(vec3 targetColor, vec3 ray) {
-    // The current scene target is 8-bit even before its display transfer.
-    // Sub-LSB, world-ray noise makes the dark gradient quantize without bands;
-    // use the same seed across APIs and camera-centred sky geometry.
+    // HDR keeps the sky unclipped and dithers at the final display boundary.
+    if (WORLD_SCENE_RADIANCE) return max(targetColor,vec3(0.0,0.0,0.0));
+    // Preserve the legacy world-ray dither for source-fidelity views.
     ray = normalize(ray);
     uint seed = uint((ray.x+1.0)*8192.0) + uint((ray.y+1.0)*8192.0)*16411u +
                 uint((ray.z+1.0)*8192.0)*269336921u;

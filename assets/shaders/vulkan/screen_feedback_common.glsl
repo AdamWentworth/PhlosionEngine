@@ -11,7 +11,11 @@ vec3 sampleHistory(vec2 uv) {
     return floor(mix(mix(historyByte(b),historyByte(b+ivec2(1,0)),f.x),
                      mix(historyByte(b+ivec2(0,1)),historyByte(b+ivec2(1,1)),f.x),f.y)+0.5);
 }
-vec3 sceneByte(vec2 uv) { return floor(encodeScene(sampleScene(uv).rgb)*255.0+0.5); }
+vec3 sceneByte(vec2 uv) {
+    vec3 color=sampleScene(uv).rgb;
+    if (scenePost.y>0.0) color=sceneDisplayMap(sceneBloom(uv,color,scenePost.x));
+    return floor(sceneDitherDisplay(encodeScene(color),uv)*255.0+0.5);
+}
 vec3 composed(vec2 p) {
     vec3 dest=sceneByte(p/control.xy);
     for(int i=0;i<int(control.w);++i) {

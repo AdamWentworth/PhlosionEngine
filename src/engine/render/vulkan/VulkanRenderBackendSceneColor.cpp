@@ -45,7 +45,7 @@ void VulkanRenderBackendImpl::createWorldSceneColorResources() {
          ++frameIndex) {
         VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
-        imageInfo.format = swapchainFormat;
+        imageInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
         imageInfo.extent = {
             swapchainExtent.width,
             swapchainExtent.height,
@@ -96,7 +96,7 @@ void VulkanRenderBackendImpl::createWorldSceneColorResources() {
             VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         viewInfo.image = worldSceneColorImages[frameIndex];
         viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = swapchainFormat;
+        viewInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
         viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         viewInfo.subresourceRange.levelCount = 1u;
         viewInfo.subresourceRange.layerCount = 1u;
@@ -405,8 +405,9 @@ void VulkanRenderBackendImpl::endWorldSceneColorPass() {
     if (!frameActive || !worldSceneColorPassActive) return;
 
     FrameResources& frame = frames[currentFrame];
+    const float post[]{worldBloomStrength,worldSceneRadianceExposure};
     vkCmdPushConstants(frame.commandBuffer,worldSceneColorPipelineLayout,
-        VK_SHADER_STAGE_FRAGMENT_BIT,0u,sizeof(float),&worldBloomStrength);
+        VK_SHADER_STAGE_FRAGMENT_BIT,0u,sizeof(post),post);
     vkCmdEndRenderPass(frame.commandBuffer);
     worldSceneColorPassActive = false;
 
@@ -604,7 +605,7 @@ void VulkanRenderBackendImpl::endWorldSceneColorPass(const engine::render::Scree
         vkUpdateDescriptorSets(device,4,writes.data(),0,nullptr);
     }
     auto draw=[&](int mode,int history,int width,int height,const ScreenFeedbackUpdate& update,VkPipeline pipeline) {
-        const ScreenFeedbackUniform uniform{{float(input.width),float(input.height),float(mode),float(update.count)},update.passes};
+        const ScreenFeedbackUniform uniform{{float(input.width),float(input.height),float(mode),float(update.count)},update.passes,{worldBloomStrength,worldSceneRadianceExposure,0,0}};
         VkBuffer buffer=VK_NULL_HANDLE;VkDeviceSize offset=0;
         if(!writeTransient(&uniform,sizeof(uniform),physicalDeviceProperties.limits.minUniformBufferOffsetAlignment,buffer,offset))throw std::runtime_error("Screen feedback uniform arena exhausted");
         const auto dynamicOffset=static_cast<std::uint32_t>(offset);

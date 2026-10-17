@@ -180,6 +180,7 @@ struct VulkanRenderBackendImpl {
     VkPhysicalDeviceProperties physicalDeviceProperties{};
     VkPhysicalDeviceMemoryProperties memoryProperties{};
     VkDevice device = VK_NULL_HANDLE;
+    VkPipelineCache pipelineCache = VK_NULL_HANDLE;
     std::uint32_t graphicsQueueFamily = UINT32_MAX;
     std::uint32_t presentQueueFamily = UINT32_MAX;
     VkQueue graphicsQueue = VK_NULL_HANDLE;
@@ -205,11 +206,16 @@ struct VulkanRenderBackendImpl {
     std::array<VkImageView, kFramesInFlight> worldShadowViews{};
     std::array<VkFramebuffer, kFramesInFlight> worldShadowFramebuffers{};
     VkSampler worldShadowSampler = VK_NULL_HANDLE;
+    engine::render::WorldLocalShadowAtlas worldLocalShadows_;
     engine::render::WorldDirectionalShadowView worldShadowView{};
     std::uint32_t worldShadowResolution = 0, shadowSavedWidth = 1, shadowSavedHeight = 1;
     bool worldShadowActive = false, worldShadowReady = false;
     void createWorldShadowRenderPass();
     void updateWorldShadowDescriptors();
+    void prewarmWorldLocalShadows();
+    void clearWorldLocalShadows();
+    bool beginWorldLocalShadow(std::uint32_t index, const engine::render::WorldDirectionalShadowView& view);
+    bool endWorldLocalShadow();
     void prewarmWorldDirectionalShadow(std::uint32_t resolution);
     bool beginWorldDirectionalShadow(const engine::render::WorldDirectionalShadowView& view);
     bool endWorldDirectionalShadow();
@@ -257,10 +263,13 @@ struct VulkanRenderBackendImpl {
     std::array<
         VkPipeline,
         engine::render::vulkan_backend::kWorldPipelineCount> worldPipelines{};
+    decltype(worldPipelines) sceneWorldPipelines{};
     VkPipeline worldVolumePipeline = VK_NULL_HANDLE;
+    VkPipeline sceneWorldVolumePipeline = VK_NULL_HANDLE;
     std::array<
         VkPipeline,
         engine::render::vulkan_backend::kWorldPipelineCount> indirectWorldPipelines{};
+    decltype(indirectWorldPipelines) sceneIndirectWorldPipelines{};
 
     std::array<FrameResources, kFramesInFlight> frames{};
     std::unordered_map<std::string, Texture> worldTextures;
@@ -299,6 +308,8 @@ struct VulkanRenderBackendImpl {
     bool mainRenderPassActive = false;
     bool worldSceneColorPassActive = false;
     float worldBloomStrength = 0;
+    float worldSceneRadianceExposure = 0;
+    engine::render::WorldDiffuseProbeUniforms worldDiffuseProbes{};
     bool editorSurfacePassActive = false;
     std::uint64_t activeEditorSurface = 0u;
     std::uint64_t nextEditorSurface = 1u;

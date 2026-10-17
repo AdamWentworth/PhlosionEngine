@@ -33,6 +33,11 @@ bool VulkanRenderBackendImpl::bindWorldDescriptorSets(
         engine::render::vulkan_backend::makeWorldViewState(texture);
     if (worldShadowReady && !worldShadowActive && texture && texture->environment.enabled && texture->directionalShadowReceiver)
         viewState.directionalShadow = engine::render::packWorldDirectionalShadow(worldShadowView);
+    viewState.shadowAtlasUv = worldLocalShadows_.directionalUv();
+    viewState.cameraPosition[3] = worldSceneColorPassActive && worldSceneRadianceExposure > 0 ? 1.f : 0.f;
+    if (!worldShadowActive && texture && texture->environment.enabled && texture->directionalShadowReceiver)
+        viewState.localShadows = worldLocalShadows_.uniforms;
+    if (!worldShadowActive && texture && texture->environment.enabled) viewState.diffuseProbes = worldDiffuseProbes;
     auto specializedMaterialState =
         engine::render::vulkan_backend::makeWorldSpecializedMaterialState(texture);
     if (worldMaterialDebugView > 0 && texture &&
@@ -243,7 +248,7 @@ void VulkanRenderBackendImpl::drawWorldTriangles(
     }
     VkCommandBuffer commandBuffer = frames[currentFrame].commandBuffer;
     setViewportAndScissor(commandBuffer, surfaceWidth, surfaceHeight);
-    const VkPipeline pipeline = worldPipelines[0u];
+    const VkPipeline pipeline = (worldSceneColorPassActive ? sceneWorldPipelines : worldPipelines)[0u];
     bindGraphicsPipeline(commandBuffer, pipeline);
     if (!bindWorldDescriptorSets(
             commandBuffer,
@@ -369,7 +374,7 @@ void VulkanRenderBackendImpl::drawWorldIndexedMeshBuffers(
     if (worldShadowActive) {
         if (!engine::render::worldDirectionalShadowCaster(textureData)) return;
         viewProjectionMatrix4x4 = worldShadowView.viewProjection.data();
-        surfaceWidth = surfaceHeight = static_cast<int>(worldShadowResolution);
+        surfaceWidth = surfaceHeight = static_cast<int>(worldShadowView.resolution);
         if (textureData) { shadowTexture = *textureData; shadowTexture.clipSpaceDepthBias = 0; textureData = &shadowTexture; }
     }
     if (!frameActive ||
@@ -426,7 +431,7 @@ void VulkanRenderBackendImpl::drawWorldIndexedMeshBuffers(
     if (drawCharacterOutline) {
         const bool outlineDepthEnabled = textureData->depthTestEnabled != 0u;
         const std::size_t outlinePipelineIndex = outlineDepthEnabled ? 2u : 3u;
-        bindGraphicsPipeline(commandBuffer, worldPipelines[outlinePipelineIndex]);
+        bindGraphicsPipeline(commandBuffer, (worldSceneColorPassActive ? sceneWorldPipelines : worldPipelines)[outlinePipelineIndex]);
         WorldPushConstants outlinePush = push;
         outlinePush.materialMode = 3.0f;
         outlinePush.outlineExtrude =
@@ -452,7 +457,7 @@ void VulkanRenderBackendImpl::drawWorldIndexedMeshBuffers(
     const bool volume = textureData && textureData->materialMode == 249 &&
         pipelineIndex == engine::render::vulkan_backend::kFirstStandardBlendPipeline;
     bindGraphicsPipeline(commandBuffer, worldShadowActive ? worldShadowPipeline :
-        volume ? worldVolumePipeline : worldPipelines[pipelineIndex]);
+        volume ? (worldSceneColorPassActive ? sceneWorldVolumePipeline : worldVolumePipeline) : (worldSceneColorPassActive ? sceneWorldPipelines : worldPipelines)[pipelineIndex]);
     vkCmdPushConstants(commandBuffer,
                        texturedPipelineLayout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,

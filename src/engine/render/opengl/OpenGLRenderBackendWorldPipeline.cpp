@@ -507,6 +507,7 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
         out vec4 FragBlendAlpha;
 
 
+#define WORLD_SCENE_RADIANCE (uSceneColorPostEnabled > 1.5)
 #define ENV_SUN uEnvironmentSun
 #define ENV_RADIANCE uEnvironmentRadiance
 #define ENV_AMBIENT uEnvironmentAmbient
@@ -527,17 +528,23 @@ __PHLOSION_PROJECT_MATERIAL_EVALUATION__
 __PHLOSION_ENVIRONMENT_SHADER__
 uniform vec4 uWorldPointLights[8];
 uniform vec4 uWorldRectLights[64];
+        uniform vec4 uWorldDiffuseProbes[483];
 uniform sampler2D uRectLightLut;
 #define ENV_RECT(index) uWorldRectLights[index]
+        #define ENV_BOUNCE(index) uWorldDiffuseProbes[index]
 #define ENV_RECT_LUT(uv) textureLod(uRectLightLut, uv, 0.0)
 #define ENV_POINT(index) uWorldPointLights[index]
 __PHLOSION_WORLD_LIGHTING_SHADER__
 uniform sampler2D uDirectionalShadowTexture;
 uniform mat4 uDirectionalShadowMatrix;
 uniform vec4 uDirectionalShadowParams;
+uniform vec4 uShadowAtlasUv;
+uniform vec4 uLocalShadows[96];
 #define WORLD_SHADOW_PARAMS uDirectionalShadowParams
 #define WORLD_SHADOW_CLIP(position) (uDirectionalShadowMatrix * vec4(position, 1.0))
 #define WORLD_SHADOW_SAMPLE(uv) textureLod(uDirectionalShadowTexture, uv, 0.0).r
+#define WORLD_SHADOW_ATLAS uShadowAtlasUv
+#define WORLD_LOCAL_SHADOW(index) uLocalShadows[index]
 #define WORLD_SHADOW_Y 1.0
 __PHLOSION_WORLD_SHADOW_SHADER__
 #define VOLUME_SAMPLE(uv) texture(uTexture, uv).a
@@ -668,6 +675,7 @@ float litTextureDetailLodBias() { return clamp(uMaterialFlipbook1.z, -0.75, 1.25
         }
 
         vec3 resolveWorldSceneColor(vec3 linearColor) {
+    if (WORLD_SCENE_RADIANCE) return max(linearColor, vec3(0.0,0.0,0.0));
             vec3 clamped = clamp(linearColor, 0.0, 1.0);
             return (uSceneColorPostEnabled > 0.5)
                 ? clamped
@@ -1071,6 +1079,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
     for (const auto& [source, replacement] : {
              std::pair{"#define ENV_POINT(index) uWorldPointLights[index]", "#define ENV_POINT(index) vec4(0.0)"},
              std::pair{"#define ENV_RECT(index) uWorldRectLights[index]", "#define ENV_RECT(index) vec4(0.0)"},
+             std::pair{"#define ENV_BOUNCE(index) uWorldDiffuseProbes[index]", "#define ENV_BOUNCE(index) vec4(0.0)"},
              std::pair{"#define WORLD_SHADOW_PARAMS uDirectionalShadowParams", "#define WORLD_SHADOW_PARAMS vec4(0.0)"}}) {
         const auto offset = depthSource.find(source);
         if (offset == std::string::npos) throw std::runtime_error("Missing depth lighting macro.");
@@ -1082,16 +1091,30 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
         if (offset == std::string::npos) throw std::runtime_error("Missing world color export.");
         depthSource.replace(offset, declaration.size(), "vec4 " + output + ";");
     }
-    worldDirectionalShadowProgram_ = tryLoadWorldProgramBinaryCache(kVs.c_str(), depthSource);
-    if (!worldDirectionalShadowProgram_) {
-        const auto depthVs = opengl_backend_shader_utils::compileShader(GL_VERTEX_SHADER, kVs.c_str());
-        const auto depthFs = opengl_backend_shader_utils::compileShader(GL_FRAGMENT_SHADER, depthSource.c_str());
-        if (depthVs && depthFs)
-            worldDirectionalShadowProgram_ = linkWorldProgramWithCache(depthVs, depthFs, kVs.c_str(), depthSource);
-        if (depthVs) glDeleteShader(depthVs);
-        if (depthFs) glDeleteShader(depthFs);
-        if (!worldDirectionalShadowProgram_) throw std::runtime_error("Directional depth shader compilation failed.");
-    }
+    // Compile the same discard path with a fixed material mode. The large
+    // project dispatcher otherwise makes cutout shadow draws disproportionately
+    // expensive on OpenGL, even when color exports are removed.
+    worldShadowProgramFactory_ = [vertex = kVs, fragment = depthSource](std::uint8_t mode) {
+        auto source = fragment;
+        auto vertexSource = vertex;
+        constexpr std::string_view declaration = "uniform float uMaterialMode;";
+        const auto offset = source.find(declaration);
+        if (offset == std::string::npos) throw std::runtime_error("Missing shadow material selector.");
+        source.replace(offset, declaration.size(), "const float uMaterialMode = " + std::to_string(mode) + ".0;");
+        const auto vertexOffset = vertexSource.find(declaration);
+        if (vertexOffset == std::string::npos) throw std::runtime_error("Missing shadow vertex material selector.");
+        vertexSource.replace(vertexOffset, declaration.size(), "const float uMaterialMode = " + std::to_string(mode) + ".0;");
+        auto program = tryLoadWorldProgramBinaryCache(vertexSource.c_str(), source);
+        if (!program) {
+            const auto vs = opengl_backend_shader_utils::compileShader(GL_VERTEX_SHADER, vertexSource.c_str());
+            const auto fs = opengl_backend_shader_utils::compileShader(GL_FRAGMENT_SHADER, source.c_str());
+            if (vs && fs) program = linkWorldProgramWithCache(vs, fs, vertexSource.c_str(), source);
+            if (vs) glDeleteShader(vs);
+            if (fs) glDeleteShader(fs);
+            if (!program) throw std::runtime_error("Specialized shadow shader compilation failed.");
+        }
+        return program;
+    };
     // Keep volume fragments independent of the large project-material dispatcher.
     std::string volumeSource = fsSource;
     const auto versionEnd = volumeSource.find('\n', volumeSource.find("#version"));
@@ -1111,8 +1134,8 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
     glGetProgramiv(worldProgram_, GL_ACTIVE_UNIFORMS, &uniformCount);
     glGetProgramiv(worldProgram_, GL_ACTIVE_UNIFORM_MAX_LENGTH, &nameCapacity);
     std::string uniformName(static_cast<std::size_t>(std::max(1, nameCapacity)), '\0');
-    worldDirectionalShadowUniformLocations_.clear();
     worldVolumeUniformLocations_.clear();
+    worldUniformNames_.clear();
     for (GLint index = 0; index < uniformCount; ++index) {
         GLsizei nameLength = 0;
         GLint arraySize = 0;
@@ -1128,10 +1151,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             const auto sourceLocation = glGetUniformLocation(worldProgram_, elementName.c_str());
             if (sourceLocation < 0) continue; // Uniform-block members have no location.
             const auto required = static_cast<std::size_t>(sourceLocation + 1);
-            if (worldDirectionalShadowUniformLocations_.size() < required)
-                worldDirectionalShadowUniformLocations_.resize(required, -1);
-            worldDirectionalShadowUniformLocations_[static_cast<std::size_t>(sourceLocation)] =
-                glGetUniformLocation(worldDirectionalShadowProgram_, elementName.c_str());
+            worldUniformNames_.emplace_back(sourceLocation, elementName);
             if (worldVolumeUniformLocations_.size() < required)
                 worldVolumeUniformLocations_.resize(required, -1);
             worldVolumeUniformLocations_[static_cast<std::size_t>(sourceLocation)] =
@@ -1163,9 +1183,13 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
         glGetUniformLocation(worldProgram_, "uLightProjectionUvRowV");
     worldPointLightsLoc_ = glGetUniformLocation(worldProgram_, "uWorldPointLights[0]");
     worldRectLightsLoc_ = glGetUniformLocation(worldProgram_, "uWorldRectLights[0]");
+    worldDiffuseProbesLoc_ = glGetUniformLocation(worldProgram_, "uWorldDiffuseProbes[0]");
+    worldDiffuseProbesUploaded_ = false;
     worldRectLightLutLoc_ = glGetUniformLocation(worldProgram_, "uRectLightLut");
     worldDirectionalShadowMatrixLoc_ = glGetUniformLocation(worldProgram_, "uDirectionalShadowMatrix");
     worldDirectionalShadowParamsLoc_ = glGetUniformLocation(worldProgram_, "uDirectionalShadowParams");
+    worldShadowAtlasLoc_ = glGetUniformLocation(worldProgram_, "uShadowAtlasUv");
+    worldLocalShadowsLoc_ = glGetUniformLocation(worldProgram_, "uLocalShadows[0]");
     worldDirectionalShadowTextureLoc_ = glGetUniformLocation(worldProgram_, "uDirectionalShadowTexture");
     worldProjectedShadowTextureSamplerLoc_ =
         glGetUniformLocation(worldProgram_, "uProjectedShadowTexture");
@@ -1320,10 +1344,30 @@ void OpenGLRenderBackend::configureWorldMeshVertexLayout(unsigned int vao,
     glVertexAttribDivisor(13, 1);
 }
 
+unsigned int OpenGLRenderBackend::specializedWorldShadowProgram(std::uint8_t mode) {
+    auto& shadow = worldShadowPrograms_[mode];
+    if (!shadow.program) {
+        shadow.program = worldShadowProgramFactory_(mode);
+        for (const auto& [location, name] : worldUniformNames_) {
+            if (shadow.uniforms.size() <= static_cast<std::size_t>(location))
+                shadow.uniforms.resize(static_cast<std::size_t>(location + 1), -1);
+            shadow.uniforms[static_cast<std::size_t>(location)] = glGetUniformLocation(shadow.program, name.c_str());
+        }
+        const auto skinBlock = glGetUniformBlockIndex(shadow.program, "SkinMatricesBlock");
+        if (skinBlock != GL_INVALID_INDEX) glUniformBlockBinding(shadow.program, skinBlock, 0);
+    }
+    worldActiveShadowProgram_ = &shadow;
+    return shadow.program;
+}
+
 void OpenGLRenderBackend::destroyWorldPipeline() {
-    if (worldDirectionalShadowProgram_) glDeleteProgram(worldDirectionalShadowProgram_);
-    worldDirectionalShadowProgram_ = 0;
-    worldDirectionalShadowUniformLocations_.clear();
+    for (auto& shadow : worldShadowPrograms_) {
+        if (shadow.program) glDeleteProgram(shadow.program);
+        shadow = {};
+    }
+    worldActiveShadowProgram_ = nullptr;
+    worldShadowProgramFactory_ = {};
+    worldUniformNames_.clear();
     if (worldVolumeProgram_) glDeleteProgram(worldVolumeProgram_);
     worldVolumeProgram_ = 0; worldVolumeActive_ = false;
     worldVolumeUniformLocations_.clear();

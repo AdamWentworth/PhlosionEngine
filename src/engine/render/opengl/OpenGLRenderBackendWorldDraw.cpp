@@ -252,6 +252,8 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTextured(const WorldMeshVertex* ve
                                                        const float* viewProjectionMatrix4x4,
                                                        int surfaceWidth,
                                                        int surfaceHeight) {
+    // Initialize before copying the streaming buffer handles into the draw call.
+    ensureWorldPipeline();
     drawWorldIndexedMeshTexturedInternal(worldVao_,
                                          worldVbo_,
                                          worldIbo_,
@@ -285,7 +287,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     if (worldDirectionalShadowActive_) {
         if (!engine::render::worldDirectionalShadowCaster(texture)) return;
         viewProjectionMatrix4x4 = worldDirectionalShadowView_.viewProjection.data();
-        surfaceWidth = surfaceHeight = static_cast<int>(worldDirectionalShadowResolution_);
+        surfaceWidth = surfaceHeight = static_cast<int>(worldDirectionalShadowView_.resolution);
     }
     if (!vertices || !indices || vertexCount == 0 || indexCount < 3 || !viewProjectionMatrix4x4) return;
     if (surfaceWidth <= 0 || surfaceHeight <= 0) return;
@@ -727,7 +729,8 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
         glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &prevBlendEqAlpha);
     }
 
-    glViewport(0, 0, std::max(1, surfaceWidth), std::max(1, surfaceHeight));
+    const auto shadowTile = worldDirectionalShadowActive_ ? worldLocalShadows_.offset() : std::array<std::uint32_t,2>{};
+    glViewport(shadowTile[0], shadowTile[1], std::max(1, surfaceWidth), std::max(1, surfaceHeight));
     setDepthEnabled(depthTestEnabled);
     setFrontFace(engine::render::parity_contract::kWorldFrontFaceClockwise ? GL_CW : GL_CCW);
     setDepthFunc(engine::render::parity_contract::kWorldDepthFuncLessEqual ? GL_LEQUAL : GL_LESS);
@@ -769,7 +772,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     setDepthMask(!blendAlpha);
 
     worldVolumeActive_ = !worldDirectionalShadowActive_ && materialMode == 249;
-    bindProgram(worldDirectionalShadowActive_ ? worldDirectionalShadowProgram_ :
+    bindProgram(worldDirectionalShadowActive_ ? specializedWorldShadowProgram(materialMode) :
         worldVolumeActive_ ? worldVolumeProgram_ : worldProgram_);
     glBindBufferBase(GL_UNIFORM_BUFFER, kWorldSkinBlockBinding, worldSkinUbo_);
     glUniformMatrix4fv(worldUniformLocation(worldViewProjLoc_), 1, GL_FALSE, viewProjectionMatrix4x4);
@@ -846,10 +849,20 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     glUniformMatrix4fv(worldUniformLocation(worldDirectionalShadowMatrixLoc_), 1, GL_FALSE, shadow.viewProjection.data());
     glUniform4fv(worldUniformLocation(worldDirectionalShadowParamsLoc_), 1, shadow.parameters.data());
     glUniform1i(worldUniformLocation(worldDirectionalShadowTextureLoc_), 8);
+    const auto shadowAtlasUv = worldLocalShadows_.directionalUv();
+    glUniform4fv(worldUniformLocation(worldShadowAtlasLoc_), 1, shadowAtlasUv.data());
+    const auto localShadows = !worldDirectionalShadowActive_ && texture && texture->environment.enabled && texture->directionalShadowReceiver
+        ? worldLocalShadows_.uniforms : engine::render::WorldLocalShadowUniforms{};
+    glUniform4fv(worldUniformLocation(worldLocalShadowsLoc_), static_cast<GLsizei>(localShadows.size()), localShadows[0].data());
     const auto rectLights = engine::render::packWorldRectLights(
         texture ? texture->environment : engine::render::WorldEnvironmentLighting{});
     glUniform4fv(worldUniformLocation(worldRectLightsLoc_), static_cast<GLsizei>(rectLights.size()), rectLights[0].data());
     glUniform1i(worldUniformLocation(worldRectLightLutLoc_), 9);
+    if (!worldDirectionalShadowActive_ && !worldVolumeActive_ && worldDiffuseProbesLoc_ >= 0 &&
+        (!worldDiffuseProbesUploaded_ || lastWorldDiffuseProbes_ != worldDiffuseProbes_)) {
+        glUniform4fv(worldDiffuseProbesLoc_, static_cast<GLsizei>(worldDiffuseProbes_.size()), worldDiffuseProbes_[0].data());
+        lastWorldDiffuseProbes_ = worldDiffuseProbes_; worldDiffuseProbesUploaded_ = true;
+    }
     if (worldCameraTargetLoc_ >= 0) {
         glUniform3f(worldUniformLocation(worldCameraTargetLoc_), cameraTargetX, cameraTargetY, cameraTargetZ);
     }
@@ -916,7 +929,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     if (worldSceneColorPostEnabledLoc_ >= 0) {
         glUniform1f(
             worldUniformLocation(worldSceneColorPostEnabledLoc_),
-            worldSceneColorPassActive_ ? 1.0f : 0.0f);
+            worldSceneColorPassActive_ ? (worldSceneRadianceExposure_ > 0 ? 2.0f : 1.0f) : 0.0f);
     }
     glUniform1f(worldUniformLocation(worldMaterialModeLoc_), static_cast<GLfloat>(materialMode));
     glUniform1f(worldUniformLocation(worldMaterialTimeLoc_), texture ? texture->materialTimeSec : 0.0f);

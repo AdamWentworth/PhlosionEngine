@@ -56,7 +56,10 @@ cbuffer EnvironmentConstants : register(b0) {
   float4x4 uWorldShadowMatrix;
   float4 uWorldShadowParams;
   float4 uWorldRectLights[64];
+  float4 uShadowAtlasUv;
+  float4 uLocalShadows[96];
 };
+cbuffer DiffuseProbeConstants : register(b2) { float4 uWorldDiffuseProbes[483]; };
 cbuffer PSConstants : register(b1) {
   float uUseTexture;
   float uWrapS;
@@ -123,6 +126,7 @@ SamplerState gSampMC : register(s8);
 struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float3 worldPos : TEXCOORD1; float3 worldNormal : TEXCOORD2; float4 worldTangent : TEXCOORD3; float3 generated : TEXCOORD4; float2 sourceUv1 : TEXCOORD5; float2 sourceUv2 : TEXCOORD6; };
 
 
+#define WORLD_SCENE_RADIANCE (uSceneColorPostEnabled > 1.5)
 #define ENV_SUN uEnvironmentSun
 #define ENV_RADIANCE uEnvironmentRadiance
 #define ENV_AMBIENT uEnvironmentAmbient
@@ -143,11 +147,14 @@ struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLO
 __PHLOSION_ENVIRONMENT_SHADER__
 #define ENV_POINT(index) uWorldPointLights[index]
 #define ENV_RECT(index) uWorldRectLights[index]
+#define ENV_BOUNCE(index) uWorldDiffuseProbes[index]
 #define ENV_RECT_LUT(uv) gRectLightLut.SampleLevel(gSampCC, uv, 0.0)
 __PHLOSION_WORLD_LIGHTING_SHADER__
 #define WORLD_SHADOW_PARAMS uWorldShadowParams
 #define WORLD_SHADOW_CLIP(position) mul(uWorldShadowMatrix, float4(position, 1.0))
 #define WORLD_SHADOW_SAMPLE(uv) gWorldShadowTex.SampleLevel(gWorldShadowSampler, uv, 0.0)
+#define WORLD_SHADOW_ATLAS uShadowAtlasUv
+#define WORLD_LOCAL_SHADOW(index) uLocalShadows[index]
 #define WORLD_SHADOW_Y -1.0
 __PHLOSION_WORLD_SHADOW_SHADER__
 #define VOLUME_SAMPLE(uv) gTex.Sample(gSampCC, uv).a
@@ -352,6 +359,7 @@ float3 encodeWorldSurfaceColor(float3 linearColor) {
 }
 
 float3 resolveWorldSceneColor(float3 linearColor) {
+    if (WORLD_SCENE_RADIANCE) return max(linearColor, float3(0.0,0.0,0.0));
   float3 clamped = saturate(linearColor);
   return (uSceneColorPostEnabled > 0.5f)
       ? clamped
@@ -776,6 +784,10 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
     const auto rectOffset = unlitPointSource.find(rectMacro);
     if (rectOffset == std::string::npos) throw std::runtime_error("Missing rectangle-light binding.");
     unlitPointSource.replace(rectOffset, rectMacro.size(), "#define ENV_RECT(index) float4(0.0f,0.0f,0.0f,0.0f)");
+    const std::string bounceMacro = "#define ENV_BOUNCE(index) uWorldDiffuseProbes[index]";
+    const auto bounceOffset = unlitPointSource.find(bounceMacro);
+    if (bounceOffset == std::string::npos) throw std::runtime_error("Missing diffuse probe binding.");
+    unlitPointSource.replace(bounceOffset, bounceMacro.size(), "#define ENV_BOUNCE(index) float4(0.0f,0.0f,0.0f,0.0f)");
     const std::string shadowMacro = "#define WORLD_SHADOW_PARAMS uWorldShadowParams";
     const auto shadowMacroOffset = unlitPointSource.find(shadowMacro);
     if (shadowMacroOffset == std::string::npos) throw std::runtime_error("Missing directional-shadow binding.");
@@ -841,15 +853,17 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
     vertexDisplacementSrvRange.OffsetInDescriptorsFromTableStart =
         D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParams[6]{};
+    D3D12_ROOT_PARAMETER rootParams[7]{};
+    rootParams[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParams[6].Descriptor.ShaderRegister = 2;
+    rootParams[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParams[0].Descriptor.ShaderRegister = 0;
     rootParams[0].Descriptor.RegisterSpace = 0;
     rootParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rootParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    rootParams[1].Constants.Num32BitValues = static_cast<UINT>(sizeof(WorldPsConstants) / sizeof(float));
-    rootParams[1].Constants.ShaderRegister = 1;
-    rootParams[1].Constants.RegisterSpace = 0;
+    rootParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParams[1].Descriptor.ShaderRegister = 1;
+    rootParams[1].Descriptor.RegisterSpace = 0;
     rootParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     rootParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     rootParams[2].Descriptor.ShaderRegister = 7;
@@ -1123,6 +1137,23 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
             "CreateGraphicsPipelineState failed for D3D12 world no-depth dual-source additive pipeline.");
     }
 
+    // World composition uses floating radiance; direct display draws retain UNORM.
+    const std::array sceneDescriptions{pso, blendPso, additiveBlendPso, premulBlendPso,
+        noDepthBlendPso, noDepthAdditiveBlendPso, noDepthPremulBlendPso,
+        dualSourceBlendPso, dualSourceAdditivePso, noDepthDualSourceBlendPso,
+        noDepthDualSourceAdditivePso};
+    for (std::size_t i = 0; i < sceneDescriptions.size(); ++i) {
+        auto scene = sceneDescriptions[i];
+        scene.RTVFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        if (FAILED(device_->CreateGraphicsPipelineState(&scene,
+                IID_PPV_ARGS(worldScenePipelines_[i].ReleaseAndGetAddressOf()))))
+            throw std::runtime_error("Could not create floating world pipeline.");
+    }
+    skyPso.RTVFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    if (FAILED(device_->CreateGraphicsPipelineState(&skyPso,
+            IID_PPV_ARGS(worldSceneSkyPipelineState_.ReleaseAndGetAddressOf()))))
+        throw std::runtime_error("Could not create floating sky pipeline.");
+
     // A constant material mode avoids the rejected large composed dispatcher
     // while retaining level-3 optimization and all material/source factors.
     // Own shader blobs and use static input layout storage: these descriptions
@@ -1135,6 +1166,8 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
              noDepthDualSourceAdditivePso},
          shaders = std::unordered_map<std::uint64_t, Microsoft::WRL::ComPtr<ID3DBlob>>{},
          device = device_](float mode, unsigned variant) mutable {
+            const bool sceneColor = (variant & 16u) != 0;
+            variant &= 15u;
             const bool dualSource = variant >= 7;
             const auto shaderKey = std::uint64_t(std::bit_cast<std::uint32_t>(mode)) * 2 + unsigned(dualSource);
             auto shader = shaders.find(shaderKey);
@@ -1171,6 +1204,7 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
                 shader = shaders.emplace(shaderKey, std::move(blob)).first;
             }
             auto desc = descriptions.at(variant);
+            if (sceneColor) desc.RTVFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT;
             desc.pRootSignature = root.Get();
             desc.VS = {vertex->GetBufferPointer(), vertex->GetBufferSize()};
             desc.PS = {shader->second->GetBufferPointer(), shader->second->GetBufferSize()};
@@ -1284,6 +1318,16 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
     worldVsConstantMappedData_ = static_cast<std::uint8_t*>(worldVsMapped);
     std::memset(worldVsConstantMappedData_, 0, worldVsConstantBufferSize_);
     worldVsConstantFrameOffset_ = 0u;
+    D3D12_RESOURCE_DESC probeDesc=bufferDesc;
+    probeDesc.Width=kDiffuseProbePacketStride*kDiffuseProbePacketsPerFrame*kFrameCount;
+    if (FAILED(device_->CreateCommittedResource(&heapProps,D3D12_HEAP_FLAG_NONE,&probeDesc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,nullptr,IID_PPV_ARGS(worldDiffuseProbeBuffer_.ReleaseAndGetAddressOf()))))
+        throw std::runtime_error("Cannot allocate diffuse probe upload buffer");
+    void* probeMapped=nullptr;
+    if (FAILED(worldDiffuseProbeBuffer_->Map(0,&worldVsReadRange,&probeMapped)) || !probeMapped)
+        throw std::runtime_error("Cannot map diffuse probe upload buffer");
+    worldDiffuseProbeMapped_=static_cast<std::uint8_t*>(probeMapped);
+    worldDiffuseProbePacketCount_=0;
 
     // Per-draw GPU clip-skinning matrix upload ring buffer.
     const std::size_t kMaxGpuSkinMatrices = 128u;

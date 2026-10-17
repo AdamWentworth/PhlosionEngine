@@ -177,13 +177,15 @@ void VulkanRenderBackendImpl::setViewportAndScissor(
         return;
     }
 
+    const auto tile = worldShadowActive ? worldLocalShadows_.offset() : std::array<std::uint32_t,2>{};
     VkViewport viewport{};
+    viewport.x = float(tile[0]); viewport.y = float(tile[1]);
     viewport.width = static_cast<float>(width);
     viewport.height = static_cast<float>(height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
     vkCmdSetViewport(commandBuffer, 0u, 1u, &viewport);
-    VkRect2D scissor{{0, 0}, {width, height}};
+    VkRect2D scissor{{int32_t(tile[0]), int32_t(tile[1])}, {width, height}};
     vkCmdSetScissor(commandBuffer, 0u, 1u, &scissor);
     boundViewportWidth = width;
     boundViewportHeight = height;

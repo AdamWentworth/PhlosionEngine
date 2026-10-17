@@ -1,4 +1,6 @@
 #version 450
+#extension GL_EXT_control_flow_attributes : require
+#define PHLOSION_DIFFUSE_PROBE_LOOP [[dont_unroll]]
 #extension GL_GOOGLE_include_directive : require
 #include "portable_material.glsl"
 
@@ -34,6 +36,9 @@ layout(set = 1, binding = 0) uniform WorldViewState {
     mat4 directionalShadowMatrix;
     vec4 directionalShadowParams;
     vec4 rectLights[64];
+    vec4 shadowAtlasUv;
+    vec4 localShadows[96];
+    vec4 diffuseProbes[483];
 } worldView;
 layout(set = 1, binding = 6) uniform sampler2D directionalShadowTexture;
 layout(set = 1, binding = 7) uniform sampler2D rectLightLut;
@@ -74,6 +79,7 @@ layout(location = 0, index = 1) out vec4 outBlendAlpha;
 layout(location = 0) out vec4 outColor;
 #endif
 
+#define WORLD_SCENE_RADIANCE (worldView.cameraPosition.w > 0.5)
 #define ENV_SUN worldView.environmentSun
 #define ENV_RADIANCE worldView.environmentRadiance
 #define ENV_AMBIENT worldView.environmentAmbient
@@ -103,6 +109,11 @@ layout(location = 0) out vec4 outColor;
 #define ENV_RECT(index) worldView.rectLights[index]
 #endif
 #define ENV_RECT_LUT(uv) textureLod(rectLightLut, uv, 0.0)
+#if defined(PHLOSION_WORLD_DIRECTIONAL_SHADOW_PASS)
+#define ENV_BOUNCE(index) vec4(0.0)
+#else
+#define ENV_BOUNCE(index) worldView.diffuseProbes[index]
+#endif
 #include "world_lighting.glsl"
 #if defined(PHLOSION_WORLD_DIRECTIONAL_SHADOW_PASS)
 #define WORLD_SHADOW_PARAMS vec4(0.0)
@@ -111,6 +122,8 @@ layout(location = 0) out vec4 outColor;
 #endif
 #define WORLD_SHADOW_CLIP(position) (worldView.directionalShadowMatrix * vec4(position, 1.0))
 #define WORLD_SHADOW_SAMPLE(uv) textureLod(directionalShadowTexture, uv, 0.0).r
+#define WORLD_SHADOW_ATLAS worldView.shadowAtlasUv
+#define WORLD_LOCAL_SHADOW(index) worldView.localShadows[index]
 #define WORLD_SHADOW_Y -1.0
 #include "world_shadow.glsl"
 #ifndef PHLOSION_PROJECT_MATERIAL
@@ -161,6 +174,7 @@ void writeWorldColor(vec4 color) {
 }
 
 vec3 encodeWorldSurfaceColor(vec3 linearColor) {
+    if (WORLD_SCENE_RADIANCE) return max(linearColor, vec3(0.0));
     return pushData.shadingParams.w > 0.5
         ? linearColor
         : encodeClampedLinearColor(linearColor);

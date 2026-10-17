@@ -2,6 +2,7 @@
 #include "engine/render/WorldDirectionalShadowPolicy.h"
 #include "engine/render/WorldBlendPolicy.h"
 #include "engine/render/d3d12/D3D12RenderBackendInternal.h"
+
 #include "engine/core/Environment.h"
 
 #include <algorithm>
@@ -27,6 +28,33 @@
 #if defined(_WIN32)
 using namespace engine::render::d3d12_internal;
 #endif
+
+void D3D12RenderBackend::bindWorldDiffuseProbes() {
+#if defined(_WIN32)
+    using namespace engine::render::d3d12_internal;
+    static_assert(sizeof(engine::render::WorldDiffuseProbeUniforms)<=kDiffuseProbePacketStride);
+    if (!worldDiffuseProbeMapped_) throw std::runtime_error("Diffuse probe upload buffer unavailable");
+    if (worldDiffuseProbePacketCount_==0 || lastWorldDiffuseProbes_!=worldDiffuseProbes_) {
+        if (worldDiffuseProbePacketCount_>=kDiffuseProbePacketsPerFrame)
+            throw std::runtime_error("Diffuse probe view budget exceeded");
+        const auto offset=(frameIndex_*kDiffuseProbePacketsPerFrame+worldDiffuseProbePacketCount_)*kDiffuseProbePacketStride;
+        std::memcpy(worldDiffuseProbeMapped_+offset,worldDiffuseProbes_.data(),sizeof(worldDiffuseProbes_));
+        lastWorldDiffuseProbes_=worldDiffuseProbes_;++worldDiffuseProbePacketCount_;
+    }
+    const auto offset=(frameIndex_*kDiffuseProbePacketsPerFrame+worldDiffuseProbePacketCount_-1)*kDiffuseProbePacketStride;
+    commandList_->SetGraphicsRootConstantBufferView(6,worldDiffuseProbeBuffer_->GetGPUVirtualAddress()+offset);
+#endif
+}
+void D3D12RenderBackend::bindWorldMaterialConstants(const void* data, std::size_t viewOffset, bool outline) {
+#if defined(_WIN32)
+    static_assert(sizeof(WorldPsConstants)<=256);
+    const auto offset=viewOffset+(outline?kWorldOutlineConstantOffset:kWorldMaterialConstantOffset);
+    std::memcpy(worldVsConstantMappedData_+offset,data,sizeof(WorldPsConstants));
+    commandList_->SetGraphicsRootConstantBufferView(1,worldVsConstantBufferGpuAddress_+offset);
+#else
+    (void)data;(void)viewOffset;(void)outline;
+#endif
+}
 
 #if defined(_WIN32)
 
@@ -299,7 +327,8 @@ unsigned D3D12RenderBackend::worldPipelineVariant(const WorldTextureData* textur
 ID3D12PipelineState* D3D12RenderBackend::ensureWorldPointLightPipeline(
     float mode, unsigned variant) {
     if (!std::isfinite(mode)) throw std::runtime_error("Non-finite local-lit world material mode.");
-    const auto key = std::uint64_t(std::bit_cast<std::uint32_t>(mode)) * 16 + variant;
+    if (worldSceneColorPassActive_) variant |= 16u;
+    const auto key = std::uint64_t(std::bit_cast<std::uint32_t>(mode)) * 32 + variant;
     const auto found = worldPointLightPipelines_.find(key);
     if (found != worldPointLightPipelines_.end()) return found->second.Get();
     if (!worldPointLightPipelineFactory_)
@@ -312,12 +341,14 @@ ID3D12PipelineState* D3D12RenderBackend::selectWorldPipelineState(
     if (worldShadowActive_) return worldShadowPipelineState_.Get();
     if (textureData && textureData->environment.enabled && textureData->environment.skyDraw &&
         engine::render::packWorldEnvironment(textureData->environment)[0][3] > 0.5f)
-        return worldSkyPipelineState_.Get();
+        return worldSceneColorPassActive_ ? worldSceneSkyPipelineState_.Get() : worldSkyPipelineState_.Get();
     const unsigned variant = worldPipelineVariant(textureData);
     if (materialMode == 249.0f || (textureData && IWorldDepthControl::isSnapshotTexture(textureData->lightProjectionKey)))
         return ensureWorldPointLightPipeline(materialMode, variant);
     if (textureData && materialMode >= 1.5f && (materialMode < 249.5f || materialMode == 254.0f) &&
         !(materialMode > 2.5f && materialMode < 3.5f)) {
+        if (textureData->environment.enabled && worldDiffuseProbes_[0][3]>0)
+            return ensureWorldPointLightPipeline(materialMode,variant);
         if (worldShadowReady_ && textureData->directionalShadowReceiver && textureData->environment.enabled)
             return ensureWorldPointLightPipeline(materialMode, variant);
         const auto rectLights = engine::render::packWorldRectLights(textureData->environment);
@@ -339,7 +370,7 @@ ID3D12PipelineState* D3D12RenderBackend::selectWorldPipelineState(
         worldNoDepthPremultipliedBlendPipelineState_.Get(), worldDualSourceBlendPipelineState_.Get(),
         worldDualSourceAdditiveBlendPipelineState_.Get(), worldNoDepthDualSourceBlendPipelineState_.Get(),
         worldNoDepthDualSourceAdditiveBlendPipelineState_.Get()};
-    return states[variant];
+    return worldSceneColorPassActive_ ? worldScenePipelines_[variant].Get() : states[variant];
 }
 #endif
 
@@ -714,7 +745,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
     if (worldShadowActive_) {
         if (!engine::render::worldDirectionalShadowCaster(textureData)) return;
         viewProjectionMatrix4x4 = worldShadowView_.viewProjection.data();
-        surfaceWidth = surfaceHeight = static_cast<int>(worldShadowResolution_);
+        surfaceWidth = surfaceHeight = static_cast<int>(worldShadowView_.resolution);
     }
     if (!recording_ || !vertices || !indices || vertexCount == 0 || indexCount == 0 || !viewProjectionMatrix4x4) {
         return;
@@ -786,7 +817,9 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
     vp.Height = static_cast<float>(surfaceHeight);
     vp.MinDepth = 0.0f;
     vp.MaxDepth = 1.0f;
-    D3D12_RECT scissor{0, 0, surfaceWidth, surfaceHeight};
+    const auto shadowTile = worldShadowActive_ ? worldLocalShadows_.offset() : std::array<std::uint32_t,2>{};
+    vp.TopLeftX = float(shadowTile[0]); vp.TopLeftY = float(shadowTile[1]);
+    D3D12_RECT scissor{LONG(shadowTile[0]), LONG(shadowTile[1]), LONG(shadowTile[0]+surfaceWidth), LONG(shadowTile[1]+surfaceHeight)};
 
     commandList_->RSSetViewports(1, &vp);
     commandList_->RSSetScissorRects(1, &scissor);
@@ -795,6 +828,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
     ID3D12DescriptorHeap* heaps[] = {srvHeap_.Get()};
     commandList_->SetDescriptorHeaps(1, heaps);
     commandList_->SetGraphicsRootSignature(worldRootSignature_.Get());
+    bindWorldDiffuseProbes();
     const float* modelMatrix = textureData ? textureData->modelMatrix.data() : nullptr;
     bool gpuSkinningEnabled =
         textureData &&
@@ -866,6 +900,10 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
         ? engine::render::packWorldDirectionalShadow(worldShadowView_)
         : engine::render::WorldDirectionalShadowState{};
     std::memcpy(vsConstants + 152, &shadow, sizeof(shadow));
+    const auto shadowAtlasUv = worldLocalShadows_.directionalUv();
+    std::memcpy(vsConstants + 428, shadowAtlasUv.data(), sizeof(shadowAtlasUv));
+    if (!worldShadowActive_ && textureData && textureData->environment.enabled && textureData->directionalShadowReceiver)
+        std::memcpy(vsConstants + 432, worldLocalShadows_.uniforms.data(), sizeof(worldLocalShadows_.uniforms));
     vsConstants[116] = textureData ? textureData->cameraPosX : 0.f;
     vsConstants[117] = textureData ? textureData->cameraPosY : 7.f;
     vsConstants[118] = textureData ? textureData->cameraPosZ : 9.f;
@@ -882,7 +920,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
         worldInstanceBufferGpuAddress_ +
             static_cast<std::uint64_t>(worldInstanceFrameBaseOffset_));
     WorldPsConstants worldPs = makeWorldPsConstants(
-        textureData, useTexture, worldSceneColorPassActive_, &worldMaterialProfile_);
+        textureData, useTexture, (worldSceneColorPassActive_ ? (worldSceneRadianceExposure_ > 0 ? 2.f : 1.f) : 0.f), &worldMaterialProfile_);
     if (textureData && textureData->materialMode >= 2u &&
         worldMaterialDebugView() > 0) {
         worldPs.materialFlipbook1Fps =
@@ -925,28 +963,22 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
     // character materials do not guarantee a depth write.
     if (drawCharacterOutline) {
         WorldPsConstants outlinePs = makeWorldPsConstants(
-            textureData, 0.0f, worldSceneColorPassActive_, &worldMaterialProfile_);
+            textureData, 0.0f, (worldSceneColorPassActive_ ? (worldSceneRadianceExposure_ > 0 ? 2.f : 1.f) : 0.f), &worldMaterialProfile_);
         outlinePs.materialMode = 3.0f;
-        commandList_->SetGraphicsRoot32BitConstants(
-            1,
-            static_cast<UINT>(sizeof(WorldPsConstants) / sizeof(float)),
-            &outlinePs,
-            0);
+        bindWorldMaterialConstants(&outlinePs, vsConstantsWriteOffset, true);
         commandList_->SetPipelineState(
-            textureData->depthTestEnabled != 0u
-                ? worldBlendPipelineState_.Get()
-                : worldNoDepthBlendPipelineState_.Get());
+            worldSceneColorPassActive_
+                ? worldScenePipelines_[textureData->depthTestEnabled != 0u ? 1 : 4].Get()
+                : textureData->depthTestEnabled != 0u
+                    ? worldBlendPipelineState_.Get()
+                    : worldNoDepthBlendPipelineState_.Get());
         ++frameIndexedD3d12PsoSets_;
         commandList_->DrawIndexedInstanced(
             static_cast<UINT>(safeIndexCount), 1, 0, 0, 0);
         ++frameDrawCalls_;
         frameTriangles_ += static_cast<std::uint64_t>(safeIndexCount / 3u);
     }
-    commandList_->SetGraphicsRoot32BitConstants(
-        1,
-        static_cast<UINT>(sizeof(WorldPsConstants) / sizeof(float)),
-        &worldPs,
-        0);
+    bindWorldMaterialConstants(&worldPs, vsConstantsWriteOffset);
     commandList_->SetPipelineState(pso);
     ++frameIndexedD3d12PsoSets_;
     commandList_->DrawIndexedInstanced(
@@ -989,7 +1021,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     if (worldShadowActive_) {
         if (!engine::render::worldDirectionalShadowCaster(textureData)) return;
         viewProjectionMatrix4x4 = worldShadowView_.viewProjection.data();
-        surfaceWidth = surfaceHeight = static_cast<int>(worldShadowResolution_);
+        surfaceWidth = surfaceHeight = static_cast<int>(worldShadowView_.resolution);
     }
     if (!recording_ || !viewProjectionMatrix4x4) return;
     (void)vertices;
@@ -1016,7 +1048,9 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     vp.Height = static_cast<float>(surfaceHeight);
     vp.MinDepth = 0.0f;
     vp.MaxDepth = 1.0f;
-    D3D12_RECT scissor{0, 0, surfaceWidth, surfaceHeight};
+    const auto shadowTile = worldShadowActive_ ? worldLocalShadows_.offset() : std::array<std::uint32_t,2>{};
+    vp.TopLeftX = float(shadowTile[0]); vp.TopLeftY = float(shadowTile[1]);
+    D3D12_RECT scissor{LONG(shadowTile[0]), LONG(shadowTile[1]), LONG(shadowTile[0]+surfaceWidth), LONG(shadowTile[1]+surfaceHeight)};
 
     commandList_->RSSetViewports(1, &vp);
     commandList_->RSSetScissorRects(1, &scissor);
@@ -1025,6 +1059,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     ID3D12DescriptorHeap* heaps[] = {srvHeap_.Get()};
     commandList_->SetDescriptorHeaps(1, heaps);
     commandList_->SetGraphicsRootSignature(worldRootSignature_.Get());
+    bindWorldDiffuseProbes();
     const std::size_t vsConstantsFrameEnd =
         static_cast<std::size_t>(worldVsConstantFrameBaseOffset_) +
         static_cast<std::size_t>(worldVsConstantBufferBytesPerFrame_);
@@ -1106,6 +1141,10 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
         ? engine::render::packWorldDirectionalShadow(worldShadowView_)
         : engine::render::WorldDirectionalShadowState{};
     std::memcpy(vsConstants + 152, &shadow, sizeof(shadow));
+    const auto shadowAtlasUv = worldLocalShadows_.directionalUv();
+    std::memcpy(vsConstants + 428, shadowAtlasUv.data(), sizeof(shadowAtlasUv));
+    if (!worldShadowActive_ && textureData && textureData->environment.enabled && textureData->directionalShadowReceiver)
+        std::memcpy(vsConstants + 432, worldLocalShadows_.uniforms.data(), sizeof(worldLocalShadows_.uniforms));
     vsConstants[116] = textureData ? textureData->cameraPosX : 0.f;
     vsConstants[117] = textureData ? textureData->cameraPosY : 7.f;
     vsConstants[118] = textureData ? textureData->cameraPosZ : 9.f;
@@ -1119,7 +1158,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     commandList_->SetGraphicsRootShaderResourceView(2, skinMatrixGpuAddress);
     commandList_->SetGraphicsRootShaderResourceView(4, instanceDataGpuAddress);
     WorldPsConstants worldPs = makeWorldPsConstants(
-        textureData, useTexture, worldSceneColorPassActive_, &worldMaterialProfile_);
+        textureData, useTexture, (worldSceneColorPassActive_ ? (worldSceneRadianceExposure_ > 0 ? 2.f : 1.f) : 0.f), &worldMaterialProfile_);
     if (textureData && textureData->materialMode >= 2u &&
         worldMaterialDebugView() > 0) {
         worldPs.materialFlipbook1Fps =
@@ -1162,17 +1201,15 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     // Keep the cached path in the same outline-then-surface order.
     if (drawCharacterOutline) {
         WorldPsConstants outlinePs = makeWorldPsConstants(
-            textureData, 0.0f, worldSceneColorPassActive_, &worldMaterialProfile_);
+            textureData, 0.0f, (worldSceneColorPassActive_ ? (worldSceneRadianceExposure_ > 0 ? 2.f : 1.f) : 0.f), &worldMaterialProfile_);
         outlinePs.materialMode = 3.0f;
-        commandList_->SetGraphicsRoot32BitConstants(
-            1,
-            static_cast<UINT>(sizeof(WorldPsConstants) / sizeof(float)),
-            &outlinePs,
-            0);
+        bindWorldMaterialConstants(&outlinePs, vsConstantsWriteOffset, true);
         commandList_->SetPipelineState(
-            textureData->depthTestEnabled != 0u
-                ? worldBlendPipelineState_.Get()
-                : worldNoDepthBlendPipelineState_.Get());
+            worldSceneColorPassActive_
+                ? worldScenePipelines_[textureData->depthTestEnabled != 0u ? 1 : 4].Get()
+                : textureData->depthTestEnabled != 0u
+                    ? worldBlendPipelineState_.Get()
+                    : worldNoDepthBlendPipelineState_.Get());
         ++frameIndexedD3d12PsoSets_;
         commandList_->DrawIndexedInstanced(
             static_cast<UINT>(mesh.indexCount), instanceCount, 0, 0, 0);
@@ -1180,11 +1217,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
         frameTriangles_ += static_cast<std::uint64_t>(mesh.indexCount / 3u) *
                            static_cast<std::uint64_t>(instanceCount);
     }
-    commandList_->SetGraphicsRoot32BitConstants(
-        1,
-        static_cast<UINT>(sizeof(WorldPsConstants) / sizeof(float)),
-        &worldPs,
-        0);
+    bindWorldMaterialConstants(&worldPs, vsConstantsWriteOffset);
     commandList_->SetPipelineState(pso);
     ++frameIndexedD3d12PsoSets_;
     commandList_->DrawIndexedInstanced(

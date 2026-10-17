@@ -38,6 +38,40 @@ std::array<float, 16> toArray(const glm::mat4& matrix) {
     return out;
 }
 
+bool outsideView(const GltfScenePrimitive& primitive,
+                 const std::array<float, 16>& clipFromLocal) {
+    if (!primitive.boundsValid || primitive.skinIndex >= 0) return false;
+    for (int axis = 0; axis < 3; ++axis) {
+        if (!std::isfinite(primitive.boundsMin[axis]) ||
+            !std::isfinite(primitive.boundsMax[axis]) ||
+            primitive.boundsMin[axis] > primitive.boundsMax[axis]) return false;
+    }
+    // A convex box is outside only if every corner lies beyond the SAME plane.
+    // Homogeneous tests also retain boxes crossing the eye/near plane.
+    unsigned commonOutside = 63u;
+    for (int corner = 0; corner < 8; ++corner) {
+        std::array<double, 4> clip{};
+        for (int row = 0; row < 4; ++row) {
+            clip[row] = clipFromLocal[12 + row];
+            for (int axis = 0; axis < 3; ++axis) {
+                const float position = (corner & (1 << axis))
+                    ? primitive.boundsMax[axis] : primitive.boundsMin[axis];
+                clip[row] += static_cast<double>(clipFromLocal[axis * 4 + row]) * position;
+            }
+            if (!std::isfinite(clip[row])) return false;
+        }
+        unsigned outside = 0u;
+        for (int axis = 0; axis < 3; ++axis) {
+            const double slack = 1e-5 * std::max({1.0, std::abs(clip[axis]), std::abs(clip[3])});
+            if (clip[3] + clip[axis] < -slack) outside |= 1u << (axis * 2);
+            if (clip[3] - clip[axis] < -slack) outside |= 1u << (axis * 2 + 1);
+        }
+        commonOutside &= outside;
+        if (!commonOutside) return false;
+    }
+    return commonOutside != 0u;
+}
+
 WorldTextureData makeTextureData(const GltfSceneMaterial& material,
                                  const std::array<float, 16>& modelMatrix,
                                  const GltfSceneDrawOptions& options) {
@@ -196,6 +230,8 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
         !finiteMatrix(options.instanceTransform)) {
         return fail("glTF scene draw matrices must be finite");
     }
+    if (options.cullingViewProjection && !finiteMatrix(*options.cullingViewProjection))
+        return fail("glTF culling matrix must be finite");
     for (const auto& vector : {options.cameraPosition, options.cameraForward, options.cameraTarget}) {
         for (const float value : vector) {
             if (!std::isfinite(value)) return fail("glTF scene camera must be finite");
@@ -299,6 +335,13 @@ bool drawGltfSceneAsset(IRenderBackend& renderer,
             toArray(pose.global[static_cast<std::size_t>(primitive.nodeIndex)]);
         const std::array<float, 16> modelMatrix =
             multiplyColumnMajor(options.instanceTransform, nodeGlobal);
+        if (!options.prewarmOnly && options.cullingViewProjection &&
+            options.materialMode == 2u && outsideView(primitive,
+                multiplyColumnMajor(*options.cullingViewProjection, modelMatrix))) {
+            ++collected.culledDraws;
+            collected.culledTriangles += primitive.indices.size() / 3u;
+            continue;
+        }
         WorldTextureData texture = makeTextureData(
             asset.materials[static_cast<std::size_t>(primitive.materialIndex)],
             modelMatrix,

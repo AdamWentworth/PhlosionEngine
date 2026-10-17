@@ -65,6 +65,7 @@ vec3 rrtAndOdtFit(vec3 value) {
 }
 
 vec3 tonemapACESFilmic(vec3 color, float exposure) {
+    if (WORLD_SCENE_RADIANCE) return color;
     const mat3 inputTransform = mat3(
         vec3(0.59719, 0.07600, 0.02840),
         vec3(0.35458, 0.90834, 0.13383),

@@ -5,7 +5,8 @@ layout(set = 0, binding = 0) uniform sampler2D sceneColorTexture;
 
 layout(location = 0) in vec2 textureUv;
 layout(location = 0) out vec4 outColor;
-layout(push_constant) uniform ScenePost { float bloomStrength; } post;
+layout(push_constant) uniform ScenePost { float bloomStrength; float exposure; } post;
+#define SCENE_EXPOSURE post.exposure
 #define SCENE_SIZE vec2(textureSize(sceneColorTexture,0))
 #define SCENE_SAMPLE(uv) textureLod(sceneColorTexture,uv,0.0)
 #include "scene_bloom.glsl"
@@ -26,8 +27,8 @@ vec3 encodeNativeSrgb(vec3 linearColor) {
 
 void main() {
     vec4 sceneColor = texture(sceneColorTexture, textureUv);
-    sceneColor.rgb=sceneBloom(textureUv,sceneColor.rgb,post.bloomStrength);
+    sceneColor.rgb=sceneDisplayMap(sceneBloom(textureUv,sceneColor.rgb,post.bloomStrength));
     // Material alpha was already composited over the view's background.
     // The editor must display the completed image at full opacity.
-    outColor = vec4(encodeNativeSrgb(sceneColor.rgb), 1.0);
+    outColor = vec4(sceneDitherDisplay(encodeNativeSrgb(sceneColor.rgb),textureUv), 1.0);
 }

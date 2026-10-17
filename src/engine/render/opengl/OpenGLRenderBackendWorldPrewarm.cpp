@@ -1,11 +1,16 @@
 #include "engine/render/OpenGLRenderBackend.h"
 #include "engine/render/NeutralPmrem.h"
+#include "engine/render/WorldDirectionalShadowPolicy.h"
 
 #include <chrono>
 #include <iostream>
 
 void OpenGLRenderBackend::prewarmWorldTextureData(const WorldTextureData* texture) {
     if (!texture) return;
+    if (worldDirectionalShadowResolution_ && engine::render::worldDirectionalShadowCaster(texture)) {
+        ensureWorldPipeline();
+        specializedWorldShadowProgram(texture->materialMode);
+    }
 
     (void)ensureWorldTexture(texture);
     if (texture->normalRgba && texture->normalWidth > 0 && texture->normalHeight > 0) {

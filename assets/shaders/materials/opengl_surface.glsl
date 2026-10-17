@@ -19,6 +19,7 @@
         }
 
         vec3 resolveWorldSceneColor(vec3 linearColor) {
+    if (WORLD_SCENE_RADIANCE) return max(linearColor, vec3(0.0,0.0,0.0));
             vec3 clamped = clamp(linearColor, 0.0, 1.0);
             return (uSceneColorPostEnabled > 0.5)
                 ? clamped

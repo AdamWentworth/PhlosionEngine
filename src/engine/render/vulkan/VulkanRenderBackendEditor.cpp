@@ -248,7 +248,7 @@ bool VulkanRenderBackendImpl::createEditorSurfaceResources(
         EditorSurfaceFrame& frame =
             editorSurface.frames[frameIndex];
         createImage(
-            swapchainFormat,
+            VK_FORMAT_R16G16B16A16_SFLOAT,
             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
                 VK_IMAGE_USAGE_SAMPLED_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT,

@@ -121,6 +121,7 @@ void D3D12RenderBackend::beginFrame(float r, float g, float b, float a) {
     worldIndexFrameOffset_ = worldIndexFrameBaseOffset_;
     worldVsConstantFrameBaseOffset_ = frameIndex_ * worldVsConstantBufferBytesPerFrame_;
     worldVsConstantFrameOffset_ = worldVsConstantFrameBaseOffset_;
+    worldDiffuseProbePacketCount_ = 0;
     worldSkinMatrixFrameBaseOffset_ = frameIndex_ * worldSkinMatrixBufferBytesPerFrame_;
     worldSkinMatrixFrameOffset_ = worldSkinMatrixFrameBaseOffset_ + 256u;
     lastWorldSkinMatrices_ = nullptr;
@@ -493,6 +494,8 @@ void D3D12RenderBackend::shutdown() {
         worldVsConstantBuffer_->Unmap(0, &readRange);
     }
     worldVsConstantMappedData_ = nullptr;
+    if (worldDiffuseProbeBuffer_ && worldDiffuseProbeMapped_) worldDiffuseProbeBuffer_->Unmap(0,nullptr);
+    worldDiffuseProbeBuffer_.Reset();worldDiffuseProbeMapped_=nullptr;worldDiffuseProbePacketCount_=0;
     worldVsConstantBuffer_.Reset();
     worldVsConstantBufferGpuAddress_ = 0;
     worldVsConstantBufferSize_ = 0;
@@ -541,6 +544,8 @@ void D3D12RenderBackend::shutdown() {
     worldDualSourceBlendPipelineState_.Reset();
     worldPipelineState_.Reset();
     worldSkyPipelineState_.Reset();
+    worldSceneSkyPipelineState_.Reset();
+    for (auto& pipeline : worldScenePipelines_) pipeline.Reset();
     worldShadowPipelineState_.Reset();
     worldShadowDepth_.Reset(); worldShadowDsvHeap_.Reset();
     worldShadowResolution_ = 0; worldShadowActive_ = worldShadowReady_ = false;

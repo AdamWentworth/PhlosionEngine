@@ -1825,6 +1825,15 @@ bool importPrimitive(LoadState& state,
     out.primitiveIndex = primitiveIndex;
     out.materialIndex = materialIndex;
     out.skinIndex = skinIndex;
+    out.boundsMin = {positions[0].x, positions[0].y, positions[0].z};
+    out.boundsMax = out.boundsMin;
+    for (const auto& vertexPosition : positions) {
+        for (int axis = 0; axis < 3; ++axis) {
+            out.boundsMin[axis] = std::min(out.boundsMin[axis], vertexPosition[axis]);
+            out.boundsMax[axis] = std::max(out.boundsMax[axis], vertexPosition[axis]);
+        }
+    }
+    out.boundsValid = true;
     out.vertices.resize(vertexCount);
     for (std::size_t index = 0u; index < vertexCount; ++index) {
         WorldMeshVertex& vertex = out.vertices[index];

@@ -1,5 +1,52 @@
 // LTC edge integral adapted from Heitz, Dupuy, Hill and Neubelt (SIGGRAPH 2016).
 // Attribution and redistribution terms: third_party/ltc/LICENSE.
+float environmentLocalShadowVisibility(int index, vec3 position, vec3 normal);
+
+// Static one-bounce irradiance, relit from live sources. No direct emitter term.
+vec3 environmentDiffuseProbeIrradiance(vec3 position, vec3 normal) {
+    if (ENV_SUN.w < 0.5 || ENV_BOUNCE(0).w < 0.5) return vec3(0.0,0.0,0.0);
+    vec3 origin=ENV_BOUNCE(0).xyz, spacing=ENV_BOUNCE(1).xyz, counts=ENV_BOUNCE(2).xyz;
+    vec3 coord=(position-origin)/spacing;
+    vec3 bounded=clamp(coord,vec3(0.0,0.0,0.0),counts-1.0);
+    vec3 outside=abs((coord-bounded)*spacing);
+    float fade=1.0-clamp(max(outside.x,max(outside.y,outside.z))/ENV_BOUNCE(1).w,0.0,1.0);
+    if (fade<=0.0) return vec3(0.0,0.0,0.0);
+    vec3 cell=min(floor(bounded),counts-2.0), fraction=bounded-cell;
+    vec3 irradiance=vec3(0.0,0.0,0.0);float weightSum=0.0;
+#ifdef PHLOSION_DIFFUSE_PROBE_LOOP
+    PHLOSION_DIFFUSE_PROBE_LOOP
+#endif
+    for (int index=0;index<8;++index) {
+        vec3 bits=vec3(float(index&1),float((index>>1)&1),float((index>>2)&1));
+        vec3 probe=cell+bits;
+        int offset=3+int((probe.z*counts.y+probe.y)*counts.x+probe.x)*15;
+        vec3 delta=position-(origin+probe*spacing);
+        float distance=length(delta);
+        vec3 direction=distance>0.0001?delta/distance:normal;
+        vec3 a=abs(direction);
+        int axis=a.x>a.y?(a.x>a.z?0:2):(a.y>a.z?1:2);
+        int sector=axis*2+(direction[axis]<0.0?1:0);
+        vec2 moments=ENV_BOUNCE(offset+9+sector).xy;
+        float excess=max(0.0,distance-moments.x), variance=max(0.0025,moments.y-moments.x*moments.x);
+        float visibility=variance/(variance+excess*excess);
+        vec3 w=mix(1.0-fraction,fraction,bits);
+        float facing=max(0.05,0.5-0.5*dot(normal,direction));
+        float weight=w.x*w.y*w.z*ENV_BOUNCE(offset).w*facing*facing*visibility*visibility*visibility;
+        vec3 n=normal;
+        vec3 sh=ENV_BOUNCE(offset).rgb*0.282094792+
+            ENV_BOUNCE(offset+1).rgb*(0.488602512*n.y)+
+            ENV_BOUNCE(offset+2).rgb*(0.488602512*n.z)+
+            ENV_BOUNCE(offset+3).rgb*(0.488602512*n.x)+
+            ENV_BOUNCE(offset+4).rgb*(1.092548431*n.x*n.y)+
+            ENV_BOUNCE(offset+5).rgb*(1.092548431*n.y*n.z)+
+            ENV_BOUNCE(offset+6).rgb*(0.315391565*(3.0*n.z*n.z-1.0))+
+            ENV_BOUNCE(offset+7).rgb*(1.092548431*n.x*n.z)+
+            ENV_BOUNCE(offset+8).rgb*(0.546274215*(n.x*n.x-n.y*n.y));
+        irradiance+=max(sh,vec3(0.0,0.0,0.0))*weight;weightSum+=weight;
+    }
+    return irradiance*(fade/max(weightSum,0.05));
+}
+
 vec3 rectUnit(vec3 v) { return v / sqrt(max(dot(v,v), 1e-20)); }
 float rectEdge(vec3 a, vec3 b) {
     float x = clamp(dot(a,b), -1.0, 1.0), y = abs(x);
@@ -94,9 +141,9 @@ vec3 environmentLocalDiffuse(vec3 position, vec3 normal, vec3 view, vec3 albedo)
     for (int index=0;index<16;++index) {
         vec3 delta,u,v,radiance;
         if (environmentRectSample(index,position,delta,u,v,radiance))
-            result+=albedo*radiance*rectIntegral(delta,u,v,normal,tangent,vec4(1.0,0.0,0.0,1.0));
+            result+=albedo*radiance*rectIntegral(delta,u,v,normal,tangent,vec4(1.0,0.0,0.0,1.0))*environmentLocalShadowVisibility(index,position,normal);
     }
-    return result;
+    return result+albedo*environmentDiffuseProbeIrradiance(position,normal)/3.14159265;
 }
 
 vec3 environmentLocalPbr(vec3 position, vec3 normal, vec3 view,
@@ -139,7 +186,8 @@ vec3 environmentLocalPbr(vec3 position, vec3 normal, vec3 view,
         float diffuse=rectIntegral(delta,u,v,normal,tangent,vec4(1.0,0.0,0.0,1.0));
         float specular=rectIntegral(delta,u,v,normal,tangent,ltc);
         vec3 fresnel=f0*amplitude.x+(vec3(1.0,1.0,1.0)-f0)*amplitude.y;
-        result+=radiance*((vec3(1.0,1.0,1.0)-f0)*(1.0-metallic)*albedo*diffuse+fresnel*specular);
+        result+=radiance*((vec3(1.0,1.0,1.0)-f0)*(1.0-metallic)*albedo*diffuse+fresnel*specular)*environmentLocalShadowVisibility(index,position,normal);
     }
-    return result;
+    return result+(vec3(1.0,1.0,1.0)-f0)*(1.0-metallic)*albedo*
+        environmentDiffuseProbeIrradiance(position,normal)/3.14159265;
 }

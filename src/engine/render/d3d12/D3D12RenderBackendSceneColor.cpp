@@ -44,7 +44,8 @@ VSOut main(uint vertexId : SV_VertexID) {
     static constexpr char kPsSource[] = R"HLSL(
 Texture2D<float4> gLinearSceneColor : register(t0);
 SamplerState gSceneSampler : register(s0);
-cbuffer ScenePost : register(b0) { float bloomStrength; };
+cbuffer ScenePost : register(b0) { float bloomStrength; float sceneExposure; };
+#define SCENE_EXPOSURE sceneExposure
 float2 sceneSize() { uint w,h;gLinearSceneColor.GetDimensions(w,h);return float2(w,h); }
 #define SCENE_SIZE sceneSize()
 #define SCENE_SAMPLE(uv) gLinearSceneColor.SampleLevel(gSceneSampler,uv,0)
@@ -62,11 +63,11 @@ float linearToSrgbChannel(float linearColor) {
 }
 float4 main(PSIn input) : SV_TARGET {
   float4 scene = gLinearSceneColor.Sample(gSceneSampler, input.uv);
-  scene.rgb=sceneBloom(input.uv,scene.rgb,bloomStrength);
-  return float4(
+  scene.rgb=sceneDisplayMap(sceneBloom(input.uv,scene.rgb,bloomStrength));
+  return float4(sceneDitherDisplay(float3(
       linearToSrgbChannel(scene.r),
       linearToSrgbChannel(scene.g),
-      linearToSrgbChannel(scene.b),
+      linearToSrgbChannel(scene.b)),input.uv),
       // The completed view is opaque when embedded in the editor UI.
       1.0f);
 }
@@ -121,7 +122,7 @@ float4 main(PSIn input) : SV_TARGET {
     rootParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     D3D12_ROOT_PARAMETER postParameter{};
     postParameter.ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    postParameter.Constants={0u,0u,1u};
+    postParameter.Constants={0u,0u,2u};
     postParameter.ShaderVisibility=D3D12_SHADER_VISIBILITY_PIXEL;
     const D3D12_ROOT_PARAMETER rootParameters[]={rootParameter,postParameter};
 
@@ -236,13 +237,13 @@ void D3D12RenderBackend::createWorldSceneColorResource() {
     texture.Height = static_cast<UINT>(height_);
     texture.DepthOrArraySize = 1u;
     texture.MipLevels = 1u;
-    texture.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    texture.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     texture.SampleDesc.Count = 1u;
     texture.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     texture.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
 
     D3D12_CLEAR_VALUE clear{};
-    clear.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    clear.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     std::copy(clearColor_, clearColor_ + 4, clear.Color);
     if (FAILED(device_->CreateCommittedResource(
             &heap,
@@ -265,7 +266,7 @@ void D3D12RenderBackend::createWorldSceneColorResource() {
         worldSceneColorTarget_.Get(), nullptr, rtv);
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-    srv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    srv.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv.Shader4ComponentMapping =
         D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -300,6 +301,8 @@ void D3D12RenderBackend::beginWorldSceneColorPass(
         return;
     }
     worldBloomStrength_=0;
+    worldSceneRadianceExposure_=0;
+    worldDiffuseProbes_={};
 
     D3D12_RESOURCE_BARRIER barrier{};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -497,7 +500,8 @@ void D3D12RenderBackend::endWorldSceneColorPass() {
         static_cast<UINT64>(sceneColorDescriptorIndex) *
         static_cast<UINT64>(srvDescriptorSize_);
     commandList_->SetGraphicsRootDescriptorTable(0u, sceneSrv);
-    commandList_->SetGraphicsRoot32BitConstants(1u,1u,&worldBloomStrength_,0u);
+    const float post[]{worldBloomStrength_,worldSceneRadianceExposure_};
+    commandList_->SetGraphicsRoot32BitConstants(1u,2u,post,0u);
     commandList_->IASetPrimitiveTopology(
         D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commandList_->DrawInstanced(3u, 1u, 0u, 0u);
@@ -549,7 +553,8 @@ VSOut main(uint vertexId : SV_VertexID) {
 }
 )HLSL";
 
-    const char* kPsSource = engine::render::screenFeedbackHlslFs;
+    const auto pixelSource = engine::render::injectSceneBloom(engine::render::screenFeedbackHlslFs,true);
+    const char* kPsSource = pixelSource.c_str();
 
     Microsoft::WRL::ComPtr<ID3DBlob> vsBlob;
     Microsoft::WRL::ComPtr<ID3DBlob> psBlob;
@@ -729,7 +734,7 @@ void D3D12RenderBackend::endWorldSceneColorPass(const engine::render::ScreenFeed
     commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     auto draw=[&](int mode,int input,D3D12_CPU_DESCRIPTOR_HANDLE target,int width,int height,const ScreenFeedbackUpdate& update) {
         bind(1,feedbackSrv_[input]);
-        const ScreenFeedbackUniform program{{float(frame.width),float(frame.height),float(mode),float(update.count)},update.passes};
+        const ScreenFeedbackUniform program{{float(frame.width),float(frame.height),float(mode),float(update.count)},update.passes,{worldBloomStrength_,worldSceneRadianceExposure_,0,0}};
         commandList_->SetGraphicsRoot32BitConstants(3,sizeof(program)/4,&program,0);
         commandList_->OMSetRenderTargets(1,&target,FALSE,nullptr);
         D3D12_VIEWPORT viewport{0,0,float(width),float(height),0,1};D3D12_RECT scissor{0,0,width,height};

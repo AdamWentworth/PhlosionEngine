@@ -101,10 +101,9 @@ bool D3D12EditorRenderSurface::ensure(
                         out.ReleaseAndGetAddressOf()))) &&
                 out;
         };
-    if (!createColor(linearColor_) ||
-        !createColor(displayColor_)) {
-        return false;
-    }
+    if (!createColor(displayColor_)) return false;
+    colorDesc.Format = colorClear.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    if (!createColor(linearColor_)) return false;
 
     D3D12_RESOURCE_DESC depthDesc = colorDesc;
     depthDesc.Format = DXGI_FORMAT_D32_FLOAT;

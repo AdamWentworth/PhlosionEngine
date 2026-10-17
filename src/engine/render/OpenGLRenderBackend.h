@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -12,15 +13,22 @@
 #include "engine/render/IRenderBackend.h"
 #include "engine/render/IWorldDepthControl.h"
 #include "engine/render/IWorldBloom.h"
+#include "engine/render/IWorldSceneRadiance.h"
+#include "engine/render/WorldDiffuseProbes.h"
 #include "engine/render/IWorldDirectionalShadow.h"
+#include "engine/render/IWorldLocalShadow.h"
 #include "engine/render/WorldResourceScopeState.h"
 
 class Renderer;
 
-class OpenGLRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow, public engine::render::IWorldBloom {
+class OpenGLRenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow, public IWorldLocalShadow, public engine::render::IWorldBloom, public engine::render::IWorldSceneRadiance, public engine::render::IWorldDiffuseProbes {
 public:
   bool clearWorldDepth() override;
   bool captureWorldDepthSnapshot() override;
+    void prewarmWorldLocalShadows() override;
+    void clearWorldLocalShadows() override;
+    bool beginWorldLocalShadow(std::uint32_t index, const engine::render::WorldDirectionalShadowView& view) override;
+    bool endWorldLocalShadow() override;
     void prewarmWorldDirectionalShadow(std::uint32_t resolution) override;
     bool beginWorldDirectionalShadow(const engine::render::WorldDirectionalShadowView& view) override;
     bool endWorldDirectionalShadow() override;
@@ -269,23 +277,33 @@ private:
     std::array<int, 19> worldEnvironmentLocs_{-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
     int worldPointLightsLoc_ = -1;
     int worldRectLightsLoc_ = -1, worldRectLightLutLoc_ = -1;
+    int worldDiffuseProbesLoc_ = -1;
+    bool worldDiffuseProbesUploaded_ = false;
+    engine::render::WorldDiffuseProbeUniforms lastWorldDiffuseProbes_{};
     unsigned int worldRectLightLut_ = 0;
-    unsigned int worldDirectionalShadowProgram_ = 0;
-    std::vector<int> worldDirectionalShadowUniformLocations_;
+    struct ShadowProgram { unsigned int program = 0; std::vector<int> uniforms; };
+    std::array<ShadowProgram, 256> worldShadowPrograms_;
+    const ShadowProgram* worldActiveShadowProgram_ = nullptr;
+    std::function<unsigned int(std::uint8_t)> worldShadowProgramFactory_;
+    std::vector<std::pair<int, std::string>> worldUniformNames_;
+    unsigned int specializedWorldShadowProgram(std::uint8_t mode);
     unsigned int worldVolumeProgram_ = 0;
     bool worldVolumeActive_ = false;
     std::vector<int> worldVolumeUniformLocations_;
     int worldUniformLocation(int location) const noexcept {
+        if (worldDirectionalShadowActive_ && worldActiveShadowProgram_)
+            return location >= 0 && static_cast<std::size_t>(location) < worldActiveShadowProgram_->uniforms.size()
+                ? worldActiveShadowProgram_->uniforms[static_cast<std::size_t>(location)] : -1;
         if (worldVolumeActive_)
             return location >= 0 && static_cast<std::size_t>(location) < worldVolumeUniformLocations_.size()
                 ? worldVolumeUniformLocations_[static_cast<std::size_t>(location)] : -1;
-        if (!worldDirectionalShadowActive_ || !worldDirectionalShadowProgram_) return location;
-        return location >= 0 && static_cast<std::size_t>(location) < worldDirectionalShadowUniformLocations_.size()
-            ? worldDirectionalShadowUniformLocations_[static_cast<std::size_t>(location)] : -1;
+        return location;
     }
+    int worldShadowAtlasLoc_ = -1, worldLocalShadowsLoc_ = -1;
     int worldDirectionalShadowMatrixLoc_ = -1;
     int worldDirectionalShadowParamsLoc_ = -1;
     int worldDirectionalShadowTextureLoc_ = -1;
+    engine::render::WorldLocalShadowAtlas worldLocalShadows_;
     unsigned int worldDirectionalShadowTexture_ = 0, worldDirectionalShadowFramebuffer_ = 0;
     std::uint32_t worldDirectionalShadowResolution_ = 0;
     bool worldDirectionalShadowActive_ = false, worldDirectionalShadowReady_ = false;

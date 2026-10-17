@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <string>
 #include <span>
+#include <optional>
 
 namespace engine::render::gltf::scene {
 
@@ -45,6 +46,10 @@ struct GltfSceneDrawOptions {
     // Upload the same geometry/materials without submitting a visible draw.
     // May be called outside a frame on the renderer's owner thread.
     bool prewarmOnly = false;
+    // Optional conservative static-primitive culling. Supply the actual pass
+    // matrix (a light's matrix for shadows), in engine [-w,w] clip convention.
+    // Skinning and custom vertex materials bypass it; prewarm always uploads.
+    std::optional<std::array<float, 16>> cullingViewProjection;
     // Omit primitives attached directly to these nodes. Asset data, hierarchy
     // and animation palettes remain intact; the span is borrowed for this call.
     std::span<const int> excludedNodes;
@@ -68,6 +73,8 @@ struct GltfSceneDrawStats {
     std::uint32_t paletteMatrices = 0u;
     std::uint32_t materialBinds = 0u;
     std::uint32_t textureRoles = 0u;
+    std::uint32_t culledDraws = 0u;
+    std::uint64_t culledTriangles = 0u;
 };
 
 // Submits opaque/masked primitives, then blended ones, in authored order within
