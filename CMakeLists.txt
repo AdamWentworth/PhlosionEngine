@@ -1142,6 +1142,10 @@ if (PHLOSION_BUILD_TESTS)
         COMMAND ${CMAKE_COMMAND}
             -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckEngineSemanticBoundary.cmake)
+    add_test(NAME PhlosionMaterialComposition COMMAND ${CMAKE_COMMAND}
+        -DPHLOSION_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+        -DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/material-composition-contract
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckMaterialComposition.cmake)
     add_test(
         NAME PhlosionPackedNormalContract
         COMMAND ${CMAKE_COMMAND}

@@ -1,6 +1,32 @@
 # World material profiles
 
 A world material profile supplies project-owned vertex and fragment programs.
+The engine owns general surface fragments under `assets/shaders/materials` and
+the `phlosion_compose_material_profile` CMake helper. A profile supplies extension
+dispatch/material interpretation and optional game field code; ordinary lighting,
+wetness and final color output stay in the engine.
+
+Include `cmake/ComposeMaterialProfile.cmake` and supply `TARGET`,
+`OUTPUT_DIRECTORY`, `SOURCE_DIRECTORY`, and optionally `FIELD_SOURCE_DIR`.
+The source directory contains the existing API declarations/evaluation pairs and
+vertex snippets described below. Additional root-level GLSL/HLSL helpers are
+copied after fragment expansion. `#include "phlosion/name.glsl"` (or `.hlsl`)
+selects an engine fragment; `#include "material/name.glsl"` selects a profile
+override from its `material` subdirectory, falling back to an explicit engine
+default. Missing, cyclic or escaping fragment references fail configuration.
+Ordinary compiler includes are preserved. All fragment and extension inputs
+participate in configure/build dependency tracking.
+
+Surface hooks preserve source-specific texture interpretation, dielectric
+parameters, IBL adjustments and post-lighting response. Their insertion points
+and available local variables are defined by the corresponding surface fragment.
+Neutral defaults require no source adapter. Hooks must not duplicate the general
+lighting implementation. The output fragments own atmospheric haze, review
+lighting, tone mapping and output encoding; source-specific early-return effects
+may retain their explicitly authored output behavior. This separation does not
+introduce HDR composition or alter the existing world-color conventions.
+The moved fragments retain their [source provenance and licensing scope](MATERIAL_FRAGMENT_PROVENANCE.md).
+
 `WorldMaterialProfile.h` owns the versioned interface. Version 2 preserves world
 vertex inputs, textures, scalar parameters and fragment outputs, and adds vertex
 snippets, per-mode packing settings and scalar expressions. Binding changes
