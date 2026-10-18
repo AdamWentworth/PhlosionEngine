@@ -316,8 +316,13 @@ private:
     int worldDirectionalShadowMatrixLoc_ = -1;
     int worldDirectionalShadowParamsLoc_ = -1;
     int worldDirectionalShadowTextureLoc_ = -1;
+    int worldMomentTextureLoc_ = -1;
     engine::render::WorldLocalShadowAtlas worldLocalShadows_;
     unsigned int worldDirectionalShadowTexture_ = 0, worldDirectionalShadowFramebuffer_ = 0;
+    std::array<unsigned int,2> worldMomentTextures_{}, worldMomentFramebuffers_{};
+    unsigned int worldMomentProgram_ = 0, worldMomentVao_ = 0;
+    void prewarmWorldShadowMoments();
+    void filterWorldShadowMoments();
     std::uint32_t worldDirectionalShadowResolution_ = 0;
     bool worldDirectionalShadowActive_ = false, worldDirectionalShadowReady_ = false;
     engine::render::WorldDirectionalShadowView worldDirectionalShadowView_;
@@ -496,7 +501,7 @@ private:
         int prevElementArrayBuffer = 0;
         int prevActiveTexture = 0;
         int prevTexture2DOnActive = 0;
-        std::array<int, 11> prevTexture2DOnUnit{};
+        std::array<int, 12> prevTexture2DOnUnit{};
         bool depthEnabled = false;
         bool blendEnabled = false;
         bool cullEnabled = false;
@@ -514,7 +519,7 @@ private:
         int currentArrayBuffer = 0;
         int currentElementArrayBuffer = 0;
         int currentActiveTexture = 0;
-        std::array<int, 11> currentTexture2DOnUnit{};
+        std::array<int, 12> currentTexture2DOnUnit{};
         bool currentDepthEnabled = false;
         bool currentBlendEnabled = false;
         bool currentCullEnabled = false;

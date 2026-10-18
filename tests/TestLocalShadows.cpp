@@ -25,6 +25,22 @@ int main() try {
     check(std::abs(clip({0,0,0}).x)<1e-6f && std::abs(clip({0,0,0}).y)<1e-6f &&
         std::abs(clip({0,0,0}).z)<1, "Ground receiver missing from frustum");
     check(std::abs(clip({3.99f,4,0}).x)<1, "Luminous plane edge missing");
+    auto momentLight=light;momentLight.shadowFilter=WorldLocalShadowFilter::DistanceMoments;
+    const auto momentView=rectLightShadowView(momentLight);
+    check(validWorldDirectionalShadowView(momentView),"Moment projection rejected");
+    const auto& mc=momentView.distanceMoments;
+    for(const glm::vec3 point : {glm::vec3(0,0,0),glm::vec3(3,1,2),glm::vec3(-4,-3,1)}) {
+        const auto projected=m*glm::vec4(point,1);
+        const auto ndc=glm::vec3(projected)/projected.w;
+        const float radial=1.f/((ndc.z*.5f+.5f)*mc[1]+mc[0])*std::sqrt(1+mc[2]*mc[2]*(ndc.x*ndc.x+ndc.y*ndc.y));
+        const float distance=glm::length(glm::vec3(glm::lookAt(glm::vec3(0,4+4/3.7320508f,0),glm::vec3(0,4,0),glm::vec3(0,0,1))*glm::vec4(point,1)))*mc[3];
+        check(std::abs(radial-distance)<2e-6f,"Filter and receiver radial distance differ");
+    }
+    auto badMoment=momentView;badMoment.distanceMoments[1]=0;
+    check(!validWorldDirectionalShadowView(badMoment),"Invalid depth coefficients accepted");
+    WorldLocalShadowAtlas momentAtlas;momentAtlas.enabled=true;
+    check(momentAtlas.begin(15,momentView),"Moment pass rejected");momentAtlas.finish(momentView);
+    check(momentAtlas.uniforms[94]==std::array<float,4>{1,mc[3],mc[2],-1.f/1024},"Moment receiver packing changed");
     auto invalid=light; invalid.range=0;
     check(!rectLightShadowView(invalid).enabled,"Disabled light cast a shadow");
     invalid=light;invalid.radiance={};

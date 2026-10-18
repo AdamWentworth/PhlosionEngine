@@ -1,0 +1,4 @@
+#pragma once
+namespace engine::render {
+inline constexpr char shadowMomentFilterSource[] = R"MOMENT(@PHLOSION_MOMENT_SOURCE@)MOMENT";
+}

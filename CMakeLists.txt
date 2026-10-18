@@ -102,6 +102,8 @@ set(PHLOSION_VULKAN_SHADER_SOURCES
     sprite.frag
     world.vert
     world.frag
+    shadow_moment.vert
+    shadow_moment.frag
     scene_color.vert
     scene_color.frag
     screen_feedback.frag
@@ -119,6 +121,8 @@ foreach(_shader IN LISTS PHLOSION_VULKAN_SHADER_SOURCES)
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/scene_bloom.glsl")
     elseif (_shader STREQUAL "scene_color.frag")
         list(APPEND _shader_dependencies "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/scene_bloom.glsl")
+    elseif (_shader STREQUAL "shadow_moment.frag")
+        list(APPEND _shader_dependencies "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_shadow_moments.glsl" "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/shadow_moment_filter.glsl")
     elseif (_shader STREQUAL "world.frag")
         list(APPEND _shader_dependencies
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/portable_material.glsl"
@@ -651,6 +655,9 @@ if (PHLOSION_BUILD_TESTS)
     target_link_libraries(PhlosionLocalShadowTests PRIVATE Engine)
     phlosion_apply_settings(PhlosionLocalShadowTests)
     add_test(NAME PhlosionLocalShadows COMMAND PhlosionLocalShadowTests)
+    add_executable(PhlosionLiveShadowMomentTests tests/TestLiveShadowMoments.cpp)
+    target_link_libraries(PhlosionLiveShadowMomentTests PRIVATE Engine)
+    phlosion_apply_settings(PhlosionLiveShadowMomentTests)
     add_executable(PhlosionLocalHazeTests tests/TestLocalHaze.cpp)
     target_link_libraries(PhlosionLocalHazeTests PRIVATE Engine)
     phlosion_apply_settings(PhlosionLocalHazeTests)
@@ -1099,8 +1106,14 @@ if (PHLOSION_BUILD_TESTS)
         set_tests_properties(PhlosionFiniteLight-${api} PROPERTIES RUN_SERIAL TRUE TIMEOUT 60)
         add_test(NAME PhlosionShadowMoments-${api} COMMAND PhlosionShadowMomentTests ${api})
         set_tests_properties(PhlosionShadowMoments-${api} PROPERTIES RUN_SERIAL TRUE TIMEOUT 60)
+        foreach(mode blocked empty clear pcf border self)
+            add_test(NAME PhlosionLiveMoments-${api}-${mode} COMMAND PhlosionLiveShadowMomentTests ${api} ${mode}
+                "${CMAKE_CURRENT_BINARY_DIR}/live-moment-tests/${api}-${mode}.png")
+            set_tests_properties(PhlosionLiveMoments-${api}-${mode} PROPERTIES RUN_SERIAL TRUE TIMEOUT 240 WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+        endforeach()
         if(TARGET PhlosionLocalHazeTests)
-            foreach(mode on off zero-density source-off sky back blocked foreground blue both odd edge
+            foreach(mode moments-on moments-blocked moments-both moments-reduced-on moments-reduced-blocked
+                         on off zero-density source-off sky back blocked foreground blue both odd edge
                          reduced-on reduced-off reduced-zero-density reduced-source-off reduced-sky
                          reduced-back reduced-blocked reduced-foreground reduced-blue reduced-both reduced-odd reduced-edge reduced-repeat)
                 add_test(NAME PhlosionLocalHaze-${api}-${mode} COMMAND PhlosionLocalHazeTests ${api} ${mode}
@@ -1331,6 +1344,14 @@ if (PHLOSION_BUILD_TESTS)
         endif()
     endif()
 endif()
+
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/shadow_moment_filter.glsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_shadow_moments.glsl")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/shadow_moment_filter.glsl" PHLOSION_MOMENT_SOURCE)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_shadow_moments.glsl" PHLOSION_MOMENT_CORE)
+string(REPLACE "#include \"world_shadow_moments.glsl\"" "${PHLOSION_MOMENT_CORE}" PHLOSION_MOMENT_SOURCE "${PHLOSION_MOMENT_SOURCE}")
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/ShadowMomentSource.h.in" "${CMAKE_CURRENT_BINARY_DIR}/generated/ShadowMomentSource.h" @ONLY)
 
 # One atmosphere shader source is compiled into GL/HLSL and included by Vulkan.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/scene_bloom.glsl")

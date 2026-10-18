@@ -16,6 +16,7 @@ struct WorldPointLight {
 using WorldPointLightUniforms = std::array<std::array<float, 4>, 8>;
 
 enum class WorldRectLightResponse : std::uint32_t { Ltc = 0, FiniteLine = 1 };
+enum class WorldLocalShadowFilter : std::uint32_t { Pcf = 0, DistanceMoments = 1 };
 
 // One-sided rectangular emitter. Cross(halfU, halfV) points out of its luminous
 // face; axes are perpendicular world-space half extents, radiance is linear.
@@ -27,6 +28,7 @@ struct WorldRectLight {
     // Normal intensity is radiance * rectangle area; other transport retains
     // this same physical luminous rectangle, radiance and emitting hemisphere.
     WorldRectLightResponse response = WorldRectLightResponse::Ltc;
+    WorldLocalShadowFilter shadowFilter = WorldLocalShadowFilter::Pcf;
 };
 inline constexpr std::size_t worldRectLightCapacity = 16;
 using WorldRectLightUniforms = std::array<std::array<float, 4>, worldRectLightCapacity * 4>;
@@ -190,6 +192,8 @@ inline WorldPointLightUniforms packWorldPointLights(const WorldEnvironmentLighti
 }
 
 inline bool validWorldRectLight(const WorldRectLight& light) {
+    if (light.shadowFilter != WorldLocalShadowFilter::Pcf &&
+        light.shadowFilter != WorldLocalShadowFilter::DistanceMoments) return false;
     if (light.response != WorldRectLightResponse::Ltc &&
         light.response != WorldRectLightResponse::FiniteLine) return false;
     for (const auto& v : {light.position, light.halfU, light.halfV, light.radiance})

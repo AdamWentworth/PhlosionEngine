@@ -44,6 +44,27 @@ void updateEnvironmentDirectionalVisibility(vec3 position, vec3 normal, float mo
 }
 
 
+float environmentLocalMomentVisibility(int index, vec4 projected, vec4 parameters) {
+    if (projected.w <= .00000001) return 1.0;
+    vec3 clip = projected.xyz / projected.w;
+    if (max(abs(clip.x),max(abs(clip.y),abs(clip.z))) >= 1.0) return 1.0;
+    vec2 uv = clip.xy * vec2(.5,WORLD_SHADOW_Y*.5) + vec2(.5,.5);
+    float texelSize = -parameters.w;
+    vec2 texel = uv / texelSize - vec2(.5,.5), base = floor(texel), fraction = texel-base;
+    vec4 tile = WORLD_LOCAL_SHADOW(index*6+5);
+    tile.x = (tile.x-.5)*2.0; tile.z *= 2.0;
+    vec2 moments = vec2(0.0,0.0);
+    for (int y=0;y<2;++y) for (int x=0;x<2;++x) {
+        vec2 tap = clamp((base+vec2(float(x),float(y))+vec2(.5,.5))*texelSize,
+            vec2(.5,.5)*texelSize,vec2(1.0,1.0)-vec2(.5,.5)*texelSize);
+        vec2 weight = mix(vec2(1.0,1.0)-fraction,fraction,vec2(float(x),float(y)));
+        moments += WORLD_MOMENT_SAMPLE(tile.xy+tap*tile.zw)*weight.x*weight.y;
+    }
+    vec2 ray = clip.xy*parameters.z;
+    float receiver = projected.w*parameters.y*sqrt(1.0+dot(ray,ray));
+    return finiteLightMomentVisibility(moments,receiver,parameters.x);
+}
+
 // Medium samples have no receiver plane or surface-normal bias. Derivatives
 // inside a divergent ray march would corrupt the surface PCF correction.
 float environmentLocalVolumeVisibility(int index, vec3 position) {
@@ -52,6 +73,7 @@ float environmentLocalVolumeVisibility(int index, vec3 position) {
     vec4 projected=WORLD_LOCAL_SHADOW(index*6)*position.x +
         WORLD_LOCAL_SHADOW(index*6+1)*position.y +
         WORLD_LOCAL_SHADOW(index*6+2)*position.z + WORLD_LOCAL_SHADOW(index*6+3);
+    if (parameters.w < 0.0) return environmentLocalMomentVisibility(index,projected,parameters);
     if (projected.w<=.00000001) return 1.0;
     vec3 clip=projected.xyz/projected.w;
     if (max(abs(clip.x),max(abs(clip.y),abs(clip.z)))>=1.0) return 1.0;
@@ -72,6 +94,12 @@ float environmentLocalVolumeVisibility(int index, vec3 position) {
 float environmentLocalShadowVisibility(int index, vec3 position, vec3 normal) {
     vec4 parameters = WORLD_LOCAL_SHADOW(index*6+4);
     if (parameters.x <= 0.0 || ENV_SUN.w < 0.5) return 1.0;
+    if (parameters.w < 0.0) {
+        vec4 radialClip = WORLD_LOCAL_SHADOW(index*6)*position.x +
+            WORLD_LOCAL_SHADOW(index*6+1)*position.y +
+            WORLD_LOCAL_SHADOW(index*6+2)*position.z + WORLD_LOCAL_SHADOW(index*6+3);
+        return environmentLocalMomentVisibility(index,radialClip,parameters);
+    }
     float n2 = dot(normal,normal);
     if (n2 > 0.00000001) {
         normal *= inversesqrt(n2);

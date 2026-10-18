@@ -5,6 +5,10 @@ the shared surface shader. PokemonCyberpunk opts its six canopy fixtures into
 this response. This is direct-light component integration, not a claim that
 Phlosion's whole lighting engine matches Cyberpunk 2077.
 
+This is the finite-response checkpoint. The subsequent
+[live distance-moment integration](LIVE_SHADOW_MOMENTS.md) replaces canopy PCF
+and advances model/editor ABI to 19/39; the measurements below remain historical.
+
 ## Source and material contract
 
 `WorldRectLight::response` selects `Ltc` (the engine default) or `FiniteLine`.
@@ -148,11 +152,11 @@ binaries or extracted assets are included in source commits.
 
 ## Remaining parity targets
 
-The captured distance-moment filter is now independently matched; see
-[SHADOW_MOMENTS.md](SHADOW_MOMENTS.md). Next integrate it with engine-owned targets,
-compatible radial shadow projection/receivers and qualified texel addressing.
-The reproduced two-moment visibility function alone does not make the live
-depth-PCF shadows equivalent. Material decoding, other emitter permutations,
+The captured distance-moment filter is independently matched; see
+[SHADOW_MOMENTS.md](SHADOW_MOMENTS.md). Its live integration is qualified separately
+in [LIVE_SHADOW_MOMENTS.md](LIVE_SHADOW_MOMENTS.md), including radial receivers and
+texel addressing. Projection/source mapping and static-cache lifecycle still
+differ. Material decoding, other emitter permutations,
 reflection transport, indirect probes, fog transport, exposure and display each
 need matched-input evidence. The retained retail capture has RT disabled; none
 of these results establishes ray-traced or path-traced parity.

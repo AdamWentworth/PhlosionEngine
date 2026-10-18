@@ -671,7 +671,7 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
                   "vkCreateDescriptorSetLayout(indexed world materials)");
     }
 
-    std::array<VkDescriptorSetLayoutBinding, 8> worldStateBindings{};
+    std::array<VkDescriptorSetLayoutBinding, 9> worldStateBindings{};
     worldStateBindings[0].binding = 0u;
     worldStateBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     worldStateBindings[0].descriptorCount = 1u;
@@ -709,6 +709,8 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
     worldStateBindings[6].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     worldStateBindings[7] = worldStateBindings[6];
     worldStateBindings[7].binding = 7u;
+    worldStateBindings[8] = worldStateBindings[6];
+    worldStateBindings[8].binding = 8u;
     worldStateLayoutInfo.pBindings = worldStateBindings.data();
     requireVk(vkCreateDescriptorSetLayout(
                   device, &worldStateLayoutInfo, nullptr, &worldStateSetLayout),
@@ -734,7 +736,7 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     poolSizes[0].descriptorCount =
         4096u * engine::render::vulkan_backend::kWorldMaterialTextureCount +
-        kFramesInFlight * 5u +
+        kFramesInFlight * 7u +
         (descriptorIndexingSupported
              ? kFramesInFlight *
                    engine::render::vulkan_backend::kMaxIndexedWorldMaterials *
@@ -2255,6 +2257,17 @@ void VulkanRenderBackendImpl::createScreenFeedbackPipeline() {
         VkVertexInputBindingDescription binding{0,0,VK_VERTEX_INPUT_RATE_VERTEX};
         feedbackPipeline=createGraphicsPipeline(device, pipelineCache,feedbackRenderPass,feedbackLayout,vs,fs,binding,{},false,0,false,false,false);
         feedbackDisplayPipeline=createGraphicsPipeline(device, pipelineCache,loadRenderPass,feedbackLayout,vs,fs,binding,{},false,0,false,false,false);
+    } catch(...) {if(fs)vkDestroyShaderModule(device,fs,nullptr);vkDestroyShaderModule(device,vs,nullptr);throw;}
+    vkDestroyShaderModule(device,fs,nullptr);vkDestroyShaderModule(device,vs,nullptr);
+}
+
+void VulkanRenderBackendImpl::createWorldShadowMomentPipeline() {
+    const auto vs=loadShaderModule("shadow_moment.vert.spv");
+    VkShaderModule fs=VK_NULL_HANDLE;
+    try {
+        fs=loadShaderModule("shadow_moment.frag.spv");
+        VkVertexInputBindingDescription binding{0,0,VK_VERTEX_INPUT_RATE_VERTEX};
+        worldMomentPipeline=createGraphicsPipeline(device,pipelineCache,worldMomentRenderPass,worldMomentLayout,vs,fs,binding,{},false,0,false,false,false);
     } catch(...) {if(fs)vkDestroyShaderModule(device,fs,nullptr);vkDestroyShaderModule(device,vs,nullptr);throw;}
     vkDestroyShaderModule(device,fs,nullptr);vkDestroyShaderModule(device,vs,nullptr);
 }

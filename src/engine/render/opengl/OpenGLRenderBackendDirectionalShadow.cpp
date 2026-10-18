@@ -1,6 +1,8 @@
 #include "engine/render/OpenGLRenderBackend.h"
 #include <stdexcept>
 #include <glad/glad.h>
+#include "engine/render/ShadowMomentShader.h"
+#include "engine/render/opengl/OpenGLRenderBackendShaderUtils.h"
 
 void OpenGLRenderBackend::prewarmWorldDirectionalShadow(std::uint32_t resolution) {
     if (resolution < 128 || resolution > 4096 || (resolution & (resolution - 1)))
@@ -93,6 +95,8 @@ bool OpenGLRenderBackend::beginWorldDirectionalShadow(
 
 bool OpenGLRenderBackend::endWorldDirectionalShadow() {
     if (!worldDirectionalShadowActive_) return false;
+    if (worldLocalShadows_.activeLight >= 0 && worldDirectionalShadowView_.distanceMoments[3] > 0)
+        filterWorldShadowMoments();
     const auto& saved = worldDirectionalShadowSaved_;
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(saved.drawFramebuffer));
     glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(saved.readFramebuffer));
@@ -121,12 +125,19 @@ void OpenGLRenderBackend::destroyWorldDirectionalShadowResources() {
     if (worldDirectionalShadowTexture_) glDeleteTextures(1, &worldDirectionalShadowTexture_);
     worldDirectionalShadowFramebuffer_ = worldDirectionalShadowTexture_ = 0;
     worldDirectionalShadowResolution_ = 0;
+    glDeleteFramebuffers(2,worldMomentFramebuffers_.data());
+    glDeleteTextures(2,worldMomentTextures_.data());
+    worldMomentFramebuffers_={}; worldMomentTextures_={};
+    if (worldMomentProgram_) glDeleteProgram(worldMomentProgram_);
+    if (worldMomentVao_) glDeleteVertexArrays(1,&worldMomentVao_);
+    worldMomentProgram_=worldMomentVao_=0;
 }
 
 void OpenGLRenderBackend::prewarmWorldLocalShadows() {
     if (worldDirectionalShadowActive_) throw std::runtime_error("Cannot prepare local shadows during a shadow pass.");
     worldLocalShadows_.enabled = true;
     prewarmWorldDirectionalShadow(engine::render::localShadowAtlasResolution);
+    prewarmWorldShadowMoments();
 }
 void OpenGLRenderBackend::clearWorldLocalShadows() {
     if (worldDirectionalShadowActive_ && worldLocalShadows_.activeLight >= 0) endWorldLocalShadow();
@@ -145,4 +156,60 @@ bool OpenGLRenderBackend::endWorldLocalShadow() {
     worldLocalShadows_.finish(worldDirectionalShadowView_);
     worldDirectionalShadowView_ = worldLocalShadows_.directionalView;
     return true;
+}
+
+void OpenGLRenderBackend::prewarmWorldShadowMoments() {
+    if(worldMomentProgram_) return;
+    GLint draw=0,read=0,texture=0;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING,&draw); glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING,&read);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D,&texture);
+    const auto vs=opengl_backend_shader_utils::compileShader(GL_VERTEX_SHADER,R"(#version 330 core
+void main() { gl_Position=vec4(gl_VertexID==1?3.0:-1.0,gl_VertexID==2?3.0:-1.0,0.0,1.0); }
+)");
+    const auto fs=opengl_backend_shader_utils::compileShader(GL_FRAGMENT_SHADER,engine::render::shadowMomentShader(false).c_str());
+    worldMomentProgram_=opengl_backend_shader_utils::linkProgram(vs,fs);
+    glDeleteShader(vs);glDeleteShader(fs);
+    if(!worldMomentProgram_) throw std::runtime_error("Cannot compile shadow moment filter");
+    glGenVertexArrays(1,&worldMomentVao_);
+    glGenTextures(2,worldMomentTextures_.data()); glGenFramebuffers(2,worldMomentFramebuffers_.data());
+    for(int i=0;i<2;++i) {
+        glBindTexture(GL_TEXTURE_2D,worldMomentTextures_[i]);
+        glTexImage2D(GL_TEXTURE_2D,0,GL_RG16,i?2048:1024,i?4096:1024,0,GL_RG,GL_UNSIGNED_SHORT,nullptr);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+        glBindFramebuffer(GL_FRAMEBUFFER,worldMomentFramebuffers_[i]);
+        glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,worldMomentTextures_[i],0);
+        if(glCheckFramebufferStatus(GL_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE)
+            throw std::runtime_error("Incomplete shadow moment target");
+    }
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER,GLuint(draw));glBindFramebuffer(GL_READ_FRAMEBUFFER,GLuint(read));
+    glBindTexture(GL_TEXTURE_2D,GLuint(texture));
+}
+
+void OpenGLRenderBackend::filterWorldShadowMoments() {
+    GLint program=0,vao=0,active=0,texture=0,sampler=0;
+    glGetIntegerv(GL_CURRENT_PROGRAM,&program);glGetIntegerv(GL_VERTEX_ARRAY_BINDING,&vao);
+    glGetIntegerv(GL_ACTIVE_TEXTURE,&active);glActiveTexture(GL_TEXTURE0);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D,&texture);glGetIntegerv(GL_SAMPLER_BINDING,&sampler);
+    const bool blend=glIsEnabled(GL_BLEND),cull=glIsEnabled(GL_CULL_FACE),srgb=glIsEnabled(GL_FRAMEBUFFER_SRGB),dither=glIsEnabled(GL_DITHER);
+    glDisable(GL_BLEND);glDisable(GL_CULL_FACE);glDisable(GL_DEPTH_TEST);glDisable(GL_FRAMEBUFFER_SRGB);glDisable(GL_DITHER);
+    glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);glEnable(GL_SCISSOR_TEST);
+    glUseProgram(worldMomentProgram_);glBindVertexArray(worldMomentVao_);glBindSampler(0,0);
+    glUniform1i(glGetUniformLocation(worldMomentProgram_,"momentInput"),0);
+    for(int pass=0;pass<2;++pass) {
+        const auto data=engine::render::shadowMomentConstants(worldDirectionalShadowView_,worldLocalShadows_,pass!=0);
+        glBindFramebuffer(GL_FRAMEBUFFER,worldMomentFramebuffers_[pass]);
+        glViewport(GLint(data[6]),GLint(data[7]),1024,1024);glScissor(GLint(data[6]),GLint(data[7]),1024,1024);
+        glBindTexture(GL_TEXTURE_2D,pass?worldMomentTextures_[0]:worldDirectionalShadowTexture_);
+        glUniform4fv(glGetUniformLocation(worldMomentProgram_,"momentProjection"),1,data.data());
+        glUniform4fv(glGetUniformLocation(worldMomentProgram_,"momentOffsets"),1,data.data()+4);
+        glUniform4fv(glGetUniformLocation(worldMomentProgram_,"momentPass"),1,data.data()+8);
+        glDrawArrays(GL_TRIANGLES,0,3);
+    }
+    glUseProgram(GLuint(program));glBindVertexArray(GLuint(vao));
+    glBindTexture(GL_TEXTURE_2D,GLuint(texture));glBindSampler(0,GLuint(sampler));glActiveTexture(GLenum(active));
+    if(blend)glEnable(GL_BLEND);if(cull)glEnable(GL_CULL_FACE);if(srgb)glEnable(GL_FRAMEBUFFER_SRGB);if(dither)glEnable(GL_DITHER);
+    // The caller restores framebuffer, viewport, masks and depth/scissor state.
 }

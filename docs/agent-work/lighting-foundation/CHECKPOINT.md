@@ -1,12 +1,49 @@
 # Lighting foundation checkpoint
 
-2026-10-17. Fixture emission, local shadows, HDR, static shadow culling and colored
+2026-10-18. Fixture emission, local shadows, HDR, static shadow culling and colored
 diffuse bounce are functionally verified, including native scene, shared-consumer
 and normal-launch checks. Performance limitations remain below. Earlier phase
 notes are historical. Checkpoint commits were authorized on 2026-10-17. Measured
 component agreement below is not a whole-lighting-engine parity percentage.
 
-## Current follow-up: recovered shadow moment filter
+## Current follow-up: live distance-moment shadows
+
+2026-10-18: The independently recovered filter now runs in native GL, Vulkan and
+D3D12 lighting. PokemonCyberpunk selects it for the six canopy sources in normal
+exploration and battle; `PHLOSION_USE_PCF_LOCAL_SHADOWS=1` retains the previous
+comparison. Model/editor ABI is 19/39, with rebuilt and staged consumers.
+See [LIVE_SHADOW_MOMENTS.md](LIVE_SHADOW_MOMENTS.md) for the adapter and evidence.
+
+Two ordered RG16_UNORM passes feed radial surface, haze and reflected-view
+receivers. The qualified core is unchanged. Live integer texel addressing,
+Phlosion's existing 150-degree projection/source mapping and rendering all
+casters every frame are explicit differences from the captured adapter/cache
+policy. This step integrates the measured filter; it does not establish complete
+shadow-system or whole-engine parity.
+
+The final stable rebuild passes 169 affected engine checks and six game CPU
+contracts. All six station captures pass unchanged source/content/image guards;
+normal editor launch and all six battle captures also pass. Moment selection is
+verified in actual exploration and battle handshakes. Seven scene controls,
+seven reflection controls, four isolated-color captures and five-visit editor
+scene switches on all three APIs pass. Source-off pixels match the preceding
+checkpoint exactly. Autochess's six runtime and six editor views pass the
+existing content, parity and baseline checks, together with eight material
+contracts and the paired ABI proof. Source code in model support and Autochess
+is unchanged. The retained wrapper-only stale-exit-code failure is explained
+in the live integration report; native captures were successful.
+
+Matched 1080p PCF/moments GPU medians are GL 40.315/42.983 ms,
+Vulkan 21.740/21.158 ms and D3D12 21.180/20.827 ms (200 warm samples each).
+GL's first +2.668 ms GPU/+2.536 ms host increase exceeds the existing review
+limits; a reverse-order repeat measures +0.463 ms GPU/-0.314 ms host. Both are
+retained; variable GL cost remains a review item. Vulkan host median is
+52.748 ms. First-use shader/scene startup still takes minutes. Functional
+integration is accepted with those limits, not as a 60 FPS qualification.
+Next parity targets are source/projection mapping and static-cache policy;
+the latter needs evidence beyond the already-populated captured cache.
+
+## Previous follow-up: recovered shadow moment filter
 
 2026-10-18: The independent engine-owned distance-moment kernel passes the
 captured first-frame comparison. Horizontal, vertical and chained outputs each

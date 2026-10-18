@@ -111,6 +111,8 @@ Texture2D gEmissiveTex : register(t4);
 Texture2D gEnvTex : register(t5);
 Texture2D gLightProjectionTex : register(t6);
 Texture2D gProjectedShadowTex : register(t7);
+Texture2D<float2> gLocalShadowMoments : register(t11);
+#define WORLD_MOMENT_SAMPLE(uv) gLocalShadowMoments.SampleLevel(gWorldShadowSampler,uv,0)
 Texture2D<float> gWorldShadowTex : register(t8);
 Texture2D gRectLightLut : register(t9);
 SamplerState gWorldShadowSampler : register(s9);
@@ -875,7 +877,11 @@ float3 applyCharacterInking(PSIn i, float3 linearColor, float3 n, float3 cameraP
     planarRange.RangeType=D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     planarRange.NumDescriptors=1; planarRange.BaseShaderRegister=10;
     planarRange.OffsetInDescriptorsFromTableStart=D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-    D3D12_ROOT_PARAMETER rootParams[9]{};
+    D3D12_DESCRIPTOR_RANGE momentRange=planarRange; momentRange.BaseShaderRegister=11;
+    D3D12_ROOT_PARAMETER rootParams[10]{};
+    rootParams[9].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParams[9].DescriptorTable={1,&momentRange};
+    rootParams[9].ShaderVisibility=D3D12_SHADER_VISIBILITY_PIXEL;
     rootParams[7].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     rootParams[7].Constants={3,0,24};
     rootParams[7].ShaderVisibility=D3D12_SHADER_VISIBILITY_PIXEL;

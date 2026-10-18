@@ -73,7 +73,8 @@ std::array<double,3> display(std::array<double,3> rgb) {
 int main(int argc,char** argv) try {
     cpu();if(argc==1){std::cout<<"PASS local haze packing and disabled contracts\n";return 0;}
     check(argc==4,"Expected API, mode, output");const std::string api=argv[1];
-    std::string mode=argv[2];const bool reduced=mode.starts_with("reduced-");if(reduced)mode=mode.substr(8);
+    std::string mode=argv[2];const bool moments=mode.starts_with("moments-");if(moments)mode=mode.substr(8);
+    const bool reduced=mode.starts_with("reduced-");if(reduced)mode=mode.substr(8);
     check(mode=="on"||mode=="off"||mode=="zero-density"||mode=="source-off"||mode=="sky"||mode=="back"||mode=="blocked"||mode=="foreground"||mode=="blue"||mode=="both"||mode=="odd"||mode=="edge"||(reduced&&mode=="repeat"),"Unknown haze case");
     if(mode=="odd"){width=321;height=201;}
     SDL_SetMainReady();struct Quit{~Quit(){SDL_Quit();}} quit;
@@ -101,6 +102,7 @@ int main(int argc,char** argv) try {
     e.localHazeDeferred=reduced;
     e.localHazeAnisotropy=mode=="both"?.25f:mode=="blue"?-.25f:0.f;
     e.rectLights[0]={{0,3,0},8,{2,0,0},{0,0,.2f},{30,0,0}};
+    if(moments)e.rectLights[0].shadowFilter=WorldLocalShadowFilter::DistanceMoments;
     if(mode=="source-off") e.rectLights[0].radiance={};
     if(mode=="sky") {e.skyDraw=true;e.skyIntensity=0;e.sunAngularRadius=0;e.nightSkyRadiance={};}
     if(mode=="back") e.rectLights[0].halfV[2]=-.2f;

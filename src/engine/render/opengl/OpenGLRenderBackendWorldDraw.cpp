@@ -686,7 +686,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     GLint prevElementArrayBuffer = 0;
     GLint prevActiveTexture = 0;
     GLint prevTexture2DOnActive = 0;
-    GLint prevTexture2DOnUnit[11] = {};
+    GLint prevTexture2DOnUnit[12] = {};
     GLint prevUniformBuffer = 0;
     GLint prevWorldSkinBufferBinding = 0;
     GLboolean depthEnabled = GL_FALSE;
@@ -708,7 +708,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
         glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &prevElementArrayBuffer);
         glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActiveTexture);
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTexture2DOnActive);
-        for (int unit = 0; unit < 11; ++unit) {
+        for (int unit = 0; unit < 12; ++unit) {
             glActiveTexture(GL_TEXTURE0 + unit);
             glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTexture2DOnUnit[unit]);
         }
@@ -853,6 +853,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     glUniformMatrix4fv(worldUniformLocation(worldDirectionalShadowMatrixLoc_), 1, GL_FALSE, shadow.viewProjection.data());
     glUniform4fv(worldUniformLocation(worldDirectionalShadowParamsLoc_), 1, shadow.parameters.data());
     glUniform1i(worldUniformLocation(worldDirectionalShadowTextureLoc_), 8);
+    glUniform1i(worldUniformLocation(worldMomentTextureLoc_), 11);
     const auto shadowAtlasUv = worldLocalShadows_.directionalUv();
     glUniform4fv(worldUniformLocation(worldShadowAtlasLoc_), 1, shadowAtlasUv.data());
     const auto localShadows = !worldDirectionalShadowActive_ && texture && texture->environment.enabled && texture->directionalShadowReceiver
@@ -1056,6 +1057,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     bindTextureUnit2D(5, boundEnvTexture);
     bindTextureUnit2D(6, boundLightProjectionTexture);
     bindTextureUnit2D(7, boundProjectedShadowTexture);
+    bindTextureUnit2D(11, !worldDirectionalShadowActive_ && worldMomentTextures_[1] ? worldMomentTextures_[1] : worldFallbackLinearTexture_);
     bindTextureUnit2D(9, worldRectLightLut_);
     bindTextureUnit2D(8, worldDirectionalShadowReady_ && !worldDirectionalShadowActive_
         ? worldDirectionalShadowTexture_ : worldFallbackLinearTexture_);
@@ -1068,7 +1070,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(prevArrayBuffer));
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLuint>(prevElementArrayBuffer));
             glUseProgram(static_cast<GLuint>(prevProgram));
-            for (int unit = 0; unit < 11; ++unit) {
+            for (int unit = 0; unit < 12; ++unit) {
                 glActiveTexture(GL_TEXTURE0 + unit);
                 glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(prevTexture2DOnUnit[unit]));
             }
@@ -1179,7 +1181,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             static_cast<GLuint>(prevWorldSkinBufferBinding));
         glUseProgram(static_cast<GLuint>(prevProgram));
 
-        for (int unit = 0; unit < 11; ++unit) {
+        for (int unit = 0; unit < 12; ++unit) {
             glActiveTexture(GL_TEXTURE0 + unit);
             glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(prevTexture2DOnUnit[unit]));
         }

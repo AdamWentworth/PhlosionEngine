@@ -206,6 +206,23 @@ struct VulkanRenderBackendImpl {
     std::array<VkImageView, kFramesInFlight> worldShadowViews{};
     std::array<VkFramebuffer, kFramesInFlight> worldShadowFramebuffers{};
     VkSampler worldShadowSampler = VK_NULL_HANDLE;
+    struct ShadowMomentTarget {
+        VkImage image=VK_NULL_HANDLE;
+        VkDeviceMemory memory=VK_NULL_HANDLE;
+        VkImageView view=VK_NULL_HANDLE;
+        VkFramebuffer framebuffer=VK_NULL_HANDLE;
+        VkDescriptorSet input=VK_NULL_HANDLE;
+    };
+    std::array<std::array<ShadowMomentTarget,2>,kFramesInFlight> worldMomentTargets{};
+    VkRenderPass worldMomentRenderPass=VK_NULL_HANDLE;
+    VkDescriptorSetLayout worldMomentSetLayout=VK_NULL_HANDLE;
+    VkDescriptorPool worldMomentPool=VK_NULL_HANDLE;
+    VkPipelineLayout worldMomentLayout=VK_NULL_HANDLE;
+    VkPipeline worldMomentPipeline=VK_NULL_HANDLE;
+    void prewarmWorldShadowMoments();
+    void createWorldShadowMomentPipeline();
+    void filterWorldShadowMoments();
+    void destroyWorldShadowMoments();
     engine::render::WorldLocalShadowAtlas worldLocalShadows_;
     engine::render::WorldDirectionalShadowView worldShadowView{};
     std::uint32_t worldShadowResolution = 0, shadowSavedWidth = 1, shadowSavedHeight = 1;

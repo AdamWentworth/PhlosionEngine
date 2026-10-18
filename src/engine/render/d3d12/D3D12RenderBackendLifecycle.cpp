@@ -548,6 +548,8 @@ void D3D12RenderBackend::shutdown() {
     for (auto& pipeline : worldScenePipelines_) pipeline.Reset();
     worldShadowPipelineState_.Reset();
     worldShadowDepth_.Reset(); worldShadowDsvHeap_.Reset();
+    for(auto& target:worldMomentTargets_) target.Reset();
+    worldMomentRtvHeap_.Reset();worldMomentRoot_.Reset();worldMomentPipeline_.Reset();worldMomentSrv_=0xffffffffu;
     worldShadowResolution_ = 0; worldShadowActive_ = worldShadowReady_ = false;
     worldPointLightPipelines_.clear();
     worldPointLightPipelineFactory_ = {};

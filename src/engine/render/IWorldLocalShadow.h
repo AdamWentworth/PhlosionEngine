@@ -26,8 +26,9 @@ inline WorldDirectionalShadowView rectLightShadowView(const WorldRectLight& ligh
     const auto normal = glm::normalize(glm::cross(u, v));
     const float nearPlane = std::max(.05f, std::max(glm::length(u), glm::length(v)) / 3.7320508f);
     const auto eye = centre - normal * nearPlane;
+    const float farPlane = nearPlane + light.range + glm::length(u) + glm::length(v);
     const auto matrix = glm::perspective(glm::radians(150.f), 1.f, nearPlane,
-        nearPlane + light.range + glm::length(u) + glm::length(v)) *
+        farPlane) *
         glm::lookAt(eye, centre, glm::normalize(v));
     std::copy_n(glm::value_ptr(matrix), 16, result.viewProjection.begin());
     result.enabled = true;
@@ -35,6 +36,8 @@ inline WorldDirectionalShadowView rectLightShadowView(const WorldRectLight& ligh
     result.strength = 1;
     result.depthBias = .00015f;
     result.normalOffset = .012f;
+    if (light.shadowFilter == WorldLocalShadowFilter::DistanceMoments)
+        result.distanceMoments = {farPlane / nearPlane, 1 - farPlane / nearPlane, 3.7320508f, 1 / farPlane};
     return result;
 }
 
@@ -71,6 +74,9 @@ struct WorldLocalShadowAtlas {
         for (std::size_t c = 0; c < 4; ++c)
             std::copy_n(state.viewProjection.begin() + c * 4, 4, uniforms[first + c].begin());
         uniforms[first + 4] = state.parameters;
+        if (view.distanceMoments[3] > 0)
+            uniforms[first + 4] = {view.strength, view.distanceMoments[3],
+                view.distanceMoments[2], -1.f / static_cast<float>(view.resolution)};
         const auto xy = offset();
         uniforms[first + 5] = {xy[0] / 4096.f, xy[1] / 4096.f, .25f, .25f};
         ++tileCount;

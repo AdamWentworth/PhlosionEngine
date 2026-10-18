@@ -33,16 +33,17 @@ intensity mapping, authored material F0 and singular-input handling. Canopy
 fixtures use the finite response, with an LTC comparison override. Require the
 established runtime/editor and shared-consumer checks before accepting the live
 change. The capture exercises finite-length lights and two-moment shadow
-visibility; live depth-PCF local shadows remain a different algorithm.
+visibility; the canopy now selects the recovered distance-moment filter too.
 Check the artifact's branch coverage before extending claims to other shapes,
 profiles, materials, shader permutations, frames, indirect light or reflections.
 The next filter component is now independently qualified against the capture:
 [SHADOW_MOMENTS.md](SHADOW_MOMENTS.md) records bit-exact horizontal, vertical and
 chained distance-moment outputs, seeded-output controls and native math fixtures.
-It is not yet a live shadow path. The next implementation is engine-owned moment
-targets, ordered filtering passes and matching radial receiver/addressing adapters,
-followed by existing scene/shared-consumer acceptance. No additional user capture
-is currently required for that integration.
+[LIVE_SHADOW_MOMENTS.md](LIVE_SHADOW_MOMENTS.md) records engine-owned moment targets,
+ordered filtering passes, radial receivers, API addressing qualification and the
+scene/shared-consumer checks. The projection/source mapping and static-cache
+lifecycle remain separate parity targets; a cache-update study needs additional
+evidence because the retained capture starts with that cache already populated.
 
 The user's engine-parity target means matching the observable lighting subsystem
 in the captured rendering mode. Track direct response, source shape/units,

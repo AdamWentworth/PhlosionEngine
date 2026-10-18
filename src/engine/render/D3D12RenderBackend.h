@@ -531,6 +531,13 @@ private:
     std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, 11> worldScenePipelines_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldShadowPipelineState_;
     Microsoft::WRL::ComPtr<ID3D12Resource> worldShadowDepth_;
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,2> worldMomentTargets_;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> worldMomentRtvHeap_;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> worldMomentRoot_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> worldMomentPipeline_;
+    std::uint32_t worldMomentSrv_=0xffffffffu;
+    void prewarmWorldShadowMoments();
+    void filterWorldShadowMoments();
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> worldShadowDsvHeap_;
     engine::render::WorldLocalShadowAtlas worldLocalShadows_;
     engine::render::WorldDirectionalShadowView worldShadowView_{};

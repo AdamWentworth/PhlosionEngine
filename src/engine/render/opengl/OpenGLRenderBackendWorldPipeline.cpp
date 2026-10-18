@@ -547,6 +547,8 @@ uniform sampler2D uRectLightLut;
 #define HAZE_FETCH(p) texelFetch(uWorldPlanarTexture,ivec2(p),0)
 #define HAZE_UNPROJECT(p) (uProjectedShadowMatrix * (p))
 __PHLOSION_WORLD_LIGHTING_SHADER__
+uniform sampler2D uLocalShadowMoments;
+#define WORLD_MOMENT_SAMPLE(uv) textureLod(uLocalShadowMoments,uv,0.0).rg
 uniform sampler2D uDirectionalShadowTexture;
 uniform mat4 uDirectionalShadowMatrix;
 uniform vec4 uDirectionalShadowParams;
@@ -1210,6 +1212,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
     worldShadowAtlasLoc_ = glGetUniformLocation(worldProgram_, "uShadowAtlasUv");
     worldLocalShadowsLoc_ = glGetUniformLocation(worldProgram_, "uLocalShadows[0]");
     worldDirectionalShadowTextureLoc_ = glGetUniformLocation(worldProgram_, "uDirectionalShadowTexture");
+    worldMomentTextureLoc_ = glGetUniformLocation(worldProgram_, "uLocalShadowMoments");
     worldProjectedShadowTextureSamplerLoc_ =
         glGetUniformLocation(worldProgram_, "uProjectedShadowTexture");
     worldProjectedShadowMatrixLoc_ =
@@ -1436,6 +1439,7 @@ void OpenGLRenderBackend::destroyWorldPipeline() {
     worldPointLightsLoc_ = -1;
     worldRectLightsLoc_ = worldRectLightLutLoc_ = -1;
     worldDirectionalShadowMatrixLoc_ = worldDirectionalShadowParamsLoc_ = worldDirectionalShadowTextureLoc_ = -1;
+    worldMomentTextureLoc_ = -1;
     worldProjectedShadowTextureSamplerLoc_ = -1;
     worldProjectedShadowMatrixLoc_ = -1;
     worldProjectedShadowParamsLoc_ = -1;

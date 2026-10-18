@@ -16,6 +16,9 @@ struct WorldDirectionalShadowView {
     float strength = 1;
     float depthBias = .0004f;
     float normalOffset = .025f;
+    // Perspective radial moments: far/near, 1-far/near, tan(fov/2), 1/far.
+    // All zero retains depth PCF. Only local perspective shadows use this.
+    std::array<float, 4> distanceMoments{};
 };
 
 struct WorldDirectionalShadowState {
@@ -25,6 +28,12 @@ struct WorldDirectionalShadowState {
 static_assert(sizeof(WorldDirectionalShadowState) == 80);
 
 inline bool validWorldDirectionalShadowView(const WorldDirectionalShadowView& view) {
+    if (view.distanceMoments != std::array<float, 4>{}) {
+        const auto& m = view.distanceMoments;
+        for (float value : m) if (!std::isfinite(value)) return false;
+        if (m[0] <= 1 || m[1] >= 0 || std::abs(m[0] + m[1] - 1) > .0001f ||
+            m[2] <= 0 || m[2] > 16 || m[3] <= 0) return false;
+    }
     if (!view.enabled || view.resolution < 128 || view.resolution > 4096 ||
         (view.resolution & (view.resolution - 1)) != 0 ||
         !std::isfinite(view.strength) || view.strength <= 0 || view.strength > 1 ||

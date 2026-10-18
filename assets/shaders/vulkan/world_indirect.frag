@@ -97,6 +97,8 @@ layout(set = 2, binding = 0) uniform sampler2D worldPlanarTexture;
 #include "world_lighting.glsl"
 #define WORLD_SHADOW_PARAMS worldView.directionalShadowParams
 #define WORLD_SHADOW_CLIP(position) (worldView.directionalShadowMatrix * vec4(position, 1.0))
+layout(set=1,binding=8) uniform sampler2D localShadowMoments;
+#define WORLD_MOMENT_SAMPLE(uv) textureLod(localShadowMoments,uv,0.0).rg
 #define WORLD_SHADOW_SAMPLE(uv) textureLod(directionalShadowTexture, uv, 0.0).r
 #define WORLD_SHADOW_ATLAS worldView.shadowAtlasUv
 #define WORLD_LOCAL_SHADOW(index) worldView.localShadows[index]

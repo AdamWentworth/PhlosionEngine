@@ -2,8 +2,9 @@
 
 This documents the existing Phlosion depth-PCF local-shadow path. Its functional
 acceptance is not a numerical Cyberpunk similarity measurement. The subsequent
-captured filtering study is documented in [SHADOW_MOMENTS.md](SHADOW_MOMENTS.md);
-that independently tested core is not yet the live shadow path.
+captured filtering study is documented in [SHADOW_MOMENTS.md](SHADOW_MOMENTS.md).
+[LIVE_SHADOW_MOMENTS.md](LIVE_SHADOW_MOMENTS.md) records its live integration;
+PCF remains the engine default and a station comparison override.
 
 ## First renderer contract
 

@@ -2,9 +2,10 @@
 
 2026-10-18. This isolates the next measured component after the live finite-source
 light response. `world_shadow_moments.glsl` is an independent, engine-owned
-implementation of the observed depth-to-distance-moment filtering. It is exercised
-by native fixtures; it is not yet selected by the live renderer. The game's
-accepted PCF shadows, source settings and normal launch are unchanged.
+implementation of the observed depth-to-distance-moment filtering. This document
+records its isolated numerical qualification. The subsequent live integration,
+station selection and remaining projection/cache differences are documented in
+[LIVE_SHADOW_MOMENTS.md](LIVE_SHADOW_MOMENTS.md).
 
 ## Captured contract
 
@@ -103,7 +104,7 @@ with CMake into `evidence/shadow-matched/working/build` (Release). Run
 audit. `run.py <fresh-case-name> --baseline` performs readback-only qualification.
 Fresh case directories are mandatory; failed evidence is never overwritten.
 
-## Scope and next integration
+## Scope and live integration
 
 This numerical comparison covers the first frame's updated shadow layer. The
 four-frame capture starts with the cached input already populated; it does not
@@ -112,11 +113,9 @@ Rasterizing the original captured geometry is an input oracle, not an independen
 port of every caster deformation/material shader. Filter agreement does not
 establish whole-shadow-system or whole-engine parity.
 
-Live integration requires engine-owned moment targets and two ordered GPU passes
-on all three APIs, compatible radial receiver coordinates and border isolation,
-and an explicit opt-in with the existing PCF comparison path. Preserve skinned,
-masked and wind-deformed casters and ensure surface, reflected-view and haze
-receivers agree. Qualify independent blockers and unchanged consumers before
-the existing station/battle/runtime/editor matrices and matched cost checks.
-No new user capture is needed for this integration; a cache-update study would
-require additional evidence if exact cache policy becomes the target.
+The live integration now supplies engine-owned moment targets and two ordered
+GPU passes on all three APIs, radial receiver coordinates, border isolation and
+an explicit per-light selection with a PCF comparison path. Its acceptance and
+cost are recorded separately in LIVE_SHADOW_MOMENTS.md. No new user capture was
+needed for integration; a cache-update study would require additional evidence
+if exact cache policy becomes the target.

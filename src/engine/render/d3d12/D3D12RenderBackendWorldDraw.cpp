@@ -49,6 +49,11 @@ void D3D12RenderBackend::bindWorldDiffuseProbes(bool haze) {
     auto handle=srvHeap_->GetGPUDescriptorHandleForHeapStart();
     handle.ptr+=static_cast<UINT64>(descriptor)*srvDescriptorSize_;
     commandList_->SetGraphicsRootDescriptorTable(8,handle);
+    const auto momentDescriptor=!worldShadowActive_ && worldMomentSrv_!=0xffffffffu
+        ? worldMomentSrv_+2 : ensureFallbackSpriteTexture()->descriptorIndex;
+    handle=srvHeap_->GetGPUDescriptorHandleForHeapStart();
+    handle.ptr+=static_cast<UINT64>(momentDescriptor)*srvDescriptorSize_;
+    commandList_->SetGraphicsRootDescriptorTable(9,handle);
 #endif
 }
 void D3D12RenderBackend::bindWorldMaterialConstants(const void* data, std::size_t viewOffset, bool outline) {
