@@ -42,10 +42,13 @@ Implementation was imported from PhlosionVFX local commit
 and portable source-package contracts by Cyberpunk. The independent library remains
 outside the Phlosion workspace. No extracted assets were added to this repository.
 
-The original checkout and GitHub repository are retained for now, with the local
-checkout serving as frozen source/history and a CMake retirement notice. The
-eventual goal is to delete both once the migration has proved dependable. Before
-that separate retirement step, publish the migration and redirect notice, preserve
-the complete history outside the repository, update downstream engine pins,
-publish/resolve the model adapter dependency and verify clean consumer builds.
-No remote archival or deletion is part of this migration commit.
+The engine migration and pinned PokemonModelSupport dependency are published.
+Autochess has verified a standalone configure, build and model/arena tests using
+those GitHub revisions without a PhlosionVFX checkout. No active consumer requires
+the retired repository.
+
+Complete Git history, tracked source and local build/test evidence are backed up
+at `D:/ProjectData/Archives/PhlosionVFX/2026-10-18`; the bundle was restored and its
+HEAD verified. The original checkout and GitHub repository remain pending final
+deletion. The independent VFXLibrary repository remains active and is not part of
+that retirement.
