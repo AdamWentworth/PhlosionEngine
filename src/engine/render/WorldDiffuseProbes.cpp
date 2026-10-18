@@ -16,6 +16,7 @@ int sector(glm::vec3 d) {
     return axis*2+(d[axis]<0?1:0);
 }
 bool sameSource(const WorldRectLight& a,const WorldRectLight& b) {
+    // Direct-response approximations share the same physical area emitter.
     return a.position==b.position&&a.halfU==b.halfU&&a.halfV==b.halfV&&a.range==b.range;
 }
 void validateSource(const WorldRectLight& light) {

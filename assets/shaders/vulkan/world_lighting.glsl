@@ -1,5 +1,6 @@
 // LTC edge integral adapted from Heitz, Dupuy, Hill and Neubelt (SIGGRAPH 2016).
 // Attribution and redistribution terms: third_party/ltc/LICENSE.
+#include "world_finite_light.glsl"
 #ifndef PHLOSION_EARLY_LOCAL_SHADOW
 #define PHLOSION_EARLY_LOCAL_SHADOW 1
 #endif
@@ -228,6 +229,12 @@ vec3 rectTangent(vec3 normal, vec3 view) {
         tangent=cross(abs(normal.y)<0.9?vec3(0.0,1.0,0.0):vec3(1.0,0.0,0.0),normal);
     return rectUnit(tangent);
 }
+FiniteLightResponse environmentFiniteRectangle(int index,vec3 position,vec3 normal,vec3 view,
+        vec3 albedo,vec3 f0,float roughness,float metallic) {
+    vec4 source=ENV_RECT(index*4);
+    return finiteLightRectangleResponse(source.xyz-position,ENV_RECT(index*4+1).xyz,
+        ENV_RECT(index*4+2).xyz,source.w,ENV_RECT(index*4+3).rgb,normal,view,albedo,f0,roughness,metallic);
+}
 
 // Optional world-space lights, shared by ordinary and composed materials.
 bool environmentPointSample(int index, vec3 position, out vec3 light, out vec3 radiance) {
@@ -251,6 +258,7 @@ bool environmentPointSample(int index, vec3 position, out vec3 light, out vec3 r
 // diffuse energy without introducing a generic GGX outer coat or changing emission.
 vec3 environmentLocalDiffuse(vec3 position, vec3 normal, vec3 view, vec3 albedo) {
     vec3 result = vec3(0.0, 0.0, 0.0);
+    if (ENV_SUN.w<.5) return result;
     if (dot(normal, view) < 0.0) normal = -normal;
     for (int index = 0; index < 4; ++index) {
         vec3 light, radiance;
@@ -260,6 +268,15 @@ vec3 environmentLocalDiffuse(vec3 position, vec3 normal, vec3 view, vec3 albedo)
     vec3 tangent=rectTangent(normal,view);
     for (int index=0;index<16;++index) {
         vec3 delta,u,v,radiance;
+        if (ENV_RECT(index*4+1).w>.5) {
+            float visibility=environmentLocalShadowVisibility(index,position,normal);
+            if (visibility>0.0) {
+                FiniteLightResponse response=environmentFiniteRectangle(index,position,normal,view,
+                    albedo,vec3(.04,.04,.04),1.0,0.0);
+                result+=response.diffuse*visibility;
+            }
+            continue;
+        }
 #if PHLOSION_EARLY_LOCAL_SHADOW
         if (!environmentRectSample(index,position,delta,u,v,radiance)) continue;
         float visibility=environmentLocalShadowVisibility(index,position,normal);
@@ -309,6 +326,15 @@ vec3 environmentLocalPbr(vec3 position, vec3 normal, vec3 view,
     vec2 amplitude=ENV_RECT_LUT(vec2(0.5+lutUv.x*0.5,lutUv.y)).xy;
     for (int index=0;index<16;++index) {
         vec3 delta,u,v,radiance;
+        if (ENV_RECT(index*4+1).w>.5) {
+            float visibility=environmentLocalShadowVisibility(index,position,normal);
+            if (visibility>0.0) {
+                FiniteLightResponse response=environmentFiniteRectangle(index,position,normal,view,
+                    albedo,f0,roughness,metallic);
+                result+=(response.diffuse+response.specular)*visibility;
+            }
+            continue;
+        }
         if (!environmentRectSample(index,position,delta,u,v,radiance)) continue;
 #if PHLOSION_EARLY_LOCAL_SHADOW
         float visibility=environmentLocalShadowVisibility(index,position,normal);

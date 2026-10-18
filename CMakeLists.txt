@@ -126,6 +126,7 @@ foreach(_shader IN LISTS PHLOSION_VULKAN_SHADER_SOURCES)
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_atmosphere.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_volume.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_lighting.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_finite_light.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_planar.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_shadow.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
@@ -140,6 +141,7 @@ foreach(_shader IN LISTS PHLOSION_VULKAN_SHADER_SOURCES)
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_atmosphere.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_volume.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_lighting.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_finite_light.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_planar.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_shadow.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
@@ -169,6 +171,7 @@ foreach(_shader IN ITEMS world world_indirect)
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_atmosphere.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_volume.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_lighting.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_finite_light.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_planar.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_shadow.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl")
@@ -203,6 +206,7 @@ add_custom_command(OUTPUT "${_shadow_output}"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_atmosphere.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_volume.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_lighting.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_finite_light.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_planar.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_shadow.glsl"
         "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_environment.glsl"
@@ -655,6 +659,26 @@ if (PHLOSION_BUILD_TESTS)
     target_link_libraries(PhlosionRectLightTests PRIVATE Engine)
     phlosion_apply_settings(PhlosionRectLightTests)
     add_test(NAME PhlosionRectLights COMMAND PhlosionRectLightTests)
+    add_executable(PhlosionFiniteLightTests tests/TestFiniteLight.cpp)
+    target_link_libraries(PhlosionFiniteLightTests PRIVATE SDL2::SDL2 glad::glad Vulkan::Vulkan)
+    if(WIN32)
+        target_link_libraries(PhlosionFiniteLightTests PRIVATE d3d12 d3dcompiler)
+    endif()
+    phlosion_apply_settings(PhlosionFiniteLightTests)
+    set(_finite_fixture "${CMAKE_CURRENT_SOURCE_DIR}/tests/finite_light")
+    set(_finite_spv "${CMAKE_CURRENT_BINARY_DIR}/generated/finite_light.comp.spv")
+    target_compile_definitions(PhlosionFiniteLightTests PRIVATE
+        PHLOSION_FINITE_CORE="${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_finite_light.glsl"
+        PHLOSION_FINITE_FIXTURE="${_finite_fixture}/fixture.glsl"
+        PHLOSION_FINITE_SPV="${_finite_spv}")
+    add_custom_command(OUTPUT "${_finite_spv}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        COMMAND "${PHLOSION_GLSLANG_VALIDATOR}" -V --target-env vulkan1.1
+            "-I${PHLOSION_VULKAN_SHADER_SOURCE_DIR}" "-I${_finite_fixture}"
+            -o "${_finite_spv}" "${_finite_fixture}/fixture.comp"
+        DEPENDS "${_finite_fixture}/fixture.comp" "${_finite_fixture}/fixture.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_finite_light.glsl")
+    target_sources(PhlosionFiniteLightTests PRIVATE "${_finite_spv}")
     target_link_libraries(PhlosionModelInstanceTests PRIVATE Phlosion::Models)
     phlosion_apply_settings(PhlosionModelInstanceTests)
     add_test(NAME PhlosionModelInstance COMMAND PhlosionModelInstanceTests)
@@ -1049,6 +1073,8 @@ if (PHLOSION_BUILD_TESTS)
         list(APPEND _feedback_test_apis d3d12)
     endif()
     foreach(api IN LISTS _feedback_test_apis)
+        add_test(NAME PhlosionFiniteLight-${api} COMMAND PhlosionFiniteLightTests ${api})
+        set_tests_properties(PhlosionFiniteLight-${api} PROPERTIES RUN_SERIAL TRUE TIMEOUT 60)
         if(TARGET PhlosionLocalHazeTests)
             foreach(mode on off zero-density source-off sky back blocked foreground blue both odd edge
                          reduced-on reduced-off reduced-zero-density reduced-source-off reduced-sky
@@ -1294,6 +1320,9 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_planar.glsl" PHLOSION_PLANAR_SOURCE)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WorldPlanarSource.h.in" "${CMAKE_CURRENT_BINARY_DIR}/generated/WorldPlanarSource.h" @ONLY)
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_lighting.glsl" PHLOSION_LIGHTING_SOURCE)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_finite_light.glsl")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_finite_light.glsl" PHLOSION_FINITE_LIGHT_SOURCE)
+string(REPLACE "#include \"world_finite_light.glsl\"" "${PHLOSION_FINITE_LIGHT_SOURCE}" PHLOSION_LIGHTING_SOURCE "${PHLOSION_LIGHTING_SOURCE}")
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WorldLightingSource.h.in" "${CMAKE_CURRENT_BINARY_DIR}/generated/WorldLightingSource.h" @ONLY)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_shadow.glsl")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vulkan/world_shadow.glsl" PHLOSION_WORLD_SHADOW_SOURCE)

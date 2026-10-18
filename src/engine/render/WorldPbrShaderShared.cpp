@@ -548,6 +548,9 @@ std::string injectSharedWorldPbr(std::string_view source, ShaderLanguage languag
         replaceAll(lighting, "vec3", "float3");
         replaceAll(lighting, "vec2", "float2");
         replaceAll(lighting, "mix(", "lerp(");
+        replaceAll(lighting, "inversesqrt(", "rsqrt(");
+        replaceAll(lighting, "floatBitsToUint(", "asuint(");
+        replaceAll(lighting, "uintBitsToFloat(", "asfloat(");
         replaceAll(lighting, "atan(", "atan2(");
         // Keep the four-slot HLSL lighting loop explicit in specialized shaders.
         replaceAll(lighting, "for (int index", "[loop] for (int index");

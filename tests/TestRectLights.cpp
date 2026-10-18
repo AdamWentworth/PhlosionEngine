@@ -24,6 +24,14 @@ int main() try {
     check(packet[0]==std::array<float,4>{},"Empty slot retained light");
     backend::WorldTextureData material;material.environment=e;
     check(vulkan_backend::makeWorldViewState(&material).rectLights==packet,"View packing changed rectangle");
+    auto finite=e;finite.rectLights[15].response=WorldRectLightResponse::FiniteLine;
+    const auto finitePacket=packWorldRectLights(finite);
+    check(finitePacket[61][3]==1 && finitePacket[60]==packet[60] && finitePacket[63]==packet[63],
+        "Finite response changed authored position/range/radiance");
+    material.environment=finite;
+    check(vulkan_backend::makeWorldViewState(&material).rectLights==finitePacket,"View lost finite response");
+    finite.rectLights[15].response=static_cast<WorldRectLightResponse>(99);
+    check(packWorldRectLights(finite)==WorldRectLightUniforms{},"Unknown source response accepted");
     for (int test=0;test<6;++test) {
         auto invalid=e;auto& light=invalid.rectLights[15];
         if(test==0) light.halfU={};

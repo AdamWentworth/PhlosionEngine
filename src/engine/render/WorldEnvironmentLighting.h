@@ -15,12 +15,18 @@ struct WorldPointLight {
 
 using WorldPointLightUniforms = std::array<std::array<float, 4>, 8>;
 
+enum class WorldRectLightResponse : std::uint32_t { Ltc = 0, FiniteLine = 1 };
+
 // One-sided rectangular emitter. Cross(halfU, halfV) points out of its luminous
 // face; axes are perpendicular world-space half extents, radiance is linear.
 struct WorldRectLight {
     std::array<float, 3> position{};
     float range = 0;
     std::array<float, 3> halfU{}, halfV{}, radiance{};
+    // FiniteLine uses an inscribed line/sphere for direct surface response.
+    // Normal intensity is radiance * rectangle area; other transport retains
+    // this same physical luminous rectangle, radiance and emitting hemisphere.
+    WorldRectLightResponse response = WorldRectLightResponse::Ltc;
 };
 inline constexpr std::size_t worldRectLightCapacity = 16;
 using WorldRectLightUniforms = std::array<std::array<float, 4>, worldRectLightCapacity * 4>;
@@ -184,6 +190,8 @@ inline WorldPointLightUniforms packWorldPointLights(const WorldEnvironmentLighti
 }
 
 inline bool validWorldRectLight(const WorldRectLight& light) {
+    if (light.response != WorldRectLightResponse::Ltc &&
+        light.response != WorldRectLightResponse::FiniteLine) return false;
     for (const auto& v : {light.position, light.halfU, light.halfV, light.radiance})
         for (float x : v) if (!std::isfinite(x) || std::abs(x) > 1000000.f) return false;
     if (!std::isfinite(light.range) || light.range < 0 || light.range > 1000) return false;
@@ -207,7 +215,7 @@ inline WorldRectLightUniforms packWorldRectLights(const WorldEnvironmentLighting
         if (!validWorldRectLight(l)) return {};
         if (l.range == 0) continue;
         out[4*i] = {l.position[0], l.position[1], l.position[2], l.range};
-        out[4*i+1] = {l.halfU[0], l.halfU[1], l.halfU[2], 0};
+        out[4*i+1] = {l.halfU[0], l.halfU[1], l.halfU[2], static_cast<float>(l.response)};
         out[4*i+2] = {l.halfV[0], l.halfV[1], l.halfV[2], 0};
         out[4*i+3] = {l.radiance[0], l.radiance[1], l.radiance[2], 0};
     }

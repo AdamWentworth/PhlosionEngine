@@ -3,10 +3,131 @@
 2026-10-17. Fixture emission, local shadows, HDR, static shadow culling and colored
 diffuse bounce are functionally verified, including native scene, shared-consumer
 and normal-launch checks. Performance limitations remain below. Earlier phase
-notes are historical. Checkpoint commits were authorized on 2026-10-17; no
-numerical Cyberpunk parity is claimed.
+notes are historical. Checkpoint commits were authorized on 2026-10-17. Measured
+component agreement below is not a whole-lighting-engine parity percentage.
 
-## Current follow-up: visible local-light scattering (accepted)
+## Current follow-up: live finite-source response
+
+2026-10-17: The shared surface shaders now support an explicit finite-source
+response on physical rectangle lights. PokemonCyberpunk selects it for the six
+canopy fixtures; the engine default remains LTC and the game has an LTC review
+override. The adapter uses rectangle area times radiance for normal intensity,
+an inscribed line/sphere, one-sided angular emission and authored material F0.
+Geometry, source colors, weather and normal launch cycles remain unchanged.
+Model/editor ABI is now 18/38; all consumers require rebuilding and staging.
+
+See [LIVE_FINITE_LIGHTS.md](LIVE_FINITE_LIGHTS.md) for the full contract and
+acceptance record. The production guard replay retains the measured component
+accuracy (0.000065974% diffuse / 0.000029806% specular aggregate L1), including
+the same four/two shadow-edge outliers. All three native numerical/domain fixtures,
+129 affected engine checks and six game CPU contracts pass. The six station,
+six battle, seven day/dry/off/oblique, seven scene-reflection and four isolated
+source captures pass their existing guards. All three scene-switch probes and
+the normal project launch pass. Autochess's six runtime and six editor material
+views pass with the accepted baseline. Its first PowerShell 7 verifier failure
+and Vulkan cold-start timeout are retained; Windows PowerShell and a longer
+artifact-only startup allowance resolve those harness limits without changing
+image gates. Cold startup remains slow. Existing shadow filtering, bounce, haze
+and reflection transport are not recovered Cyberpunk implementations.
+
+2026-10-18 acceptance: paired 1080p wet-night GPU medians (LTC / finite) are
+GL 46.147 / 42.882 ms, Vulkan 22.999 / 21.144 ms and D3D12 23.094 / 20.736 ms,
+200 warm samples each. Recorded scene state differs only by the source-response
+tags. These are full-scene observations, not isolated response timing or 60 FPS
+qualification; Vulkan host median remains 54.717 ms. Live integration is accepted
+with the declared startup/performance and captured shadow-edge limits. Next
+measured parity target: shadow-map generation, projection and filtering.
+
+## Previous follow-up: independent GPU local-light response
+
+2026-10-17: `world_finite_light.glsl` independently implements the measured
+finite-source distance, falloff, diffuse/specular response and moment visibility.
+It is exercised by fixtures only; production material shaders do not include it.
+No ABI, game source, staged runtime/editor binary, scene or launch default changed.
+
+The private native replay runs the original retail PSO and the port against the
+same captured inputs with directional RGB zeroed in both, then restores the
+original constants and output resources before the captured frame continues.
+Across all 873,728 active pixels, 99.98556% of the 5,242,368 RGB output channels
+are identical. Aggregate relative L1 errors are 0.00006486% diffuse and
+0.00002898% specular. Four diffuse pixels and two of the same specular pixels
+exceed 2% relative error, with maximum 28.69% / 36.58%; all lie at shadow edges.
+They remain an explicit limit, not removed from the aggregate or acceptance.
+See [GPU_LOCAL_RESPONSE.md](GPU_LOCAL_RESPONSE.md) for coverage and interpretation.
+
+Original local-light outputs are restored bit-exactly. Later composition differs
+by at most two half-float ULPs, also observed in an ordinary no-port replay and
+independent PIX export. The original strict preservation result remains
+`requires-review`; a separate qualification records this measured replay
+variation. GPU allocation addresses and tile order vary, while all 58,880 ordered
+cluster light lists, dispatched tile sets and other inputs match the control.
+All 122 original exported source files retain their recorded hashes.
+
+Native OpenGL, Vulkan and D3D12 synthetic fixtures pass against independent
+float64 reference values, 16 cases / 128 channels per API. They cover point,
+finite line and sphere response, roughness, metallic response, back-facing
+surfaces, radius-zero specular gating, falloff/cap/cutoff, moment visibility,
+rotation and endpoint reversal. Maximum absolute errors: GL 1.15973e-6,
+Vulkan/D3D12 7.47621e-7. Build warnings are errors. No performance measurement or
+runtime/editor/shared-consumer qualification is implied by these isolated tests.
+
+Private final case: `evidence/lighting-matched/gpu/local-o3-final-04/`, including
+`case.json`, `qualification-v2.json` and source/binary hashes. The precision
+experiment and initial strict failures remain retained. Engine evidence:
+`artifacts/lighting-foundation/captured-local-gpu/`. Next: generic finite-source
+contract, explicit canopy mapping and live material binding; preserve separate
+LTC rectangles and require the existing scene/API/editor/shared-consumer checks.
+
+## Previous follow-up: captured local-light CPU recovery
+
+2026-10-17: User explicitly targets the actual light-to-surface calculation,
+independent of station asset differences. Root-only cloud work continues; no
+local model or delegated agent. Engine/game runtime source and launch defaults
+are unchanged by this research milestone.
+
+An owned hidden D3D12 replay now extracts the actual inputs and both HDR outputs
+immediately around indirect dispatch parent 7084 (PSO 20727), with audited resource
+transitions restored after readback. The original capture/export remains read-only.
+The three previously unresolved CBVs were heap-relative addresses: b0 is resource
+974, b12 is 956, b13 is 958; b6 is a 256-byte slice of upload resource 739.
+GPU-written tile/cluster lists, 128-byte light records, G-buffer, shadow moments,
+exposure and output textures are retained in the private research depot.
+
+Current-GPU independent PIX composition export versus native replay differs in
+246 of 3,686,400 half-float channels: 240 differ by one half-float ULP and six by
+two. Maximum absolute difference is 0.000244141; aggregate relative L1 is
+2.05148e-9. It is not bit-exact. The older GTX 1070 export has larger differences
+and remains retained separately; do not silently substitute its qualification.
+
+The readable CPU local-light model was compared at all 3,413 dispatched tile
+centers, covering 53 light records and 13,478 evaluations (10,869 finite-size BRDF
+evaluations, 566 with the shadow-enabled flag). With diagnostic captured surface
+decoding and directional response retained, aggregate relative RGB L1 error
+against the two captured GPU lobes is 0.04134%, maximum absolute HDR error
+0.001953125. The independent local contributions versus diagnostic decoded
+contributions differ by 0.003778% aggregate L1. These are defined component
+measurements, not whole-engine parity or a production GPU port. Profile-texture
+branches are present but no sampled light has a nonzero profile index.
+
+A second deterministic sample uses a different pixel offset within each tile:
+3,413 pixels, 54 light records, 13,543 evaluations, including 113 evaluations
+actually attenuated by shadows. Aggregate RGB L1 error against GPU output is
+0.044383%, maximum absolute HDR error 0.00390625; isolated local contributions
+versus decoded execution differ by 0.001208% aggregate L1. No color/intensity
+fitting was performed. CPU float32 interpretation, GPU optimization, half-float
+storage and texture-filter precision remain numerical qualifications. Only this
+captured shader permutation/frame is covered; the profile-texture path and other
+lighting passes are not established by these results.
+
+Evidence: private `evidence/lighting-matched/readbacks/baseline-01/` contains
+`capture.json`, `current-gpu-qualification.json`, `local-model-comparison.json`
+and the readbacks. `tools/lighting_matched/prepare.py`, `run_capture.py`,
+`inspect_dispatch.py`, `light_model.py` and `compare_model.py` reproduce the work.
+The fixed-seed offset validation and detailed handoff are recorded alongside it.
+The GPU fixture described above completes the next recovery step. Production
+integration and its runtime/editor/API/shared-consumer checks remain next.
+
+## Previous follow-up: visible local-light scattering (accepted)
 
 The repeated "75%" lighting estimate is withdrawn. It had no defined denominator
 or measured image comparison. Historical percentages below are superseded, not

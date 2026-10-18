@@ -7,6 +7,45 @@ and wet reflections on OpenGL, Vulkan and D3D12 in runtime and editor.
 
 ## Evidence and existing work
 
+### Active target: recover the captured light response
+
+The user's 2026-10-17 clarification makes the immediate target the actual
+Cyberpunk light-to-surface calculation with matched inputs, independent of scene
+asset differences. Further independently chosen rendering features or station
+screenshots do not establish this match. The accepted haze remains an existing
+Phlosion feature, not an exact recovered Cyberpunk algorithm.
+
+Private research implementation and reproducible commands now live in
+`D:/Projects/Research/CyberpunkRainResearch/tools/lighting_matched`; draw-time
+inputs, original outputs and measurements live in `evidence/lighting-matched` in
+that depot. PSO 20727 / indirect parent 7084 / dispatch 7085 is the first target.
+Keep captured binaries, raw resources and disassembly outside source repositories.
+The work includes a diagnostic DXIL interpreter and a separate, readable CPU
+reconstruction of local-light response. Replaying or interpreting retail bytecode
+alone is not an independent implementation. Neither tool changes game lighting.
+
+The isolated GPU fixture is qualified with explicit numerical limits; see
+[GPU_LOCAL_RESPONSE.md](GPU_LOCAL_RESPONSE.md). The same response core passes
+synthetic native compute fixtures on OpenGL, Vulkan and D3D12. The live adapter
+is documented in [LIVE_FINITE_LIGHTS.md](LIVE_FINITE_LIGHTS.md): the existing
+physical rectangle has an explicit direct-response selection, area/radiance to
+intensity mapping, authored material F0 and singular-input handling. Canopy
+fixtures use the finite response, with an LTC comparison override. Require the
+established runtime/editor and shared-consumer checks before accepting the live
+change. The capture exercises finite-length lights and two-moment shadow
+visibility; live depth-PCF local shadows remain a different algorithm.
+Check the artifact's branch coverage before extending claims to other shapes,
+profiles, materials, shader permutations, frames, indirect light or reflections.
+No additional user capture is currently required.
+
+The user's engine-parity target means matching the observable lighting subsystem
+in the captured rendering mode. Track direct response, source shape/units,
+shadow generation/filtering, material decoding, reflections, indirect light,
+volume scattering and display response separately. A component's numerical
+agreement is not a percentage for the entire renderer. Do not substitute a new
+feature or a performance improvement for measured behavior agreement. The current
+retail evidence is RT-disabled; it cannot establish parity with ray/path tracing.
+
 The material-ownership cleanup is verified in engine, game,
 PokemonModelSupport and Autochess and included in the authorized 2026-10-17
 checkpoint commits. Baseline patches, edited/new files
@@ -23,8 +62,9 @@ and two dispatches, not 47 draws. No new capture is needed for foundation work.
 The current pink rectangles face outward and illuminate no interior canopy
 receiver directly. Blue faces downward. RGB accumulation already combines them.
 The accepted HDR pass now keeps radiance through bloom before the display transform;
-direct-source highlights are not scene reflections. No exact Cyberpunk shader port
-or numerical parity is claimed.
+direct-source highlights are not scene reflections. Those earlier foundation
+passes did not recover Cyberpunk's shader calculations; the later matched local
+response above provides the first independent numerical component comparison.
 
 ## Phases
 
