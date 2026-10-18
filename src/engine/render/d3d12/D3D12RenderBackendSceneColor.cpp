@@ -283,6 +283,7 @@ void D3D12RenderBackend::createWorldSceneColorResource() {
 
 void D3D12RenderBackend::releaseWorldSceneColorResource() {
 #if defined(_WIN32)
+    worldHazeRtvHeap_.Reset();worldHazeTarget_=nullptr;worldHazeActive_=false;worldHazeDescriptor_=0xffffffffu;
     worldSceneColorPassActive_ = false;
     worldSceneColorTarget_.Reset();
 #endif
@@ -408,6 +409,61 @@ bool D3D12RenderBackend::captureWorldDepthSnapshot() {
     transition(target.resource.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     worldDepthSnapshotDescriptor_ = target.descriptorIndex;
     return true;
+#else
+    return false;
+#endif
+}
+
+bool D3D12RenderBackend::beginWorldLocalHaze(int width,int height) {
+#if defined(_WIN32)
+    if(!worldSceneColorPassActive_ || worldHazeActive_ || width<=0 || height<=0 || width>2048 || height>2048)return false;
+    UINT size=64;while(size<static_cast<UINT>(std::max(width,height)))size*=2;
+    const std::string key="local-haze/"+std::to_string(frameIndex_)+"/"+std::to_string(size);
+    auto found=worldTextures_.find(key);
+    if(found==worldTextures_.end()) {
+        if(nextSrvDescriptorIndex_>=kMaxSrvDescriptors)throw std::runtime_error("Haze descriptor budget exhausted");
+        SpriteTexture target;
+        D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Width=desc.Height=size;desc.DepthOrArraySize=desc.MipLevels=1;desc.SampleDesc.Count=1;
+        desc.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;heap.CreationNodeMask=heap.VisibleNodeMask=1;
+        D3D12_CLEAR_VALUE clear{};clear.Format=desc.Format;
+        if(FAILED(device_->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&desc,D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+            &clear,IID_PPV_ARGS(target.resource.GetAddressOf()))))throw std::runtime_error("Haze image allocation failed");
+        target.descriptorIndex=nextSrvDescriptorIndex_++;
+        target.srvDesc.Format=desc.Format;target.srvDesc.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;
+        target.srvDesc.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        target.srvDesc.Texture2D.MipLevels=1;target.hasSrvDesc=target.valid=true;
+        auto handle=srvHeap_->GetCPUDescriptorHandleForHeapStart();handle.ptr+=SIZE_T(target.descriptorIndex)*srvDescriptorSize_;
+        device_->CreateShaderResourceView(target.resource.Get(),&target.srvDesc,handle);
+        found=worldTextures_.emplace(key,std::move(target)).first;
+    }
+    if(!worldHazeRtvHeap_) {
+        D3D12_DESCRIPTOR_HEAP_DESC heap{};heap.Type=D3D12_DESCRIPTOR_HEAP_TYPE_RTV;heap.NumDescriptors=1;
+        if(FAILED(device_->CreateDescriptorHeap(&heap,IID_PPV_ARGS(worldHazeRtvHeap_.GetAddressOf()))))
+            throw std::runtime_error("Haze RTV allocation failed");
+    }
+    worldHazeTarget_=found->second.resource.Get();worldHazeDescriptor_=found->second.descriptorIndex;
+    const auto rtv=worldHazeRtvHeap_->GetCPUDescriptorHandleForHeapStart();device_->CreateRenderTargetView(worldHazeTarget_,nullptr,rtv);
+    D3D12_RESOURCE_BARRIER barrier{};barrier.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition={worldHazeTarget_,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_RENDER_TARGET};
+    commandList_->ResourceBarrier(1,&barrier);commandList_->OMSetRenderTargets(1,&rtv,FALSE,nullptr);
+    const float black[4]{};commandList_->ClearRenderTargetView(rtv,black,0,nullptr);
+    worldHazeActive_=true;return true;
+#else
+    return false;
+#endif
+}
+bool D3D12RenderBackend::endWorldLocalHaze() {
+#if defined(_WIN32)
+    if(!worldHazeActive_)return false;
+    D3D12_RESOURCE_BARRIER barrier{};barrier.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition={worldHazeTarget_,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,D3D12_RESOURCE_STATE_RENDER_TARGET,D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE};
+    commandList_->ResourceBarrier(1,&barrier);
+    auto rtv=editorSurfaceActive_?editorSurfaceTarget_.linearRtv:rtvHeap_->GetCPUDescriptorHandleForHeapStart();
+    auto dsv=editorSurfaceActive_?editorSurfaceTarget_.depthDsv:dsvHeap_->GetCPUDescriptorHandleForHeapStart();
+    if(!editorSurfaceActive_) {rtv.ptr+=SIZE_T(kFrameCount)*rtvDescriptorSize_;dsv.ptr+=SIZE_T(frameIndex_)*dsvDescriptorSize_;}
+    commandList_->OMSetRenderTargets(1,&rtv,FALSE,&dsv);worldHazeActive_=false;return true;
 #else
     return false;
 #endif

@@ -188,6 +188,34 @@ bool OpenGLRenderBackend::captureWorldDepthSnapshot() {
     return complete;
 }
 
+bool OpenGLRenderBackend::beginWorldLocalHaze(int width,int height) {
+    if (!worldSceneColorPassActive_ || worldHazeActive_ || width<=0 || height<=0 || width>2048 || height>2048) return false;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING,&worldHazePreviousFbo_);
+    int size=64;while(size<std::max(width,height))size*=2;
+    if (!worldHazeTexture_)glGenTextures(1,&worldHazeTexture_);
+    if (!worldHazeFbo_)glGenFramebuffers(1,&worldHazeFbo_);
+    glBindTexture(GL_TEXTURE_2D,worldHazeTexture_);
+    if (size!=worldHazeSize_) {
+        glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA16F,size,size,0,GL_RGBA,GL_HALF_FLOAT,nullptr);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+        worldHazeSize_=size;
+    }
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER,worldHazeFbo_);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,worldHazeTexture_,0);
+    const GLenum draw=GL_COLOR_ATTACHMENT0;glDrawBuffers(1,&draw);
+    if(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE) {
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER,worldHazePreviousFbo_);return false;
+    }
+    glDisable(GL_SCISSOR_TEST);glClearColor(0,0,0,0);glClear(GL_COLOR_BUFFER_BIT);
+    worldHazeActive_=true;return true;
+}
+bool OpenGLRenderBackend::endWorldLocalHaze() {
+    if(!worldHazeActive_)return false;
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER,worldHazePreviousFbo_);
+    worldHazeActive_=false;return true;
+}
+
 bool OpenGLRenderBackend::beginWorldPlanarReflection(const engine::render::WorldPlanarReflectionView& view) {
     if (!worldSceneColorPassActive_ || worldDirectionalShadowActive_ || worldPlanarReflection_[4][3] < 0 ||
         view.width <= 0 || view.heightPixels <= 0 || view.width > worldSceneColorWidth_ || view.heightPixels > worldSceneColorHeight_)
@@ -222,6 +250,9 @@ bool OpenGLRenderBackend::endWorldPlanarReflection() {
 }
 
 void OpenGLRenderBackend::destroyWorldSceneColorResources() {
+    if(worldHazeFbo_)glDeleteFramebuffers(1,&worldHazeFbo_);
+    if(worldHazeTexture_)glDeleteTextures(1,&worldHazeTexture_);
+    worldHazeFbo_=worldHazeTexture_=0;worldHazeSize_=0;worldHazeActive_=false;
     if (worldPlanarTexture_) glDeleteTextures(1, &worldPlanarTexture_);
     worldPlanarTexture_=0; worldPlanarWidth_=worldPlanarHeight_=0; worldPlanarReflection_={};
     if (worldDepthSnapshotFbo_) glDeleteFramebuffers(1, &worldDepthSnapshotFbo_);

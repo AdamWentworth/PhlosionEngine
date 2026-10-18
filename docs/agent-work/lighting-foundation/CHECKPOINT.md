@@ -6,7 +6,111 @@ and normal-launch checks. Performance limitations remain below. Earlier phase
 notes are historical. Checkpoint commits were authorized on 2026-10-17; no
 numerical Cyberpunk parity is claimed.
 
-## Current follow-up: Vulkan submission
+## Current follow-up: visible local-light scattering (accepted)
+
+The repeated "75%" lighting estimate is withdrawn. It had no defined denominator
+or measured image comparison. Historical percentages below are superseded, not
+acceptance criteria. The last two passes improved frame cost without changing
+the images; they must not be reported as lighting fidelity progress.
+
+This pass targets the missing colored illumination of air around the canopy.
+The retained retail night screenshot shows luminous haze around local sources;
+Phlosion's matched baseline has colored surfaces but almost unlit air. The
+retail screenshot and the earlier canopy concept establish the visual direction,
+not a pixel-match target: geometry, weather and exposure differ. The retained
+diagnostic composition PNGs use a non-retail transform and cannot establish color
+parity. Capture shader types include `SVolFogConstants`; no exact Cyberpunk fog
+algorithm or parameter match is claimed.
+
+Acceptance: matched before/on/off native images, visible colored air with bloom
+disabled, opaque foreground and source occlusion, complete rectangle extent,
+RGB addition, zero-density/source-off preservation, view/sky continuity, and
+all three APIs in runtime/editor. Keep source geometry, direct light strengths,
+weather clocks and rain effects unchanged. Independent numerical area/volume
+integration checks the new shader in a public fixture. Record the actual visual
+result and cost after validation; do not replace the withdrawn number.
+
+Implemented an opt-in rectangular-source integral in the shared height medium,
+with source visibility from the local shadow atlas. The station uses scattering
+albedo 0.55 and anisotropy 0.25. Ordinary materials retain extinction and defer
+scattering to a quarter-width/quarter-height HDR pass. Depth-aware composition
+protects foreground silhouettes; reflected and main views have separate view
+integrals. Model plugin ABI is 17 and editor project ABI is 37; consumers require
+rebuilt DLLs. The authored scene and source intensities are unchanged.
+
+The isolated air captures disable falling rain and bloom. The haze-off image is
+pixel-identical to the prior checkpoint. Open air under the canopy gains blue;
+air outside the fascia gains pink, while the foreground remains sharp. Across
+all APIs, the reduced pass differs from the retained full-resolution reference
+by approximately 0.10/255 mean absolute error, with 99th percentile 1/255. This
+compares two Phlosion implementations, not Phlosion against Cyberpunk.
+
+The first full-resolution implementation was rejected for cost: D3D12 added
+46.699 ms at 1080p. The first reduced pass still added 12.529 ms because the
+compiler evaluated its expensive fallback. An explicit branch preserves the
+image exactly and skips that work for depth-matched pixels. Paired heavy-wet-night
+timings use 200 warm GPU samples on an RTX 2060 SUPER, with CPU builds and other
+GPU jobs stopped. Final reduced-pass medians (off/on) are 20.578/22.563 ms on
+D3D12, 20.353/24.688 ms on Vulkan and 39.661/47.006 ms on OpenGL. These are added
+feature costs, not speedups or 60 FPS qualification. Host tails remain material.
+Vulkan's earlier synchronization pair was 20.555/24.678 ms; the final repeat also
+includes the rain-only specialization guard. Final D3D12/Vulkan/OpenGL GPU p99 values are
+25.450/28.429/86.688 ms, and host medians are 23.413/59.932/49.369 ms. Ordinary
+desktop applications remained open; this is a paired development measurement.
+Cold compilation is also substantial: the first shared Autochess D3D12 capture
+process took about six minutes, dominated by building previously uncached material
+variants. This is not an isolated compiler benchmark or a warm launch measurement.
+Completed source/entry-point/target/compiler-flag-keyed DXBC blobs were reused for
+the editor checks after checking their header length and SHA-256 copy equality;
+no existing cache entries were overwritten. See `shared-shader-cache-reuse.json`.
+The first shared Vulkan asset-preview check exceeded its unchanged 240-second
+limit during cold material preparation. Preserve that failure under Autochess
+`editor-cold-timeout`. A separate shader-preparation diagnostic completed and
+produced the native preview in 72.3 seconds; all six original editor checks then
+passed with their timeout and image/content thresholds unchanged. This does not
+qualify cold-start performance.
+The raw rejected trials remain in `cost` and `reduced-cost`. `branch-cost` keeps
+the initial optimized runs; `pre-volume-guard-cost` retains the prior Vulkan pair.
+`final-cost` retains the final Vulkan repeat and exact
+copies of the unchanged D3D12/OpenGL runs, with provenance recorded alongside them.
+
+Completed checks: 127 engine contracts/native probes pass, including all 76 haze
+checks and the existing planar/HDR/material/ownership checks. The independent
+emissive-reflection oracle passes. Five game environment/rain/weather contracts
+pass. All 36 station/air/battle/control/signage captures pass their existing
+expected-content and API/host thresholds. All twelve shared character images
+(six runtime images and six editor model crops) exactly preserve the previous
+checkpoint, with no Autochess or PokemonModelSupport source changes. Both editor
+build directories and the staged game/model plugins have been rebuilt.
+The final Vulkan rain-only specialization excludes the haze dispatcher, allowing
+unused integration code to be discarded. All 40 affected Vulkan haze, planar and
+HDR probes pass again. Eight further shared runtime/editor captures (GL/Vulkan)
+pass unchanged thresholds and exactly preserve their baseline images; D3D12 is
+unchanged by this last shader condition. Six sky-only API/host captures pass.
+Five same-session station/reference visits pass on each API, preserving resource
+stability and clearing station lighting in the reference scene. The 120-second
+day and 180-second Hybrid weather defaults remain intact. The final five Vulkan
+field/battle/timing images exactly preserve their earlier counterparts. The normal
+D3D12 project-launch probe passes with Hybrid rain and the CP audio selection.
+The visual change is accepted with the performance and cold-start limits above.
+
+Limits: bounded single scattering; emitter-centre phase/source attenuation;
+the existing shadow proxy instead of source-sized volumetric penumbrae; no
+scattering from point/sign lights, temporal volume history or multiple scattering.
+The separate rain billow/drop simulation is unchanged. General reflections,
+dynamic indirect light and softer area-light shadows remain visual gaps.
+
+Evidence roots are `artifacts/lighting-foundation/local-haze` in engine, game and
+Autochess. Game `accepted` contains the reduced-pass native matrix; `final` retains
+the earlier full-resolution reference. Reproduce with `Verify-Local-Haze.ps1`,
+then `verify_local_haze.py accepted --baseline before --reference-root final
+--cost-root final-cost` using full paths beneath that evidence root. Follow with
+the existing station rectangles, battle, canopy and signage validators. Engine
+`PhlosionLocalHaze*` probes compare independent numerical area/view quadrature,
+foreground depth, source occlusion and target reuse across all APIs. Exact model
+and editor compatibility proof is retained in Autochess `paired-build-current`.
+
+## Previous follow-up: Vulkan submission (performance only)
 
 Starting from engine ebe4d1b / game b23efa5, profile current-thread CPU time and
 repeated Vulkan submission work. Material lookup was the main measured cost;

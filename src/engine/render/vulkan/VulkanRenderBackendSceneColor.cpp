@@ -167,6 +167,12 @@ void VulkanRenderBackendImpl::createWorldSceneColorResources() {
 
 void VulkanRenderBackendImpl::destroyWorldSceneColorResources() {
     if (device == VK_NULL_HANDLE) return;
+    for(auto& entry:worldHazeTargets) {
+        auto& target=entry.second;
+        if(target.framebuffer)vkDestroyFramebuffer(device,target.framebuffer,nullptr);
+        destroyTexture(target.color);destroyTexture(target.depth);
+    }
+    worldHazeTargets.clear();worldHazeDescriptor=VK_NULL_HANDLE;worldHazeActive=false;
     for (VkFramebuffer framebuffer : worldSceneColorFramebuffers) {
         if (framebuffer != VK_NULL_HANDLE) {
             vkDestroyFramebuffer(device, framebuffer, nullptr);
@@ -413,6 +419,74 @@ VkDescriptorSet VulkanRenderBackendImpl::createPlanarDescriptor(const Texture& t
     write.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; write.pImageInfo=&image;
     vkUpdateDescriptorSets(device,1,&write,0,nullptr);
     return set;
+}
+
+bool VulkanRenderBackendImpl::beginWorldLocalHaze(int width,int height) {
+    if(!frameActive || !worldSceneColorPassActive || worldHazeActive || width<=0 || height<=0 || width>2048 || height>2048)return false;
+    std::uint32_t size=64;while(size<static_cast<std::uint32_t>(std::max(width,height)))size*=2;
+    const std::string key=std::to_string(currentFrame)+"/"+std::to_string(size);
+    auto found=worldHazeTargets.find(key);
+    if(found==worldHazeTargets.end()) {
+        HazeTarget target;
+        const auto allocate=[&](Texture& t,bool depth) {
+            VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};info.imageType=VK_IMAGE_TYPE_2D;
+            info.format=depth?depthFormat:VK_FORMAT_R16G16B16A16_SFLOAT;info.extent={size,size,1};
+            info.mipLevels=info.arrayLayers=1;info.samples=VK_SAMPLE_COUNT_1_BIT;info.tiling=VK_IMAGE_TILING_OPTIMAL;
+            info.usage=depth?VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT:VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT;
+            requireSceneColorVk(vkCreateImage(device,&info,nullptr,&t.image),"create haze image");
+            VkMemoryRequirements needs{};vkGetImageMemoryRequirements(device,t.image,&needs);
+            VkMemoryAllocateInfo memory{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};memory.allocationSize=needs.size;
+            memory.memoryTypeIndex=findMemoryType(needs.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            requireSceneColorVk(vkAllocateMemory(device,&memory,nullptr,&t.memory),"allocate haze image");
+            requireSceneColorVk(vkBindImageMemory(device,t.image,t.memory,0),"bind haze image");
+            VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};view.image=t.image;
+            view.viewType=VK_IMAGE_VIEW_TYPE_2D;view.format=info.format;
+            view.subresourceRange={VkImageAspectFlags(depth?VK_IMAGE_ASPECT_DEPTH_BIT:VK_IMAGE_ASPECT_COLOR_BIT),0,1,0,1};
+            requireSceneColorVk(vkCreateImageView(device,&view,nullptr,&t.view),"view haze image");
+            t.width=t.height=static_cast<int>(size);t.format=info.format;t.allocationBytes=needs.size;
+            if(!depth) {
+                VkSamplerCreateInfo sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};sampler.minFilter=sampler.magFilter=VK_FILTER_NEAREST;
+                sampler.addressModeU=sampler.addressModeV=sampler.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                requireSceneColorVk(vkCreateSampler(device,&sampler,nullptr,&t.sampler),"sample haze image");
+                t.descriptorSet=createPlanarDescriptor(t);
+            }
+        };
+        try {
+            allocate(target.color,false);allocate(target.depth,true);
+            const std::array<VkImageView,2> views{target.color.view,target.depth.view};
+            VkFramebufferCreateInfo fb{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};fb.renderPass=worldSceneColorRenderPass;
+            fb.attachmentCount=2;fb.pAttachments=views.data();fb.width=fb.height=size;fb.layers=1;
+            requireSceneColorVk(vkCreateFramebuffer(device,&fb,nullptr,&target.framebuffer),"create haze framebuffer");
+        } catch(...) {if(target.framebuffer)vkDestroyFramebuffer(device,target.framebuffer,nullptr);destroyTexture(target.color);destroyTexture(target.depth);throw;}
+        found=worldHazeTargets.emplace(key,target).first;
+    }
+    auto command=frames[currentFrame].commandBuffer;vkCmdEndRenderPass(command);
+    // Small reflected/main views and multiple editor views may reuse one bucket
+    // in a frame. Finish earlier sampling before clearing that image again.
+    VkMemoryBarrier reuse{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    reuse.srcAccessMask=VK_ACCESS_SHADER_READ_BIT;reuse.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        0,1,&reuse,0,nullptr,0,nullptr);
+    const std::array<VkClearValue,2> clear{VkClearValue{{{0,0,0,0}}},VkClearValue{{{1,0}}}};
+    VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};pass.renderPass=worldSceneColorRenderPass;
+    pass.framebuffer=found->second.framebuffer;pass.renderArea.extent={size,size};pass.clearValueCount=2;pass.pClearValues=clear.data();
+    vkCmdBeginRenderPass(command,&pass,VK_SUBPASS_CONTENTS_INLINE);invalidateSceneColorBindings(*this);
+    worldHazeDescriptor=found->second.color.descriptorSet;worldHazeActive=true;return true;
+}
+bool VulkanRenderBackendImpl::endWorldLocalHaze() {
+    if(!worldHazeActive)return false;
+    auto command=frames[currentFrame].commandBuffer;vkCmdEndRenderPass(command);
+    VkExtent2D extent=swapchainExtent;
+    auto framebuffer=worldSceneColorFramebuffers.at(currentFrame*swapchainImages.size()+acquiredImage);
+    if(activeEditorSurface) {
+        auto& editorTarget=editorSurfaces.at(activeEditorSurface);
+        extent={static_cast<std::uint32_t>(editorTarget.width),static_cast<std::uint32_t>(editorTarget.height)};
+        framebuffer=editorTarget.frames[currentFrame].linearFramebuffer;
+    }
+    VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};pass.renderPass=worldSceneColorLoadRenderPass;
+    pass.framebuffer=framebuffer;pass.renderArea.extent=extent;
+    vkCmdBeginRenderPass(command,&pass,VK_SUBPASS_CONTENTS_INLINE);invalidateSceneColorBindings(*this);
+    worldHazeActive=false;return true;
 }
 
 bool VulkanRenderBackendImpl::beginWorldPlanarReflection(const engine::render::WorldPlanarReflectionView& view) {

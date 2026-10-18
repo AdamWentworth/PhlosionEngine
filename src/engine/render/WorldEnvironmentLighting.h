@@ -46,6 +46,12 @@ struct WorldEnvironmentLighting {
     float hazeBaseHeight = 0;
     float hazeHeightFalloff = 0;
     float hazeMaxOpacity = .85f;
+    // Single scattering from rectangular sources in the existing height haze.
+    // Zero preserves legacy views. Albedo is scattering/extinction, g is the
+    // Henyey-Greenstein mean cosine (positive scatters forward).
+    float localHazeAlbedo = 0;
+    float localHazeAnisotropy = 0;
+    bool localHazeDeferred = false;
     // Optional additional height haze, with a clear camera-near interval.
     float distantHazeStart = 0, distantHazeDensity = 0, distantHazeMaxOpacity = 0;
     float skyIntensity = 1;
@@ -149,6 +155,11 @@ inline WorldEnvironmentUniforms packWorldEnvironment(const WorldEnvironmentLight
             }
         }
         out[18] = {std::clamp(e.surfaceAbsorption,0.f,1.f),e.waterSurface?1.f:0.f,0,0};
+    }
+    // Previously reserved channels; independent of surface-weather opt-in.
+    if (std::isfinite(e.localHazeAlbedo) && std::isfinite(e.localHazeAnisotropy)) {
+        out[18][2]=e.localHazeDeferred ? 0.f : std::clamp(e.localHazeAlbedo,0.f,1.f);
+        out[18][3]=std::clamp(e.localHazeAnisotropy,-.8f,.8f);
     }
     return out;
 }

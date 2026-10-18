@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 36u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 37u;
 inline constexpr char kEditorProjectPluginContractSymbol[] =
     "phlosionEditorProjectPluginContract";
 inline constexpr char kEditorProjectPluginAbiSymbol[] =

@@ -187,6 +187,7 @@ struct WorldTextureData {
     std::uint8_t dualSourceBlendEnabled = 0u;
     std::uint8_t depthTestEnabled = 1u;
     // Reserved unlit numeric materials, independent of project profiles:
+    // 247/248: local-haze view integration and depth-aware HDR composition.
     // 249: sampled 3D density; sourceUv1.xy/sourceUv2.x = ellipsoid position,
     // sourceUv2.y = seed, uv.x = integration thickness, materialTimeSec = phase.
     // 250/251: intensity / separate red-intensity and alpha; 252/253: byte TEV

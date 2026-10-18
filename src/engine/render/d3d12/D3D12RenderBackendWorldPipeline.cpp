@@ -154,6 +154,13 @@ __PHLOSION_WORLD_PLANAR_SHADER__
 #define ENV_RECT(index) uWorldRectLights[index]
 #define ENV_BOUNCE(index) uWorldDiffuseProbes[index]
 #define ENV_RECT_LUT(uv) gRectLightLut.SampleLevel(gSampCC, uv, 0.0)
+
+#define HAZE_DIMENSIONS float4(uMaterialRect0U,uMaterialRect0V,uMaterialRect0W,uMaterialRect0H)
+#define HAZE_BRANCH [branch]
+#define HAZE_COORD(uv) float2((uv).x,1.0-(uv).y)
+#define HAZE_DEPTH(p) gLightProjectionTex.Load(int3(int2(p),0)).r
+#define HAZE_FETCH(p) gWorldPlanarTexture.Load(int3(int2(p),0))
+#define HAZE_UNPROJECT(p) float4(dot(uProjectedShadowRowX,p),dot(uProjectedShadowRowY,p),dot(uProjectedShadowRowZ,p),dot(uLightProjectionUvRowU,p))
 __PHLOSION_WORLD_LIGHTING_SHADER__
 #define WORLD_SHADOW_PARAMS uWorldShadowParams
 #define WORLD_SHADOW_CLIP(position) mul(uWorldShadowMatrix, float4(position, 1.0))
@@ -175,6 +182,9 @@ int legacyWrapIndex(int index, int size, float mode) {
   return (index % size + size) % size;
 }
 float4 evaluateWorldPixel(PSIn i, bool isFrontFace) {
+#ifndef PHLOSION_WORLD_SURFACE_ONLY
+  if (uMaterialMode == 247.0 || uMaterialMode == 248.0) return worldLocalHazePass(i.uv,uEnvironmentCamera.xyz,uMaterialMode);
+#endif
   worldReflectionClip(i.worldPos,uMaterialMode);
   isFrontFace = worldReflectionFrontFace(isFrontFace);
   updateEnvironmentDirectionalVisibility(i.worldPos, i.worldNormal, uMaterialMode);

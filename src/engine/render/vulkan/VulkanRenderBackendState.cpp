@@ -125,8 +125,8 @@ void VulkanRenderBackendImpl::bindTextureDescriptorSet(
 void VulkanRenderBackendImpl::bindWorldStateDescriptorSets(
     VkCommandBuffer commandBuffer,
     VkDescriptorSet materialDescriptorSet,
-    const std::array<std::uint32_t, 4>& dynamicOffsets) {
-    const auto planarSet=worldPlanarDescriptor ? worldPlanarDescriptor : worldPlanarFallback;
+    const std::array<std::uint32_t, 4>& dynamicOffsets, bool haze) {
+    const auto planarSet=haze ? worldHazeDescriptor : worldPlanarDescriptor ? worldPlanarDescriptor : worldPlanarFallback;
     const VkDescriptorSet worldStateDescriptorSet =
         worldShadowActive ? frames[currentFrame].shadowWorldStateDescriptorSet : frames[currentFrame].worldStateDescriptorSet;
     if (boundTexturedDescriptorSet == materialDescriptorSet) {

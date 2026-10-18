@@ -68,6 +68,12 @@ upgrades and generic rendering changes in PokemonModelSupport are not included.
 
 ## Execution and acceptance
 
+The former approximately 75% estimate is withdrawn: it was not a measured
+lighting comparison. Subsequent work must report a specific visible change and
+matched evidence. Submission optimizations are performance work, not additional
+lighting fidelity. The current visual pass adds rectangular-light scattering in
+the existing height haze; it does not claim Cyberpunk's exact implementation.
+
 The user explicitly requested cloud Astra throughout this lighting work on
 2026-10-16, excluding the newly installed local model. Root implements and reviews;
 do not start local AI or delegate this pass. This supersedes the earlier Flash
@@ -82,6 +88,57 @@ source-off, daylight and camera controls; and recorded GPU cost for renderer cha
 No visual baselines or thresholds are relaxed to hide regressions. Shared shader
 changes also require the affected Autochess character/editor smoke coverage.
 Keep exact commands, artifacts and limitations in CHECKPOINT.md at phase boundaries.
+
+## Local illuminated haze
+
+Opt-in `WorldEnvironmentLighting::localHazeAlbedo` and `localHazeAnisotropy`
+occupy the two reserved weather-material uniform components, independently of
+surface wetness. Default albedo zero preserves other consumers. The game binds
+0.55 / 0.25 for the station only, with `PHLOSION_DISABLE_LOCAL_HAZE` as a review
+control. Existing density, source radiance and weather cycles are preserved.
+
+The shared shader integrates single scattering along the camera-to-surface ray,
+or through the local light ranges for sky pixels. It clips to each source sphere
+and emitting half-space, integrates the entire rectangle's solid angle, uses
+16 equiangular samples, and attenuates both view and source paths in exponential
+height density. Two-by-two depth comparisons use the existing local shadow atlas;
+volume samples deliberately omit surface-normal bias and receiver derivatives.
+Sky submission follows shadow preparation. Reflected rays integrate only their
+above-water leg; the water receiver handles the real viewer leg.
+
+The station sets `localHazeDeferred`: ordinary sky/material draws retain existing
+extinction but omit the local in-scattering integral. `drawWorldLocalHaze` captures
+opaque depth, integrates into a private RGBA16F target at one quarter of each view
+dimension, then adds the result to scene radiance before transparent rain and
+bloom. The alpha channel carries linear distance, avoiding half-float device-depth
+precision loss. Depth-aware bilinear composition rejects taps across silhouettes;
+unrepresented thin foreground pixels use the analytic full-resolution integral.
+Reflected and main views each run this pass. Their targets are independent of the
+planar reflection image. HDR-disabled review mode also disables local scattering.
+An explicit branch skips the analytic fallback when depth-matched samples exist;
+the earlier conditional-expression version evaluated the expensive path on D3D12.
+Vulkan orders prior sampling before reusing a scratch target in the same frame.
+Its rain-only specialization explicitly excludes the haze dispatcher so that
+the specialized volume shader can discard the unused integration code.
+The C++ environment layout changes the model plugin ABI to 17 and editor project
+ABI to 37; every staged model/game plugin must be rebuilt with these headers.
+
+This follows the [volume transfer equation](https://pbr-book.org/4ed/Light_Transport_II_Volume_Rendering/The_Equation_of_Transfer)
+and [Henyey-Greenstein phase model](https://pbr-book.org/4ed/Volume_Scattering/Phase_Functions).
+It is a bounded single-scattering approximation: phase and source-path attenuation
+use the emitter centre; the current single-apex shadow map does not supply
+source-sized volumetric penumbrae. It has no multiple scattering, point/sign
+light scattering, froxel history or illumination of the separate billow/drop
+simulation. It adds no ray tracing, rain redesign or global brightness increase.
+
+`PhlosionLocalHazeTests` checks against independent fine area/view quadrature,
+including sky, source-off, density-zero, reversed source, shadow blocker, nearby
+opaque receiver, sharp foreground edge, odd viewport sizes, and red/blue addition
+on all APIs, for both direct integration and the reduced-resolution pass. A second
+composition in one frame checks scratch-target reuse. The game uses
+`Verify-Local-Haze.ps1` and `verify_local_haze.py`, plus the established station,
+battle, reflection and shared-model guards. Cost is measured after correctness;
+acceptance is a visible improvement with declared limits, not a parity percentage.
 
 ## Reflected emission and wet-surface filter follow-up
 

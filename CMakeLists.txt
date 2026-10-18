@@ -647,6 +647,10 @@ if (PHLOSION_BUILD_TESTS)
     target_link_libraries(PhlosionLocalShadowTests PRIVATE Engine)
     phlosion_apply_settings(PhlosionLocalShadowTests)
     add_test(NAME PhlosionLocalShadows COMMAND PhlosionLocalShadowTests)
+    add_executable(PhlosionLocalHazeTests tests/TestLocalHaze.cpp)
+    target_link_libraries(PhlosionLocalHazeTests PRIVATE Engine)
+    phlosion_apply_settings(PhlosionLocalHazeTests)
+    add_test(NAME PhlosionLocalHaze COMMAND PhlosionLocalHazeTests)
     add_executable(PhlosionRectLightTests tests/TestRectLights.cpp)
     target_link_libraries(PhlosionRectLightTests PRIVATE Engine)
     phlosion_apply_settings(PhlosionRectLightTests)
@@ -1045,6 +1049,16 @@ if (PHLOSION_BUILD_TESTS)
         list(APPEND _feedback_test_apis d3d12)
     endif()
     foreach(api IN LISTS _feedback_test_apis)
+        if(TARGET PhlosionLocalHazeTests)
+            foreach(mode on off zero-density source-off sky back blocked foreground blue both odd edge
+                         reduced-on reduced-off reduced-zero-density reduced-source-off reduced-sky
+                         reduced-back reduced-blocked reduced-foreground reduced-blue reduced-both reduced-odd reduced-edge reduced-repeat)
+                add_test(NAME PhlosionLocalHaze-${api}-${mode} COMMAND PhlosionLocalHazeTests ${api} ${mode}
+                    "${CMAKE_CURRENT_BINARY_DIR}/local-haze-tests/${api}-${mode}.png")
+                set_tests_properties(PhlosionLocalHaze-${api}-${mode} PROPERTIES RUN_SERIAL TRUE TIMEOUT 180
+                    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+            endforeach()
+        endif()
         foreach(mode on off offscreen reversed dry clipped occluded reset extent-change emissive emissive-rough emissive-off)
             add_test(NAME PhlosionPlanarReflection-${api}-${mode} COMMAND PhlosionPlanarReflectionTests ${api} ${mode}
                 "${CMAKE_CURRENT_BINARY_DIR}/planar-reflection-tests/${api}-${mode}.png")

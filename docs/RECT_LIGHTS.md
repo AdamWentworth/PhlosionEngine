@@ -37,8 +37,9 @@ light evaluation. Wetness fades across shelter edges; dry materials and emission
 retain their original response. Legacy non-PBR surfaces receive dampening only.
 These calculations do not capture reflections or occlusion of world geometry.
 
-The CPU environment/frame expansion requires editor plugin ABI 36 and model
-renderer ABI 16. Rebuild both hosts and their plugins; older binaries are rejected.
+The CPU environment/frame now requires editor plugin ABI 37 and model renderer
+ABI 17, including the local-scattering controls. Rebuild both hosts and their
+plugins; older binaries are rejected.
 Auto-instancing keys include rectangular sources to prevent merging differently
 lit instances. Uniform layout retains existing point and directional-shadow offsets.
 

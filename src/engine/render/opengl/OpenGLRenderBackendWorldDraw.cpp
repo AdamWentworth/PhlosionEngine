@@ -284,7 +284,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
                                                                const float* viewProjectionMatrix4x4,
                                                                int surfaceWidth,
                                                                int surfaceHeight) {
-    if (worldPlanarReflection_[4][3]<0 && !worldDirectionalShadowActive_) {
+    if (worldPlanarReflection_[4][3]<0 && !worldDirectionalShadowActive_ && !engine::render::isWorldLocalHazePass(texture)) {
         viewProjectionMatrix4x4=worldPlanarReflectionView_.viewProjection.data();
         surfaceWidth=worldPlanarReflectionView_.width; surfaceHeight=worldPlanarReflectionView_.heightPixels;
     }
@@ -865,7 +865,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     const auto planar = worldDirectionalShadowActive_ ? engine::render::WorldPlanarReflectionUniforms{} : worldPlanarReflection_;
     glUniform4fv(worldUniformLocation(worldPlanarLoc_), 6, planar[0].data());
     glUniform1i(worldUniformLocation(worldPlanarTextureLoc_), 10);
-    bindTextureUnit2D(10, worldPlanarTexture_);
+    bindTextureUnit2D(10, texture && texture->materialMode == 248 ? worldHazeTexture_ : worldPlanarTexture_);
     if (!worldDirectionalShadowActive_ && !worldVolumeActive_ && worldDiffuseProbesLoc_ >= 0 &&
         (!worldDiffuseProbesUploaded_ || lastWorldDiffuseProbes_ != worldDiffuseProbes_)) {
         glUniform4fv(worldDiffuseProbesLoc_, static_cast<GLsizei>(worldDiffuseProbes_.size()), worldDiffuseProbes_[0].data());

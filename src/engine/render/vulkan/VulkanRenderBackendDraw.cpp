@@ -1,5 +1,6 @@
 #include "engine/render/vulkan/VulkanRenderBackendInternal.h"
 #include "engine/render/WorldDirectionalShadowPolicy.h"
+#include "engine/render/IWorldLocalHaze.h"
 
 #include <algorithm>
 #include <array>
@@ -107,7 +108,7 @@ bool VulkanRenderBackendImpl::bindWorldDescriptorSets(
         0u,
     };
     bindWorldStateDescriptorSets(
-        commandBuffer, materialDescriptorSet, dynamicOffsets);
+        commandBuffer, materialDescriptorSet, dynamicOffsets, texture && texture->materialMode == 248);
     return true;
 }
 
@@ -372,7 +373,7 @@ void VulkanRenderBackendImpl::drawWorldIndexedMeshBuffers(
     int surfaceWidth,
     int surfaceHeight) {
     IRenderBackend::WorldTextureData shadowTexture;
-    if (worldPlanarReflection[4][3]<0 && !worldShadowActive) {
+    if (worldPlanarReflection[4][3]<0 && !worldShadowActive && !engine::render::isWorldLocalHazePass(textureData)) {
         viewProjectionMatrix4x4=worldPlanarReflectionView.viewProjection.data();
         surfaceWidth=worldPlanarReflectionView.width; surfaceHeight=worldPlanarReflectionView.heightPixels;
     }

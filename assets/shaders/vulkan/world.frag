@@ -119,6 +119,13 @@ layout(set = 2, binding = 0) uniform sampler2D worldPlanarTexture;
 #else
 #define ENV_BOUNCE(index) worldView.diffuseProbes[index]
 #endif
+
+#define HAZE_DIMENSIONS worldSpecializedMaterial.rect0
+#define HAZE_BRANCH [[dont_flatten]]
+#define HAZE_COORD(uv) vec2((uv).x,1.0-(uv).y)
+#define HAZE_DEPTH(p) texelFetch(lightProjectionTexture,ivec2(p),0).r
+#define HAZE_FETCH(p) texelFetch(worldPlanarTexture,ivec2(p),0)
+#define HAZE_UNPROJECT(p) (worldSpecializedMaterial.projectedShadowMatrix * (p))
 #include "world_lighting.glsl"
 #if defined(PHLOSION_WORLD_DIRECTIONAL_SHADOW_PASS)
 #define WORLD_SHADOW_PARAMS vec4(0.0)
@@ -189,6 +196,9 @@ vec3 encodeWorldSurfaceColor(vec3 linearColor) {
 
 layout(constant_id = 0) const bool worldVolumeOnly = false;
 void main() {
+    if (!worldVolumeOnly && (pushData.materialParams.w == 247.0 || pushData.materialParams.w == 248.0)) {
+        writeWorldColor(worldLocalHazePass(vertexUv,worldView.cameraPosition.xyz,pushData.materialParams.w));return;
+    }
     worldReflectionClip(worldPosition,pushData.materialParams.w);
     if (worldVolumeOnly || pushData.materialParams.w == 249.0) {
         writeWorldColor(worldVolumeColor(vec3(vertexSourceUv1,vertexSourceUv2.x),vertexSourceUv2.y,

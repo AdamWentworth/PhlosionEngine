@@ -276,6 +276,9 @@ inline WorldPsConstants makeWorldPsConstants(
         textureData->lightProjectionUvRowU;
     constants.lightProjectionUvRowV =
         textureData->lightProjectionUvRowV;
+    // Engine view passes carry dimensions/inverse projection here, not PBR
+    // material factors. Project profiles must not repack their constants.
+    if (textureData->materialMode == 247 || textureData->materialMode == 248) return constants;
     if (textureData->materialMode >= 2u &&
         (!profile || profile->modes[textureData->materialMode].pbrPacking)) {
         const bool hasNormal =

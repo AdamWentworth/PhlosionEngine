@@ -312,6 +312,12 @@ struct VulkanRenderBackendImpl {
     engine::render::WorldDiffuseProbeUniforms worldDiffuseProbes{};
     engine::render::WorldPlanarReflectionUniforms worldPlanarReflection{};
     engine::render::WorldPlanarReflectionView worldPlanarReflectionView{};
+    struct HazeTarget { Texture color, depth; VkFramebuffer framebuffer = VK_NULL_HANDLE; };
+    std::unordered_map<std::string, HazeTarget> worldHazeTargets;
+    VkDescriptorSet worldHazeDescriptor = VK_NULL_HANDLE;
+    bool worldHazeActive = false;
+    bool beginWorldLocalHaze(int width, int height);
+    bool endWorldLocalHaze();
     VkDescriptorSet worldPlanarDescriptor = VK_NULL_HANDLE;
     VkDescriptorSet worldPlanarFallback = VK_NULL_HANDLE;
     bool beginWorldPlanarReflection(const engine::render::WorldPlanarReflectionView&);
@@ -463,7 +469,7 @@ struct VulkanRenderBackendImpl {
     void bindWorldStateDescriptorSets(
         VkCommandBuffer commandBuffer,
         VkDescriptorSet materialDescriptorSet,
-        const std::array<std::uint32_t, 4>& dynamicOffsets);
+        const std::array<std::uint32_t, 4>& dynamicOffsets, bool haze = false);
     void setViewportAndScissor(
         VkCommandBuffer commandBuffer,
         int surfaceWidth,

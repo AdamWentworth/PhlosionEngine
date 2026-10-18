@@ -29,7 +29,7 @@
 using namespace engine::render::d3d12_internal;
 #endif
 
-void D3D12RenderBackend::bindWorldDiffuseProbes() {
+void D3D12RenderBackend::bindWorldDiffuseProbes(bool haze) {
 #if defined(_WIN32)
     using namespace engine::render::d3d12_internal;
     static_assert(sizeof(engine::render::WorldDiffuseProbeUniforms)<=kDiffuseProbePacketStride);
@@ -45,7 +45,7 @@ void D3D12RenderBackend::bindWorldDiffuseProbes() {
     commandList_->SetGraphicsRootConstantBufferView(6,worldDiffuseProbeBuffer_->GetGPUVirtualAddress()+offset);
     const auto planar=worldShadowActive_ ? engine::render::WorldPlanarReflectionUniforms{} : worldPlanarReflection_;
     commandList_->SetGraphicsRoot32BitConstants(7,24,planar.data(),0);
-    const auto descriptor=worldPlanarDescriptor_!=0xffffffffu ? worldPlanarDescriptor_ : ensureFallbackSpriteTexture()->descriptorIndex;
+    const auto descriptor=haze ? worldHazeDescriptor_ : worldPlanarDescriptor_!=0xffffffffu ? worldPlanarDescriptor_ : ensureFallbackSpriteTexture()->descriptorIndex;
     auto handle=srvHeap_->GetGPUDescriptorHandleForHeapStart();
     handle.ptr+=static_cast<UINT64>(descriptor)*srvDescriptorSize_;
     commandList_->SetGraphicsRootDescriptorTable(8,handle);
@@ -350,6 +350,11 @@ ID3D12PipelineState* D3D12RenderBackend::selectWorldPipelineState(
         return worldSceneColorPassActive_ ? worldSceneSkyPipelineState_.Get() : worldSkyPipelineState_.Get();
     const unsigned variant = worldPipelineVariant(textureData);
     if (materialMode == 249.0f || (textureData && IWorldDepthControl::isSnapshotTexture(textureData->lightProjectionKey)))
+        return ensureWorldPointLightPipeline(materialMode, variant);
+    // Unlit world surfaces still see illuminated air between them and the eye.
+    // The legacy dispatcher compiles rectangle uniforms to constant zero.
+    if (textureData && materialMode < 249.5f &&
+        engine::render::packWorldEnvironment(textureData->environment)[18][2] > 0)
         return ensureWorldPointLightPipeline(materialMode, variant);
     if (textureData && materialMode >= 1.5f && (materialMode < 249.5f || materialMode == 254.0f) &&
         !(materialMode > 2.5f && materialMode < 3.5f)) {
@@ -748,7 +753,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
                                                       int surfaceWidth,
                                                       int surfaceHeight) {
 #if defined(_WIN32)
-    if (worldPlanarReflection_[4][3]<0 && !worldShadowActive_) {
+    if (worldPlanarReflection_[4][3]<0 && !worldShadowActive_ && !engine::render::isWorldLocalHazePass(textureData)) {
         viewProjectionMatrix4x4=worldPlanarReflectionView_.viewProjection.data();
         surfaceWidth=worldPlanarReflectionView_.width; surfaceHeight=worldPlanarReflectionView_.heightPixels;
     }
@@ -838,7 +843,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshInternal(const WorldMeshVertex* ver
     ID3D12DescriptorHeap* heaps[] = {srvHeap_.Get()};
     commandList_->SetDescriptorHeaps(1, heaps);
     commandList_->SetGraphicsRootSignature(worldRootSignature_.Get());
-    bindWorldDiffuseProbes();
+    bindWorldDiffuseProbes(textureData && textureData->materialMode == 248);
     const float* modelMatrix = textureData ? textureData->modelMatrix.data() : nullptr;
     bool gpuSkinningEnabled =
         textureData &&
@@ -1028,7 +1033,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     std::uint32_t instanceCount,
     int surfaceWidth,
     int surfaceHeight) {
-    if (worldPlanarReflection_[4][3]<0 && !worldShadowActive_) {
+    if (worldPlanarReflection_[4][3]<0 && !worldShadowActive_ && !engine::render::isWorldLocalHazePass(textureData)) {
         viewProjectionMatrix4x4=worldPlanarReflectionView_.viewProjection.data();
         surfaceWidth=worldPlanarReflectionView_.width; surfaceHeight=worldPlanarReflectionView_.heightPixels;
     }
@@ -1073,7 +1078,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCachedInternal(
     ID3D12DescriptorHeap* heaps[] = {srvHeap_.Get()};
     commandList_->SetDescriptorHeaps(1, heaps);
     commandList_->SetGraphicsRootSignature(worldRootSignature_.Get());
-    bindWorldDiffuseProbes();
+    bindWorldDiffuseProbes(textureData && textureData->materialMode == 248);
     const std::size_t vsConstantsFrameEnd =
         static_cast<std::size_t>(worldVsConstantFrameBaseOffset_) +
         static_cast<std::size_t>(worldVsConstantBufferBytesPerFrame_);

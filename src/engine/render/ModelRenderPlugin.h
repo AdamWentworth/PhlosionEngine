@@ -6,8 +6,8 @@
 
 namespace engine::render {
 
-// ABI 16 adds rectangular emitters to the world-lighting frame tail.
-inline constexpr std::uint32_t modelRenderPluginAbi = 16;
+// ABI 17 adds local-scattering controls to the world-lighting frame.
+inline constexpr std::uint32_t modelRenderPluginAbi = 17;
 inline constexpr char modelRenderPluginEntryPoint[] = "phlosionModelRenderPluginCreate";
 
 // Project renderers may present cooked models outside the asset inspector.

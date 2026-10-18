@@ -92,6 +92,10 @@ void VulkanRenderBackend::endWorldSceneColorPass() {
 bool VulkanRenderBackend::clearWorldDepth() {
     return impl_ && impl_->clearWorldDepth();
 }
+bool VulkanRenderBackend::beginWorldLocalHaze(int width, int height) {
+    return impl_ && impl_->beginWorldLocalHaze(width,height);
+}
+bool VulkanRenderBackend::endWorldLocalHaze() { return impl_ && impl_->endWorldLocalHaze(); }
 bool VulkanRenderBackend::beginWorldPlanarReflection(const engine::render::WorldPlanarReflectionView& view) {
     return impl_ && impl_->beginWorldPlanarReflection(view);
 }

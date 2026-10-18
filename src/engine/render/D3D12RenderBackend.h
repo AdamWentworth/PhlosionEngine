@@ -12,6 +12,7 @@
 #include "engine/render/IWorldSceneRadiance.h"
 #include "engine/render/WorldDiffuseProbes.h"
 #include "engine/render/IWorldPlanarReflection.h"
+#include "engine/render/IWorldLocalHaze.h"
 #include "engine/render/IWorldDirectionalShadow.h"
 #include "engine/render/IWorldLocalShadow.h"
 #include "engine/render/WorldResourceScopeState.h"
@@ -40,9 +41,11 @@ struct ID3D12Resource;
 struct ID3D12RootSignature;
 #endif
 
-class D3D12RenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow, public IWorldLocalShadow, public engine::render::IWorldBloom, public engine::render::IWorldSceneRadiance, public engine::render::IWorldDiffuseProbes, public engine::render::IWorldPlanarReflection {
+class D3D12RenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow, public IWorldLocalShadow, public engine::render::IWorldBloom, public engine::render::IWorldSceneRadiance, public engine::render::IWorldDiffuseProbes, public engine::render::IWorldPlanarReflection, public engine::render::IWorldLocalHaze {
 public:
   bool clearWorldDepth() override;
+    bool beginWorldLocalHaze(int width, int height) override;
+    bool endWorldLocalHaze() override;
   bool beginWorldPlanarReflection(const engine::render::WorldPlanarReflectionView&) override;
     bool endWorldPlanarReflection() override;
     bool captureWorldDepthSnapshot() override;
@@ -224,7 +227,7 @@ private:
     void releaseDepthResources();
     void createDebugPipeline();
     void createWorldPipeline(bool createBuffers = true);
-    void bindWorldDiffuseProbes();
+    void bindWorldDiffuseProbes(bool haze = false);
     void bindWorldMaterialConstants(const void*, std::size_t viewOffset, bool outline = false);
     void createSpritePipeline();
     void createWorldSceneColorPipeline();
@@ -629,6 +632,10 @@ private:
     std::uint8_t* spriteVertexMappedData_ = nullptr;
     std::unordered_map<std::string, SpriteTexture> spriteTextures_;
     std::unordered_map<std::string, SpriteTexture> worldTextures_;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> worldHazeRtvHeap_;
+    ID3D12Resource* worldHazeTarget_ = nullptr;
+    std::uint32_t worldHazeDescriptor_ = 0xffffffffu;
+    bool worldHazeActive_ = false;
     std::uint32_t worldPlanarDescriptor_ = 0xffffffffu;
     std::uint32_t worldDepthSnapshotDescriptor_ = 0xffffffffu;
     std::unordered_map<WorldMaterialDescriptorBlockKey,

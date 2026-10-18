@@ -539,6 +539,13 @@ uniform sampler2D uRectLightLut;
         #define ENV_BOUNCE(index) uWorldDiffuseProbes[index]
 #define ENV_RECT_LUT(uv) textureLod(uRectLightLut, uv, 0.0)
 #define ENV_POINT(index) uWorldPointLights[index]
+
+#define HAZE_DIMENSIONS uMaterialRect0
+#define HAZE_BRANCH
+#define HAZE_COORD(uv) (uv)
+#define HAZE_DEPTH(p) texelFetch(uLightProjectionTexture,ivec2(p),0).r
+#define HAZE_FETCH(p) texelFetch(uWorldPlanarTexture,ivec2(p),0)
+#define HAZE_UNPROJECT(p) (uProjectedShadowMatrix * (p))
 __PHLOSION_WORLD_LIGHTING_SHADER__
 uniform sampler2D uDirectionalShadowTexture;
 uniform mat4 uDirectionalShadowMatrix;
@@ -556,6 +563,9 @@ __PHLOSION_WORLD_SHADOW_SHADER__
 __PHLOSION_WORLD_VOLUME_SHADER__
 __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
         void main() {
+            if (uMaterialMode == 247.0 || uMaterialMode == 248.0) {
+                FragColor=worldLocalHazePass(vUv,uCameraPos,uMaterialMode);FragBlendAlpha=vec4(0.0);return;
+            }
             worldReflectionClip(vWorldPos,uMaterialMode);
 #ifdef PHLOSION_VOLUME_ONLY
             FragColor = worldVolumeColor(vec3(vSourceUv1,vSourceUv2.x),vSourceUv2.y,uMaterialTimeSec,

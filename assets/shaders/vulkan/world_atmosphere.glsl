@@ -3,6 +3,7 @@
 // One dominant directional source keeps the established material cost bounded.
 // Solar and lunar radiance fade at their horizons before the source switches.
 float environmentDirectionalVisibility = 1.0;
+vec3 environmentLocalHaze(vec3 position, vec3 camera);
 bool environmentMoonIsPrimary() {
     return max(ENV_MOON_LIGHT.r, max(ENV_MOON_LIGHT.g, ENV_MOON_LIGHT.b)) >
            max(ENV_RADIANCE.r, max(ENV_RADIANCE.g, ENV_RADIANCE.b));
@@ -167,7 +168,7 @@ vec3 environmentSky(vec3 ray, vec3 camera) {
         sky = mix(sky,upper.rgb,upper.a);
         sky = mix(sky,lowerCloud.rgb,lowerCloud.a);
     }
-    return sky;
+    return sky + environmentLocalHaze(camera+ray*100000.0,camera);
 }
 
 // PBR surfaces apply weather before lighting, retaining their mapped normal and
@@ -249,5 +250,5 @@ vec3 environmentHaze(vec3 color, vec3 position, vec3 camera) {
         float distantOpacity = min(1.0-exp(-ENV_NIGHT.w*(distanceMetres-ENV_CLOUD_PARAMS.z)*farIntegral), ENV_CLOUD_PARAMS.w);
         opacity = 1.0-(1.0-opacity)*(1.0-distantOpacity);
     }
-    return mix(color, ENV_HAZE.rgb, opacity);
+    return mix(color, ENV_HAZE.rgb, opacity) + environmentLocalHaze(position,camera);
 }
