@@ -61,7 +61,7 @@ float environmentLocalMomentVisibility(int index, vec4 projected, vec4 parameter
         moments += WORLD_MOMENT_SAMPLE(tile.xy+tap*tile.zw)*weight.x*weight.y;
     }
     vec2 ray = clip.xy*parameters.z;
-    float receiver = projected.w*parameters.y*sqrt(1.0+dot(ray,ray));
+    float receiver = clamp(projected.w*parameters.y*sqrt(1.0+dot(ray,ray)),0.0,1.0);
     return finiteLightMomentVisibility(moments,receiver,parameters.x);
 }
 

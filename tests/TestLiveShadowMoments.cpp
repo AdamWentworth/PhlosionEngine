@@ -22,7 +22,7 @@ constexpr std::array<std::uint32_t,6> indices{0,1,2,0,2,3};
 }
 int main(int argc,char** argv) try {
     check(argc==4,"Expected API, case, output");const std::string api=argv[1],mode=argv[2];
-    check(mode=="blocked"||mode=="empty"||mode=="clear"||mode=="pcf"||mode=="border"||mode=="self","Unknown moment case");
+    check(mode=="blocked"||mode=="empty"||mode=="clear"||mode=="pcf"||mode=="border"||mode=="self"||mode=="range-edge","Unknown moment case");
     SDL_SetMainReady();struct Quit{~Quit(){SDL_Quit();}} quit;
     std::filesystem::create_directories(std::filesystem::path(argv[3]).parent_path());std::filesystem::remove(argv[3]);
 #if defined(_MSC_VER)
@@ -41,7 +41,12 @@ int main(int argc,char** argv) try {
     WorldEnvironmentLighting e;e.enabled=true;e.exposure=1;
     // Exercise all eight tiles with sparse source indices and alternating occupancy.
     for(int i=0;i<8;++i){auto& light=e.rectLights[i*2];light={{0,4,0},20,{2,0,0},{0,0,.2f},i%2?std::array<float,3>{0,0,4}:std::array<float,3>{4,0,0}};
-        light.response=WorldRectLightResponse::FiniteLine;light.shadowFilter=mode=="pcf"?WorldLocalShadowFilter::Pcf:WorldLocalShadowFilter::DistanceMoments;}
+        light.response=WorldRectLightResponse::FiniteLine;light.shadowFilter=mode=="pcf"?WorldLocalShadowFilter::Pcf:WorldLocalShadowFilter::DistanceMoments;
+        if(mode=="range-edge"){light.position[1]=2;light.range=4;light.halfU[0]=8;}}
+    auto shadowEnvironment=e;
+    // Blue is the unshadowed control for empty red maps at the end of a long
+    // source, where radial distance can exceed the normalized shadow range.
+    if(mode=="range-edge")for(int i=1;i<8;i+=2)shadowEnvironment.rectLights[i*2].radiance={};
     const auto vp=glm::ortho(-5.f,5.f,-3.125f,3.125f,.1f,20.f)*glm::lookAt(glm::vec3(0,6,0),glm::vec3(0),glm::vec3(0,0,-1));
     const auto draw=[&](float y,const float* matrix,bool half) {
         std::array<IRenderBackend::WorldMeshVertex,4> vertices{};
@@ -51,10 +56,11 @@ int main(int argc,char** argv) try {
         renderer->drawWorldIndexedMeshTextured(vertices.data(),4,indices.data(),6,&t,matrix,width,height);
     };
     for(int frame=0;frame<4;++frame){renderer->beginFrame(0,0,0,1);renderer->beginWorldSceneColorPass(width,height);hdr->setWorldSceneRadianceExposure(1);
+        if(mode=="range-edge"){auto* bloom=dynamic_cast<IWorldBloom*>(renderer.get());check(bloom,"Missing bloom control");bloom->setWorldBloomStrength(0);}
         for(int repeat=0;repeat<2;++repeat){shadows->clearWorldLocalShadows();int tile=0;
-            drawWorldRectShadows(*shadows,e,[&](const auto& view){const bool occupied=(tile++%2)==0;
+            drawWorldRectShadows(*shadows,shadowEnvironment,[&](const auto& view){const bool occupied=(tile++%2)==0;
                 if(mode=="self"){draw(0,view.viewProjection.data(),false);return;}
-                if(occupied && mode!="empty" && !(mode=="clear"&&frame>=1))draw(2,view.viewProjection.data(),mode=="border");});}
+                if(occupied && mode!="empty" && mode!="range-edge" && !(mode=="clear"&&frame>=1))draw(2,view.viewProjection.data(),mode=="border");});}
         draw(0,glm::value_ptr(vp),false);renderer->endWorldSceneColorPass();renderer->endFrame();if(!renderer->handlesPresentation())window.swapBuffers();}
     renderer->shutdown();renderer.reset();int w=0,h=0,c=0;
     std::unique_ptr<unsigned char,decltype(&stbi_image_free)> pixels(stbi_load(argv[3],&w,&h,&c,3),stbi_image_free);
@@ -63,8 +69,12 @@ int main(int argc,char** argv) try {
     const double red=mean(mode=="border"?100:160,0),blue=mean(mode=="border"?100:160,2);
     std::cout<<api<<' '<<mode<<" R="<<red<<" B="<<blue<<" rightR="<<mean(220,0)<<'\n';
     check(blue>80,"Empty blue tiles shadowed or surface absent");
-    if(mode=="empty"||mode=="clear"||mode=="self")check(std::abs(red-blue)<3,"Empty/reset maps retained occlusion or tile cross-talk");
+    if(mode=="range-edge")check(red>=blue*.9,"Empty map shadows the source centre");
+    else if(mode=="empty"||mode=="clear"||mode=="self")check(std::abs(red-blue)<3,"Empty/reset maps retained occlusion or tile cross-talk");
     else check(red<blue*.25,"Red blocker leaked or moment receivers use wrong depth");
     if(mode=="border")check(mean(220,0)>mean(220,2)*.9,"Partial blocker shadow crossed its silhouette");
+    // ACES mixes channels at this brightness; use the established lit-side ratio.
+    if(mode=="range-edge")check(mean(313,2)>80 && mean(313,0)>mean(313,2)*.9,
+        "Empty map falsely shadows a lit surface beyond the radial range");
     std::cout<<"PASS live moment surface, sparse atlas, repeated passes and clear\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

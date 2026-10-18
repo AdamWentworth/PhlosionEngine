@@ -16,18 +16,28 @@ using WorldLocalShadowUniforms = std::array<std::array<float, 4>, worldRectLight
 
 // A representative perspective projection for a one-sided area source. The
 // luminous plane is the near clip plane; housing behind it cannot occlude it.
-inline WorldDirectionalShadowView rectLightShadowView(const WorldRectLight& light) {
+inline WorldDirectionalShadowView rectLightShadowView(const WorldRectLight& light,
+                                                       float fieldOfViewDegrees = 150.f) {
     WorldDirectionalShadowView result;
-    if (!validWorldRectLight(light) || light.range <= 0 ||
+    if (!validWorldRectLight(light) || light.range <= 0 || !std::isfinite(fieldOfViewDegrees) ||
+        fieldOfViewDegrees <= 0 || fieldOfViewDegrees >= 180 ||
         std::max({light.radiance[0], light.radiance[1], light.radiance[2]}) <= 0) return result;
     const glm::vec3 centre(light.position[0], light.position[1], light.position[2]);
     const glm::vec3 u(light.halfU[0], light.halfU[1], light.halfU[2]);
     const glm::vec3 v(light.halfV[0], light.halfV[1], light.halfV[2]);
     const auto normal = glm::normalize(glm::cross(u, v));
-    const float nearPlane = std::max(.05f, std::max(glm::length(u), glm::length(v)) / 3.7320508f);
+    const float hu = glm::length(u), hv = glm::length(v);
+    const float tanHalfFov = std::tan(glm::radians(fieldOfViewDegrees * .5f));
+    if (tanHalfFov > 16.f) return result;
+    const bool finiteLine = light.response == WorldRectLightResponse::FiniteLine;
+    // Match the inscribed line used by direct lighting. A finite line's virtual
+    // eye is halfLength*cot(fov/2) behind the source; its radial range includes
+    // that shift once. The near floor defines the sphere/very-short-line case.
+    const float halfLength = finiteLine ? std::max(hu, hv) - std::min(hu, hv) : std::max(hu, hv);
+    const float nearPlane = std::max(.05f, halfLength / tanHalfFov);
     const auto eye = centre - normal * nearPlane;
-    const float farPlane = nearPlane + light.range + glm::length(u) + glm::length(v);
-    const auto matrix = glm::perspective(glm::radians(150.f), 1.f, nearPlane,
+    const float farPlane = nearPlane + light.range + (finiteLine ? 0.f : hu + hv);
+    const auto matrix = glm::perspective(glm::radians(fieldOfViewDegrees), 1.f, nearPlane,
         farPlane) *
         glm::lookAt(eye, centre, glm::normalize(v));
     std::copy_n(glm::value_ptr(matrix), 16, result.viewProjection.begin());
@@ -37,7 +47,7 @@ inline WorldDirectionalShadowView rectLightShadowView(const WorldRectLight& ligh
     result.depthBias = .00015f;
     result.normalOffset = .012f;
     if (light.shadowFilter == WorldLocalShadowFilter::DistanceMoments)
-        result.distanceMoments = {farPlane / nearPlane, 1 - farPlane / nearPlane, 3.7320508f, 1 / farPlane};
+        result.distanceMoments = {farPlane / nearPlane, 1 - farPlane / nearPlane, tanHalfFov, 1 / farPlane};
     return result;
 }
 

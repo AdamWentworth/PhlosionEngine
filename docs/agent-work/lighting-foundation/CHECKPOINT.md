@@ -6,7 +6,45 @@ and normal-launch checks. Performance limitations remain below. Earlier phase
 notes are historical. Checkpoint commits were authorized on 2026-10-17. Measured
 component agreement below is not a whole-lighting-engine parity percentage.
 
-## Current follow-up: live distance-moment shadows
+## Current follow-up: finite-source shadow projection
+
+2026-10-18: The finite-source shadow viewpoint and range now follow the recovered
+caster/filter/receiver contract. The station keeps its existing 150-degree
+coverage. Its shadow line length agrees with its direct-light representation,
+and the range includes the viewpoint shift once. The live receiver now clamps
+radial distance to [0,1], fixing false empty-map occlusion near long-light ends.
+No source intensities, geometry, ABI, filter kernel or target allocations change.
+See [SHADOW_PROJECTION.md](SHADOW_PROJECTION.md) for evidence and qualifications.
+
+The engine helper matches the retained 120-degree caster within 0.00113 texel
+at 1024 resolution over 10,000 fixed-seed points. All 122 original exported
+source hashes are preserved; the restored shadow array is exact and later
+composition stays within the existing two-half-ULP replay envelope. The four
+captured cache arrays are byte-identical and have only read-only direct bindings.
+Cache construction/invalidation remains unobserved and unimplemented; all local
+casters are still rendered each frame. This is a measured projection component
+comparison, not a whole-renderer percentage.
+
+All 171 affected engine checks and the six game CPU/eight shared-material
+contracts pass. The strengthened long-source edge assertion was rerun on all
+three APIs and passes. All six station and six battle captures pass in runtime
+and editor, together with normal editor launch, seven scene controls, seven
+reflection controls and four isolated-color captures. Source-off pixels remain
+exact; maximum station API/runtime-editor MAE is 1.077203/0.00001370 out of 255.
+Autochess's six runtime and six editor captures pass the existing content, parity
+and baseline guards. Model support and Autochess source remain unchanged.
+
+Final evidence is under `artifacts/lighting-foundation/shadow-projection` in
+each repository. The first scene batch with a stale staged DLL and the later
+pre-clamp diagnostic captures are retained but are not final evidence. Final
+game captures explicitly verify built/staged DLL equality. This pass adds no
+render passes or target allocations; it does not claim a measured speedup.
+First-use shader startup still takes minutes, and the preceding GL cost
+variability and Vulkan host-frame limits remain open. Static-shadow caching is
+the next implementation gap; its creation/invalidation policy needs either new
+retail evidence or an explicitly Phlosion-owned correctness contract.
+
+## Previous follow-up: live distance-moment shadows
 
 2026-10-18: The independently recovered filter now runs in native GL, Vulkan and
 D3D12 lighting. PokemonCyberpunk selects it for the six canopy sources in normal

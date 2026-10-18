@@ -167,9 +167,12 @@ bytecode or readbacks are committed with the implementation.
 ## Remaining parity targets
 
 The live recovered filter and visibility calculation close this integration
-step. Source-to-shadow projection/normalization still follows Phlosion's
+step. At this checkpoint, source-to-shadow projection/normalization follows Phlosion's
 150-degree adapter, and static caching is absent. A populated cache in the
 retained capture cannot establish its construction or invalidation rules.
+The subsequent [projection pass](SHADOW_PROJECTION.md) recovers the viewpoint,
+range and receiver-clamp contract while retaining existing coverage; cache
+construction/invalidation remains open.
 Material decoding, other emitter branches, indirect transport, reflections and
 display response still need their own matched-input evidence. The retained
 retail mode has RT disabled; this work does not establish ray/path-tracing parity.

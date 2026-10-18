@@ -38,6 +38,43 @@ int main() try {
     }
     auto badMoment=momentView;badMoment.distanceMoments[1]=0;
     check(!validWorldDirectionalShadowView(badMoment),"Invalid depth coefficients accepted");
+    // Independent point projection and radial-distance oracle. Exercise the
+    // source contract under rotation, all observed coverage angles, and a sphere.
+    for (float fov : {120.f,150.f,160.f}) for (bool square : {false,true}) {
+        auto finite=momentLight;finite.response=WorldRectLightResponse::FiniteLine;
+        finite.position={3,-2,7};finite.halfU={2.4f,3.2f,0};
+        finite.halfV=square?std::array<float,3>{0,0,4}:std::array<float,3>{0,0,.3f};
+        const auto fv=rectLightShadowView(finite,fov);
+        check(validWorldDirectionalShadowView(fv),"Finite source projection rejected");
+        const glm::vec3 centre(3,-2,7),forward(.8f,-.6f,0),up(0,0,1),side(-.6f,-.8f,0);
+        const double tangent=std::tan(static_cast<double>(fov)*3.14159265358979323846/360.);
+        const double shift=std::max(.05,(square?0.:3.7)/tangent),far=shift+22;
+        const glm::vec3 eye=centre-forward*static_cast<float>(shift);
+        const auto fm=glm::make_mat4(fv.viewProjection.data());
+        for (const glm::vec3 local : {glm::vec3(.2f,-.3f,1),glm::vec3(2,3,8),glm::vec3(-6,2,20)}) {
+            const auto point=eye+side*local.x+up*local.y+forward*local.z;
+            const auto p=fm*glm::vec4(point,1);const auto ndc=glm::vec3(p)/p.w;
+            check(std::abs(ndc.x-local.x/(local.z*tangent))<3e-6 &&
+                std::abs(ndc.y-local.y/(local.z*tangent))<3e-6,"Finite shadow UV differs from ray oracle");
+            const auto& c=fv.distanceMoments;
+            const double rayLength=std::sqrt(1+tangent*tangent*(ndc.x*ndc.x+ndc.y*ndc.y));
+            const double depth=ndc.z*.5+.5,denominator=depth*c[1]+c[0];
+            const double reconstructed=rayLength/denominator,expected=glm::length(local)/far;
+            // Near-floor projections amplify float depth error at the far plane.
+            // Bound that error by the reconstruction derivative, not source size.
+            const double depthError=2*std::numeric_limits<float>::epsilon();
+            const double errorBound=3e-6+depthError*std::abs(c[1])*rayLength/(denominator*denominator);
+            check(std::abs(reconstructed-expected)<errorBound,"Finite shadow radial normalization differs");
+            check(std::abs(p.w*c[3]*rayLength-expected)<3e-6,"Finite receiver distance differs from geometry");
+        }
+        const auto nearClip=fm*glm::vec4(centre,1);
+        check(std::abs(nearClip.z/nearClip.w+1)<3e-5,"Finite source plane was not near-clipped");
+        check(std::abs(fv.distanceMoments[3]-1/far)<1e-7,"Finite shadow range counts source size twice");
+        finite.shadowFilter=WorldLocalShadowFilter::Pcf;
+        check(rectLightShadowView(finite,fov).viewProjection==fv.viewProjection,"Filter choice changed projection");
+    }
+    for(float invalidFov : {0.f,172.9f,180.f,std::numeric_limits<float>::quiet_NaN()})
+        check(!rectLightShadowView(momentLight,invalidFov).enabled,"Invalid projection angle accepted");
     WorldLocalShadowAtlas momentAtlas;momentAtlas.enabled=true;
     check(momentAtlas.begin(15,momentView),"Moment pass rejected");momentAtlas.finish(momentView);
     check(momentAtlas.uniforms[94]==std::array<float,4>{1,mc[3],mc[2],-1.f/1024},"Moment receiver packing changed");

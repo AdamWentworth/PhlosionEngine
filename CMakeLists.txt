@@ -1106,7 +1106,7 @@ if (PHLOSION_BUILD_TESTS)
         set_tests_properties(PhlosionFiniteLight-${api} PROPERTIES RUN_SERIAL TRUE TIMEOUT 60)
         add_test(NAME PhlosionShadowMoments-${api} COMMAND PhlosionShadowMomentTests ${api})
         set_tests_properties(PhlosionShadowMoments-${api} PROPERTIES RUN_SERIAL TRUE TIMEOUT 60)
-        foreach(mode blocked empty clear pcf border self)
+        foreach(mode blocked empty clear pcf border self range-edge)
             add_test(NAME PhlosionLiveMoments-${api}-${mode} COMMAND PhlosionLiveShadowMomentTests ${api} ${mode}
                 "${CMAKE_CURRENT_BINARY_DIR}/live-moment-tests/${api}-${mode}.png")
             set_tests_properties(PhlosionLiveMoments-${api}-${mode} PROPERTIES RUN_SERIAL TRUE TIMEOUT 240 WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
