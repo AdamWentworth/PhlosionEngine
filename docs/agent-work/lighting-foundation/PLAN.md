@@ -36,7 +36,13 @@ change. The capture exercises finite-length lights and two-moment shadow
 visibility; live depth-PCF local shadows remain a different algorithm.
 Check the artifact's branch coverage before extending claims to other shapes,
 profiles, materials, shader permutations, frames, indirect light or reflections.
-No additional user capture is currently required.
+The next filter component is now independently qualified against the capture:
+[SHADOW_MOMENTS.md](SHADOW_MOMENTS.md) records bit-exact horizontal, vertical and
+chained distance-moment outputs, seeded-output controls and native math fixtures.
+It is not yet a live shadow path. The next implementation is engine-owned moment
+targets, ordered filtering passes and matching radial receiver/addressing adapters,
+followed by existing scene/shared-consumer acceptance. No additional user capture
+is currently required for that integration.
 
 The user's engine-parity target means matching the observable lighting subsystem
 in the captured rendering mode. Track direct response, source shape/units,

@@ -1,9 +1,9 @@
 # Local light occlusion
 
-The next accepted milestone is approximately 75% of the intended conventional
-lighting foundation, not a numerical Cyberpunk similarity measurement. Work is
-ordered as local occlusion, scene-linear HDR/bloom, then wet material review.
-Colored indirect light and scene reflections remain distinct later contracts.
+This documents the existing Phlosion depth-PCF local-shadow path. Its functional
+acceptance is not a numerical Cyberpunk similarity measurement. The subsequent
+captured filtering study is documented in [SHADOW_MOMENTS.md](SHADOW_MOMENTS.md);
+that independently tested core is not yet the live shadow path.
 
 ## First renderer contract
 

@@ -6,7 +6,25 @@ and normal-launch checks. Performance limitations remain below. Earlier phase
 notes are historical. Checkpoint commits were authorized on 2026-10-17. Measured
 component agreement below is not a whole-lighting-engine parity percentage.
 
-## Current follow-up: live finite-source response
+## Current follow-up: recovered shadow moment filter
+
+2026-10-18: The independent engine-owned distance-moment kernel passes the
+captured first-frame comparison. Horizontal, vertical and chained outputs each
+match all 2,097,152 RG16_UNORM components bit-exactly, including a control that
+clears outputs before independent dispatch. Untouched layers and the restored
+original shadow array are exact; later composition remains within the retained
+two-ULP replay envelope. See [SHADOW_MOMENTS.md](SHADOW_MOMENTS.md) for coverage,
+private reproducible commands and the addressing precision limitation.
+
+Thirty-two public synthetic filtering/visibility cases pass on GL/Vulkan/D3D12;
+the existing finite-light cases also pass using the shared native fixture runner.
+The normal game remains on the accepted PCF shadow path. No plugin ABI, source
+intensity, weather, scene or production rendering behavior changed in this step.
+Next: live moment targets and filtering with radial receivers, API addressing
+qualification, blocker controls and the established scene/shared-consumer checks.
+This is measured filter agreement, not complete shadow-system or engine parity.
+
+## Previous follow-up: live finite-source response
 
 2026-10-17: The shared surface shaders now support an explicit finite-source
 response on physical rectangle lights. PokemonCyberpunk selects it for the six

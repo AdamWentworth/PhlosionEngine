@@ -1,5 +1,5 @@
 // Synthetic inputs only. Keep the same fixture body on all three shader APIs.
-void finiteLightFixture(uint index,out vec4 a,out vec4 b) {
+void computeFixture(uint index,out vec4 a,out vec4 b) {
     if(index>=16u) {
         vec3 delta=vec3(.4,3,.6),u=vec3(1.2,0,0),v=vec3(0,0,.06);
         vec3 view=normalize(vec3(.1,1,2)),normal=vec3(0,1,0),radiance=vec3(10,4,2),f0=vec3(.04,.04,.04);

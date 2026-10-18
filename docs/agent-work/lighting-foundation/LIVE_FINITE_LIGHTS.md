@@ -148,7 +148,9 @@ binaries or extracted assets are included in source commits.
 
 ## Remaining parity targets
 
-Next recover and compare the captured shadow generation, projection and filtering.
+The captured distance-moment filter is now independently matched; see
+[SHADOW_MOMENTS.md](SHADOW_MOMENTS.md). Next integrate it with engine-owned targets,
+compatible radial shadow projection/receivers and qualified texel addressing.
 The reproduced two-moment visibility function alone does not make the live
 depth-PCF shadows equivalent. Material decoding, other emitter permutations,
 reflection transport, indirect probes, fog transport, exposure and display each

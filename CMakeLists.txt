@@ -679,6 +679,28 @@ if (PHLOSION_BUILD_TESTS)
         DEPENDS "${_finite_fixture}/fixture.comp" "${_finite_fixture}/fixture.glsl"
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_finite_light.glsl")
     target_sources(PhlosionFiniteLightTests PRIVATE "${_finite_spv}")
+    add_executable(PhlosionShadowMomentTests tests/TestShadowMoments.cpp)
+    target_link_libraries(PhlosionShadowMomentTests PRIVATE SDL2::SDL2 glad::glad Vulkan::Vulkan)
+    if(WIN32)
+        target_link_libraries(PhlosionShadowMomentTests PRIVATE d3d12 d3dcompiler)
+    endif()
+    phlosion_apply_settings(PhlosionShadowMomentTests)
+    set(_moment_fixture "${CMAKE_CURRENT_SOURCE_DIR}/tests/shadow_moments")
+    set(_moment_spv "${CMAKE_CURRENT_BINARY_DIR}/generated/shadow_moments.comp.spv")
+    target_compile_definitions(PhlosionShadowMomentTests PRIVATE
+        PHLOSION_MOMENT_CORE="${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_shadow_moments.glsl"
+        PHLOSION_FINITE_CORE="${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_finite_light.glsl"
+        PHLOSION_MOMENT_FIXTURE="${_moment_fixture}/fixture.glsl"
+        PHLOSION_MOMENT_SPV="${_moment_spv}")
+    add_custom_command(OUTPUT "${_moment_spv}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        COMMAND "${PHLOSION_GLSLANG_VALIDATOR}" -V --target-env vulkan1.1
+            "-I${PHLOSION_VULKAN_SHADER_SOURCE_DIR}" "-I${_moment_fixture}"
+            -o "${_moment_spv}" "${_moment_fixture}/fixture.comp"
+        DEPENDS "${_moment_fixture}/fixture.comp" "${_moment_fixture}/fixture.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_shadow_moments.glsl"
+            "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_finite_light.glsl")
+    target_sources(PhlosionShadowMomentTests PRIVATE "${_moment_spv}")
     target_link_libraries(PhlosionModelInstanceTests PRIVATE Phlosion::Models)
     phlosion_apply_settings(PhlosionModelInstanceTests)
     add_test(NAME PhlosionModelInstance COMMAND PhlosionModelInstanceTests)
@@ -1075,6 +1097,8 @@ if (PHLOSION_BUILD_TESTS)
     foreach(api IN LISTS _feedback_test_apis)
         add_test(NAME PhlosionFiniteLight-${api} COMMAND PhlosionFiniteLightTests ${api})
         set_tests_properties(PhlosionFiniteLight-${api} PROPERTIES RUN_SERIAL TRUE TIMEOUT 60)
+        add_test(NAME PhlosionShadowMoments-${api} COMMAND PhlosionShadowMomentTests ${api})
+        set_tests_properties(PhlosionShadowMoments-${api} PROPERTIES RUN_SERIAL TRUE TIMEOUT 60)
         if(TARGET PhlosionLocalHazeTests)
             foreach(mode on off zero-density source-off sky back blocked foreground blue both odd edge
                          reduced-on reduced-off reduced-zero-density reduced-source-off reduced-sky
