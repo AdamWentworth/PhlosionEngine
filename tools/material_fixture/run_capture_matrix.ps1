@@ -14,7 +14,7 @@ param(
     [string]$Configuration = 'Debug',
     [string]$ArtifactsRoot = 'artifacts/m1-j/matrix',
     [string]$RunId = (Get-Date -Format 'yyyyMMdd-HHmmss'),
-    [string[]]$Apis = @('opengl', 'vulkan', 'd3d12'),
+    [string[]]$Apis = @(& (Join-Path $PSScriptRoot "../Get-ProjectRenderers.ps1")),
     [string[]]$Hosts = @('runtime', 'editor'),
     [int]$RuntimeScreenshotFrame = 4,
     [int]$EditorScreenshotFrame = 6,

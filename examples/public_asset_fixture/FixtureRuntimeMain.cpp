@@ -1,3 +1,5 @@
+#include "engine/render/RendererPolicy.h"
+#include "engine/render/LegacyOpenGL.h"
 // Standalone public fixture host: creates a hidden native window, activates the
 // synthetic archive through PhlosionArchiveSession and presents the decoded
 // snapshot through the selected native renderer.
@@ -29,7 +31,7 @@ using engine::fixture::FixtureCase;
 using engine::fixture::FixtureSession;
 
 struct Arguments {
-    std::string api = "opengl";
+    std::string api = "auto";
     std::string fixtureCaseName = "a-frame0";
     std::string handshakePath;
     int width = 640;
@@ -170,7 +172,7 @@ Graphics createGraphics(const Arguments& arguments) {
     if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(SDL_GL_GetProcAddress))) {
         throw std::runtime_error("Failed to initialize GLAD for the fixture runtime.");
     }
-    graphics.renderer = std::make_unique<OpenGLRenderBackend>();
+    graphics.renderer = engine::render::createLegacyOpenGLBackend();
     return graphics;
 }
 
@@ -178,7 +180,8 @@ Graphics createGraphics(const Arguments& arguments) {
 
 int main(int argc, char** argv) {
     try {
-        const Arguments arguments = parseArguments(argc, argv);
+        Arguments arguments = parseArguments(argc, argv);
+        arguments.api = engine::render::rendererCandidates(engine::render::defaultRendererPolicy(), arguments.api).front();
         const std::optional<FixtureCase> fixtureCase =
             engine::fixture::parseFixtureCase(arguments.fixtureCaseName);
         if (!fixtureCase) {

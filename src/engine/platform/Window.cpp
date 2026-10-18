@@ -17,6 +17,10 @@ Window::Window(const std::string& title,
                bool visible)
     : graphicsApi(graphicsApi_)
     , vsyncEnabled(vsyncEnabled_) {
+#if !PHLOSION_ENABLE_OPENGL
+    if (graphicsApi == GraphicsApi::OpenGL)
+        throw std::runtime_error("OpenGL is disabled in this engine build (PHLOSION_ENABLE_OPENGL=OFF)");
+#endif
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         const std::string msg = std::string("SDL_Init failed: ") + SDL_GetError();
         std::cerr << msg << "\n";

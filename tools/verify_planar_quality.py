@@ -1,6 +1,7 @@
 """Check the native emissive-sign reflection oracle after PhlosionPlanarReflection CTests."""
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -40,9 +41,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('captures', type=Path)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--apis', nargs='+', choices=('d3d12', 'vulkan', 'opengl'),
+                        default=['d3d12', 'vulkan'] if sys.platform == 'win32' else ['vulkan'])
     args = parser.parse_args()
+    if len(args.apis) != len(set(args.apis)):
+        parser.error('--apis must not contain duplicates')
     report, images = {}, {}
-    for api in ('opengl', 'vulkan', 'd3d12'):
+    for api in args.apis:
         images[api] = {mode: np.asarray(Image.open(args.captures/f'{api}-{mode}.png').convert('RGB'), dtype=float)
                        for mode in ('emissive', 'emissive-rough', 'emissive-off')}
         clear, rough, off = (images[api][mode] for mode in ('emissive', 'emissive-rough', 'emissive-off'))
@@ -57,13 +62,14 @@ def main():
         # Main sign is unchanged; only the receiver roughness differs.
         assert np.array_equal(clear[:160], rough[:160]), (api, 'receiver changed main sign')
         report[api] = {'clear_edge_10_90_px': widths[0], 'rough_edge_10_90_px': widths[1]}
-    for api in ('opengl', 'vulkan'):
+    reference = args.apis[0]
+    for api in args.apis[1:]:
         for mode in images[api]:
-            mae = float(np.abs(images[api][mode]-images['d3d12'][mode]).mean())
+            mae = float(np.abs(images[api][mode]-images[reference][mode]).mean())
             assert mae < 1, (api, mode, 'native reflection mismatch', mae)
             report[api][mode+'_mae_255'] = mae
     args.output.write_text(json.dumps(report, indent=2)+'\n')
-    print('PASS emissive texture, source-off, roughness edge spread, unchanged sign and three-API parity')
+    print('PASS emissive texture, source-off, roughness edge spread, unchanged sign and API parity:', ', '.join(args.apis))
 
 
 if __name__ == '__main__':

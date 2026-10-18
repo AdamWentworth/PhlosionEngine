@@ -1,3 +1,4 @@
+#include "engine/render/LegacyOpenGL.h"
 #define SDL_MAIN_HANDLED
 #include "engine/platform/Window.h"
 #include "engine/render/OpenGLRenderBackend.h"
@@ -83,7 +84,7 @@ int main(int argc,char** argv) {
         std::unique_ptr<IRenderBackend> renderer;
         if(api=="opengl") {
             if(!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(SDL_GL_GetProcAddress)))throw std::runtime_error("GL loader");
-            renderer=std::make_unique<OpenGLRenderBackend>();renderer->onResize(SW,SH);
+            renderer=engine::render::createLegacyOpenGLBackend();renderer->onResize(SW,SH);
         } else if(api=="vulkan")renderer=std::make_unique<VulkanRenderBackend>(window.getSDLWindow(),SW,SH,false);
         else if(api=="d3d12")renderer=std::make_unique<D3D12RenderBackend>(window.getSDLWindow(),SW,SH,false);
         else throw std::runtime_error("Unknown renderer");

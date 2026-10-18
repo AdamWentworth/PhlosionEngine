@@ -41,9 +41,9 @@ bool test_editor_renderer_preference_contract(
     if (resolveEditorRendererPreference(
             EditorRendererPreference::Auto,
             EditorHostPlatform::MacOS) !=
-        EditorRendererPreference::OpenGL) {
+        EditorRendererPreference::Auto) {
         outFail =
-            "macOS Auto did not retain the compatibility backend";
+            "Unqualified platforms must not implicitly select OpenGL";
         return false;
     }
     return true;

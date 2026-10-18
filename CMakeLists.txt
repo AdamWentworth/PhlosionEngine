@@ -25,6 +25,7 @@ if (DEFINED ENV{CI} AND NOT "$ENV{CI}" STREQUAL "" AND NOT "$ENV{CI}" STREQUAL "
 endif()
 
 option(PHLOSION_BUILD_TESTS "Build Phlosion Engine contract tests" ${_phlosion_tests_default})
+option(PHLOSION_ENABLE_OPENGL "Build the shelved OpenGL backend and legacy GPU checks" OFF)
 option(PHLOSION_BUILD_GPU_TESTS "Build contract tests requiring a working native GPU" OFF)
 option(PHLOSION_BUILD_EDITOR "Build the native Phlosion Editor and UI framework" ${_phlosion_editor_default})
 option(PHLOSION_ENABLE_WARNINGS "Enable compiler warnings for engine sources" ON)
@@ -51,7 +52,9 @@ option(PHLOSION_OPTIMIZE_D3D12_SHADERS_IN_DEBUG
 
 find_package(SDL2 CONFIG REQUIRED)
 find_package(SDL2_ttf CONFIG REQUIRED)
-find_package(OpenGL REQUIRED)
+if (PHLOSION_ENABLE_OPENGL)
+    find_package(OpenGL REQUIRED)
+endif()
 find_package(glad CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(Jolt CONFIG REQUIRED)
@@ -266,6 +269,7 @@ phlosion_apply_settings(engine_narrative)
 add_library(Phlosion::Narrative ALIAS engine_narrative)
 
 add_library(engine_core STATIC
+    src/engine/render/RendererPolicy.cpp
     src/engine/core/SystemRegistry.cpp
     src/engine/core/StdoutLogger.cpp
     src/engine/core/EventBus.cpp
@@ -286,6 +290,7 @@ target_link_libraries(engine_core
         nlohmann_json::nlohmann_json
         Threads::Threads
 )
+target_compile_definitions(engine_core PUBLIC PHLOSION_ENABLE_OPENGL=$<BOOL:${PHLOSION_ENABLE_OPENGL}>)
 phlosion_apply_settings(engine_core)
 
 add_library(engine_image_codecs STATIC
@@ -310,6 +315,10 @@ phlosion_apply_settings(engine_models_core)
 add_library(Phlosion::ModelsCore ALIAS engine_models_core)
 
 if (PHLOSION_BUILD_TESTS)
+    add_executable(PhlosionRendererPolicyTests tests/TestRendererPolicy.cpp)
+    target_link_libraries(PhlosionRendererPolicyTests PRIVATE engine_core)
+    phlosion_apply_settings(PhlosionRendererPolicyTests)
+    add_test(NAME PhlosionRendererPolicy COMMAND PhlosionRendererPolicyTests)
     add_executable(PhlosionModelsCoreTests tests/TestModelsCore.cpp)
     target_link_libraries(PhlosionModelsCoreTests PRIVATE Phlosion::ModelsCore)
     phlosion_apply_settings(PhlosionModelsCoreTests)
@@ -352,6 +361,7 @@ target_link_libraries(engine_platform
         ${PHLOSION_SDL2_TTF_TARGET}
         glm::glm
 )
+target_compile_definitions(engine_platform PUBLIC PHLOSION_ENABLE_OPENGL=$<BOOL:${PHLOSION_ENABLE_OPENGL}>)
 phlosion_apply_settings(engine_platform)
 
 add_library(engine_sdl_replay STATIC src/engine/input/SdlInputReplay.cpp)
@@ -375,19 +385,6 @@ add_library(engine_render STATIC
     src/engine/render/d3d12/D3D12RenderBackendSceneColor.cpp
     src/engine/render/d3d12/D3D12RenderBackendDirectionalShadow.cpp
     src/engine/render/d3d12/D3D12TextureUpload.cpp
-    src/engine/render/OpenGLRenderBackend.cpp
-    src/engine/render/opengl/OpenGLPixelPresenter.cpp
-    src/engine/render/opengl/OpenGLRenderBackendDebugDraw.cpp
-    src/engine/render/opengl/OpenGLRenderBackendPipelines.cpp
-    src/engine/render/opengl/OpenGLRenderBackendShaderUtils.cpp
-    src/engine/render/opengl/OpenGLRenderBackendTextures.cpp
-    src/engine/render/opengl/OpenGLRenderBackendWorldPipeline.cpp
-    src/engine/render/opengl/OpenGLRenderBackendWorldDraw.cpp
-    src/engine/render/opengl/OpenGLRenderBackendWorldBatchSubmission.cpp
-    src/engine/render/opengl/OpenGLRenderBackendSceneColor.cpp
-    src/engine/render/opengl/OpenGLRenderBackendDirectionalShadow.cpp
-    src/engine/render/opengl/OpenGLRenderBackendWorldCachedMesh.cpp
-    src/engine/render/opengl/OpenGLRenderBackendWorldPrewarm.cpp
     src/engine/render/VulkanRenderBackend.cpp
     src/engine/render/vulkan/VulkanRenderBackendLifecycle.cpp
     src/engine/render/vulkan/VulkanRenderBackendSceneColor.cpp
@@ -430,7 +427,6 @@ add_library(engine_render STATIC
     src/engine/render/gltf/ModelFastGltfTextures.cpp
     src/engine/render/gltf/GltfSceneAsset.cpp
     src/engine/render/gltf/GltfSceneSession.cpp
-    src/engine/render/opengl/OpenGLRenderBackendResourceScopes.cpp
     src/engine/render/vulkan/VulkanRenderBackendResourceScopes.cpp
     src/engine/render/d3d12/D3D12RenderBackendResourceScopes.cpp
     src/engine/render/gltf/GltfSceneRenderer.cpp
@@ -444,13 +440,31 @@ add_library(engine_render STATIC
     src/engine/utils/LogSink.cpp
     src/engine/vfx/ParticleSystem.cpp
 )
+if (PHLOSION_ENABLE_OPENGL)
+    target_sources(engine_render PRIVATE
+        src/engine/render/OpenGLRenderBackend.cpp
+        src/engine/render/opengl/OpenGLPixelPresenter.cpp
+        src/engine/render/opengl/OpenGLRenderBackendDebugDraw.cpp
+        src/engine/render/opengl/OpenGLRenderBackendPipelines.cpp
+        src/engine/render/opengl/OpenGLRenderBackendShaderUtils.cpp
+        src/engine/render/opengl/OpenGLRenderBackendTextures.cpp
+        src/engine/render/opengl/OpenGLRenderBackendWorldPipeline.cpp
+        src/engine/render/opengl/OpenGLRenderBackendWorldDraw.cpp
+        src/engine/render/opengl/OpenGLRenderBackendWorldBatchSubmission.cpp
+        src/engine/render/opengl/OpenGLRenderBackendSceneColor.cpp
+        src/engine/render/opengl/OpenGLRenderBackendDirectionalShadow.cpp
+        src/engine/render/opengl/OpenGLRenderBackendWorldCachedMesh.cpp
+        src/engine/render/opengl/OpenGLRenderBackendWorldPrewarm.cpp
+        src/engine/render/opengl/OpenGLRenderBackendResourceScopes.cpp
+    )
+    target_link_libraries(engine_render PUBLIC OpenGL::GL)
+endif()
 target_link_libraries(engine_render
     PUBLIC
         engine_core
         engine_models_core
         engine_platform
         SDL2::SDL2
-        OpenGL::GL
         Vulkan::Vulkan
         glad::glad
         glm::glm
@@ -511,7 +525,6 @@ if (PHLOSION_BUILD_EDITOR)
     add_library(engine_editor STATIC
         src/engine/editor/D3D12EditorRenderSurface.cpp
         src/engine/editor/EditorShell.cpp
-        src/engine/editor/OpenGLEditorRenderSurface.cpp
         src/engine/editor/VulkanEditorRenderSurface.cpp
     )
     target_link_libraries(engine_editor
@@ -521,6 +534,9 @@ if (PHLOSION_BUILD_EDITOR)
         PRIVATE
             imgui::imgui
     )
+    if (PHLOSION_ENABLE_OPENGL)
+        target_sources(engine_editor PRIVATE src/engine/editor/OpenGLEditorRenderSurface.cpp)
+    endif()
     phlosion_apply_settings(engine_editor)
     add_library(Phlosion::Editor ALIAS engine_editor)
 
@@ -531,7 +547,6 @@ if (PHLOSION_BUILD_EDITOR)
         PRIVATE
             engine_editor
             engine_sdl_replay
-            OpenGL::GL
             glad::glad
             glm::glm
     )
@@ -667,7 +682,7 @@ if (PHLOSION_BUILD_TESTS)
     phlosion_apply_settings(PhlosionRectLightTests)
     add_test(NAME PhlosionRectLights COMMAND PhlosionRectLightTests)
     add_executable(PhlosionFiniteLightTests tests/TestFiniteLight.cpp)
-    target_link_libraries(PhlosionFiniteLightTests PRIVATE SDL2::SDL2 glad::glad Vulkan::Vulkan)
+    target_link_libraries(PhlosionFiniteLightTests PRIVATE engine_core SDL2::SDL2 glad::glad Vulkan::Vulkan)
     if(WIN32)
         target_link_libraries(PhlosionFiniteLightTests PRIVATE d3d12 d3dcompiler)
     endif()
@@ -687,7 +702,7 @@ if (PHLOSION_BUILD_TESTS)
             "${PHLOSION_VULKAN_SHADER_SOURCE_DIR}/world_finite_light.glsl")
     target_sources(PhlosionFiniteLightTests PRIVATE "${_finite_spv}")
     add_executable(PhlosionShadowMomentTests tests/TestShadowMoments.cpp)
-    target_link_libraries(PhlosionShadowMomentTests PRIVATE SDL2::SDL2 glad::glad Vulkan::Vulkan)
+    target_link_libraries(PhlosionShadowMomentTests PRIVATE engine_core SDL2::SDL2 glad::glad Vulkan::Vulkan)
     if(WIN32)
         target_link_libraries(PhlosionShadowMomentTests PRIVATE d3d12 d3dcompiler)
     endif()
@@ -1097,7 +1112,10 @@ if (PHLOSION_BUILD_TESTS)
     add_executable(PhlosionSceneRadianceTests tests/TestSceneRadiance.cpp)
     target_link_libraries(PhlosionSceneRadianceTests PRIVATE Phlosion::Render Phlosion::Platform)
     phlosion_apply_settings(PhlosionSceneRadianceTests)
-    set(_feedback_test_apis opengl vulkan)
+    set(_feedback_test_apis vulkan)
+    if (PHLOSION_ENABLE_OPENGL)
+        list(APPEND _feedback_test_apis opengl)
+    endif()
     if(WIN32)
         list(APPEND _feedback_test_apis d3d12)
     endif()
@@ -1144,7 +1162,7 @@ if (PHLOSION_BUILD_TESTS)
     add_test(NAME PhlosionAudioMixerContracts COMMAND PhlosionAudioMixerTests)
     set_tests_properties(PhlosionAudioMixerContracts PROPERTIES TIMEOUT 120)
 
-    if (PHLOSION_BUILD_GPU_TESTS)
+    if (PHLOSION_BUILD_GPU_TESTS AND PHLOSION_ENABLE_OPENGL)
         add_executable(PhlosionPixelPresenterTests tests/TestOpenGLPixelPresenter.cpp)
         target_link_libraries(PhlosionPixelPresenterTests PRIVATE Phlosion::Render Phlosion::Platform)
         phlosion_apply_settings(PhlosionPixelPresenterTests)

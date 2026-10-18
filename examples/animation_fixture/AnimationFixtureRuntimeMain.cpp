@@ -1,3 +1,5 @@
+#include "engine/render/RendererPolicy.h"
+#include "engine/render/LegacyOpenGL.h"
 // Standalone animation fixture host: creates a hidden native window, selects
 // the requested backend without fallback, presents the bind pose and then the
 // requested case's pose through the same geometry and palette storage.
@@ -32,7 +34,7 @@ using engine::animation_fixture::FixturePose;
 constexpr int kBindFrames = 2;
 
 struct Arguments {
-    std::string api = "opengl";
+    std::string api = "auto";
     std::string caseName = "bind";
     std::string handshakePath;
     int width = 640;
@@ -185,7 +187,7 @@ Graphics createGraphics(const Arguments& arguments) {
         throw std::runtime_error(
             "Failed to initialize GLAD for the animation fixture runtime.");
     }
-    graphics.renderer = std::make_unique<OpenGLRenderBackend>();
+    graphics.renderer = engine::render::createLegacyOpenGLBackend();
     return graphics;
 }
 
@@ -193,7 +195,8 @@ Graphics createGraphics(const Arguments& arguments) {
 
 int main(int argc, char** argv) {
     try {
-        const Arguments arguments = parseArguments(argc, argv);
+        Arguments arguments = parseArguments(argc, argv);
+        arguments.api = engine::render::rendererCandidates(engine::render::defaultRendererPolicy(), arguments.api).front();
         const std::optional<FixtureCase> parsedCase =
             engine::animation_fixture::parseFixtureCase(arguments.caseName);
         if (!parsedCase) {

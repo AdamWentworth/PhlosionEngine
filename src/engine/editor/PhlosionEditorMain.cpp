@@ -1,3 +1,5 @@
+#include "engine/render/RendererPolicy.h"
+#include "engine/render/LegacyOpenGL.h"
 #define SDL_MAIN_HANDLED
 
 #include "engine/assets/phlosion/PhlosionResourceContainer.h"
@@ -405,6 +407,9 @@ Arguments parseArguments(int argc, char** argv) {
                     parseEditorRendererPreference(
                         argument.substr(
                             rendererPrefix.size()));
+            if (*result.rendererPreference == engine::editor::EditorRendererPreference::Auto &&
+                argument.substr(rendererPrefix.size()) != "auto")
+                throw std::runtime_error("Unknown renderer: " + argument.substr(rendererPrefix.size()));
         } else if (
             argument.rfind(stateDirectoryPrefix, 0u) == 0u) {
             result.stateDirectory =
@@ -546,7 +551,7 @@ struct EditorGraphics {
 };
 
 EditorGraphics createEditorGraphics(
-    engine::editor::EditorRendererPreference requested,
+    const std::vector<std::string>& candidates,
     bool visible,
     bool vsyncEnabled) {
     using engine::editor::EditorRendererPreference;
@@ -628,32 +633,26 @@ EditorGraphics createEditorGraphics(
                     "Failed to initialize GLAD.");
             }
             graphics.renderer =
-                std::make_unique<
-                    OpenGLRenderBackend>();
+                engine::render::createLegacyOpenGLBackend();
             graphics.activePreference =
                 EditorRendererPreference::OpenGL;
             return graphics;
         };
 
-    try {
-        return create(requested);
-    } catch (const std::exception& exception) {
-        if (requested ==
-            EditorRendererPreference::OpenGL) {
-            throw;
+    std::string failures;
+    for (const auto& candidate : candidates) {
+        try {
+            auto graphics = create(engine::editor::parseEditorRendererPreference(candidate));
+            graphics.fallbackReason = failures;
+            if (!failures.empty()) std::cerr << "[Phlosion Editor][Renderer] " << failures
+                << "; using enrolled renderer " << candidate << '\n';
+            return graphics;
+        } catch (const std::exception& error) {
+            if (!failures.empty()) failures += "; ";
+            failures += candidate + ": " + error.what();
         }
-        EditorGraphics fallback =
-            create(EditorRendererPreference::OpenGL);
-        fallback.fallbackReason =
-            std::string(
-                "Requested editor renderer failed (") +
-            exception.what() +
-            "); using OpenGL compatibility mode.";
-        std::cerr
-            << "[Phlosion Editor][Renderer] "
-            << fallback.fallbackReason << '\n';
-        return fallback;
     }
+    throw std::runtime_error("No requested/enrolled editor renderer could start: " + failures);
 }
 
 std::unique_ptr<engine::editor::EditorRenderSurface>
@@ -701,8 +700,11 @@ createEditorRenderSurface(
             engine::editor::
                 VulkanEditorRenderSurface>(*vulkan);
     }
-    return std::make_unique<
-        engine::editor::OpenGLEditorRenderSurface>();
+#if PHLOSION_ENABLE_OPENGL
+    return std::make_unique<engine::editor::OpenGLEditorRenderSurface>();
+#else
+    throw std::runtime_error("No editor surface for this renderer; OpenGL is disabled");
+#endif
 }
 
 std::filesystem::path normalizeDescriptorPath(
@@ -1592,6 +1594,7 @@ struct LoadedProject {
         }
     }
 
+    std::vector<std::string> rendererBackends;
     engine::editor::ProjectDescriptor descriptor;
     std::filesystem::path descriptorPath;
     std::filesystem::path root;
@@ -2717,6 +2720,14 @@ std::unique_ptr<LoadedProject> loadProjectRuntime(
             &outError)) {
         return nullptr;
     }
+    try {
+        const auto rendererPolicy = engine::render::loadRendererPolicy(loaded->descriptorPath);
+        loaded->rendererBackends = engine::render::availableRenderers(rendererPolicy);
+        (void)engine::render::rendererCandidates(rendererPolicy, renderer.backendId());
+    } catch (const std::exception& error) {
+        outError = std::string(error.what()) + ". Restart the editor with this project's preferred renderer.";
+        return nullptr;
+    }
     if (!sceneOverride.empty()) loaded->descriptor.startupSceneId = sceneOverride;
     if (!engine::editor::resolveStartupScenePath(
             loaded->descriptorPath,
@@ -3676,21 +3687,22 @@ int main(int argc, char** argv) {
                 : std::filesystem::absolute(
                       arguments.stateDirectory)
                       .lexically_normal();
-        const auto rendererPreference =
-            arguments.rendererPreference.value_or(
-                loadRendererPreference(
-                    stateDirectory));
-        const auto resolvedRendererPreference =
-            engine::editor::
-                resolveEditorRendererPreference(
-                    rendererPreference,
-                    engine::editor::
-                        currentEditorHostPlatform());
-        EditorGraphics graphics =
-            createEditorGraphics(
-                resolvedRendererPreference,
-                !arguments.hidden,
-                !arguments.hidden);
+        const auto policy = arguments.project.empty()
+            ? engine::render::defaultRendererPolicy()
+            : engine::render::loadRendererPolicy(normalizeDescriptorPath(arguments.project));
+        auto rendererPreference = arguments.rendererPreference.value_or(loadRendererPreference(stateDirectory));
+        if (!arguments.rendererPreference) {
+            const auto saved = engine::editor::editorRendererPreferenceName(rendererPreference);
+            const auto available = engine::render::availableRenderers(policy);
+            if (saved != std::string_view("auto") && std::find(available.begin(), available.end(), saved) == available.end()) {
+                std::cerr << "[Renderer] Saved preference " << saved << " is not enrolled; using project Auto.\n";
+                rendererPreference = engine::editor::EditorRendererPreference::Auto;
+                saveRendererPreference(stateDirectory, rendererPreference);
+            }
+        }
+        const auto candidates = engine::render::rendererCandidates(policy,
+            engine::editor::editorRendererPreferenceName(rendererPreference));
+        EditorGraphics graphics = createEditorGraphics(candidates, !arguments.hidden, !arguments.hidden);
         Window& window = *graphics.window;
         IRenderBackend& renderer =
             *graphics.renderer;
@@ -4678,6 +4690,7 @@ int main(int argc, char** argv) {
                     project->sceneViews[
                         project->activeSceneIndex];
                 const engine::editor::WorkspaceView workspace{
+                    .rendererBackends = &project->rendererBackends,
                     .projectName =
                         project->descriptor.displayName,
                     .projectId =

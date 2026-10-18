@@ -17,7 +17,7 @@ Do not infer every target's flags from the top-level option alone.
 The build includes the native editor, plugin probe and Vulkan shader programs.
 It does not fetch a game, private assets or optional package repositories.
 The default CTest suite needs no graphics context. Explicitly enabling
-`PHLOSION_BUILD_GPU_TESTS=ON` adds the hidden-window OpenGL pixel presenter
+`PHLOSION_BUILD_GPU_TESTS=ON` together with `PHLOSION_ENABLE_OPENGL=ON` adds the legacy hidden-window OpenGL pixel presenter
 contract described in [pixel presentation](PIXEL_PRESENTATION.md); run this
 separately on a qualified graphics machine. Hosted source CI keeps it disabled.
 
@@ -180,8 +180,9 @@ separate native matrix below supplies bounded GPU evidence.
 
 ## Native rendering and editor changes
 
-OpenGL, Vulkan and Direct3D 12 are equal supported targets. Renderer or visual
-editor work requires all affected surfaces on all three native APIs, including
+[Project enrollment](RENDERER_POLICY.md) defines supported targets. OpenGL is
+shelved by default. Renderer or visual editor work requires all affected surfaces
+on every enrolled native API for the qualified host, including
 expected-content checks at matching scene/simulation frames. Startup logs and
 source contracts alone cannot prove visual correctness.
 

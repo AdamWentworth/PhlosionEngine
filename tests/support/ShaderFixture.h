@@ -30,6 +30,9 @@ inline std::string read(const char* path) {
     return {std::istreambuf_iterator<char>(file),{}};
 }
 inline Output opengl(const std::string& source) {
+#if !PHLOSION_ENABLE_OPENGL
+    throw std::runtime_error("OpenGL shader fixtures require the opt-in legacy build");
+#endif
     SDL_SetMainReady();check(SDL_Init(SDL_INIT_VIDEO)==0,SDL_GetError());
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,4);SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,SDL_GL_CONTEXT_PROFILE_CORE);

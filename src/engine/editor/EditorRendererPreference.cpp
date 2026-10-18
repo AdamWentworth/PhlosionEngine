@@ -59,7 +59,7 @@ EditorRendererPreference resolveEditorRendererPreference(
         case EditorHostPlatform::MacOS:
         case EditorHostPlatform::Other:
         default:
-            return EditorRendererPreference::OpenGL;
+            return EditorRendererPreference::Auto;
     }
 }
 

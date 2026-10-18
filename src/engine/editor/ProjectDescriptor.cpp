@@ -1,3 +1,4 @@
+#include "engine/render/RendererPolicy.h"
 #include "engine/editor/ProjectDescriptor.h"
 
 #include <algorithm>
@@ -101,6 +102,7 @@ bool parseProjectDescriptor(
     std::string* outError) {
     try {
         const nlohmann::json root = nlohmann::json::parse(jsonText);
+        (void)engine::render::parseRendererPolicy(jsonText);
         ProjectDescriptor parsed;
         parsed.schemaVersion = root.at("schema_version").get<std::uint32_t>();
         parsed.projectId = root.at("project_id").get<std::string>();

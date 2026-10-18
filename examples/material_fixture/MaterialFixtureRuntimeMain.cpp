@@ -1,3 +1,5 @@
+#include "engine/render/RendererPolicy.h"
+#include "engine/render/LegacyOpenGL.h"
 // Standalone material fixture host: creates a hidden native window, selects the
 // requested backend without fallback, loads the authored glTF through the
 // production loader and the existing CPU decode helpers, and presents the
@@ -30,7 +32,7 @@ using engine::material_fixture::FixtureCase;
 using engine::material_fixture::FixtureTextureSet;
 
 struct Arguments {
-    std::string api = "opengl";
+    std::string api = "auto";
     std::string caseName = "authored-maps";
     std::string handshakePath;
     int width = 640;
@@ -181,7 +183,7 @@ Graphics createGraphics(const Arguments& arguments) {
         throw std::runtime_error(
             "Failed to initialize GLAD for the material fixture runtime.");
     }
-    graphics.renderer = std::make_unique<OpenGLRenderBackend>();
+    graphics.renderer = engine::render::createLegacyOpenGLBackend();
     return graphics;
 }
 
@@ -189,7 +191,8 @@ Graphics createGraphics(const Arguments& arguments) {
 
 int main(int argc, char** argv) {
     try {
-        const Arguments arguments = parseArguments(argc, argv);
+        Arguments arguments = parseArguments(argc, argv);
+        arguments.api = engine::render::rendererCandidates(engine::render::defaultRendererPolicy(), arguments.api).front();
         const std::optional<FixtureCase> parsedCase =
             engine::material_fixture::parseFixtureCase(arguments.caseName);
         if (!parsedCase) {

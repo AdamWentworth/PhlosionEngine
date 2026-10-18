@@ -259,6 +259,7 @@ struct WorkspacePlayConfiguration {
 };
 
 struct WorkspaceView {
+    const std::vector<std::string>* rendererBackends = nullptr;
     std::string_view projectName;
     std::string_view projectId;
     std::string_view projectRoot;

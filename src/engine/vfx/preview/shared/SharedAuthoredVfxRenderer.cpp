@@ -1,3 +1,4 @@
+#include "engine/render/LegacyOpenGL.h"
 #include "engine/vfx/preview/shared/SharedAuthoredVfxRenderer.h"
 
 #include <algorithm>
@@ -709,7 +710,7 @@ IRenderBackend* SharedAuthoredVfxRenderer::activeBackend() {
     }
     if (!fallbackBackend_) {
         fallbackBackend_ =
-            std::make_unique<OpenGLRenderBackend>();
+            engine::render::createLegacyOpenGLBackend();
         fallbackBackend_->onResize(
             surfaceWidth_,
             surfaceHeight_);

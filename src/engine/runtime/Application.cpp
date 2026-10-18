@@ -1,3 +1,4 @@
+#include "engine/render/LegacyOpenGL.h"
 // src/engine/runtime/Application.cpp
 
 #include "engine/runtime/Application.h"
@@ -159,7 +160,7 @@ bool Application::initApplication() {
     swapBuffers();
     pumpPreloadEvents();
 
-    renderer = std::make_unique<OpenGLRenderBackend>();
+    renderer = engine::render::createLegacyOpenGLBackend();
     renderer->onResize(drawableW, drawableH);
     camera   = std::make_unique<Camera3D>(45.0f, float(drawableW) / float(drawableH), 0.1f, 100.0f);
 

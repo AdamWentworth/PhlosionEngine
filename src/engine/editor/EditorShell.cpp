@@ -1,3 +1,4 @@
+#include "engine/render/RendererPolicy.h"
 #if defined(_WIN32) && !defined(NOMINMAX)
 #define NOMINMAX
 #endif
@@ -640,7 +641,8 @@ void drawPreferencesWindow(
     bool& open,
     EditorRendererPreference& pending,
     EditorRendererPreference current,
-    EditorShellActions& actions) {
+    EditorShellActions& actions,
+    const std::vector<std::string>* projectRenderers = nullptr) {
     if (!open) {
         return;
     }
@@ -660,6 +662,8 @@ void drawPreferencesWindow(
         "Select the graphics API used by the editor shell and all embedded render surfaces.");
     ImGui::Spacing();
 
+    const auto renderers = projectRenderers ? *projectRenderers
+        : engine::render::availableRenderers(engine::render::defaultRendererPolicy());
     if (ImGui::BeginCombo(
             "Rendering API",
             rendererPreferenceLabel(pending))) {
@@ -676,15 +680,11 @@ void drawPreferencesWindow(
                 }
             };
         option(EditorRendererPreference::Auto);
-#if defined(_WIN32)
-        option(EditorRendererPreference::D3D12);
-#endif
-        option(EditorRendererPreference::Vulkan);
-        option(EditorRendererPreference::OpenGL);
+        for (const auto& name : renderers) option(parseEditorRendererPreference(name));
         ImGui::EndCombo();
     }
     ImGui::TextDisabled(
-        "The preference is stored locally for this editor installation.");
+        "Only renderers enrolled by this project and enabled in this build are listed.");
     ImGui::TextColored(
         ImVec4(1.0f, 0.75f, 0.25f, 1.0f),
         "Applying a different API restarts the editor and restores the open project.");
@@ -4180,7 +4180,7 @@ EditorShellActions EditorShell::drawWorkspace(
         impl_->preferencesOpen,
         impl_->pendingRendererPreference,
         workspace.rendererPreference,
-        actions);
+        actions, workspace.rendererBackends);
     return actions;
 }
 

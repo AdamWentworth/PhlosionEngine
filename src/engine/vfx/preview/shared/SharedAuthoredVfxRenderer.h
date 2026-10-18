@@ -63,7 +63,7 @@ private:
     IRenderBackend* activeBackend();
 
     IRenderBackend* externalBackend_ = nullptr;
-    std::unique_ptr<OpenGLRenderBackend> fallbackBackend_;
+    std::unique_ptr<IRenderBackend> fallbackBackend_;
     int surfaceWidth_ = 1;
     int surfaceHeight_ = 1;
     std::unordered_map<std::string, BackendMeshCacheEntry> backendMeshByModelPath_;

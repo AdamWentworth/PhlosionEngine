@@ -1,3 +1,4 @@
+#include "engine/render/LegacyOpenGL.h"
 #define SDL_MAIN_HANDLED
 #include "engine/platform/Window.h"
 #include "engine/render/OpenGLRenderBackend.h"
@@ -90,7 +91,7 @@ int main(int argc,char** argv) try {
         api=="vulkan"?Window::GraphicsApi::Vulkan:Window::GraphicsApi::Native,false,false);
     std::unique_ptr<IRenderBackend> renderer;
     if(api=="opengl") {check(gladLoadGLLoader(reinterpret_cast<GLADloadproc>(SDL_GL_GetProcAddress))!=0,"GL loader");
-        renderer=std::make_unique<OpenGLRenderBackend>();renderer->onResize(width,height);}
+        renderer=engine::render::createLegacyOpenGLBackend();renderer->onResize(width,height);}
     else if(api=="vulkan") renderer=std::make_unique<VulkanRenderBackend>(window.getSDLWindow(),width,height,false);
     else if(api=="d3d12") renderer=std::make_unique<D3D12RenderBackend>(window.getSDLWindow(),width,height,false);
     else throw std::runtime_error("Unknown API");

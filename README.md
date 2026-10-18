@@ -23,7 +23,7 @@
   <a href="https://cmake.org/"><img src="https://img.shields.io/badge/CMake-Build-064F8C?logo=cmake&amp;logoColor=white" alt="CMake build"></a>
   <a href="https://vcpkg.io/"><img src="https://img.shields.io/badge/vcpkg-Dependencies-5C2D91" alt="vcpkg dependencies"></a>
   <br>
-  <a href="https://www.opengl.org/"><img src="https://img.shields.io/badge/OpenGL-Native-5586A4?logo=opengl&amp;logoColor=white" alt="Native OpenGL"></a>
+  <a href="https://www.opengl.org/"><img src="https://img.shields.io/badge/OpenGL-Legacy-5586A4?logo=opengl&amp;logoColor=white" alt="Legacy OpenGL"></a>
   <a href="https://www.vulkan.org/"><img src="https://img.shields.io/badge/Vulkan-Native-AC162C?logo=vulkan&amp;logoColor=white" alt="Native Vulkan"></a>
   <a href="https://learn.microsoft.com/en-us/windows/win32/direct3d12/direct3d-12-graphics"><img src="https://img.shields.io/badge/Direct3D-12-107C10" alt="Native Direct3D 12"></a>
 </p>
@@ -63,7 +63,7 @@ engine content. [Capture provenance](docs/SHOWCASE_MEDIA.md).*
 
 ## What the Engine Provides
 
-- **Three native renderers:** OpenGL, Vulkan and Direct3D 12, with shared
+- **Active native renderers:** Vulkan and Direct3D 12 (plus opt-in legacy OpenGL), with shared
   presentation contracts, standard PBR, model animation, textures and particles.
 - **A native editor:** Dear ImGui docking, project browsing, hierarchy and
   Inspector panels, asset previews, transform tools and embedded Scene/Game views.
@@ -195,7 +195,7 @@ cover resources/scenes, material profiles, editor descriptors and ABI, preview
 routing, reload, camera behavior and semantic boundaries.
 
 Hosted CI does not establish GPU visual parity. Rendering changes still require
-matching native OpenGL, Vulkan and Direct3D 12 captures, meaningful content
+matching captures on the project-enrolled native APIs, meaningful content
 checks, and affected editor previews on the local GPU workstation. See
 [verification scope and evidence](docs/VERIFICATION.md).
 
