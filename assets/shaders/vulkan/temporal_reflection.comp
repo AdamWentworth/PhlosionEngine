@@ -1,0 +1,41 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_control_flow_attributes : require
+layout(local_size_x=8,local_size_y=8) in;
+layout(set=0,binding=15) uniform Params {vec4 rows[16];} parameters;
+#define RP(i) parameters.rows[i]
+layout(set=0,binding=0) uniform sampler2D t0;
+layout(set=0,binding=1) uniform sampler2D t1;
+layout(set=0,binding=2) uniform sampler2D t2;
+layout(set=0,binding=3) uniform sampler2D t3;
+layout(set=0,binding=4) uniform sampler2D t4;
+layout(set=0,binding=5) uniform sampler2D t5;
+layout(set=0,binding=6) uniform sampler2D t6;
+layout(set=0,binding=7) uniform sampler2D t7;
+layout(set=0,binding=8) uniform sampler2D t8;
+layout(set=0,binding=9) uniform sampler2D t9;
+layout(set=0,binding=10) uniform sampler2D t10;
+layout(set=0,binding=11) uniform sampler2D t11;
+#define DEPTH_LOAD(p) texelFetch(t0,p,0).r
+#define NORMAL_LOAD(p) texelFetch(t1,p,0)
+#define MATERIAL_LOAD(p) texelFetch(t11,p,0)
+#define MOTION_SAMPLE(p) textureLod(t2,p,0)
+#define INVALID_SAMPLE(p) textureLod(t3,p,0).z
+#define TRACE_DEPTH(p) texelFetch(t4,p,0).r
+#define NOISE_LOAD(p) texelFetch(t10,p,0)
+#define FEEDBACK0(p) textureLod(t5,p,0).rgb
+#define FEEDBACK1(p) textureLod(t6,p,0).rgb
+#define FEEDBACK2(p) textureLod(t7,p,0).rgb
+#define FEEDBACK3(p) textureLod(t8,p,0).rgb
+#define FEEDBACK4(p) textureLod(t9,p,0).rgb
+layout(set=0,binding=12,r11f_g11f_b10f) uniform writeonly image2D out0;
+#define STORE_RADIANCE(p,v) imageStore(out0,p,vec4(v,0))
+layout(set=0,binding=13,r8) uniform writeonly image2D out1;
+#define STORE_CONFIDENCE(p,v) imageStore(out1,p,vec4(v))
+layout(set=0,binding=14,r16) uniform writeonly image2D out2;
+#define STORE_DEPTH(p,v) imageStore(out2,p,vec4(v))
+#define REVERSE_BITS(i) bitfieldReverse(i)
+#define SSR_LOOP [[dont_unroll]]
+#define SSR_UNROLL [[unroll]]
+#include "temporal_reflection_common.glsl"
+void main(){temporalReflection(ivec2(gl_GlobalInvocationID.xy));}

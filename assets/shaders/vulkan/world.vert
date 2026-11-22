@@ -1,5 +1,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
+#include "world_wind_vertex.glsl"
+#include "world_foliage_geometry.glsl"
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec2 inUv;
@@ -12,6 +14,7 @@ layout(location = 7) in vec2 inSourceUv1;
 layout(location = 8) in vec2 inSourceUv2;
 
 layout(set = 0, binding = 1) uniform sampler2D normalTexture;
+layout(set = 0, binding = 5) uniform sampler2D environmentTexture;
 
 layout(set = 1, binding = 1) uniform WorldSpecializedMaterialState {
     vec4 timingFlagsAtlas;
@@ -50,15 +53,40 @@ layout(location = 5) out vec3 vertexGenerated;
 layout(location = 6) out vec2 vertexSourceUv1;
 layout(location = 7) out vec2 vertexSourceUv2;
 
+
+struct VertexTransform {mat4 modelMatrix;vec4 vertexColorMultiplier;vec4 skinningParams;vec4 instanceParams;};
+struct VertexPush {mat4 viewProjection;vec4 materialParams;vec4 shadingParams;vec4 pbrFactors;vec4 emissiveAndCamera;};
+struct VertexMaterial {vec4 timingFlagsAtlas;vec4 rect0;vec4 rect1;vec4 flipbook0;vec4 flipbook1;};
+#ifdef PHLOSION_MOTION_VERTEX
+layout(location=8) out vec4 motionCurrentClip;
+layout(location=9) out vec4 motionPreviousClip;
+layout(location=10) flat out uint motionObjectId;
+layout(location=11) flat out uint motionHistoryValid;
+int motionPacket=0;
+int motionPositionPacket=0;
+int motionPaletteMatrixBase=0;
+bool motionExternalPalette=false;
+bool motionPrevious=false;
+mat4 motionMatrix(int offset) {
+    int k=motionPacket+offset;
+    return mat4(worldInstances.words[k],worldInstances.words[k+1],worldInstances.words[k+2],worldInstances.words[k+3]);
+}
+#endif
+mat4 vertexSkinMatrix(int index) {
+#ifdef PHLOSION_MOTION_VERTEX
+    if(motionPrevious)return motionExternalPalette?worldSkin.matrices[motionPaletteMatrixBase+index]:motionMatrix(16+index*4);
+#endif
+    return worldSkin.matrices[index];
+}
+
 mat4 loadSkinMatrix(
     int jointIndex,
     int matrixCount,
     int baseMatrixIndex,
     float skinningMode) {
-    mat4 primary = worldSkin.matrices[baseMatrixIndex + jointIndex];
+    mat4 primary = vertexSkinMatrix(baseMatrixIndex + jointIndex);
     if (skinningMode > 0.5) {
-        mat4 secondary = worldSkin.matrices[
-            baseMatrixIndex + matrixCount + jointIndex];
+        mat4 secondary = vertexSkinMatrix(baseMatrixIndex + matrixCount + jointIndex);
         return primary * secondary;
     }
     return primary;
@@ -88,7 +116,27 @@ vec3 applySkinning(vec3 localValue, float homogeneousW, vec4 skinningParams) {
     return blended.xyz;
 }
 
-void main() {
+void evaluateVertex(bool previous) {
+    VertexTransform evaluatedTransform=VertexTransform(worldTransform.modelMatrix,worldTransform.vertexColorMultiplier,
+        worldTransform.skinningParams,worldTransform.instanceParams);
+    VertexPush evaluatedPush=VertexPush(pushData.viewProjection,pushData.materialParams,pushData.shadingParams,
+        pushData.pbrFactors,pushData.emissiveAndCamera);
+    VertexMaterial evaluatedMaterial=VertexMaterial(worldSpecializedMaterial.timingFlagsAtlas,
+        worldSpecializedMaterial.rect0,worldSpecializedMaterial.rect1,worldSpecializedMaterial.flipbook0,worldSpecializedMaterial.flipbook1);
+#ifdef PHLOSION_MOTION_VERTEX
+    motionPrevious=previous;
+    if(previous) {
+        evaluatedTransform.modelMatrix=motionMatrix(0);
+        evaluatedPush.viewProjection=motionMatrix(8);
+        evaluatedMaterial.timingFlagsAtlas=worldInstances.words[motionPacket+12];
+        evaluatedMaterial.rect0=worldInstances.words[motionPacket+13];
+        evaluatedMaterial.rect1=worldInstances.words[motionPacket+14];
+    }
+#endif
+#define worldTransform evaluatedTransform
+#define pushData evaluatedPush
+#define worldSpecializedMaterial evaluatedMaterial
+
     mat4 instanceModel = mat4(1.0);
     vec4 instanceColor = vec4(1.0);
     vec4 skinningParams = worldTransform.skinningParams;
@@ -107,7 +155,21 @@ void main() {
         }
     }
 
+#ifdef PHLOSION_MOTION_VERTEX
+    if(previous) {
+        instanceModel=motionMatrix(4);
+        vec4 meta=worldInstances.words[motionPacket+15];
+        skinningParams=vec4(meta.x>0?1:0,meta.y,meta.x,0);
+    }
+#endif
     vec3 localPosition = inPosition;
+#ifdef PHLOSION_MOTION_VERTEX
+    if(previous && motionPositionPacket>0) {
+        if(gl_VertexIndex<int(worldInstances.words[motionPositionPacket].x))
+            localPosition=worldInstances.words[motionPositionPacket+1+gl_VertexIndex].xyz;
+        else motionHistoryValid&=~1u;
+    }
+#endif
     vec3 localNormal = inNormal;
     vec3 localTangent = inTangent.xyz;
     float outlineExtrude = max(pushData.shadingParams.z, 0.0);
@@ -153,4 +215,38 @@ void main() {
         (inPosition - worldSpecializedMaterial.rect0.xyz) / generatedSpan,
         vec3(0.0),
         vec3(1.0));
+}
+
+#undef worldTransform
+#undef pushData
+#undef worldSpecializedMaterial
+void main() {
+#ifdef PHLOSION_MOTION_VERTEX
+    motionObjectId=0u;motionHistoryValid=0u;
+    vec4 oldClip=vec4(0);
+    bool enrolled=false;
+    if(worldTransform.instanceParams.w>.5) {
+        int base=int(worldTransform.instanceParams.z);
+        enrolled=gl_InstanceIndex<int(worldInstances.words[base].x);
+        if(enrolled) {
+            vec4 packetHeader=worldInstances.words[base+1+gl_InstanceIndex];
+            motionPacket=base+int(packetHeader.x);
+            motionPositionPacket=packetHeader.w>0.?base+int(packetHeader.w):0;
+            motionPaletteMatrixBase=int(packetHeader.y)/4;motionExternalPalette=packetHeader.z>.5;
+            vec4 meta=worldInstances.words[motionPacket+15];
+            uint high=uint(meta.w);
+            motionHistoryValid=high>>16;
+            motionObjectId=uint(meta.z)|((high&65535u)<<16);
+            evaluateVertex(true);oldClip=gl_Position;
+            if(worldFoliageDepthProxy)oldClip.z=worldFoliageOriginalClipZ;
+        }
+    }
+    evaluateVertex(false);
+    vec4 currentClip=gl_Position;
+    if(worldFoliageDepthProxy)currentClip.z=worldFoliageOriginalClipZ;
+    motionCurrentClip=vec4(currentClip.x,-currentClip.y,2*currentClip.z-currentClip.w,currentClip.w);
+    motionPreviousClip=enrolled?vec4(oldClip.x,-oldClip.y,2*oldClip.z-oldClip.w,oldClip.w):motionCurrentClip;
+#else
+    evaluateVertex(false);
+#endif
 }

@@ -191,7 +191,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
 
             vec3 albedo = clamp(linearColor, 0.0, 1.0);
 #include "material/opengl_surface_parameters.glsl"
-            environmentWetMaterial(vWorldPos, n, albedo, roughness, dielectricSpecular);
+            environmentWetMaterial(vWorldPos, n, albedo, roughness, dielectricSpecular, metallic, n);
             vec3 F0 = mix(vec3(dielectricSpecular), albedo, metallic);
             vec3 diffuseColor = albedo * (1.0 - metallic);
             const float specularF90 = 1.0;
@@ -214,7 +214,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 l0 = ENV_SUN.w > 0.5 ? environmentLightDirection() : safeNormalize(lightPos - uCameraTarget, vec3(0.45, 0.86, 0.24));
             vec3 direct = evalDirectPbr(
                 n, v, l0, directColor * directIntensity, albedo, F0, roughness, metallic);
-            direct += environmentLocalPbr(vWorldPos, n, v, albedo, F0, roughness, metallic);
+            direct += environmentLocalPbr(vWorldPos, n, v, albedo, F0, roughness, metallic, ao);
 
             float NdotV = max(dot(n, v), 0.0);
             vec3 F = fresnelSchlickRoughness(NdotV, F0, roughness);
@@ -227,6 +227,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 singleScattering = vec3(0.0);
             vec3 multiScattering = vec3(0.0);
             computeMultiscattering(n, v, F0, specularF90, roughness, singleScattering, multiScattering);
+            environmentIndirectScattering(n, v, F0, roughness, singleScattering, multiScattering);
+            envRadiance = worldPlanarRadiance(envRadiance, vWorldPos, n, v, roughness);
+            vec3 indirectOcclusion = environmentDiffuseOcclusion(ao, albedo);
             vec3 cosineWeightedIrradiance = envIrradiance * (1.0 / 3.14159265);
             vec3 totalScattering = singleScattering + multiScattering;
             float energyComp = 1.0 - max(max(totalScattering.r, totalScattering.g), totalScattering.b);
@@ -234,14 +237,13 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 specularIBL = envRadiance * singleScattering + multiScattering * cosineWeightedIrradiance;
             diffuseIBL *= __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
             specularIBL *= __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-            specularIBL = worldPlanarSpecular(specularIBL, vWorldPos, n, v, F0, roughness);
 #include "material/opengl_surface_ibl.glsl"
-            diffuseIBL *= ao;
+            diffuseIBL *= indirectOcclusion;
             float specularOcclusion = computeSpecularOcclusion(NdotV, ao, roughness);
             specularIBL *= specularOcclusion;
             vec3 ibl = diffuseIBL + specularIBL;
 
-            vec3 ambientLight = kD * albedo * ambientColor * ambientIntensity;
+            vec3 ambientLight = kD * albedo * ambientColor * ambientIntensity * (ENV_SUN.w > 0.5 ? indirectOcclusion : vec3(1.0,1.0,1.0));
             vec3 shaded = direct + ibl + ambientLight;
 
             vec3 emissiveTex = clamp(

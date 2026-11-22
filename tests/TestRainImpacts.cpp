@@ -188,7 +188,21 @@ int main() try {
         contacts[0].age=.1;contacts[0].normal={-.4f,1,0};contacts[0].water=0;
         const auto sloped=sampled.buildImpacts(e,{0,2,0},contacts,settings);bounds(sampled,sloped);
         for(const auto& v:sampled.impactVertices()) check(v.y-.4f*v.x>0,"Sampled contact penetrated slope");
-        e.rainIntensity=0;check(sampled.buildImpacts(e,{0,2,0},contacts,settings).impacts==0,"Sampled contacts in dry weather");
+        const auto alive=std::vector(sampled.impactVertices().begin(),sampled.impactVertices().end());
+        e.rainIntensity=0;const auto stopped=sampled.buildImpacts(e,{0,2,0},contacts,settings);
+        check(stopped.impacts==sloped.impacts && stopped.queries==0 && sampled.impactVertices().size()==alive.size(),
+            "Stopping emission erased living sampled contacts");
+        for(std::size_t i=0;i<alive.size();++i) {
+            const auto& v=sampled.impactVertices()[i];
+            check(v.x==alive[i].x&&v.y==alive[i].y&&v.z==alive[i].z&&v.a==alive[i].a,
+                "Current rain intensity changed a living contact");
+        }
+        contacts[0].age=.7;
+        check(sampled.buildImpacts(e,{0,2,0},contacts,settings).impacts==0,"Dry sampled contact outlived its lifetime");
+        contacts[0].age=.1;e.enabled=false;
+        check(sampled.buildImpacts(e,{0,2,0},contacts,settings).impacts==0,"Disabled environment retained sampled contacts");
+        e.enabled=true;
+        check(sampled.buildImpacts(e,{0,2,0},{},settings).impacts==0,"Empty emission synthesized sampled contacts");
         bool rejected=false;try {sampled.buildImpacts(e,{0,2,0},std::vector<RainImpact>(82),settings);}catch(const std::runtime_error&){rejected=true;}
         check(rejected,"Unbounded sampled contacts accepted");
         e.rainIntensity=1;contacts[0].strength=std::numeric_limits<float>::quiet_NaN();rejected=false;

@@ -69,14 +69,14 @@ void VulkanRenderBackendImpl::drawDebugSprites(
 
     VkCommandBuffer commandBuffer = frames[currentFrame].commandBuffer;
     setViewportAndScissor(commandBuffer, surfaceWidth, surfaceHeight);
-    bindGraphicsPipeline(commandBuffer, spritePipeline);
+    bindGraphicsPipeline(commandBuffer, worldSceneColorPassActive ? sceneSpritePipeline : spritePipeline);
     DebugPushConstants push{};
     push.surfaceWidth = static_cast<float>(std::max(1, surfaceWidth));
     push.surfaceHeight = static_cast<float>(std::max(1, surfaceHeight));
     vkCmdPushConstants(
-        commandBuffer,
+        worldRecordingCommand(commandBuffer),
         texturedPipelineLayout,
-        VK_SHADER_STAGE_VERTEX_BIT,
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
         0u,
         sizeof(push),
         &push);
@@ -85,7 +85,7 @@ void VulkanRenderBackendImpl::drawDebugSprites(
     for (const SpriteDrawRun& run : runs) {
         bindTextureDescriptorSet(commandBuffer, run.descriptorSet);
         vkCmdDraw(
-            commandBuffer,
+            worldRecordingCommand(commandBuffer),
             6u,
             run.instanceCount,
             0u,

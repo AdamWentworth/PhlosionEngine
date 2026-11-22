@@ -72,13 +72,31 @@ An optional `when` object names a texture-data `source` and exclusive
 `greater_than`/`less_than` bounds. The loader validates member offsets and finite
 parameters. Evaluation uses current draw data, including the current camera.
 
+Optional `vulkan_pipeline_warmup` entries contain unsigned `mode` and `variant`
+values. `mode` is 0-255; `variant` is the ordinary direct pipeline index:
+0/1 opaque, 2/3 alpha, 4/5 additive, 6/7 premultiplied alpha, or 12/13
+premultiplied additive. Even indices test depth; odd indices do not.
+Dual-source indices 8-11 are excluded. Up to 256 unique pairs are admitted.
+Both display and HDR scene pipelines are prepared through the joined startup
+queue, selected only for matching ordinary draws, and released with the profile.
+Shadow, surface, reflection, indirect and other specialized passes keep their
+own pipelines. Unlisted ordinary draws retain their existing pipeline.
+
+This plan specializes the direct fragment's signed-int constant ID 3,
+`worldFixedMaterialMode` (default -1 means the draw's supplied mode).
+The composition helper exposes `WORLD_MATERIAL_MODE` throughout the expanded
+direct fragment evaluation; compile the profile against the current engine
+templates when adding the plan. Descriptor/vertex layouts, material arithmetic,
+blend/depth policy and temporal reactive output stay unchanged. The manifest
+owns the selected modes; the engine does not embed game rain IDs.
+
 Pass the loaded profile to a backend before pipeline creation.
 `setWorldMaterialProfile` replaces pipelines between frames; `{}` restores the
 defaults. Profiles are owned copies, contain no plugin callbacks, and remain
 valid after a plugin DLL unloads. The editor's `world_material_profile` descriptor
 selects the project profile. Closing a project restores defaults; failed project
 activation restores the previous profile. Reopen after rebuilding edited shader
-artifacts. Editor and plugin must share ABI 37.
+artifacts. Editor and plugin must share the current engine ABI.
 
 The editor labels lighting preset 4 `Authored Stage`; its interpretation belongs
 to the profile. The CLI accepts `authored-stage` and retains older spelling aliases

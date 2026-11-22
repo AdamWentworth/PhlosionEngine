@@ -1,6 +1,10 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
+#if defined(_WIN32)
+#include <dxgiformat.h>
+#endif
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -10,8 +14,15 @@
 #include "engine/render/IRenderBackend.h"
 
 namespace engine::render::d3d12_internal {
-inline constexpr std::size_t kDiffuseProbePacketStride=7936u; // 483 vec4, aligned to 256
-inline constexpr std::size_t kDiffuseProbePacketsPerFrame=64u;
+#if defined(_WIN32)
+inline constexpr std::array<DXGI_FORMAT,6> kWorldSurfaceFormats{
+    DXGI_FORMAT_R10G10B10A2_UNORM, DXGI_FORMAT_R10G10B10A2_UNORM,
+    DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R11G11B10_FLOAT,
+    DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R32G32_UINT};
+#endif
+inline constexpr std::size_t kDiffuseProbePacketStride=12544u; // diffuse probes, contact and screen reflection, aligned to 256
+// Prepared probes use 60 filter views, followed by contact/screen and final views.
+inline constexpr std::size_t kDiffuseProbePacketsPerFrame=96u;
 
 using DebugVertex = engine::render::debug::Vertex2D;
 
@@ -140,13 +151,13 @@ inline float sanitizeWrapMode(int wrapMode) {
     return static_cast<float>(kGlRepeat);
 }
 
-// b0 contains 40 transform floats, nineteen environment vectors, a camera vector,
-// eight point-light vectors and the directional shadow. One CBV costs two DWORDs.
-inline constexpr std::size_t kWorldViewConstantFloats = 816u;
-inline constexpr std::size_t kWorldMaterialConstantOffset = 3328u;
-inline constexpr std::size_t kWorldOutlineConstantOffset = 3584u;
-inline constexpr std::size_t kWorldViewConstantStride = 3840u;
-static_assert(kWorldViewConstantFloats*sizeof(float) <= kWorldViewConstantStride);
+// b0 contains object transforms and skin metadata; b4 owns shared view/light data.
+// Object, material and outline allocations use separate aligned regions.
+inline constexpr std::size_t kWorldViewConstantFloats = 40u;
+inline constexpr std::size_t kWorldMaterialConstantOffset = 256u;
+inline constexpr std::size_t kWorldOutlineConstantOffset = 512u;
+inline constexpr std::size_t kWorldViewConstantStride = 256u;
+static_assert(kWorldViewConstantFloats*sizeof(float) <= kWorldMaterialConstantOffset);
 
 struct WorldPsConstants {
     float useTexture = 0.0f;
@@ -199,10 +210,11 @@ struct WorldPsConstants {
         1.0f, 0.0f, 0.0f, 0.0f};
     std::array<float, 4> lightProjectionUvRowV{
         0.0f, 1.0f, 0.0f, 0.0f};
+    std::array<std::uint32_t,4> layered{};
 };
 
 static_assert(
-    sizeof(WorldPsConstants) == 56u * sizeof(float),
+    sizeof(WorldPsConstants) == 60u * sizeof(float),
     "D3D12 material constants must match the shader CBV layout.");
 
 inline WorldPsConstants makeWorldPsConstants(
@@ -224,6 +236,7 @@ inline WorldPsConstants makeWorldPsConstants(
     constants.vertexColorMulG = textureData->vertexColorMulG;
     constants.vertexColorMulB = textureData->vertexColorMulB;
     constants.vertexColorMulA = textureData->vertexColorMulA;
+    constants.layered[0]=textureData->layeredMaterialIndex;
     constants.materialMode = static_cast<float>(textureData->materialMode);
     constants.materialTimeSec = textureData->materialTimeSec;
     constants.materialFlags = textureData->materialFlags;
@@ -278,7 +291,7 @@ inline WorldPsConstants makeWorldPsConstants(
         textureData->lightProjectionUvRowV;
     // Engine view passes carry dimensions/inverse projection here, not PBR
     // material factors. Project profiles must not repack their constants.
-    if (textureData->materialMode == 247 || textureData->materialMode == 248) return constants;
+    if (textureData->materialMode == 239 || textureData->materialMode == 246 || textureData->materialMode == 247 || textureData->materialMode == 248) return constants;
     if (textureData->materialMode >= 2u &&
         (!profile || profile->modes[textureData->materialMode].pbrPacking)) {
         const bool hasNormal =
@@ -292,7 +305,7 @@ inline WorldPsConstants makeWorldPsConstants(
         const bool hasEmissive =
             textureData->emissiveRgba && textureData->emissiveWidth > 0 && textureData->emissiveHeight > 0;
 
-        std::uint32_t pbrFlags = 0u;
+        std::uint32_t pbrFlags = static_cast<std::uint32_t>(textureData->materialFlags) & 4096u; // retain contact suppression
         if (hasNormal) pbrFlags |= 1u << 0;             // useNormalTexture
         if (hasMetallicRoughness) pbrFlags |= 1u << 1;  // useMetallicRoughnessTexture
         if (hasOcclusion) pbrFlags |= 1u << 2;          // useOcclusionTexture

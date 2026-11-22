@@ -13,7 +13,7 @@ class Camera3D;
 
 namespace engine::editor {
 
-inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 39u;
+inline constexpr std::uint32_t kEditorProjectPluginAbiVersion = 65u;
 inline constexpr char kEditorProjectPluginContractSymbol[] =
     "phlosionEditorProjectPluginContract";
 inline constexpr char kEditorProjectPluginAbiSymbol[] =
@@ -408,6 +408,9 @@ public:
     virtual void prewarm(
         IRenderBackend& renderer,
         const EditorProjectCameraContext& camera) = 0;
+    // Called between native frames, after input and before beginFrame. Projects
+    // may resize quality-dependent resources here; no GPU recording is active.
+    virtual void prepareFrame(IRenderBackend&) {}
     virtual void update(float simulationSeconds) = 0;
     virtual void render(
         const EditorProjectRenderContext& context) = 0;

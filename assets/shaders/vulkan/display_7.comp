@@ -1,0 +1,68 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#define DISPLAY_STAGE 7
+#if DISPLAY_STAGE == 1
+layout(local_size_x=256) in;
+#else
+layout(local_size_x=8,local_size_y=8) in;
+#endif
+layout(push_constant) uniform Params {vec4 a,b,c,d,e,f,g,h;} params;
+#define p0 params.a
+#define p1 params.b
+#define p2 params.c
+#define p3 params.d
+#define p4 params.e
+#define p5 params.f
+#define p6 params.g
+#define p7 params.h
+layout(set=0,binding=0) uniform sampler2D s0;
+layout(set=0,binding=1) uniform sampler2D s1;
+layout(set=0,binding=2) uniform sampler2D s2;
+layout(set=0,binding=3) uniform sampler2D s3;
+layout(set=0,binding=4) uniform sampler2D s4;
+layout(set=0,binding=5) uniform sampler2D s5;
+layout(set=0,binding=6) uniform sampler2D s6;
+layout(set=0,binding=7) uniform sampler2D s7;
+
+#if DISPLAY_STAGE == 1 || DISPLAY_STAGE == 2 || DISPLAY_STAGE == 8
+layout(set=0,binding=10,rgba32f) uniform writeonly image2D outputColor;
+#elif DISPLAY_STAGE >= 3 && DISPLAY_STAGE <= 5
+layout(set=0,binding=10,r11f_g11f_b10f) uniform writeonly image2D outputColor;
+#else
+layout(set=0,binding=10,rgba16f) uniform writeonly image2D outputColor;
+#endif
+#define SHARED shared
+#define SYNC barrier()
+#define ATOMIC(v,n) atomicAdd(v,n)
+#define ATAN2(y,x) atan(y,x)
+#define FLOAT_BITS(v) floatBitsToUint(v)
+#define BITS_FLOAT(v) uintBitsToFloat(v)
+#define STORE(q,v) imageStore(outputColor,q,v)
+#define LOAD0(q) texelFetch(s0,q,0)
+#define SAMPLE0(q) textureLod(s0,q,0)
+#define LOAD1(q) texelFetch(s1,q,0)
+#define SAMPLE1(q) textureLod(s1,q,0)
+#define LOAD2(q) texelFetch(s2,q,0)
+#define SAMPLE2(q) textureLod(s2,q,0)
+#define LOAD3(q) texelFetch(s3,q,0)
+#define SAMPLE3(q) textureLod(s3,q,0)
+#define LOAD4(q) texelFetch(s4,q,0)
+#define SAMPLE4(q) textureLod(s4,q,0)
+#define LOAD5(q) texelFetch(s5,q,0)
+#define SAMPLE5(q) textureLod(s5,q,0)
+#define LOAD6(q) texelFetch(s6,q,0)
+#define SAMPLE6(q) textureLod(s6,q,0)
+#define LOAD7(q) texelFetch(s7,q,0)
+#define SAMPLE7(q) textureLod(s7,q,0)
+
+#if DISPLAY_STAGE == 6
+#include "display_aces.glsl"
+#endif
+#include "display_common.glsl"
+void main(){
+#if DISPLAY_STAGE == 1
+displayHistogram(gl_LocalInvocationIndex,gl_WorkGroupID.x);
+#else
+displayStage(ivec2(gl_GlobalInvocationID.xy));
+#endif
+}

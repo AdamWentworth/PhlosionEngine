@@ -1,3 +1,4 @@
+#include "engine/render/VulkanRenderBackend.h"
 #include "engine/render/vulkan/VulkanRenderBackendInternal.h"
 
 #include <cstddef>
@@ -5,80 +6,17 @@
 #include <limits>
 #include <vector>
 
-namespace {
-
-std::uint64_t hashBytes(const void* data, std::size_t size) {
-    constexpr std::uint64_t kOffset = 14695981039346656037ull;
-    constexpr std::uint64_t kPrime = 1099511628211ull;
-    const auto* bytes = static_cast<const std::byte*>(data);
-    std::uint64_t hash = kOffset;
-    for (std::size_t i = 0u; i < size; ++i) {
-        hash ^= static_cast<std::uint64_t>(bytes[i]);
-        hash *= kPrime;
-    }
-    return hash;
-}
-
-} // namespace
-
 bool VulkanRenderBackendImpl::uploadWorldSkinPalette(
-    const float* matrices,
-    std::size_t floatCount,
-    std::uint32_t& outBaseMatrixIndex) {
-    outBaseMatrixIndex = 0u;
-    if (!frameActive || !matrices || floatCount == 0u ||
-        floatCount > static_cast<std::size_t>(
-            kTransientBytesPerFrame / sizeof(float))) {
-        return false;
-    }
-
-    const VkDeviceSize byteCount =
-        static_cast<VkDeviceSize>(floatCount * sizeof(float));
-    const std::uint64_t hash = hashBytes(
-        matrices,
-        static_cast<std::size_t>(byteCount));
-    const Buffer& transient = frames[currentFrame].transient;
-    for (const CachedSkinPalette& cached : frameSkinPalettes) {
-        if (cached.hash != hash || cached.size != byteCount ||
-            cached.offset > transient.size ||
-            cached.size > transient.size - cached.offset) {
-            continue;
-        }
-        const auto* cachedData =
-            static_cast<const std::byte*>(transient.mapped) + cached.offset;
-        if (std::memcmp(
-                cachedData,
-                matrices,
-                static_cast<std::size_t>(byteCount)) != 0) {
-            continue;
-        }
-        outBaseMatrixIndex = static_cast<std::uint32_t>(
-            cached.offset / (sizeof(float) * 16u));
-        frameSkinPaletteReuseBytes += byteCount;
-        ++frameSkinPaletteReuses;
-        return true;
-    }
-
-    VkBuffer skinBuffer = VK_NULL_HANDLE;
-    VkDeviceSize skinOffset = 0u;
-    if (!writeTransient(
-            matrices,
-            byteCount,
-            sizeof(float) * 16u,
-            skinBuffer,
-            skinOffset) ||
-        skinBuffer != transient.buffer) {
-        return false;
-    }
-    const VkDeviceSize baseMatrixIndex = skinOffset / (sizeof(float) * 16u);
-    if (baseMatrixIndex >
-        static_cast<VkDeviceSize>((std::numeric_limits<std::uint32_t>::max)())) {
-        return false;
-    }
-    frameSkinPalettes.push_back({hash, skinOffset, byteCount});
-    frameSkinPaletteUploadBytes += byteCount;
-    ++frameSkinPaletteUploads;
-    outBaseMatrixIndex = static_cast<std::uint32_t>(baseMatrixIndex);
+    const float* matrices,std::size_t floatCount,std::uint32_t& outBaseMatrixIndex,
+    engine::render::WorldDeformation version) {
+    outBaseMatrixIndex=0;
+    if(!frameActive || !matrices || !floatCount)return false;
+    const auto data=std::as_bytes(std::span(matrices,floatCount));
+    const auto result=frameSkinPalettes.resolve(data,std::move(version));
+    if(!result)return false;
+    outBaseMatrixIndex=static_cast<std::uint32_t>(result->value);
+    if(result->reused){++frameSkinPaletteReuses;frameSkinPaletteReuseBytes+=data.size();}
+    else {++frameSkinPaletteUploads;frameSkinPaletteUploadBytes+=data.size();}
     return true;
 }
 
@@ -109,7 +47,7 @@ bool VulkanRenderBackendImpl::prepareWorldInstances(
             !uploadWorldSkinPalette(
                 instances[i].skinMatrices,
                 floatCount,
-                skinMatrixBaseIndex)) {
+                skinMatrixBaseIndex,instances[i].deformation)) {
             return false;
         }
         instanceStates.push_back(
@@ -136,4 +74,30 @@ bool VulkanRenderBackendImpl::prepareWorldInstances(
     outInstanceCount = static_cast<std::uint32_t>(instanceCount);
     outInstanceBaseWordIndex = static_cast<std::uint32_t>(baseWordIndex);
     return true;
+}
+
+void VulkanRenderBackendImpl::prepareWorldDeformations(
+    std::span<const engine::render::WorldSkinPalette> palettes,bool commit) {
+    if(palettes.empty() && !commit)return;
+    if(!frameActive)throw std::logic_error("Deformation upload outside a frame");
+    const auto before=frameSkinPalettes.stats();
+    if(commit)frameSkinPalettes.commitBatch();
+    else frameSkinPalettes.prepare(palettes);
+    frameSkinPaletteUploads+=static_cast<std::uint32_t>(frameSkinPalettes.stats().preparedUploads-before.preparedUploads);
+    frameSkinPaletteUploadBytes+=frameSkinPalettes.stats().preparedBytes-before.preparedBytes;
+}
+void VulkanRenderBackend::beginWorldDeformationBatch() {
+    if(!impl_->frameActive)throw std::logic_error("Deformation admission outside a frame");
+    impl_->frameSkinPalettes.beginBatch();
+}
+void VulkanRenderBackend::cancelWorldDeformationBatch() noexcept {impl_->frameSkinPalettes.cancelBatch();}
+void VulkanRenderBackend::commitWorldDeformationBatch() {impl_->prepareWorldDeformations({},true);}
+void VulkanRenderBackend::prepareWorldDeformations(
+    std::span<const engine::render::WorldSkinPalette> palettes) {
+    impl_->prepareWorldDeformations(palettes);
+}
+
+engine::render::WorldDeformationPreparationStats VulkanRenderBackend::worldDeformationPreparationStats() const {
+    const auto& s=impl_->frameSkinPalettes.stats();
+    return {s.preparedUploads,s.preparedBytes,s.preparationJoins,s.uploads,s.uploadBytes};
 }

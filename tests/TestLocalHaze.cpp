@@ -25,9 +25,13 @@ constexpr std::array<std::uint32_t,6> indices{0,1,2,0,2,3};
 void cpu() {
     IRenderBackend::WorldTextureData pass;pass.materialMode=247;
     pass.materialRect0U=321;pass.materialRect0V=201;pass.materialRect0W=81;pass.materialRect0H=51;
-    const auto packed=engine::render::d3d12_internal::makeWorldPsConstants(&pass,1,2);
-    check(packed.materialRect0U==321&&packed.materialRect0V==201&&packed.materialRect0W==81&&packed.materialRect0H==51,
-        "D3D12 material packing overwrote haze viewport dimensions");
+    for(unsigned mode:{246u,247u,248u}) {
+        pass.materialMode=static_cast<std::uint8_t>(mode);
+        const auto packed=engine::render::d3d12_internal::makeWorldPsConstants(&pass,1,2);
+        check(packed.materialRect0U==321&&packed.materialRect0V==201&&packed.materialRect0W==81&&packed.materialRect0H==51,
+            "D3D12 material packing overwrote haze viewport dimensions");
+        check(isWorldLocalHazePass(&pass),"Haze mode lost reflected-view treatment");
+    }
     WorldEnvironmentLighting e;e.localHazeAlbedo=.9f;e.localHazeAnisotropy=.25f;
     check(packWorldEnvironment(e)==WorldEnvironmentUniforms{},"Disabled environment leaked haze");
     e.enabled=true;
@@ -76,7 +80,7 @@ int main(int argc,char** argv) try {
     check(argc==4,"Expected API, mode, output");const std::string api=argv[1];
     std::string mode=argv[2];const bool moments=mode.starts_with("moments-");if(moments)mode=mode.substr(8);
     const bool reduced=mode.starts_with("reduced-");if(reduced)mode=mode.substr(8);
-    check(mode=="on"||mode=="off"||mode=="zero-density"||mode=="source-off"||mode=="sky"||mode=="back"||mode=="blocked"||mode=="foreground"||mode=="blue"||mode=="both"||mode=="odd"||mode=="edge"||(reduced&&mode=="repeat"),"Unknown haze case");
+    check(mode=="flag-off"||mode=="channel-off"||mode=="receiver-off"||mode=="on"||mode=="off"||mode=="zero-density"||mode=="source-off"||mode=="sky"||mode=="back"||mode=="blocked"||mode=="foreground"||mode=="blue"||mode=="both"||mode=="odd"||mode=="edge"||(reduced&&(mode=="repeat"||mode=="resize")),"Unknown haze case");
     if(mode=="odd"){width=321;height=201;}
     SDL_SetMainReady();struct Quit{~Quit(){SDL_Quit();}} quit;
     std::filesystem::create_directories(std::filesystem::path(argv[3]).parent_path());std::filesystem::remove(argv[3]);
@@ -103,6 +107,9 @@ int main(int argc,char** argv) try {
     e.localHazeDeferred=reduced;
     e.localHazeAnisotropy=mode=="both"?.25f:mode=="blue"?-.25f:0.f;
     e.rectLights[0]={{0,3,0},8,{2,0,0},{0,0,.2f},{30,0,0}};
+    if(mode=="flag-off")e.rectLights[0].participation&=~WorldLightFog;
+    if(mode=="channel-off")e.rectLights[0].channels=0;
+    if(mode=="receiver-off"){e.rectLights[0].channels=1;e.lightChannels=2;}
     if(moments)e.rectLights[0].shadowFilter=WorldLocalShadowFilter::DistanceMoments;
     if(mode=="source-off") e.rectLights[0].radiance={};
     if(mode=="sky") {e.skyDraw=true;e.skyIntensity=0;e.sunAngularRadius=0;e.nightSkyRadiance={};}
@@ -122,8 +129,13 @@ int main(int argc,char** argv) try {
         t.environment=e;t.cameraPosX=t.cameraPosY=0;t.cameraPosZ=6;
         renderer->drawWorldIndexedMeshTextured(vertices.data(),4,indices.data(),6,&t,matrix,width,height);
     };
-    for(int frame=0;frame<4;++frame) {
+    for(int frame=0;frame<(mode=="resize"?12:4);++frame) {
         renderer->beginFrame(0,0,0,1);renderer->beginWorldSceneColorPass(width,height);hdr->setWorldSceneRadianceExposure(1);
+        if(reduced && api!="opengl") {
+            auto* haze=dynamic_cast<IWorldLocalHaze*>(renderer.get());
+            check(haze && haze->beginWorldLocalHazeComposition(width-(mode=="resize"?frame%7:0),height),"Native haze stencil unavailable");
+            haze->endWorldLocalHazeComposition();
+        }
         drawWorldRectShadows(*shadows,e,[&](const auto& view){if(mode=="blocked") draw(true,view.viewProjection.data());});
         draw(false,glm::value_ptr(vp));
         if(mode=="edge")draw(false,glm::value_ptr(vp),true);
@@ -143,7 +155,7 @@ int main(int argc,char** argv) try {
     }
     double rgb[3]{};for(int y=height/2-2;y<=height/2+2;++y)for(int x=width/2-2;x<=width/2+2;++x)
         for(int channel=0;channel<3;++channel) rgb[channel]+=pixels.get()[(y*width+x)*3+channel]/25.;
-    const bool active=mode=="on"||mode=="sky"||mode=="foreground"||mode=="blue"||mode=="both"||mode=="odd"||mode=="repeat";
+    const bool active=mode=="on"||mode=="sky"||mode=="foreground"||mode=="blue"||mode=="both"||mode=="odd"||mode=="repeat"||mode=="resize";
     const double radiance=active?reference(mode=="foreground"?5.9:mode=="sky"?-20:-4,e.localHazeAnisotropy)*(mode=="repeat"?2:1):0;
     const auto expected=display({mode=="blue"?0:radiance,0,mode=="blue"||mode=="both"?radiance:0});
     std::cout<<api<<' '<<mode<<" RGB "<<rgb[0]<<','<<rgb[1]<<','<<rgb[2]

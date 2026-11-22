@@ -8,6 +8,10 @@ using namespace engine::render;
 WorldResourceScopeId VulkanRenderBackend::createWorldResourceScope(std::uint64_t limit) {
     return impl_->worldScopes.create(limit);
 }
+bool VulkanRenderBackend::bindWorldResourceAssetGroup(WorldResourceScopeId child,
+    std::uint64_t identity,std::uint64_t limit) {
+    return impl_->worldScopes.bindAssetGroup(child,identity,limit);
+}
 bool VulkanRenderBackend::beginWorldResourceScope(WorldResourceScopeId id) {
     if (!impl_->worldScopes.begin(id)) return false;
     impl_->worldSceneMaterialDescriptorSets.clear();
@@ -15,13 +19,17 @@ bool VulkanRenderBackend::beginWorldResourceScope(WorldResourceScopeId id) {
     return true;
 }
 bool VulkanRenderBackend::endWorldResourceScope() {
+    // Scope close drops lookup caches, not frame-owned native resources.
+    if(!impl_->preparedWorldViews.inBatch()) impl_->flushWorldDrawPackets();
     const bool ended = impl_->worldScopes.end();
     impl_->worldSceneMaterialDescriptorSets.clear();
     impl_->worldSceneMaterials.clear();
     return ended;
 }
 bool VulkanRenderBackend::requestWorldResourceScopeRelease(WorldResourceScopeId id) {
-    return impl_->worldScopes.release(id);
+    const bool released=impl_->worldScopes.release(id);
+    if(released)impl_->releaseWorldIndirectScope(id);
+    return released;
 }
 bool VulkanRenderBackend::getWorldResourceScopeStats(WorldResourceScopeId id, WorldResourceScopeStats& out) const {
     return impl_->worldScopes.query(id, out);
@@ -41,6 +49,9 @@ bool VulkanRenderBackendImpl::collectWorldResourceScopes() {
     worldSceneMaterialDescriptorSets.clear();
     worldSceneMaterials.clear();
     resetWorldFrameStateCache();
+    preparedWorldMaterials.clear();
+    preparedWorldGeometry.clear();
+    retainedWorldMaterialBindings.clear();
     std::vector<VkDescriptorSet> retiredSets;
     for (const auto& [key, material] : worldMaterials) {
         (void)key;
@@ -78,6 +89,10 @@ bool VulkanRenderBackendImpl::collectWorldResourceScopes() {
             destroyTexture(it->second);
             it = worldTextures.erase(it);
         }
+        releaseWorldPrecipitation(id);
+        releaseWorldLayeredMaterials(id);releaseWorldClouds(id);releaseWorldWindField(id);
+        releaseWorldParticleLighting(id);
+        releaseWorldRainMaps(id);
         worldScopes.collect(id);
     }
     return true;

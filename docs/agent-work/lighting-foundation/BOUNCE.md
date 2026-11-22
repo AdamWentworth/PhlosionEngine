@@ -1,5 +1,8 @@
 # Static diffuse transport, live fixture colors
 
+Historical checkpoint. The replacement ordinary indirect pipeline and its current
+qualification status are tracked in [INDIRECT_COMPLETION.md](INDIRECT_COMPLETION.md).
+
 Functionally verified, 2026-10-17; performance limits are recorded below.
 This is a bounded single-bounce implementation, not
 a Cyberpunk shader port or a numerical parity claim. The retained retail capture

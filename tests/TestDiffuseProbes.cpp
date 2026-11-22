@@ -41,6 +41,10 @@ int main() try {
     const auto received=sampleDiffuseProbes(packet,{0,1,0},{0,-1,0});check(received.x>0,"Probe interpolation lost energy");
     check(sampleDiffuseProbes(packet,{100,1,0},{0,-1,0})==glm::vec3(0),"Probe escaped volume");
     auto off=light;off.radiance={};check(relightDiffuseProbes(transport,std::span(&off,1))==WorldDiffuseProbeUniforms{},"Lights off retained bounce");
+    auto excluded=light;excluded.affectsDiffuseProbes=false;
+    check(relightDiffuseProbes(transport,std::span(&excluded,1))==WorldDiffuseProbeUniforms{},"Diffuse transport participation ignored");
+    excluded=light;excluded.channels=0;
+    check(relightDiffuseProbes(transport,std::span(&excluded,1))==WorldDiffuseProbeUniforms{},"Source without channels retained bounce");
     auto red=light;red.radiance={4,0,0};auto blue=light;blue.radiance={0,2,1};
     const auto rp=relightDiffuseProbes(transport,std::span(&red,1)),bp=relightDiffuseProbes(transport,std::span(&blue,1));
     check(glm::length(sampleDiffuseProbes(rp,{0,1,0},{0,-1,0})+sampleDiffuseProbes(bp,{0,1,0},{0,-1,0})-received)<1e-5f,"Linear source additivity");

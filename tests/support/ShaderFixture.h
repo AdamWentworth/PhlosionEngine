@@ -7,6 +7,8 @@
 #include <glad/glad.h>
 #include <SDL.h>
 #include <vulkan/vulkan.h>
+#include "engine/render/GpuAdapterIdentity.h"
+#include "engine/render/DxgiAdapterSelection.h"
 #ifdef _WIN32
 #include <d3d12.h>
 #include <d3dcompiler.h>
@@ -31,8 +33,9 @@ inline std::string read(const char* path) {
 }
 inline Output opengl(const std::string& source) {
 #if !PHLOSION_ENABLE_OPENGL
+    (void)source;
     throw std::runtime_error("OpenGL shader fixtures require the opt-in legacy build");
-#endif
+#else
     SDL_SetMainReady();check(SDL_Init(SDL_INIT_VIDEO)==0,SDL_GetError());
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,4);SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,SDL_GL_CONTEXT_PROFILE_CORE);
@@ -55,6 +58,7 @@ void main() { uint i=gl_GlobalInvocationID.x;computeFixture(i,values[i*2u],value
     check(glGetError()==GL_NO_ERROR,"GL compute/readback error");
     glDeleteBuffers(1,&buffer);glDeleteProgram(program);glDeleteShader(shader);
     SDL_GL_DeleteContext(context);SDL_DestroyWindow(window);SDL_Quit();return result;
+#endif
 }
 inline void vkcheck(VkResult result) {check(result==VK_SUCCESS,"Vulkan failure "+std::to_string(result));}
 inline Output vulkan(const char* spirv) {
@@ -64,7 +68,16 @@ inline Output vulkan(const char* spirv) {
     uint32_t count=0;vkcheck(vkEnumeratePhysicalDevices(instance,&count,nullptr));check(count>0,"No Vulkan GPU");
     std::vector<VkPhysicalDevice> devices(count);vkcheck(vkEnumeratePhysicalDevices(instance,&count,devices.data()));
     VkPhysicalDevice physical{};uint32_t family=0;
+    const auto requested=engine::render::requestedGpuLuid();
     for(auto candidate:devices) {
+        if(requested) {
+            VkPhysicalDeviceIDProperties identity{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+            VkPhysicalDeviceProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};properties.pNext=&identity;
+            vkGetPhysicalDeviceProperties2(candidate,&properties);
+            std::uint64_t luid=0;std::memcpy(&luid,identity.deviceLUID,sizeof(luid));
+            if(!identity.deviceLUIDValid||luid!=*requested)continue;
+        }
+
         vkGetPhysicalDeviceQueueFamilyProperties(candidate,&count,nullptr);std::vector<VkQueueFamilyProperties> families(count);
         vkGetPhysicalDeviceQueueFamilyProperties(candidate,&count,families.data());
         for(uint32_t i=0;i<count;++i) if(families[i].queueFlags&VK_QUEUE_COMPUTE_BIT) {physical=candidate;family=i;break;}
@@ -115,13 +128,15 @@ inline Output vulkan(const char* spirv) {
 inline void hr(HRESULT result) {check(SUCCEEDED(result),"D3D12 failure "+std::to_string(result));}
 inline Output d3d12(const std::string& source) {
     using Microsoft::WRL::ComPtr;
-    const auto code=std::string("#define vec2 float2\n#define vec3 float3\n#define vec4 float4\n#define inversesqrt rsqrt\n#define floatBitsToUint asuint\n#define uintBitsToFloat asfloat\n#define FIXTURE_GLOBAL static\n")+source+R"(
+    const auto code=std::string("#define vec2 float2\n#define vec3 float3\n#define vec4 float4\n#define uvec2 uint2\n#define uvec3 uint3\n#define inversesqrt rsqrt\n#define mix lerp\n#define floatBitsToUint asuint\n#define uintBitsToFloat asfloat\n#define FIXTURE_GLOBAL static\n")+source+R"(
 RWStructuredBuffer<float4> values : register(u0);
 [numthreads(16,1,1)] void main(uint3 id:SV_DispatchThreadID) { uint i=id.x;computeFixture(i,values[i*2],values[i*2+1]); }
 )";
     ComPtr<ID3DBlob> shader,errors;auto compiled=D3DCompile(code.data(),code.size(),nullptr,nullptr,nullptr,"main","cs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&shader,&errors);
     check(SUCCEEDED(compiled),errors?std::string(static_cast<const char*>(errors->GetBufferPointer()),errors->GetBufferSize()):"D3DCompile failed");
-    ComPtr<ID3D12Device> device;hr(D3D12CreateDevice(nullptr,D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&device)));
+    ComPtr<IDXGIFactory1> factory;hr(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
+    const auto adapter=engine::render::dxgi::selectHardwareAdapter(factory.Get(),"");
+    ComPtr<ID3D12Device> device;hr(D3D12CreateDevice(adapter.adapter.Get(),D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&device)));
     D3D12_ROOT_PARAMETER parameter{};parameter.ParameterType=D3D12_ROOT_PARAMETER_TYPE_UAV;
     D3D12_ROOT_SIGNATURE_DESC rootInfo{};rootInfo.NumParameters=1;rootInfo.pParameters=&parameter;
     ComPtr<ID3DBlob> rootBytes;hr(D3D12SerializeRootSignature(&rootInfo,D3D_ROOT_SIGNATURE_VERSION_1,&rootBytes,&errors));

@@ -10,7 +10,7 @@ namespace engine::render::vulkan_backend {
 inline std::string resolvedWorldTextureKey(
     const char* key, const char* cacheKey, const unsigned char* rgba,
     int width, int height, int wrapS, int wrapT, bool srgb,
-    std::uint32_t authoredMipLevelCount) {
+    std::uint32_t authoredMipLevelCount, bool linearMipSampling = false) {
     std::string out;
     const char* identity = cacheKey && cacheKey[0] ? cacheKey : key;
     out.reserve((identity ? std::char_traits<char>::length(identity) : 32u) + 80u);
@@ -27,6 +27,7 @@ inline std::string resolvedWorldTextureKey(
     out += "|wt="; number(wrapT);
     out += "|mips="; number(authoredMipLevelCount);
     out += srgb ? "|srgb" : "|linear";
+    if (linearMipSampling) out += "|trilinear";
     return out;
 }
 

@@ -49,6 +49,14 @@ bool VulkanEditorRenderSurface::registerTextures() {
 }
 
 void VulkanEditorRenderSurface::unregisterTextures() {
+    // ImGui can still be sampling the preceding frame's surface when a resize
+    // replaces its descriptors. This path runs only on replacement/teardown.
+    if (renderer_ && std::any_of(textureDescriptors_.begin(), textureDescriptors_.end(),
+            [](VkDescriptorSet descriptor) { return descriptor != VK_NULL_HANDLE; })) {
+        VulkanRenderBackend::EditorUiContext context{};
+        if (renderer_->getEditorUiContext(context) && context.device != VK_NULL_HANDLE)
+            (void)vkDeviceWaitIdle(context.device);
+    }
     for (VkDescriptorSet& descriptor :
          textureDescriptors_) {
         if (descriptor != VK_NULL_HANDLE) {

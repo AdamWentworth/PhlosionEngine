@@ -1,3 +1,4 @@
+#include "engine/render/WorldTextureQuality.h"
 #include "engine/render/D3D12RenderBackend.h"
 #include "engine/render/SpriteTextureCardArt.h"
 #include "engine/render/d3d12/D3D12RenderBackendInternal.h"
@@ -505,7 +506,7 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTexture(const 
         textureData->wrapT,
         textureData->textureSrgb != 0u,
         textureData->mipLevels,
-        textureData->mipLevelCount);
+        textureData->mipLevelCount, textureData->linearMipSampling==0 && textureData->materialMode<239);
 #else
     (void)textureData;
     return nullptr;
@@ -515,6 +516,9 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTexture(const 
 const D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::findWorldTextureByDescriptorIndex(
     std::uint32_t descriptorIndex) const {
 #if defined(_WIN32)
+    if(const auto* particles=findWorldParticleLightingTexture(descriptorIndex))return particles;
+    if(const auto* weather=findWorldPrecipitationTexture(descriptorIndex))return weather;
+    if(const auto* cloud=findWorldCloudTexture(descriptorIndex))return cloud;
     for (const auto& [key, texture] : worldTextures_) {
         (void)key;
         if (texture.valid && texture.descriptorIndex == descriptorIndex) {
@@ -574,6 +578,7 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
         projectedShadowTextureDescriptorIndex};
     std::array<const SpriteTexture*, 8> sourceTextures{};
     for (std::size_t i = 0; i < sourceDescriptorIndices.size(); ++i) {
+        if(i==7 && sourceDescriptorIndices[i]==worldSunDescriptor_)continue;
         sourceTextures[i] = findWorldTextureByDescriptorIndex(sourceDescriptorIndices[i]);
         if (!sourceTextures[i] ||
             !sourceTextures[i]->valid ||
@@ -592,6 +597,11 @@ std::uint32_t D3D12RenderBackend::ensureWorldMaterialDescriptorBlock(
         D3D12_CPU_DESCRIPTOR_HANDLE dstHandle = heapCpuBase;
         dstHandle.ptr += static_cast<SIZE_T>(blockBaseDescriptorIndex + i) *
                          static_cast<SIZE_T>(srvDescriptorSize_);
+        if(i==7 && sourceDescriptorIndices[i]==worldSunDescriptor_) {
+            D3D12_SHADER_RESOURCE_VIEW_DESC srv{};srv.Format=DXGI_FORMAT_R32_FLOAT;srv.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;
+            srv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;srv.Texture2D.MipLevels=1;
+            device_->CreateShaderResourceView(worldSunDepth_.Get(),&srv,dstHandle);continue;
+        }
         device_->CreateShaderResourceView(
             sourceTextures[i]->resource.Get(),
             &sourceTextures[i]->srvDesc,
@@ -630,6 +640,10 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
     float& outUseTexture) {
 #if defined(_WIN32)
     if (!worldScopes_.admitted()) return false;
+    const auto binding=engine::render::worldMaterialBindingIdentity(textureData,worldScopes_.active());
+    if(binding&&!(textureData&&textureData->environment.skyDraw))if(const auto* cached=retainedWorldMaterialBindings_.find(*binding)) {
+        outDescriptorBlockIndex=cached->first;outUseTexture=cached->second;return true;
+    }
     ensureWorldFallbackEnvTexture();
     if (worldFallbackMaterialDescriptorBlockIndex_ == 0xffffffffu) {
         engine::render::WorldResourceScopeState::SharedResources shared(worldScopes_);
@@ -653,7 +667,7 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
     SpriteTexture* worldTex = ensureWorldTexture(textureData);
     const std::uint32_t baseDescriptorIndex =
         worldTex ? worldTex->descriptorIndex : worldFallbackTextureDescriptorIndex_;
-    outUseTexture = (worldTex && worldTex->valid) ? 1.0f : 0.0f;
+    outUseTexture = (worldTex && worldTex->valid) ? 1.0f + std::min<std::uint8_t>(textureData->linearMipSampling, 2u) : 0.0f;
 
     SpriteTexture* normalTex = ensureWorldTextureRaw(
         textureData->normalKey,
@@ -665,7 +679,7 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         textureData->normalWrapT,
         textureData->normalTextureSrgb != 0u,
         textureData->normalMipLevels,
-        textureData->normalMipLevelCount);
+        textureData->normalMipLevelCount, true);
     const std::uint32_t normalDescriptorIndex =
         normalTex ? normalTex->descriptorIndex : worldFallbackNormalTextureDescriptorIndex_;
 
@@ -679,7 +693,7 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         textureData->metallicRoughnessWrapT,
         textureData->metallicRoughnessTextureSrgb != 0u,
         textureData->metallicRoughnessMipLevels,
-        textureData->metallicRoughnessMipLevelCount);
+        textureData->metallicRoughnessMipLevelCount, true);
     const std::uint32_t metallicRoughnessDescriptorIndex =
         metallicRoughnessTex
             ? metallicRoughnessTex->descriptorIndex
@@ -695,7 +709,7 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         textureData->occlusionWrapT,
         textureData->occlusionTextureSrgb != 0u,
         textureData->occlusionMipLevels,
-        textureData->occlusionMipLevelCount);
+        textureData->occlusionMipLevelCount, true);
     const std::uint32_t occlusionDescriptorIndex =
         occlusionTex ? occlusionTex->descriptorIndex : worldFallbackOcclusionTextureDescriptorIndex_;
 
@@ -709,7 +723,7 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         textureData->emissiveWrapT,
         textureData->emissiveTextureSrgb != 0u,
         textureData->emissiveMipLevels,
-        textureData->emissiveMipLevelCount);
+        textureData->emissiveMipLevelCount, true);
     const std::uint32_t emissiveDescriptorIndex =
         emissiveTex ? emissiveTex->descriptorIndex : worldFallbackEmissiveTextureDescriptorIndex_;
 
@@ -744,6 +758,7 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         textureData->lightProjectionMipLevels,
         textureData->lightProjectionMipLevelCount);
     const std::uint32_t lightProjectionDescriptorIndex =
+        textureData->environment.skyDraw && worldSkyModelDescriptor_!=0xffffffffu ? worldSkyModelDescriptor_ :
         IWorldDepthControl::isSnapshotTexture(textureData->lightProjectionKey) ? worldDepthSnapshotDescriptor_ :
         lightProjectionTex
         ? lightProjectionTex->descriptorIndex
@@ -775,6 +790,8 @@ bool D3D12RenderBackend::prepareWorldMaterialDescriptorBlock(
         environmentDescriptorIndex,
         lightProjectionDescriptorIndex,
         projectedShadowDescriptorIndex);
+    if(binding && outDescriptorBlockIndex!=0xffffffffu && worldScopes_.admitted())
+        retainedWorldMaterialBindings_.insert(*binding,{outDescriptorBlockIndex,outUseTexture});
     return outDescriptorBlockIndex != 0xffffffffu;
 #else
     (void)textureData;
@@ -795,11 +812,13 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTextureRaw(con
                                                                               int wrapT,
                                                                               bool srgb,
                                                                               const WorldTextureMipLevel* authoredMipLevels,
-                                                                              std::uint32_t authoredMipLevelCount) {
+                                                                              std::uint32_t authoredMipLevelCount, bool materialImage) {
 #if defined(_WIN32)
+    if(auto* weather=findWorldRainTexture(key))return weather;
     if (!key || key[0] == '\0' || !rgba || width <= 0 || height <= 0) {
         return nullptr;
     }
+    engine::render::WorldResourceScopeState::AssetResources assets(worldScopes_);
     engine::render::WorldResourceScopeState::AllocationAttempt attempt(worldScopes_);
     if (!worldScopes_.admitted()) return nullptr;
     if (!device_ || !commandQueue_ || !fence_ || !srvHeap_) return nullptr;
@@ -821,6 +840,7 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTextureRaw(con
         resolvedCacheKey += srgb ? "|srgb" : "|lin";
     }
 
+    resolvedCacheKey += "|quality="+std::to_string(materialImage?worldMaterialProfile_.textureMipDrop:0);
     resolvedCacheKey = worldScopes_.key(resolvedCacheKey);
     auto it = worldTextures_.find(resolvedCacheKey);
     if (it != worldTextures_.end()) {
@@ -828,6 +848,8 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTextureRaw(con
         return &it->second;
     }
 
+    engine::render::texture_quality::Selection qualityMips;
+    qualityMips.reduce(materialImage?worldMaterialProfile_.textureMipDrop:0,rgba,width,height,wrapS,wrapT,srgb,authoredMipLevels,authoredMipLevelCount);
     std::uint64_t payloadBytes = 0;
     if (worldScopes_.active() &&
         (!engine::render::worldTextureMipPayload(width, height, authoredMipLevels,
@@ -909,7 +931,7 @@ D3D12RenderBackend::SpriteTexture* D3D12RenderBackend::ensureWorldTextureRaw(con
     (void)wrapT;
     (void)srgb;
     (void)authoredMipLevels;
-    (void)authoredMipLevelCount;
+    (void)authoredMipLevelCount;(void)materialImage;
     return nullptr;
 #endif
 }

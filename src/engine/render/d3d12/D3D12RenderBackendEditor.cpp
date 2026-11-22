@@ -47,6 +47,7 @@ bool D3D12RenderBackend::writeEditorSceneColorDescriptor(
 
 bool D3D12RenderBackend::beginEditorSurface(
     const EditorSurfaceTarget& target) {
+    engine::render::WorldPreparedViewBoundary preparedViewBoundary([&] { invalidatePreparedWorldViews(); });
     if (!recording_ || !commandList_ ||
         !target.linearColor ||
         !target.displayColor ||
@@ -115,6 +116,7 @@ bool D3D12RenderBackend::beginEditorSurface(
 }
 
 void D3D12RenderBackend::endEditorSurface() {
+    engine::render::WorldPreparedViewBoundary preparedViewBoundary([&] { invalidatePreparedWorldViews(); });
     if (!editorSurfaceActive_ || !commandList_) {
         return;
     }

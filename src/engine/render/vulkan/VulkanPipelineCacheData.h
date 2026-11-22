@@ -7,7 +7,9 @@
 #include <vector>
 
 namespace engine::render::vulkan_backend {
-inline constexpr std::size_t kMaxPipelineCacheBytes = 64u * 1024u * 1024u;
+// Composed world/character programs now exceed 256 MiB. Keep disk input bounded
+// without silently preventing updated production pipelines from being retained.
+inline constexpr std::size_t kMaxPipelineCacheBytes = 512u * 1024u * 1024u;
 inline constexpr std::uint64_t kPipelineCacheFileVersion = 0x50484c4f564b0001ull;
 using PipelineCacheFileHeader = std::array<std::uint64_t,4>;
 inline std::uint64_t pipelineCacheChecksum(std::span<const std::uint8_t> data) {

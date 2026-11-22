@@ -1,7 +1,8 @@
+include("${CMAKE_CURRENT_LIST_DIR}/CompileVulkanShader.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/ExpandMaterialSource.cmake")
 
 function(phlosion_compose_material_profile)
-    cmake_parse_arguments(PM "" "TARGET;OUTPUT_DIRECTORY;SOURCE_DIRECTORY;FIELD_SOURCE_DIR" "" ${ARGN})
+    cmake_parse_arguments(PM "DIRECT_TRANSPARENT" "TARGET;OUTPUT_DIRECTORY;SOURCE_DIRECTORY;FIELD_SOURCE_DIR;POST_COMPOSE" "" ${ARGN})
     if(PM_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR "Unknown material composition arguments: ${PM_UNPARSED_ARGUMENTS}")
     endif()
@@ -9,10 +10,12 @@ function(phlosion_compose_material_profile)
         message(FATAL_ERROR "Material composition requires target, output and source directory")
     endif()
     get_filename_component(_material_engine_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.." ABSOLUTE)
-    set(_material_output "${PM_OUTPUT_DIRECTORY}")
+    # Game hooks finish composition in private staging. Publish each final file
+    # once, preserving timestamps when its contents did not change.
+    set(_material_output "${CMAKE_CURRENT_BINARY_DIR}/generated/materials/${PM_TARGET}")
+    set(_material_composed)
     file(MAKE_DIRECTORY "${_material_output}")
     set(_material_templates "${_material_engine_root}/assets/shaders/vulkan")
-    file(GLOB _material_engine_includes CONFIGURE_DEPENDS "${_material_templates}/*.glsl")
     file(GLOB_RECURSE _material_sources CONFIGURE_DEPENDS
         "${PM_SOURCE_DIRECTORY}/*.glsl"
         "${PM_SOURCE_DIRECTORY}/*.hlsl"
@@ -25,7 +28,11 @@ function(phlosion_compose_material_profile)
     endif()
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_material_sources})
 
-    foreach(_api IN ITEMS opengl d3d12 world world_indirect)
+    set(_material_apis opengl d3d12 world world_indirect)
+    if(PM_DIRECT_TRANSPARENT)
+        set(_material_apis d3d12 world)
+    endif()
+    foreach(_api IN LISTS _material_apis)
         if (_api STREQUAL "d3d12")
             set(_extension hlsl)
         else()
@@ -47,15 +54,21 @@ function(phlosion_compose_material_profile)
             string(TOUPPER "${_part}" _part_upper)
             string(REPLACE "__PROJECT_FIELD_${_part_upper}__" "${_field}" _composed "${_profile}")
             phlosion_expand_material_source("${_composed}" "${PM_SOURCE_DIRECTORY}" _composed)
+            if(_api STREQUAL "world")
+                string(REPLACE "pushData.materialParams.w" "WORLD_MATERIAL_MODE" _composed "${_composed}")
+            endif()
             file(CONFIGURE OUTPUT "${_material_output}/${_output_name}" CONTENT "${_composed}" @ONLY)
+            list(APPEND _material_composed "${_output_name}")
         endforeach()
         if (_api MATCHES "^world")
             configure_file("${PM_SOURCE_DIRECTORY}/${_api}_vertex_evaluation.glsl"
                 "${_material_output}/project_${_api}_vertex_evaluation.glsl" COPYONLY)
+            list(APPEND _material_composed "project_${_api}_vertex_evaluation.glsl")
         else()
             foreach(_part IN ITEMS declarations evaluation)
                 configure_file("${PM_SOURCE_DIRECTORY}/${_api}_vertex_${_part}.${_extension}"
                     "${_material_output}/${_api}_vertex_${_part}.${_extension}" COPYONLY)
+                list(APPEND _material_composed "${_api}_vertex_${_part}.${_extension}")
             endforeach()
         endif()
     endforeach()
@@ -69,10 +82,28 @@ function(phlosion_compose_material_profile)
         file(READ "${_source}" _helper)
         phlosion_expand_material_source("${_helper}" "${PM_SOURCE_DIRECTORY}" _helper)
         file(CONFIGURE OUTPUT "${_material_output}/${_name}" CONTENT "${_helper}" @ONLY)
+        list(APPEND _material_composed "${_name}")
     endforeach()
 
+    if(PM_POST_COMPOSE)
+        if(NOT COMMAND "${PM_POST_COMPOSE}")
+            message(FATAL_ERROR "Unknown material composition hook: ${PM_POST_COMPOSE}")
+        endif()
+        cmake_language(CALL "${PM_POST_COMPOSE}" "${_material_output}")
+    endif()
+    file(MAKE_DIRECTORY "${PM_OUTPUT_DIRECTORY}")
+    foreach(_name IN LISTS _material_composed)
+        configure_file("${_material_output}/${_name}" "${PM_OUTPUT_DIRECTORY}/${_name}" COPYONLY)
+    endforeach()
+    set(_material_output "${PM_OUTPUT_DIRECTORY}")
+
+    # Optimize composed programs once during the build, before driver pipeline creation.
     set(_material_outputs)
-    foreach(_variant IN ITEMS world world_indirect)
+    set(_material_variants world world_indirect)
+    if(PM_DIRECT_TRANSPARENT)
+        set(_material_variants world)
+    endif()
+    foreach(_variant IN LISTS _material_variants)
         foreach(_stage IN ITEMS vert frag)
             if (_stage STREQUAL "frag")
                 set(_blends standard dual_source)
@@ -87,25 +118,34 @@ function(phlosion_compose_material_profile)
                     string(APPEND _name "_dual_source")
                 endif()
                 set(_output "${_material_output}/${_name}.${_stage}.spv")
-                add_custom_command(OUTPUT "${_output}"
-                    COMMAND "${PHLOSION_GLSLANG_VALIDATOR}" -V --target-env vulkan1.1
-                        "-I${_material_templates}" "-I${_material_output}" ${_defines}
-                        -o "${_output}" "${_material_templates}/${_variant}.${_stage}"
-                    DEPENDS "${_material_templates}/${_variant}.${_stage}" ${_material_engine_includes} ${_material_sources}
-                    COMMENT "Compiling game world material ${_name}.${_stage}" VERBATIM)
+                phlosion_compile_vulkan_shader(SOURCE "${_material_templates}/${_variant}.${_stage}"
+                    OUTPUT "${_output}"
+                    OPTIONS -Os "-I${_material_templates}" "-I${_material_output}" ${_defines}
+                    COMMENT "Compiling game world material ${_name}.${_stage}")
                 list(APPEND _material_outputs "${_output}")
             endforeach()
         endforeach()
     endforeach()
-    set(_shadow_output "${_material_output}/world_shadow.frag.spv")
-    add_custom_command(OUTPUT "${_shadow_output}"
-        COMMAND "${PHLOSION_GLSLANG_VALIDATOR}" -V --target-env vulkan1.1
-            "-I${_material_templates}" "-I${_material_output}"
-            -DPHLOSION_PROJECT_MATERIAL=1 -DPHLOSION_WORLD_DIRECTIONAL_SHADOW_PASS=1
-            -o "${_shadow_output}" "${_material_templates}/world.frag"
-        DEPENDS "${_material_templates}/world.frag" ${_material_engine_includes} ${_material_sources}
-        COMMENT "Compiling game world directional-shadow material" VERBATIM)
-    list(APPEND _material_outputs "${_shadow_output}")
+    if(NOT PM_DIRECT_TRANSPARENT)
+        set(_shadow_output "${_material_output}/world_shadow.frag.spv")
+        phlosion_compile_vulkan_shader(SOURCE "${_material_templates}/world.frag"
+            OUTPUT "${_shadow_output}"
+            OPTIONS -Os "-I${_material_templates}" "-I${_material_output}" -DPHLOSION_PROJECT_MATERIAL=1 -DPHLOSION_WORLD_DIRECTIONAL_SHADOW_PASS=1
+            COMMENT "Compiling game world directional-shadow material")
+        list(APPEND _material_outputs "${_shadow_output}")
+        set(_surface_output "${_material_output}/world_surface.frag.spv")
+        phlosion_compile_vulkan_shader(SOURCE "${_material_templates}/world.frag"
+            OUTPUT "${_surface_output}"
+            OPTIONS -Os "-I${_material_templates}" "-I${_material_output}" -DPHLOSION_PROJECT_MATERIAL=1 -DPHLOSION_WORLD_SURFACE_CAPTURE=1
+            COMMENT "Compiling game world surface-data material")
+        list(APPEND _material_outputs "${_surface_output}")
+        set(_motion_output "${_material_output}/world_motion.vert.spv")
+        phlosion_compile_vulkan_shader(SOURCE "${_material_templates}/world.vert"
+            OUTPUT "${_motion_output}"
+            OPTIONS -Os "-I${_material_templates}" "-I${_material_output}" -DPHLOSION_PROJECT_MATERIAL=1 -DPHLOSION_MOTION_VERTEX=1
+            COMMENT "Compiling Vulkan shader ${_material_templates}/world.vert")
+        list(APPEND _material_outputs "${_motion_output}")
+    endif()
     add_custom_target(${PM_TARGET} DEPENDS ${_material_outputs})
 
 endfunction()

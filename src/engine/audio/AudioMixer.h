@@ -80,6 +80,7 @@ public:
     bool render(std::size_t frames, std::span<float> stereoInterleaved,
                 std::string* error = nullptr);
     std::size_t activeVoices() const;
+    bool isVoiceActive(AudioVoiceId id) const;
 
 private:
     struct Fade {

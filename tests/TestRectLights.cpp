@@ -20,7 +20,7 @@ int main() try {
     check(packWorldRectLights(e)==WorldRectLightUniforms{},"Disabled environment retained emitter");
     e.enabled=true;
     const auto packet=packWorldRectLights(e);
-    check(packet[60]==std::array<float,4>{1,4,-2,12}&&packet[63]==std::array<float,4>{12,2,4,0},"Last emitter truncated");
+    check(packet[60]==std::array<float,4>{1,4,-2,12}&&packet[63]==std::array<float,4>{12,2,4,65535},"Last emitter truncated");
     check(packet[0]==std::array<float,4>{},"Empty slot retained light");
     backend::WorldTextureData material;material.environment=e;
     check(vulkan_backend::makeWorldViewState(&material).rectLights==packet,"View packing changed rectangle");

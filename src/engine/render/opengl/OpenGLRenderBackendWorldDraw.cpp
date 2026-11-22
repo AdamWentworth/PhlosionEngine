@@ -757,6 +757,9 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
             case 1u:
                 setBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE, GL_ONE, GL_ONE);
                 break;
+            case 3u:
+                setBlendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+                break;
             case 2u:
                 setBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
                 break;
@@ -866,7 +869,7 @@ void OpenGLRenderBackend::drawWorldIndexedMeshTexturedInternal(unsigned int vao,
     const auto planar = worldDirectionalShadowActive_ ? engine::render::WorldPlanarReflectionUniforms{} : worldPlanarReflection_;
     glUniform4fv(worldUniformLocation(worldPlanarLoc_), 6, planar[0].data());
     glUniform1i(worldUniformLocation(worldPlanarTextureLoc_), 10);
-    bindTextureUnit2D(10, texture && texture->materialMode == 248 ? worldHazeTexture_ : worldPlanarTexture_);
+    bindTextureUnit2D(10, texture && (texture->materialMode == 246 || texture->materialMode == 248) ? worldHazeTexture_ : worldPlanarTexture_);
     if (!worldDirectionalShadowActive_ && !worldVolumeActive_ && worldDiffuseProbesLoc_ >= 0 &&
         (!worldDiffuseProbesUploaded_ || lastWorldDiffuseProbes_ != worldDiffuseProbes_)) {
         glUniform4fv(worldDiffuseProbesLoc_, static_cast<GLsizei>(worldDiffuseProbes_.size()), worldDiffuseProbes_[0].data());

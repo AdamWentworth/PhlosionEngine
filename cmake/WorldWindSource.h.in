@@ -1,0 +1,6 @@
+#pragma once
+namespace engine::render { inline constexpr char worldWindFieldSource[]=R"WIND(@PHLOSION_WIND_FIELD_SOURCE@)WIND"; }
+
+namespace engine::render { inline constexpr char worldWindSampleSource[]=R"WIND(@PHLOSION_WIND_SAMPLE_SOURCE@)WIND"; }
+
+namespace engine::render { inline constexpr char worldFoliageGeometrySource[]=R"FOLIAGE(@PHLOSION_FOLIAGE_GEOMETRY_SOURCE@)FOLIAGE"; }

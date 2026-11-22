@@ -69,6 +69,12 @@ public:
     virtual void endWorldSceneColorPass(const engine::render::ScreenFeedbackFrame&) {
         throw std::runtime_error("Screen feedback is unsupported by this renderer");
     }
+    // Capture camera/environment/receiver state after setting up the native pass.
+    // Tokens remain valid across asset batches, but not native view/pass changes,
+    // frame turnover or resource retirement. Changing those texture fields requires
+    // preparing a new token; object transforms/material factors/poses remain live.
+    virtual engine::render::backend::WorldPreparedViewStats worldPreparedViewStats() const { return {}; }
+    virtual engine::render::backend::WorldPreparedViewToken prepareWorldViewData(const WorldTextureData&) { return {}; }
     virtual void beginWorldIndexedBatchSubmission() {}
     virtual void endWorldIndexedBatchSubmission() {}
     virtual void recordWorldIndexedSubmissionStats(const WorldIndexedSubmissionStats& stats) {
@@ -250,6 +256,7 @@ public:
                 instancedTexture.gpuSkinningMode = instance.gpuSkinningMode;
                 instancedTexture.skinMatrixCount = instance.skinMatrixCount;
                 instancedTexture.skinMatrices = instance.skinMatrices;
+                instancedTexture.deformation = instance.deformation;
             }
             if (!texture) {
                 instancedTexture.modelMatrix = mulColumnMajor(kIdentity, instance.modelMatrix);

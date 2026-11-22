@@ -1,0 +1,4 @@
+#pragma once
+namespace engine::render {
+inline constexpr const char* worldTemporalReflectionSource=R"REFLECT(@PHLOSION_TEMPORAL_REFLECTION_SOURCE@)REFLECT";
+}

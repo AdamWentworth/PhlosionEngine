@@ -85,6 +85,8 @@ bool VulkanRenderBackendImpl::resizeEditorSurface(
 
 void VulkanRenderBackendImpl::destroyEditorSurface(
     std::uint64_t surfaceId) {
+    engine::render::WorldPreparedViewBoundary preparedViewBoundary([&] { flushWorldDrawPackets(); preparedWorldViews.invalidate(); });
+
     const auto iterator = editorSurfaces.find(surfaceId);
     if (iterator == editorSurfaces.end()) {
         return;
@@ -105,6 +107,7 @@ bool VulkanRenderBackendImpl::createEditorSurfaceResources(
     EditorSurface& editorSurface) {
     if (device == VK_NULL_HANDLE ||
         worldSceneColorRenderPass == VK_NULL_HANDLE ||
+        editorDisplayRenderPass == VK_NULL_HANDLE ||
         worldSceneColorSetLayout == VK_NULL_HANDLE ||
         descriptorPool == VK_NULL_HANDLE ||
         swapchainFormat == VK_FORMAT_UNDEFINED ||
@@ -249,7 +252,7 @@ bool VulkanRenderBackendImpl::createEditorSurfaceResources(
             editorSurface.frames[frameIndex];
         createImage(
             VK_FORMAT_R16G16B16A16_SFLOAT,
-            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                 VK_IMAGE_USAGE_SAMPLED_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT,
             frame.linearColor,
@@ -265,7 +268,7 @@ bool VulkanRenderBackendImpl::createEditorSurfaceResources(
             frame.displayColorView);
         createImage(
             depthFormat,
-            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
             depthAspect(depthFormat),
             frame.depth,
             frame.depthMemory,
@@ -273,6 +276,7 @@ bool VulkanRenderBackendImpl::createEditorSurfaceResources(
 
         const auto createFramebuffer =
             [&](VkImageView color,
+                VkRenderPass compatiblePass,
                 VkFramebuffer& outFramebuffer) {
                 const std::array<VkImageView, 2>
                     attachments{
@@ -280,8 +284,7 @@ bool VulkanRenderBackendImpl::createEditorSurfaceResources(
                         frame.depthView};
                 VkFramebufferCreateInfo createInfo{
                     VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-                createInfo.renderPass =
-                    worldSceneColorRenderPass;
+                createInfo.renderPass = compatiblePass;
                 createInfo.attachmentCount =
                     static_cast<std::uint32_t>(
                         attachments.size());
@@ -304,9 +307,11 @@ bool VulkanRenderBackendImpl::createEditorSurfaceResources(
             };
         createFramebuffer(
             frame.linearColorView,
+            worldSceneColorRenderPass,
             frame.linearFramebuffer);
         createFramebuffer(
             frame.displayColorView,
+            editorDisplayRenderPass,
             frame.displayFramebuffer);
 
         VkDescriptorImageInfo imageInfo{};
@@ -338,6 +343,7 @@ void VulkanRenderBackendImpl::destroyEditorSurfaceResources(
     if (device == VK_NULL_HANDLE) {
         return;
     }
+    clearWorldHazeStencilTargets(editorSurface.id);
     for (EditorSurfaceFrame& frame :
          editorSurface.frames) {
         if (frame.linearFramebuffer != VK_NULL_HANDLE) {
@@ -428,6 +434,7 @@ void VulkanRenderBackendImpl::destroyAllEditorSurfaceResources() {
 
 void VulkanRenderBackendImpl::beginEditorSurfaceDisplayPass(
     EditorSurface& editorSurface) {
+    engine::render::WorldPreparedViewBoundary preparedViewBoundary([&] { flushWorldDrawPackets(); preparedWorldViews.invalidate(); });
     EditorSurfaceFrame& frame =
         editorSurface.frames[currentFrame];
     const std::array<VkClearValue, 2> clearValues{
@@ -440,7 +447,7 @@ void VulkanRenderBackendImpl::beginEditorSurfaceDisplayPass(
     };
     VkRenderPassBeginInfo passInfo{
         VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    passInfo.renderPass = worldSceneColorRenderPass;
+    passInfo.renderPass = editorDisplayRenderPass;
     passInfo.framebuffer = frame.displayFramebuffer;
     passInfo.renderArea.extent = {
         static_cast<std::uint32_t>(
@@ -451,7 +458,7 @@ void VulkanRenderBackendImpl::beginEditorSurfaceDisplayPass(
         static_cast<std::uint32_t>(
             clearValues.size());
     passInfo.pClearValues = clearValues.data();
-    vkCmdBeginRenderPass(
+    beginWorldRecordingRenderPass(
         frames[currentFrame].commandBuffer,
         &passInfo,
         VK_SUBPASS_CONTENTS_INLINE);
@@ -465,6 +472,7 @@ void VulkanRenderBackendImpl::beginEditorSurfaceDisplayPass(
 
 bool VulkanRenderBackendImpl::beginEditorSurface(
     std::uint64_t surfaceId) {
+    engine::render::WorldPreparedViewBoundary preparedViewBoundary([&] { flushWorldDrawPackets(); preparedWorldViews.invalidate(); });
     const auto iterator = editorSurfaces.find(surfaceId);
     if (!frameActive ||
         iterator == editorSurfaces.end() ||
@@ -474,7 +482,7 @@ bool VulkanRenderBackendImpl::beginEditorSurface(
         return false;
     }
     FrameResources& frame = frames[currentFrame];
-    vkCmdEndRenderPass(frame.commandBuffer);
+    endWorldRecordingRenderPass(frame.commandBuffer);
     mainRenderPassActive = false;
     activeEditorSurface = surfaceId;
     beginEditorSurfaceDisplayPass(iterator->second);
@@ -492,7 +500,7 @@ void VulkanRenderBackendImpl::resumeMainRenderPass() {
     passInfo.renderPass = loadRenderPass;
     passInfo.framebuffer = framebuffers[acquiredImage];
     passInfo.renderArea.extent = swapchainExtent;
-    vkCmdBeginRenderPass(
+    beginWorldRecordingRenderPass(
         frames[currentFrame].commandBuffer,
         &passInfo,
         VK_SUBPASS_CONTENTS_INLINE);
@@ -505,6 +513,7 @@ void VulkanRenderBackendImpl::resumeMainRenderPass() {
 }
 
 void VulkanRenderBackendImpl::endEditorSurface() {
+    engine::render::WorldPreparedViewBoundary preparedViewBoundary([&] { flushWorldDrawPackets(); preparedWorldViews.invalidate(); });
     if (activeEditorSurface == 0u) {
         return;
     }
@@ -512,9 +521,15 @@ void VulkanRenderBackendImpl::endEditorSurface() {
         endWorldSceneColorPass();
     }
     if (editorSurfacePassActive) {
-        vkCmdEndRenderPass(
+        endWorldRecordingRenderPass(
             frames[currentFrame].commandBuffer);
         editorSurfacePassActive = false;
+        VkMemoryBarrier sampled{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        sampled.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        sampled.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(frames[currentFrame].commandBuffer,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0, 1, &sampled, 0, nullptr, 0, nullptr);
     }
     activeEditorSurface = 0u;
     resumeMainRenderPass();

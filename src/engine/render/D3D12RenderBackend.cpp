@@ -52,6 +52,7 @@ D3D12RenderBackend::~D3D12RenderBackend() {
 }
 
 void D3D12RenderBackend::setWorldMaterialProfile(const engine::render::WorldMaterialProfile &profile) {
+    engine::render::WorldPreparedViewBoundary preparedViewBoundary([&] { invalidatePreparedWorldViews(); });
     profile.validate();
     if (profile == worldMaterialProfile_) return;
 #if defined(_WIN32)

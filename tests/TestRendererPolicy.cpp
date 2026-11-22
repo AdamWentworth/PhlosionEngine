@@ -1,4 +1,5 @@
 #include "engine/render/RendererPolicy.h"
+#include "engine/render/GpuAdapterIdentity.h"
 #include <iostream>
 #include <stdexcept>
 
@@ -13,6 +14,12 @@ template<class F> static void rejects(F action) {
 }
 int main() {
     try {
+        rejects([&] { parseGpuLuid(std::string_view{}); });
+        check(parseGpuLuid("000000000000be8e")==0xbe8e,"GPU identity was not preserved");
+        check(parseGpuLuid("AABBCCDD00112233")==0xaabbccdd00112233ULL,"Full LUID was truncated");
+        check(gpuLuidText(0xbe8e)=="000000000000be8e","GPU identity formatting changed");
+        for(const auto* bad : {"1","0x00000000000000","000000000000000g","-000000000000001","00000000000000000"})
+            rejects([&] { parseGpuLuid(bad); });
         const auto game = parseRendererPolicy(R"({"rendering":{"windows":["vulkan","d3d12"],"linux":["vulkan"]}})");
         check(rendererCandidates(game).front() == "vulkan", "Project preference order lost");
         check(rendererCandidates(game, "vulkan").size() == 1, "Explicit requests must not fall back");

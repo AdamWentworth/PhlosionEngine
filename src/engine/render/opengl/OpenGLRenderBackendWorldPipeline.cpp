@@ -531,8 +531,8 @@ uniform sampler2D uWorldPlanarTexture;
 #define PLANAR(index) uWorldPlanar[index]
 #define PLANAR_SAMPLE(uv) textureLod(uWorldPlanarTexture,uv,0.0)
 __PHLOSION_WORLD_PLANAR_SHADER__
-uniform vec4 uWorldPointLights[8];
-uniform vec4 uWorldRectLights[64];
+uniform vec4 uWorldPointLights[20];
+uniform vec4 uWorldRectLights[112];
         uniform vec4 uWorldDiffuseProbes[483];
 uniform sampler2D uRectLightLut;
 #define ENV_RECT(index) uWorldRectLights[index]
@@ -553,7 +553,7 @@ uniform sampler2D uDirectionalShadowTexture;
 uniform mat4 uDirectionalShadowMatrix;
 uniform vec4 uDirectionalShadowParams;
 uniform vec4 uShadowAtlasUv;
-uniform vec4 uLocalShadows[96];
+uniform vec4 uLocalShadows[120];
 #define WORLD_SHADOW_PARAMS uDirectionalShadowParams
 #define WORLD_SHADOW_CLIP(position) (uDirectionalShadowMatrix * vec4(position, 1.0))
 #define WORLD_SHADOW_SAMPLE(uv) textureLod(uDirectionalShadowTexture, uv, 0.0).r
@@ -565,7 +565,7 @@ __PHLOSION_WORLD_SHADOW_SHADER__
 __PHLOSION_WORLD_VOLUME_SHADER__
 __PHLOSION_PROJECT_MATERIAL_DECLARATIONS__
         void main() {
-            if (uMaterialMode == 247.0 || uMaterialMode == 248.0) {
+            if (uMaterialMode == 246.0 || uMaterialMode == 247.0 || uMaterialMode == 248.0) {
                 FragColor=worldLocalHazePass(vUv,uCameraPos,uMaterialMode);FragBlendAlpha=vec4(0.0);return;
             }
             worldReflectionClip(vWorldPos,uMaterialMode);
@@ -864,7 +864,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
 
             vec3 albedo = clamp(linearColor, 0.0, 1.0);
             float dielectricSpecular = 0.04;
-            environmentWetMaterial(vWorldPos, n, albedo, roughness, dielectricSpecular);
+            environmentWetMaterial(vWorldPos, n, albedo, roughness, dielectricSpecular, metallic, n);
             vec3 F0 = mix(vec3(dielectricSpecular), albedo, metallic);
             vec3 diffuseColor = albedo * (1.0 - metallic);
             const float specularF90 = 1.0;
@@ -888,7 +888,7 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 direct = evalDirectPbr(
 )GLSL"
         R"GLSL(                n, v, l0, directColor * directIntensity, albedo, F0, roughness, metallic);
-            direct += environmentLocalPbr(vWorldPos, n, v, albedo, F0, roughness, metallic);
+            direct += environmentLocalPbr(vWorldPos, n, v, albedo, F0, roughness, metallic, ao);
 
             float NdotV = max(dot(n, v), 0.0);
             vec3 F = fresnelSchlickRoughness(NdotV, F0, roughness);
@@ -901,6 +901,9 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 singleScattering = vec3(0.0);
             vec3 multiScattering = vec3(0.0);
             computeMultiscattering(n, v, F0, specularF90, roughness, singleScattering, multiScattering);
+            environmentIndirectScattering(n, v, F0, roughness, singleScattering, multiScattering);
+            envRadiance = worldPlanarRadiance(envRadiance, vWorldPos, n, v, roughness);
+            vec3 indirectOcclusion = environmentDiffuseOcclusion(ao, albedo);
             vec3 cosineWeightedIrradiance = envIrradiance * (1.0 / 3.14159265);
             vec3 totalScattering = singleScattering + multiScattering;
             float energyComp = 1.0 - max(max(totalScattering.r, totalScattering.g), totalScattering.b);
@@ -908,13 +911,12 @@ __PHLOSION_SHARED_WORLD_PBR_SECTION__
             vec3 specularIBL = envRadiance * singleScattering + multiScattering * cosineWeightedIrradiance;
             diffuseIBL *= __PHLOSION_PBR_DIFFUSE_IBL_SCALE__;
             specularIBL *= __PHLOSION_PBR_SPECULAR_IBL_SCALE__;
-            specularIBL = worldPlanarSpecular(specularIBL, vWorldPos, n, v, F0, roughness);
-            diffuseIBL *= ao;
+            diffuseIBL *= indirectOcclusion;
             float specularOcclusion = computeSpecularOcclusion(NdotV, ao, roughness);
             specularIBL *= specularOcclusion;
             vec3 ibl = diffuseIBL + specularIBL;
 
-            vec3 ambientLight = kD * albedo * ambientColor * ambientIntensity;
+            vec3 ambientLight = kD * albedo * ambientColor * ambientIntensity * (ENV_SUN.w > 0.5 ? indirectOcclusion : vec3(1.0,1.0,1.0));
             vec3 shaded = direct + ibl + ambientLight;
 
             vec3 emissiveTex = clamp(

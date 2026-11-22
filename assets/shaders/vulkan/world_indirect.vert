@@ -2,6 +2,8 @@
 #extension GL_ARB_shader_draw_parameters : require
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_GOOGLE_include_directive : require
+#include "world_wind_vertex.glsl"
+#include "world_foliage_geometry.glsl"
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec2 inUv;
@@ -23,6 +25,7 @@ layout(std430, set = 1, binding = 4) readonly buffer WorldInstanceWords {
 #include "world_indirect_state.glsl"
 
 layout(set = 0, binding = 1) uniform sampler2D normalTextures[PHLOSION_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
+layout(set = 0, binding = 5) uniform sampler2D environmentTextures[PHLOSION_VULKAN_MAX_INDEXED_WORLD_MATERIALS];
 
 layout(push_constant) uniform WorldIndirectPushConstants {
     mat4 viewProjection;
@@ -77,6 +80,7 @@ vec3 applySkinning(vec3 localValue, float homogeneousW, vec4 skinningParams) {
     return blended.xyz;
 }
 
+mat4 vertexSkinMatrix(int index) {return worldSkin.matrices[index];}
 void main() {
     uint stateIndex = pushData.batchParams.x + uint(gl_DrawIDARB);
     WorldIndirectDrawState drawState = worldIndirectDraws.states[stateIndex];

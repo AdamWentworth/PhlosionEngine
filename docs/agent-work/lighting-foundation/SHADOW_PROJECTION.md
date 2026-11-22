@@ -114,7 +114,7 @@ be engine correctness requirements, not a recovered retail scheduling policy.
 
 Private scripts: `tools/shadow_matched/prepare_projection.py`,
 `projection_probe/`, and `analyze_projection.py` in
-`D:/Projects/Research/CyberpunkRainResearch`. Evidence is under
+`PROJECTS_ROOT/Research/CyberpunkRainResearch`. Evidence is under
 `evidence/shadow-projection`, including `qualification.json`, readbacks, source
 hashes and build/replay logs. No retail bytecode or extracted assets enter this
 repository. The public header hash and probe executable hash bind the numerical

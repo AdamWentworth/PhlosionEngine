@@ -1,3 +1,4 @@
+#include "engine/render/WorldTextureQuality.h"
 #include "engine/render/vulkan/VulkanRenderBackendInternal.h"
 
 #include <algorithm>
@@ -40,125 +41,7 @@ bool worldTextureMipChainEnabled() {
     return enabled;
 }
 
-struct CpuMipLevel {
-    int width = 0;
-    int height = 0;
-    std::vector<unsigned char> rgba;
-};
-
-float srgbByteToLinear(unsigned char value) {
-    const float c = static_cast<float>(value) / 255.0f;
-    return c <= 0.04045f
-        ? c / 12.92f
-        : std::pow((c + 0.055f) / 1.055f, 2.4f);
-}
-
-unsigned char linearToSrgbByte(float linear) {
-    const float c = std::clamp(linear, 0.0f, 1.0f);
-    const float srgb = c <= 0.0031308f
-        ? c * 12.92f
-        : 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f;
-    return static_cast<unsigned char>(std::clamp(
-        static_cast<int>(std::lround(srgb * 255.0f)),
-        0,
-        255));
-}
-
-int wrapTexelIndex(int index, int size, int wrapMode) {
-    if (size <= 1) return 0;
-    if (wrapMode == 33071) {
-        return std::clamp(index, 0, size - 1);
-    }
-    if (wrapMode == 33648) {
-        const int period = size * 2;
-        int wrapped = index % period;
-        if (wrapped < 0) wrapped += period;
-        return wrapped >= size ? period - 1 - wrapped : wrapped;
-    }
-    int wrapped = index % size;
-    if (wrapped < 0) wrapped += size;
-    return wrapped;
-}
-
-std::vector<CpuMipLevel> buildRgbaMipChain(
-    const unsigned char* pixels,
-    int width,
-    int height,
-    int wrapS,
-    int wrapT,
-    bool srgb) {
-    std::vector<CpuMipLevel> chain;
-    if (!pixels || width <= 0 || height <= 0) return chain;
-    chain.push_back(CpuMipLevel{
-        width,
-        height,
-        std::vector<unsigned char>(
-            pixels,
-            pixels + static_cast<std::size_t>(width) *
-                static_cast<std::size_t>(height) * 4u)});
-    while (chain.back().width > 1 || chain.back().height > 1) {
-        const CpuMipLevel& previous = chain.back();
-        CpuMipLevel next;
-        next.width = std::max(previous.width / 2, 1);
-        next.height = std::max(previous.height / 2, 1);
-        next.rgba.resize(
-            static_cast<std::size_t>(next.width) *
-            static_cast<std::size_t>(next.height) * 4u);
-        for (int y = 0; y < next.height; ++y) {
-            for (int x = 0; x < next.width; ++x) {
-                float sums[4]{};
-                for (int oy = 0; oy < 2; ++oy) {
-                    const int sourceY = wrapTexelIndex(
-                        y * 2 + oy,
-                        previous.height,
-                        wrapT);
-                    for (int ox = 0; ox < 2; ++ox) {
-                        const int sourceX = wrapTexelIndex(
-                            x * 2 + ox,
-                            previous.width,
-                            wrapS);
-                        const std::size_t sourceOffset =
-                            (static_cast<std::size_t>(sourceY) *
-                                 static_cast<std::size_t>(previous.width) +
-                             static_cast<std::size_t>(sourceX)) * 4u;
-                        for (int channel = 0; channel < 3; ++channel) {
-                            sums[channel] += srgb
-                                ? srgbByteToLinear(
-                                      previous.rgba[sourceOffset + channel])
-                                : static_cast<float>(
-                                      previous.rgba[sourceOffset + channel]) /
-                                      255.0f;
-                        }
-                        sums[3] += static_cast<float>(
-                            previous.rgba[sourceOffset + 3u]) / 255.0f;
-                    }
-                }
-                const std::size_t targetOffset =
-                    (static_cast<std::size_t>(y) *
-                         static_cast<std::size_t>(next.width) +
-                     static_cast<std::size_t>(x)) * 4u;
-                for (int channel = 0; channel < 3; ++channel) {
-                    const float average = sums[channel] * 0.25f;
-                    next.rgba[targetOffset + channel] = srgb
-                        ? linearToSrgbByte(average)
-                        : static_cast<unsigned char>(std::clamp(
-                              static_cast<int>(
-                                  std::lround(average * 255.0f)),
-                              0,
-                              255));
-                }
-                next.rgba[targetOffset + 3u] =
-                    static_cast<unsigned char>(std::clamp(
-                        static_cast<int>(
-                            std::lround(sums[3] * 0.25f * 255.0f)),
-                        0,
-                        255));
-            }
-        }
-        chain.push_back(std::move(next));
-    }
-    return chain;
-}
+using namespace engine::render::texture_quality;
 
 } // namespace
 
@@ -171,7 +54,7 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTexture(
     int wrapT,
     bool createStandaloneDescriptor,
     const IRenderBackend::WorldTextureMipLevel* authoredMipLevels,
-    std::uint32_t authoredMipLevelCount) {
+    std::uint32_t authoredMipLevelCount, bool linearMipSampling) {
     const VkFormat format = srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
     const VkDeviceSize byteCount = static_cast<VkDeviceSize>(width) *
                                    static_cast<VkDeviceSize>(height) * 4u;
@@ -185,7 +68,7 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTexture(
         wrapT,
         createStandaloneDescriptor,
         authoredMipLevels,
-        authoredMipLevelCount);
+        authoredMipLevelCount, linearMipSampling);
 }
 
 VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTextureRgba16Float(
@@ -219,7 +102,7 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTextureWithForma
     int wrapT,
     bool createStandaloneDescriptor,
     const IRenderBackend::WorldTextureMipLevel* authoredMipLevels,
-    std::uint32_t authoredMipLevelCount) {
+    std::uint32_t authoredMipLevelCount, bool linearMipSampling) {
     if (!pixels || byteCount == 0u || width <= 0 || height <= 0 ||
         format == VK_FORMAT_UNDEFINED) {
         throw std::runtime_error("Vulkan texture upload received invalid pixel data.");
@@ -447,8 +330,8 @@ VulkanRenderBackendImpl::Texture VulkanRenderBackendImpl::createTextureWithForma
         samplerInfo.addressModeU = addressModeFromGl(wrapS);
         samplerInfo.addressModeV = addressModeFromGl(wrapT);
         samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        samplerInfo.anisotropyEnable = samplerAnisotropyEnabled && mipLevelCount > 1u ? VK_TRUE : VK_FALSE;
-        samplerInfo.maxAnisotropy = maxSamplerAnisotropy;
+        samplerInfo.anisotropyEnable = samplerAnisotropyEnabled && worldMaterialProfile.maxAnisotropy>1 && mipLevelCount > 1u && !linearMipSampling ? VK_TRUE : VK_FALSE;
+        samplerInfo.maxAnisotropy = std::min(maxSamplerAnisotropy,float(worldMaterialProfile.maxAnisotropy));
         samplerInfo.minLod = 0.0f;
         samplerInfo.maxLod =
             static_cast<float>(mipLevelCount > 0u ? mipLevelCount - 1u : 0u);

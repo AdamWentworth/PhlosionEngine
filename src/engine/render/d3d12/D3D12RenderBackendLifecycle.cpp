@@ -1,4 +1,5 @@
 #include "engine/render/AreaLightLut.h"
+#include "engine/core/Environment.h"
 #include "engine/render/D3D12RenderBackend.h"
 #include "engine/render/DxgiAdapterSelection.h"
 #include "engine/render/DebugGeometry.h"
@@ -24,6 +25,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <d3d12.h>
+#include <d3d12sdklayers.h>
 #include <d3dcompiler.h>
 #include <dxgi1_6.h>
 #include <SDL2/SDL_syswm.h>
@@ -43,10 +45,13 @@ engine::log::Sink& d3d12LifecycleLog() {
 }
 
 void D3D12RenderBackend::beginFrame(float r, float g, float b, float a) {
+    const auto phaseCpuStart=phaseProfile_.enabled()?engine::render::RenderPhaseProfile::Clock::now():engine::render::RenderPhaseProfile::Clock::time_point{};
     if (!collectWorldResourceScopes()) return;
     clearWorldDirectionalShadow();
     ++frameCounter_;
+#if defined(_WIN32)
     worldSceneColorPassActive_ = false;
+#endif
     clearColor_[0] = r;
     clearColor_[1] = g;
     clearColor_[2] = b;
@@ -80,6 +85,10 @@ void D3D12RenderBackend::beginFrame(float r, float g, float b, float a) {
         if (!waitForFenceValue(frameFenceValues_[frameIndex_])) return;
     }
 
+    deformationCompleted_=std::max(deformationCompleted_,deformationFrameSerials_[frameIndex_]);
+    resetWorldRecordingFrame();
+    // This frame's scratch resources are no longer referenced by the GPU.
+    worldHazeStencilSlot_ = 0;
     if (timestampReadbackBuffer_ && timestampFrequency_ > 0 && frameFenceValues_[frameIndex_] != 0u) {
         const std::uint32_t queryBase = frameIndex_ * kTimestampQueriesPerFrame;
         D3D12_RANGE readRange{};
@@ -94,6 +103,7 @@ void D3D12RenderBackend::beginFrame(float r, float g, float b, float a) {
             queryData) {
             const std::uint64_t tsBegin = queryData[queryBase];
             const std::uint64_t tsEnd = queryData[queryBase + 1];
+            phaseProfile_.collect(phaseFrames_[frameIndex_],queryData+queryBase,1e9/double(timestampFrequency_));
             const D3D12_RANGE writtenRange{0, 0};
             timestampReadbackBuffer_->Unmap(0, &writtenRange);
 
@@ -106,6 +116,7 @@ void D3D12RenderBackend::beginFrame(float r, float g, float b, float a) {
         }
     }
 
+    phaseProfile_.start(phaseFrames_[frameIndex_],frameCounter_,phaseCpuStart);
     auto& allocator = commandAllocators_[frameIndex_];
     if (!allocator) return;
 
@@ -121,15 +132,14 @@ void D3D12RenderBackend::beginFrame(float r, float g, float b, float a) {
     worldIndexFrameOffset_ = worldIndexFrameBaseOffset_;
     worldVsConstantFrameBaseOffset_ = frameIndex_ * worldVsConstantBufferBytesPerFrame_;
     worldVsConstantFrameOffset_ = worldVsConstantFrameBaseOffset_;
+    preparedWorldViews_.beginFrame();frameMaterialConstants_.beginFrame();clearWorldWindField();
     worldDiffuseProbePacketCount_ = 0;
-    worldSkinMatrixFrameBaseOffset_ = frameIndex_ * worldSkinMatrixBufferBytesPerFrame_;
+    worldDiffusePackets_.beginFrame();worldDiffusePacketAddress_=0;
+    worldSkinMatrixFrameBaseOffset_ = 0;
     worldSkinMatrixFrameOffset_ = worldSkinMatrixFrameBaseOffset_ + 256u;
-    lastWorldSkinMatrices_ = nullptr;
-    lastWorldSkinningMode_ = 0u;
-    lastWorldSkinMatrixCount_ = 0u;
-    lastWorldSkinMatrixGpuAddress_ =
-        worldSkinMatrixBufferGpuAddress_ +
-        static_cast<std::uint64_t>(worldSkinMatrixFrameBaseOffset_);
+    frameSkinPalettes_.configure(reinterpret_cast<std::byte*>(worldSkinMatrixMappedData_),
+        std::size_t(worldSkinMatrixBufferBytesPerFrame_)*kFrameCount,worldSkinMatrixBufferGpuAddress_,1);
+    frameSkinPalettes_.beginFrame(++deformationSerial_,deformationCompleted_);
     worldInstanceFrameBaseOffset_ = frameIndex_ * worldInstanceBufferBytesPerFrame_;
     worldInstanceFrameOffset_ =
         worldInstanceFrameBaseOffset_ + static_cast<UINT>(sizeof(WorldInstanceVertexData));
@@ -193,6 +203,7 @@ void D3D12RenderBackend::endFrame() {
         endEditorSurface();
     }
 
+    flushWorldDrawPackets();
     lastPresentWaitMs_ = 0.0f;
 
     const bool captureThisFrame =
@@ -302,7 +313,7 @@ void D3D12RenderBackend::endFrame() {
             timestampQueryHeap_.Get(),
             D3D12_QUERY_TYPE_TIMESTAMP,
             queryBase,
-            kTimestampQueriesPerFrame,
+            phaseProfile_.queryCount(phaseFrames_[frameIndex_]),
             timestampReadbackBuffer_.Get(),
             static_cast<UINT64>(queryBase) * sizeof(std::uint64_t));
     }
@@ -312,6 +323,7 @@ void D3D12RenderBackend::endFrame() {
         return;
     }
 
+    if(phaseProfile_.detailed()){worldRecordingStats_.print(std::clog,"d3d12",frameCounter_);preparedWorldResourceStats_.print(std::clog,"d3d12",frameCounter_);frameSkinPalettes_.print(std::clog,"d3d12",frameCounter_);frameMaterialConstants_.print(std::clog,"d3d12",frameCounter_);}
     ID3D12CommandList* commandLists[] = {commandList_.Get()};
     commandQueue_->ExecuteCommandLists(1, commandLists);
     const auto presentStart = std::chrono::high_resolution_clock::now();
@@ -327,9 +339,11 @@ void D3D12RenderBackend::endFrame() {
     lastPresentWaitMs_ = static_cast<float>(
         std::chrono::duration<double, std::milli>(presentEnd - presentStart).count());
 
+    phaseProfile_.finishCpu(phaseFrames_[frameIndex_],lastPresentWaitMs_);
     if (fence_) {
         const std::uint64_t signal = ++fenceValue_;
         if (SUCCEEDED(commandQueue_->Signal(fence_.Get(), signal))) {
+            deformationFrameSerials_[frameIndex_]=deformationSerial_;
             frameFenceValues_[frameIndex_] = signal;
             if (captureThisFrame && screenshotReadbackBuffer && screenshotWidth > 0 && screenshotHeight > 0) {
                 if (waitForFenceValue(signal)) {
@@ -389,6 +403,21 @@ void D3D12RenderBackend::endFrame() {
         }
     }
 
+    if (engine::env::flagEnabled("PHLOSION_D3D12_VALIDATION")) {
+        waitForFenceValue(fenceValue_);
+        Microsoft::WRL::ComPtr<ID3D12InfoQueue> info;
+        if (SUCCEEDED(device_.As(&info))) {
+            for (UINT64 index=0;index<info->GetNumStoredMessages();++index) {
+                SIZE_T bytes=0;info->GetMessage(index,nullptr,&bytes);
+                std::vector<unsigned char> buffer(bytes);
+                auto* message=reinterpret_cast<D3D12_MESSAGE*>(buffer.data());
+                if (SUCCEEDED(info->GetMessage(index,message,&bytes)) && message->Severity<=D3D12_MESSAGE_SEVERITY_WARNING)
+                    std::cerr << "[D3D12 validation] severity=" << int(message->Severity) << " id=" << int(message->ID)
+                              << ' ' << message->pDescription << std::endl;
+            }
+            info->ClearStoredMessages();
+        }
+    }
     lastFrameDrawCalls_ = frameDrawCalls_;
     lastFrameTriangles_ = frameTriangles_;
     lastFrameIndexedOpaqueDraws_ = frameIndexedOpaqueDraws_;
@@ -445,10 +474,24 @@ void D3D12RenderBackend::onResize(int width, int height) {
 }
 
 void D3D12RenderBackend::shutdown() {
+    engine::render::WorldPreparedViewBoundary preparedViewBoundary([&] { invalidatePreparedWorldViews(); });
+
 #if defined(_WIN32)
     if (!initialized_) return;
 
     waitForGpu();
+    if(phaseProfile_.enabled() && timestampReadbackBuffer_ && timestampFrequency_>0) {
+        std::uint64_t* ticks=nullptr;
+        const D3D12_RANGE range{0,kTimestampQueryCount*sizeof(std::uint64_t)};
+        if(SUCCEEDED(timestampReadbackBuffer_->Map(0,&range,reinterpret_cast<void**>(&ticks))) && ticks) {
+            for(unsigned i=0;i<kFrameCount;++i)
+                phaseProfile_.collect(phaseFrames_[i],ticks+i*kTimestampQueriesPerFrame,1e9/double(timestampFrequency_));
+            const D3D12_RANGE written{0,0};
+            timestampReadbackBuffer_->Unmap(0,&written);
+        }
+    }
+    phaseProfile_.flush("d3d12");
+    releaseWorldTemporalScene();
     releaseRenderTargets();
     releaseDepthResources();
     if (debugVertexBuffer_ && debugVertexMappedData_) {
@@ -465,6 +508,7 @@ void D3D12RenderBackend::shutdown() {
     debugVertexFrameOffset_ = 0;
     cachedDebugQuads_.clear();
     cachedDebugLines_.clear();
+    preparedWorldGeometry_.clear();
     cachedWorldMeshes_.clear();
     if (worldVertexBuffer_ && worldVertexMappedData_) {
         D3D12_RANGE readRange{0, 0};
@@ -496,17 +540,21 @@ void D3D12RenderBackend::shutdown() {
     worldVsConstantMappedData_ = nullptr;
     if (worldDiffuseProbeBuffer_ && worldDiffuseProbeMapped_) worldDiffuseProbeBuffer_->Unmap(0,nullptr);
     worldDiffuseProbeBuffer_.Reset();worldDiffuseProbeMapped_=nullptr;worldDiffuseProbePacketCount_=0;
+    worldDiffusePackets_.beginFrame();worldDiffusePacketAddress_=0;
     worldVsConstantBuffer_.Reset();
     worldVsConstantBufferGpuAddress_ = 0;
     worldVsConstantBufferSize_ = 0;
     worldVsConstantBufferBytesPerFrame_ = 0;
     worldVsConstantFrameBaseOffset_ = 0;
     worldVsConstantFrameOffset_ = 0;
+    preparedWorldViews_.beginFrame();frameMaterialConstants_.beginFrame();clearWorldWindField();
     if (worldSkinMatrixBuffer_ && worldSkinMatrixMappedData_) {
         D3D12_RANGE readRange{0, 0};
         worldSkinMatrixBuffer_->Unmap(0, &readRange);
     }
     worldSkinMatrixMappedData_ = nullptr;
+    frameSkinPalettes_.cancelBatch();frameSkinPalettes_.reset();
+    deformationSerial_=deformationCompleted_=0;deformationFrameSerials_={};
     worldSkinMatrixBuffer_.Reset();
     worldSkinMatrixBufferGpuAddress_ = 0;
     worldSkinMatrixBufferSize_ = 0;
@@ -547,6 +595,8 @@ void D3D12RenderBackend::shutdown() {
     worldSceneSkyPipelineState_.Reset();
     for (auto& pipeline : worldScenePipelines_) pipeline.Reset();
     worldShadowPipelineState_.Reset();
+    worldContactFilterPipelineState_.Reset();
+    worldSunDepth_.Reset();worldSunDsv_.Reset();worldSunDescriptor_=0xffffffffu;worldSunQuality_=~0u;worldSunPlan_={};
     worldShadowDepth_.Reset(); worldShadowDsvHeap_.Reset();
     for(auto& target:worldMomentTargets_) target.Reset();
     worldMomentRtvHeap_.Reset();worldMomentRoot_.Reset();worldMomentPipeline_.Reset();worldMomentSrv_=0xffffffffu;
@@ -555,7 +605,19 @@ void D3D12RenderBackend::shutdown() {
     worldPointLightPipelineFactory_ = {};
     worldRootSignature_.Reset();
     spriteTextures_.clear();
+    preparedWorldGeometry_.clear();preparedWorldMaterials_.clear();
+    retainedWorldMaterialBindings_.clear();
+    worldWet_={};worldWetDescriptor_=0xffffffffu;worldWetOwner_=0;
+    releaseWorldPrecipitation();
+    releaseWorldLayeredMaterials();releaseWorldClouds();releaseWorldWindField();
+        releaseWorldParticleLighting();
+    releaseWorldRainMaps();
     worldTextures_.clear();
+    worldSurfaceTargets_.clear();worldProbeScratch_.clear();worldSurfaceTarget_=nullptr;
+    worldProbeRadianceReadback_.Reset();worldProbeDiagnostic_={};
+    worldProbeCopyPipeline_.Reset();worldProbeCopyRoot_.Reset();worldProbeCopyUav_=0xffffffffu;
+    worldSurfaceFrame_=0;worldSurfaceSlot_=0;
+    clearWorldContactVisibility();
     worldDepthSnapshotDescriptor_ = 0xffffffffu;
     worldPlanarDescriptor_=0xffffffffu;
     worldPlanarReflection_={};
@@ -568,6 +630,7 @@ void D3D12RenderBackend::shutdown() {
     for(auto& image:feedbackImages_)image.Reset();
     feedbackSequence_=0;feedbackWidth_=feedbackHeight_=0;feedbackLast_={};
     worldSceneColorPipelineState_.Reset();
+    worldDepthRestorePipeline_.Reset();
     worldSceneColorRootSignature_.Reset();
     worldSceneColorSrvDescriptorIndex_ = 0xffffffffu;
     worldSceneColorPassActive_ = false;
@@ -592,9 +655,13 @@ void D3D12RenderBackend::shutdown() {
     freeWorldMaterialBlocks_.clear();
     worldScopes_.reset();
     debugPipelineState_.Reset();
+    debugSceneColorPipelineState_.Reset();
     debugRootSignature_.Reset();
 
     commandList_.Reset();
+    worldDrawPackets_.clear();
+    worldRecordingWorkers_.reset();
+    for(auto& frame:worldRecordingFrames_)for(auto& lane:frame) { lane.lists.clear();lane.allocator.Reset();lane.used=0; }
     for (auto& allocator : commandAllocators_) allocator.Reset();
     rtvHeap_.Reset();
     dsvHeap_.Reset();
@@ -632,6 +699,14 @@ void D3D12RenderBackend::initDeviceAndSwapchain(const std::string& preferredAdap
 #else
     ensureWindowHandle();
 
+    const bool validate = engine::env::flagEnabled("PHLOSION_D3D12_VALIDATION");
+    if (validate) {
+        Microsoft::WRL::ComPtr<ID3D12Debug> debug;
+        if (FAILED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
+            throw std::runtime_error("Requested D3D12 debug layer is unavailable");
+        debug->EnableDebugLayer();
+    }
+
     if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(factory_.ReleaseAndGetAddressOf()))) || !factory_) {
         throw std::runtime_error("CreateDXGIFactory1 failed for D3D12 backend.");
     }
@@ -652,6 +727,7 @@ void D3D12RenderBackend::initDeviceAndSwapchain(const std::string& preferredAdap
     if (!selection.adapter) {
         throw std::runtime_error("No suitable DXGI adapter found for D3D12 backend.");
     }
+    std::cout<<"[D3D12] Selected GPU luid="<<engine::render::gpuLuidText(engine::render::dxgi::luidKey(selection.desc.AdapterLuid))<<std::endl;
     adapter_ = selection.adapter;
     adapterName_ = selection.name.empty() ? "<unnamed dxgi adapter>" : selection.name;
     discreteAdapter_ = selection.discrete;
@@ -663,7 +739,20 @@ void D3D12RenderBackend::initDeviceAndSwapchain(const std::string& preferredAdap
         throw std::runtime_error("D3D12CreateDevice failed.");
     }
 
+    D3D12_FEATURE_DATA_SHADER_MODEL shaderModel{D3D_SHADER_MODEL_6_0};
+    if(FAILED(device_->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL,&shaderModel,sizeof(shaderModel))) ||
+        shaderModel.HighestShaderModel<D3D_SHADER_MODEL_6_0)
+        throw std::runtime_error("Phlosion D3D12 requires Shader Model 6.0; update the graphics driver.");
+
     D3D12_COMMAND_QUEUE_DESC queueDesc{};
+    if (validate) {
+        Microsoft::WRL::ComPtr<ID3D12InfoQueue> info;
+        if (FAILED(device_.As(&info))) throw std::runtime_error("D3D12 validation messages unavailable");
+        D3D12_MESSAGE_ID clearWarning=D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE;
+        D3D12_INFO_QUEUE_FILTER filter{};filter.DenyList.NumIDs=1;filter.DenyList.pIDList=&clearWarning;
+        info->AddStorageFilterEntries(&filter);
+        info->SetMessageCountLimit(10000);
+    }
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     if (FAILED(device_->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(commandQueue_.ReleaseAndGetAddressOf()))) ||
@@ -989,5 +1078,42 @@ void D3D12RenderBackend::ensureWindowHandle() {
     if (!hwnd_) {
         throw std::runtime_error("Failed to resolve HWND from SDL window.");
     }
+#endif
+}
+
+int D3D12RenderBackend::beginRenderPhase(const char* name) {
+#if defined(_WIN32)
+    if(!recording_ || !timestampQueryHeap_)return -1;
+    const int token=phaseProfile_.begin(phaseFrames_[frameIndex_],name);
+    if(token>=0) {
+        flushWorldDrawPackets();
+        commandList_->EndQuery(timestampQueryHeap_.Get(),D3D12_QUERY_TYPE_TIMESTAMP,
+            frameIndex_*kTimestampQueriesPerFrame+phaseFrames_[frameIndex_].spans[token].query);
+    }
+    return token;
+#else
+    return -1;
+#endif
+}
+void D3D12RenderBackend::endRenderPhase(int token) {
+#if defined(_WIN32)
+    if(!recording_ || !timestampQueryHeap_ || !phaseProfile_.end(phaseFrames_[frameIndex_],token))return;
+    flushWorldDrawPackets();
+    commandList_->EndQuery(timestampQueryHeap_.Get(),D3D12_QUERY_TYPE_TIMESTAMP,
+        frameIndex_*kTimestampQueriesPerFrame+phaseFrames_[frameIndex_].spans[token].query+1);
+#endif
+}
+
+int D3D12RenderBackend::beginRenderCpuPhase(const char* name) {
+#if defined(_WIN32)
+    if(!recording_)return -1;
+    return phaseProfile_.begin(phaseFrames_[frameIndex_],name,false);
+#else
+    return -1;
+#endif
+}
+void D3D12RenderBackend::endRenderCpuPhase(int token) {
+#if defined(_WIN32)
+    if(recording_)phaseProfile_.end(phaseFrames_[frameIndex_],token);
 #endif
 }

@@ -64,7 +64,8 @@ History update(const History& history,const ScreenFeedbackUpdate& program) {
     return result;
 }
 int main(int argc,char** argv) {
-    if(argc!=3)return 2;
+    if(argc!=3 && argc!=4)return 2;
+    const bool multiview=argc==4 && std::string(argv[3])=="multiview";
     try {
         SDL_SetMainReady();struct Quit {~Quit(){SDL_Quit();}} quit;
         std::filesystem::create_directories(std::filesystem::path(argv[2]).parent_path());
@@ -104,7 +105,13 @@ int main(int argc,char** argv) {
             frame.seed=i==0;frame.updates={};
             if(i==1)frame.updates=std::span(programs).first(1);
             if(i==2)frame.updates=std::span(programs).subspan(1);
-            renderer->endWorldSceneColorPass(frame);renderer->endFrame();
+            renderer->endWorldSceneColorPass(frame);
+            if(multiview && i==0) {
+                renderer->beginWorldSceneColorPass(SW,SH);
+                frame.seed=false;
+                renderer->endWorldSceneColorPass(frame);
+            }
+            renderer->endFrame();
             if(!renderer->handlesPresentation())window.swapBuffers();
         }
         renderer->shutdown();renderer.reset();

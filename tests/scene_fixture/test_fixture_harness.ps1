@@ -11,7 +11,10 @@
 param(
     [Parameter(Mandatory = $true)][string]$EngineRoot,
     [Parameter(Mandatory = $true)][string]$GuardExe,
-    [string]$Configuration = 'Debug'
+    [string]$Configuration = 'Debug',
+    [string]$RuntimeExe,
+    [string]$EditorExe,
+    [string]$PluginDll
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,9 +25,9 @@ Import-Module (Resolve-Path -LiteralPath $processModule).Path -Force
 
 $engineRootPath = (Resolve-Path -LiteralPath $EngineRoot).Path
 $guardPath = (Resolve-Path -LiteralPath $GuardExe).Path
-$runtimeExe = Join-Path $engineRootPath "build-presentation\$Configuration\SceneFixtureRuntime.exe"
-$editorExe = Join-Path $engineRootPath "build-presentation\$Configuration\PhlosionEditor.exe"
-$pluginDll = Join-Path $engineRootPath "build-presentation\$Configuration\SceneFixtureEditorPlugin.dll"
+if (-not $RuntimeExe) { $RuntimeExe = Join-Path $engineRootPath "build-presentation\$Configuration\SceneFixtureRuntime.exe" }
+if (-not $EditorExe) { $EditorExe = Join-Path $engineRootPath "build-presentation\$Configuration\PhlosionEditor.exe" }
+if (-not $PluginDll) { $PluginDll = Join-Path $engineRootPath "build-presentation\$Configuration\SceneFixtureEditorPlugin.dll" }
 
 $workRoot = Join-Path ([System.IO.Path]::GetTempPath()) `
     ('phlosion-scene-fixture-harness-' + [Guid]::NewGuid().ToString('N'))

@@ -16,10 +16,11 @@ Do not infer every target's flags from the top-level option alone.
 
 The build includes the native editor, plugin probe and Vulkan shader programs.
 It does not fetch a game, private assets or optional package repositories.
-The default CTest suite needs no graphics context. Explicitly enabling
-`PHLOSION_BUILD_GPU_TESTS=ON` together with `PHLOSION_ENABLE_OPENGL=ON` adds the legacy hidden-window OpenGL pixel presenter
-contract described in [pixel presentation](PIXEL_PRESENTATION.md); run this
-separately on a qualified graphics machine. Hosted source CI keeps it disabled.
+The default CTest suite needs no graphics context. Enable
+`PHLOSION_BUILD_GPU_TESTS=ON` on a graphics workstation to register the native
+Vulkan and Direct3D 12 cases. With `PHLOSION_ENABLE_OPENGL=ON`, the same option
+also registers the legacy OpenGL fixtures, including the
+[pixel presenter](PIXEL_PRESENTATION.md). Hosted CI runs the default suite.
 
 | CTest entry | Coverage |
 | --- | --- |

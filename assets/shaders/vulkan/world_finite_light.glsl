@@ -37,7 +37,7 @@ float finiteLightMomentVisibility(vec2 moments,float receiver,float opacity) {
 }
 struct FiniteLightResponse { vec3 diffuse; vec3 specular; };
 FiniteLightResponse finiteLightResponseImpl(vec3 normal,vec3 view,vec3 delta,vec3 halfAxis,
-        float radius,float sourceLength,float roughness,vec3 albedo,float metallic,bool finiteSource,vec3 grazing) {
+        float radius,float sourceLength,float roughness,vec3 albedo,float metallic,bool finiteSource,vec3 grazing,bool transparent) {
     FiniteLightResponse result;result.diffuse=vec3(0.0,0.0,0.0);result.specular=result.diffuse;
     if (dot(delta,delta)<1e-12) return result;
     vec3 light=delta*finiteLightRsqrt(dot(delta,delta));
@@ -94,18 +94,26 @@ FiniteLightResponse finiteLightResponseImpl(vec3 normal,vec3 view,vec3 delta,vec
     vec3 fresnel=grazing+vec3(.04,.04,.04)+(vec3(.96,.96,.96)-grazing)*finiteLightPow5(1.0-vh);
     result.diffuse=diffuse*(albedo-albedo*metallic);
     result.specular=fresnel*min(distribution*nl*visibility,100.0)*specularScale;
+    if(transparent) {
+        float k=roughness2*.5;
+        float geometry=.25/max((nv+nl)*(1.0-k)+2.0*k,1e-8);
+        float fc=exp2((-5.55473*vh-6.98316)*vh);
+        vec3 f0=grazing+vec3(.04,.04,.04);
+        result.diffuse=(1.0-metallic)*albedo*(nl*diffuseScale/3.141592653589793);
+        result.specular=(vec3(fc,fc,fc)+(1.0-fc)*f0)*distribution*geometry*specularScale;
+    }
     return result;
 }
 FiniteLightResponse finiteLightResponse(vec3 normal,vec3 view,vec3 delta,vec3 halfAxis,
         float radius,float sourceLength,float roughness,vec3 albedo,float metallic,bool finiteSource) {
     return finiteLightResponseImpl(normal,view,delta,halfAxis,radius,sourceLength,roughness,
-        albedo,metallic,finiteSource,metallic*(albedo-vec3(.04,.04,.04)));
+        albedo,metallic,finiteSource,metallic*(albedo-vec3(.04,.04,.04)),false);
 }
 // Preserve authored engine F0 (including non-default dielectric reflectance).
 FiniteLightResponse finiteLightMaterialResponse(vec3 normal,vec3 view,vec3 delta,vec3 halfAxis,
         float radius,float sourceLength,float roughness,vec3 albedo,float metallic,vec3 f0) {
     return finiteLightResponseImpl(normal,view,delta,halfAxis,radius,sourceLength,roughness,
-        albedo,metallic,true,f0-vec3(.04,.04,.04));
+        albedo,metallic,true,f0-vec3(.04,.04,.04),false);
 }
 // Approximate a one-sided rectangle with an inscribed finite line/sphere.
 // Radiance stays in the authored units: normal intensity = emitting area * L.
@@ -129,6 +137,47 @@ FiniteLightResponse finiteLightRectangleResponse(vec3 delta,vec3 u,vec3 v,float 
     if (energy<=0.0) return result;
     result=finiteLightMaterialResponse(normal,view,delta,halfAxis,radius,sourceLength,
         clamp(roughness,.04,1.0),albedo,clamp(metallic,0.0,1.0),clamp(f0,vec3(0.0,0.0,0.0),vec3(1.0,1.0,1.0)));
+    result.diffuse=max(result.diffuse,vec3(0.0,0.0,0.0))*intensity*energy;
+    result.specular=max(result.specular,vec3(0.0,0.0,0.0))*intensity*energy;
+    return result;
+}
+
+
+// Source-native attenuation has a fixed dim-tail cutoff. The older captured
+// rectangle helper above retains its intensity-dependent cutoff for comparison.
+float nativeLightFalloff(float squared,float range,vec4 axis,vec4 shape) {
+    if(range<=0.0)return 0.0;
+    float q=squared/(range*range);
+    float fade=1.0-clamp(q*q,0.0,1.0);
+    float a=(uint(axis.w)&2u)!=0u ? fade*fade/max(squared,.0001)
+        : 1.0-clamp(sqrt(max(squared,0.0))/range,0.0,1.0);
+    if(shape.w>0.0)a=min(a,shape.w);
+    return a<.0004?2.0*clamp(a-.0002,0.0,1.0):a;
+}
+float nativeLightCone(vec3 delta,vec3 halfAxis,vec3 direction,vec4 angular) {
+    vec3 segment=halfAxis*2.0;
+    vec3 fromStart=delta-halfAxis;
+    float t=clamp(-dot(fromStart,segment)/max(dot(segment,segment),1e-20),0.0,1.0);
+    float cosine=-dot(finiteLightUnit(fromStart+t*segment),direction);
+    return pow(clamp((cosine-angular.y)/max(angular.x-angular.y,.01),0.0,1.0),angular.z);
+}
+float nativeLightAttenuation(vec3 delta,float range,vec4 axis,vec4 shape,vec4 angular,
+        vec3 direction,bool area) {
+    vec3 halfAxis=area?axis.xyz*(shape.y*.5):vec3(0.0,0.0,0.0);
+    float a=nativeLightFalloff(finiteLightDistanceSquared(delta,halfAxis,area&&shape.y>0.0),range,axis,shape);
+    if((uint(axis.w)&4u)!=0u)a*=nativeLightCone(delta,halfAxis,direction,angular);
+    return a*angular.w;
+}
+FiniteLightResponse nativeLightResponse(vec3 delta,float range,vec3 intensity,vec4 axis,vec4 shape,
+        vec4 angular,vec3 direction,bool area,vec3 normal,vec3 view,vec3 albedo,vec3 f0,
+        float roughness,float metallic,bool transparent) {
+    FiniteLightResponse result;result.diffuse=vec3(0.0,0.0,0.0);result.specular=result.diffuse;
+    float energy=nativeLightAttenuation(delta,range,axis,shape,angular,direction,area);
+    if(energy<=0.0)return result;
+    if((uint(axis.w)&8u)!=0u)delta=-direction*max(length(delta),1e-6);
+    result=finiteLightResponseImpl(normal,view,delta,area?axis.xyz*(shape.y*.5):vec3(0.0,0.0,0.0),
+        shape.x,shape.y,clamp(roughness*shape.z,.04,1.0),albedo,clamp(metallic,0.0,1.0),area,
+        clamp(f0,vec3(0.0,0.0,0.0),vec3(1.0,1.0,1.0))-vec3(.04,.04,.04),transparent);
     result.diffuse=max(result.diffuse,vec3(0.0,0.0,0.0))*intensity*energy;
     result.specular=max(result.specular,vec3(0.0,0.0,0.0))*intensity*energy;
     return result;

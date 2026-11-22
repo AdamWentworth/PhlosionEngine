@@ -29,6 +29,7 @@ struct WorldResourceCounts {
 
 struct WorldResourceScopeStats {
     WorldResourceScopeId id = 0;
+    WorldResourceScopeId assetGroup = 0;
     WorldResourceScopeStatus status = WorldResourceScopeStatus::Ready;
     std::uint64_t payloadByteLimit = 0;
     bool releasePending = false;
@@ -65,4 +66,8 @@ public:
         engine::render::WorldResourceScopeId id,
         engine::render::WorldResourceScopeStats& out) const = 0;
     virtual engine::render::WorldResourceStats getWorldResourceStats() const = 0;
+    // Bind before allocation. Compatible consumers share immutable mesh/texture
+    // uploads; changing view resources and descriptors retain their own scope.
+    virtual bool bindWorldResourceAssetGroup(engine::render::WorldResourceScopeId,
+        std::uint64_t, std::uint64_t) { return false; }
 };

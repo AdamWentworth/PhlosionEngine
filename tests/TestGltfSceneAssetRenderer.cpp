@@ -1,3 +1,4 @@
+#include <thread>
 // tests/TestGltfSceneAssetRenderer.cpp
 //
 // CPU contract for the generic glTF scene draw adapter. A recording backend
@@ -9,6 +10,9 @@
 
 #include "engine/render/gltf/GltfSceneAsset.h"
 #include "engine/render/gltf/GltfSceneRenderer.h"
+#include "engine/render/gltf/GltfSceneDrawPlan.h"
+#include <cstring>
+#include "engine/render/IWorldSurfaceBuffer.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -134,7 +138,22 @@ public:
     }
 };
 
-class ScopedRecordingBackend final : public RecordingBackend, public IWorldResourceScope {
+class ComposedRecordingBackend final : public RecordingBackend, public engine::render::IWorldSurfaceBuffer {
+public:
+    engine::render::WorldClusteredLightingView lighting;
+    bool composed=true;
+    const engine::render::WorldClusteredLightingView* worldSurfaceCompositionLighting() const override {
+        return composed?&lighting:nullptr;
+    }
+    bool beginWorldSurfaceBuffer(const float*,int,int) override {return false;}
+    bool endWorldSurfaceBuffer() override {return false;}
+    void clearWorldSurfaceBuffer() override {}
+    bool resolveWorldSurfaceContact(const engine::render::WorldContactUniforms&) override {return false;}
+    bool resolveWorldSurfaceScreenReflection() override {return false;}
+    bool showWorldSurfaceBuffer(unsigned) override {return false;}
+};
+
+class ScopedRecordingBackend : public RecordingBackend, public IWorldResourceScope {
 public:
     bool active = false;
     bool reportFailure = false;
@@ -157,6 +176,25 @@ public:
         return true;
     }
     engine::render::WorldResourceStats getWorldResourceStats() const override { return {}; }
+};
+
+class PreparedRecordingBackend final : public ScopedRecordingBackend, public engine::render::IWorldPreparedResources {
+public:
+    using Token=engine::render::WorldPreparedResourceToken;
+    engine::render::WorldPreparedResourceStats resources;
+    Token prepareWorldGeometry(const char*,const WorldMeshVertex*,std::size_t,
+        const std::uint32_t*,std::size_t) override {
+        ++resources.geometryPreparations;return {this,1,1,0};
+    }
+    Token prepareWorldMaterial(const WorldTextureData&) override {
+        ++resources.materialPreparations;return {this,1,1,0};
+    }
+    bool worldPreparedGeometryValid(Token t) const override {return active && t.owner==this;}
+    bool worldPreparedMaterialValid(Token t) const override {return active && t.owner==this;}
+    bool drawWorldPreparedIndexed(Token,Token,const WorldTextureData&,const float*,int,int) override {
+        ++resources.draws;return false;
+    }
+    engine::render::WorldPreparedResourceStats worldPreparedResourceStats() const override {return resources;}
 };
 
 }  // namespace
@@ -192,6 +230,20 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
     if (!check(poseSampled,
                "pose sampling failed: " + error)) {
         return false;
+    }
+
+    {
+        PreparedRecordingBackend prepared;
+        GltfSceneDrawOptions warm;warm.surfaceWidth=320;warm.surfaceHeight=180;
+        warm.resourceScope=1;warm.prewarmOnly=true;
+        GltfSceneDrawStats warmed;
+        if(!check(engine::render::gltf::scene::drawGltfSceneAsset(prepared,*asset,pose,warm,warmed,&error),error))return false;
+        warm.materialMode=7;
+        if(!check(engine::render::gltf::scene::drawGltfSceneAsset(prepared,*asset,pose,warm,warmed,&error),error))return false;
+        if(!check(prepared.preparedTextures==4 && prepared.preparedGeometry==0 &&
+            prepared.resources.geometryPreparations==2 && prepared.resources.materialPreparations==2 &&
+            prepared.resources.draws==0 && warmed.drawCalls==0 && !prepared.active,
+            "Retained bindings must preserve shader prewarming without drawing or rebuilding resources"))return false;
     }
 
     RecordingBackend backend;
@@ -626,6 +678,12 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
                 after.rgba == before.rgba,
                 "overlay must retain textures and apply tint/alpha with depth testing")) return false;
         overlay.submissions.clear();
+        overlayOptions.tint={2,1,1,1};
+        if(!check(engine::render::gltf::scene::drawGltfSceneAsset(
+                overlay,*asset,pose,overlayOptions,overlayStats,&error) &&
+                nearlyEqual(overlay.submissions.front().texture.vertexColorMulR,before.vertexColorMulR*2),
+                "Double-intensity RGB tint lost"))return false;
+        overlay.submissions.clear();
         overlayOptions.tint[3] = -1.0f;
         if (!check(!engine::render::gltf::scene::drawGltfSceneAsset(
                 overlay, *asset, pose, overlayOptions, overlayStats, &error) &&
@@ -745,7 +803,411 @@ bool test_gltf_scene_renderer_contract(std::string& outFail) {
             culledOptions,rigStats,&error) && rigStats.culledDraws==1 &&
             rigStats.skinnedDraws==1 && rig.submissions.size()==1,
             "skinned mesh was culled using bind-pose bounds")) return false;
+        culledOptions.cullSkinnedShadow=true;
+        RecordingBackend shadowRig;GltfSceneDrawStats shadowStats;
+        if(!check(drawGltfSceneAsset(shadowRig,*asset,pose,culledOptions,shadowStats,&error) &&
+            shadowStats.culledDraws==2 && shadowRig.submissions.empty(),
+            "Shadow query retained a distant current-pose caster"))return false;
+        culledOptions.cullSkinnedShadow=false;
+        RecordingBackend visibleRig;GltfSceneDrawStats visibleStats;
+        if(!check(drawGltfSceneAsset(visibleRig,*asset,pose,culledOptions,visibleStats,&error) &&
+            visibleStats.skinnedDraws==1,"Shadow selection leaked into the ordinary receiver"))return false;
     }
+
+    // Exercise the producer through actual sampled glTF poses, including a
+    // second instance of the same asset. Never infer identity from geometry.
+    {
+        using namespace engine::render;
+        WorldMotionHistory history;
+        WorldMotionView view;view.identity=1;view.generation=1;view.frame=1;
+        view.width=320;view.height=180;
+        GltfSceneDrawOptions capture=options;
+        capture.motionHistory=&history;capture.motionObject=100;
+        RecordingBackend recorder;
+        GltfSceneDrawStats captured;
+        if(!check(!drawGltfSceneAsset(recorder,*asset,pose,capture,captured,&error),
+            "adapter accepted a missing motion view"))return false;
+        WorldMotionCapture frame(history,view);
+        capture.prewarmOnly=true;
+        if(!check(drawGltfSceneAsset(recorder,*asset,pose,capture,captured,&error),
+            "motion prewarm failed"))return false;
+        capture.prewarmOnly=false;
+        if(!check(drawGltfSceneAsset(recorder,*asset,pose,capture,captured,&error),
+            "motion adapter rejected real pose"))return false;
+        capture.motionObject=101;
+        capture.instanceTransform[12]=20;
+        if(!check(drawGltfSceneAsset(recorder,*asset,pose,capture,captured,&error),
+            "two instances of same asset collided"))return false;
+        frame.commit();
+        if(!check(history.stats().objects==4 && history.stats().valid==0 &&
+            history.stats().deformed==2,"motion producer coverage incorrect"))return false;
+        // The next draw uses a newly sampled skeleton, still the same owner.
+        GltfScenePose nextPose;
+        if(!check(sampleGltfScenePose(asset,0,0,nextPose,&error),"next motion pose failed"))return false;
+        view.frame=2;
+        WorldMotionCapture next(history,view);
+        if(!check(drawGltfSceneAsset(recorder,*asset,nextPose,capture,captured,&error),
+            "next motion submission failed"))return false;
+        next.commit();
+        if(!check(history.stats().objects==2 && history.stats().valid==2,
+            "sampled motion did not retain previous skeleton and prop"))return false;
+        // Transparency has no trustworthy opaque motion/identity coverage.
+        view.frame=3;WorldMotionCapture transparent(history,view);
+        capture.translucent=true;
+        if(!check(drawGltfSceneAsset(recorder,*asset,nextPose,capture,captured,&error),
+            "transparent motion draw failed"))return false;
+        transparent.commit();
+        if(!check(history.stats().objects==0,"transparency entered opaque history"))return false;
+    }
+    {
+        ComposedRecordingBackend composed;
+        GltfSceneDrawOptions draw=options;draw.environment.enabled=true;
+        draw.environment.sunDirection={0,1,0};draw.environment.exposure=1;
+        draw.cameraForward={0,0,-1};
+        composed.lighting={draw.environment,draw.cameraPosition,draw.cameraForward};
+        auto composedAsset=*asset;
+        for(auto& m:composedAsset.materials){m.unlit=false;m.alphaMode=0;}
+        const auto run=[&](unsigned remaining,unsigned integrated,const char* why) {
+            composed.submissions.clear();GltfSceneDrawStats result;
+            return check(engine::render::gltf::scene::drawGltfSceneAsset(composed,composedAsset,pose,draw,result,&error) &&
+                composed.submissions.size()==remaining && result.composedDraws==integrated &&
+                result.drawCalls==remaining,why);
+        };
+        if(!run(0,2,"composed standard primitives reached backend"))return false;
+        composedAsset.materials[composedAsset.primitives[1].materialIndex].alphaMode=2;
+        if(!run(1,1,"transparent primitive was suppressed"))return false;
+        composedAsset.materials[composedAsset.primitives[1].materialIndex].alphaMode=1;
+        if(!run(0,2,"masked standard primitive was replayed"))return false;
+        composedAsset.materials[composedAsset.primitives[1].materialIndex].unlit=true;
+        if(!run(1,1,"unlit primitive was suppressed"))return false;
+        draw.materialMode=240;
+        if(!run(2,0,"specialized material was suppressed"))return false;
+        draw.materialMode=2;draw.cameraPosition[0]+=1;
+        if(!run(2,0,"different view was suppressed"))return false;
+        draw.cameraPosition[0]-=1;draw.environment.pointLights[0].intensity={1,2,3};draw.environment.pointLights[0].radius=5;
+        if(!run(2,0,"different lights were suppressed"))return false;
+        draw.environment=composed.lighting.environment;
+        composed.composed=false;
+        if(!run(2,0,"ordinary draw was suppressed outside composition"))return false;
+        composed.composed=true;draw.prewarmOnly=true;
+        composed.submissions.clear();GltfSceneDrawStats warm;
+        if(!check(engine::render::gltf::scene::drawGltfSceneAsset(composed,composedAsset,pose,draw,warm,&error) &&
+            composed.preparedGeometry==2 && composed.preparedTextures==2 && warm.composedDraws==0,
+            "composition suppressed prewarm uploads"))return false;
+        draw.prewarmOnly=false;
+        auto bad=pose;bad.global[composedAsset.primitives[0].nodeIndex][0][0]=std::numeric_limits<float>::quiet_NaN();
+        composed.submissions.clear();
+        if(!check(!engine::render::gltf::scene::drawGltfSceneAsset(composed,composedAsset,bad,draw,warm,&error) &&
+            composed.submissions.empty(),"early composition bypassed transactional validation"))return false;
+    }
+
+    // Published snapshots retain CPU work; mutable copies must always reflect
+    // their current content. Compare observable draw order, transforms, skinning
+    // and dynamic factors rather than private cache representation.
+    {
+        using namespace engine::render::gltf::scene;
+        std::shared_ptr<const GltfSceneAsset> cached;
+        if(!check(loadGltfSceneAsset(document.string(),cached,&error),"cache fixture reload failed"))return false;
+        GltfScenePose current;
+        if(!check(sampleGltfScenePose(cached,0,0,current,&error),"cache pose failed"))return false;
+        auto fresh=*cached;
+        GltfSceneDrawOptions draw=options;
+        draw.cullingViewProjection=draw.viewProjectionMatrix;
+        std::vector<std::array<float,4>> colors(cached->materials.size(),{.2f,.4f,.6f,1});
+        std::vector<std::array<float,3>> emissions(cached->materials.size(),{1,2,3});
+        draw.baseColorFactors=colors;draw.emissiveFactors=emissions;
+        const auto compare=[&]() {
+            RecordingBackend retained,reference;GltfSceneDrawStats a,b;
+            if(!drawGltfSceneAsset(retained,*cached,current,draw,a,&error) ||
+               !drawGltfSceneAsset(reference,fresh,current,draw,b,&error))return check(false,error);
+            if(!check(retained.submissions.size()==reference.submissions.size() &&
+                a.drawCalls==b.drawCalls && a.culledDraws==b.culledDraws &&
+                a.composedDraws==b.composedDraws && a.triangles==b.triangles &&
+                retained.preparedGeometry==reference.preparedGeometry,"retained selection changed"))return false;
+            for(std::size_t i=0;i<retained.submissions.size();++i) {
+                const auto& x=retained.submissions[i];const auto& y=reference.submissions[i];
+                if(!check(x.geometryKey==y.geometryKey && x.palette==y.palette &&
+                    x.texture.modelMatrix==y.texture.modelMatrix &&
+                    x.texture.alphaMode==y.texture.alphaMode && x.texture.materialMode==y.texture.materialMode &&
+                    x.texture.vertexColorMulR==y.texture.vertexColorMulR &&
+                    x.texture.emissiveFactorG==y.texture.emissiveFactorG &&
+                    x.texture.cameraPosX==y.texture.cameraPosX &&
+                    x.texture.environment.pointLights[0].intensity==y.texture.environment.pointLights[0].intensity,
+                    "retained draw differs from fresh preparation"))return false;
+                if(!check(x.texture.vertexColorMulR==colors[cached->primitives[i].materialIndex][0] &&
+                    x.texture.emissiveFactorG==emissions[cached->primitives[i].materialIndex][1],
+                    "live material factors were frozen"))return false;
+            }
+            return true;
+        };
+        for(int i=0;i<20;++i)if(!compare())return false;
+        auto reuse=gltfScenePreparationStats(*cached);
+        if(!check(reuse.instanceBuilds==1 && reuse.instanceReuses==19 &&
+            reuse.visibilityBuilds==1 && reuse.visibilityReuses==19,
+            "identical views repeated transform or visibility preparation"))return false;
+        const auto materialReuse=gltfSceneMaterialPreparationStats(*cached);
+        if(!check(materialReuse.builds==1 && materialReuse.reuses==19 &&
+            materialReuse.materialEvaluations==cached->materials.size(),
+            "identical views repeated material validation/evaluation"))return false;
+        draw.cameraPosition[0]+=3;draw.environment.surfaceWetness=.7f;
+        draw.environment.pointLights[0].intensity={11,3,5};
+        if(!compare())return false;
+        if(!check(gltfSceneMaterialPreparationStats(*cached).builds==1,
+            "view lighting contaminated shared material inputs"))return false;
+        colors[0][0]=.8f;emissions[0][1]=17;
+        draw.environment.pointLights[0].intensity={5,7,9};draw.cameraPosition[0]=12;
+        if(!compare())return false;
+        if(!check(gltfScenePreparationStats(*cached).instanceBuilds==1,
+            "dynamic lighting rebuilt static transforms"))return false;
+        if(!check(gltfSceneMaterialPreparationStats(*cached).builds==2,
+            "in-place factor mutation reused stale material inputs"))return false;
+        const auto original=current;
+        current.global[cached->primitives[1].nodeIndex][3][0]+=3;
+        current.palettes[0][0][3][0]+=.3f;
+        if(!compare())return false;
+        if(!check(gltfScenePreparationStats(*cached).instanceBuilds==2,
+            "in-place pose mutation reused stale transforms"))return false;
+        current=original;
+        if(!compare())return false;
+        if(!check(gltfScenePreparationStats(*cached).instanceBuilds==2,
+            "restored pose did not reuse owned input snapshot"))return false;
+        draw.instanceTransform[12]=7;if(!compare())return false;
+        (*draw.cullingViewProjection)[12]=19;if(!compare())return false;
+        int omitted=cached->primitives[1].nodeIndex;draw.excludedNodes={&omitted,1};
+        if(!compare())return false;
+        draw.prewarmOnly=true;if(!compare())return false;
+        draw.prewarmOnly=false;draw.translucent=true;if(!compare())return false;
+        draw.materialMode=240;if(!compare())return false;
+        draw.excludedNodes={};draw.translucent=false;draw.materialMode=2;
+        // Vary views and placements beyond capacities. Old immutable selections
+        // remain valid for an already prepared consumer even after eviction.
+        auto plan=detail::GltfSceneDrawPlanAccess::get(*cached);
+        std::shared_ptr<const detail::GltfPreparedInstance> held;
+        if(!check(plan->prepareInstance(*cached,current,draw,held,&error),"held instance failed"))return false;
+        const auto selection=plan->select(*cached,*held,draw);
+        const auto heldModel=held->models;const auto heldDrawCount=selection->draws.size();
+        for(int i=0;i<24;++i) {
+            draw.instanceTransform[12]=float(i);
+            for(int view=0;view<20;++view) {
+                (*draw.cullingViewProjection)[12]=float(view);
+                if(!compare())return false;
+            }
+        }
+        const auto bounded=gltfScenePreparationStats(*cached);
+        if(!check(bounded.instanceRecords<=4 && bounded.visibilityRecords<=16 &&
+            bounded.retainedInstanceBytes<=(8u<<20) && bounded.retainedVisibilityBytes<=(2u<<20) &&
+            held->models==heldModel && selection->draws.size()==heldDrawCount,
+            "cache ownership or retention bound failed"))return false;
+        std::shared_ptr<const detail::GltfPreparedMaterials> heldMaterials;
+        if(!check(plan->prepareMaterials(*cached,draw,heldMaterials,&error),"held materials failed"))return false;
+        const auto heldColor=heldMaterials->values[0].color;
+        for(int i=0;i<12;++i) {
+            colors[0][0]=float(i)/16.f;
+            if(!compare())return false;
+        }
+        std::vector<float> channels(cached->materials.size(),1.f);
+        draw.probeEmissionChannels=channels;
+        if(!compare())return false;
+        channels[0]=2.f;
+        RecordingBackend channelDraw;GltfSceneDrawStats channelStats;
+        if(!check(drawGltfSceneAsset(channelDraw,*cached,current,draw,channelStats,&error),error))return false;
+        for(const auto& submission:channelDraw.submissions)
+            if(!check(submission.texture.materialTimeSec==
+                (submission.geometryKey==cached->primitives[0].geometryKey?2.f:1.f),
+                "probe channel mutation was frozen"))return false;
+        draw.probeEmissionChannels={};
+        auto materialBound=gltfSceneMaterialPreparationStats(*cached);
+        if(!check(materialBound.records<=4 && materialBound.retainedBytes<=(1u<<20) &&
+            heldMaterials->values[0].color==heldColor,"material cache retention/ownership failed"))return false;
+        std::vector<int> omitAll;
+        for(std::size_t i=0;i<cached->nodes.size();++i)omitAll.push_back(int(i));
+        auto noGeometry=draw;noGeometry.excludedNodes=omitAll;
+        RecordingBackend emptyView;GltfSceneDrawStats emptyStats;
+        if(!check(drawGltfSceneAsset(emptyView,*cached,current,noGeometry,emptyStats,&error) &&
+            emptyView.submissions.empty() &&
+            gltfSceneMaterialPreparationStats(*cached).viewMaterialPreparations==materialBound.viewMaterialPreparations,
+            "empty selection prepared view material bindings"))return false;
+        // Failed inputs cannot hit a previously valid record or partially draw.
+        const auto rejected=[&](const GltfScenePose& invalid,const GltfSceneDrawOptions& opts) {
+            RecordingBackend recorder;GltfSceneDrawStats result;result.drawCalls=99;
+            return check(!drawGltfSceneAsset(recorder,*cached,invalid,opts,result,&error) &&
+                recorder.submissions.empty() && result.drawCalls==99,"invalid cached input reached renderer");
+        };
+        auto bad=current;bad.global[cached->primitives[0].nodeIndex][0][0]=std::numeric_limits<float>::quiet_NaN();
+        if(!rejected(bad,draw))return false;
+        bad=current;bad.palettes[0][0][0][0]=std::numeric_limits<float>::quiet_NaN();
+        if(!rejected(bad,draw))return false;
+        auto badOptions=draw;int invalidNode=-1;badOptions.excludedNodes={&invalidNode,1};
+        if(!rejected(current,badOptions))return false;
+        float channel=0;badOptions=draw;badOptions.probeEmissionChannels={&channel,1};
+        if(!rejected(current,badOptions))return false;
+        badOptions=draw;badOptions.tint[0]=std::numeric_limits<float>::quiet_NaN();
+        if(!rejected(current,badOptions))return false;
+        auto invalidColors=colors;invalidColors[0][0]=2;
+        badOptions=draw;badOptions.baseColorFactors=invalidColors;
+        if(!rejected(current,badOptions))return false;
+        auto invalidEmissions=emissions;invalidEmissions[0][0]=65505;
+        badOptions=draw;badOptions.emissiveFactors=invalidEmissions;
+        if(!rejected(current,badOptions))return false;
+        channels[0]=std::numeric_limits<float>::quiet_NaN();
+        badOptions=draw;badOptions.probeEmissionChannels=channels;
+        if(!rejected(current,badOptions))return false;
+        detail::GltfSceneDrawPlanHandle handle;handle.value=plan;
+        auto copiedHandle=handle;auto movedHandle=std::move(handle);
+        if(!check(!copiedHandle.value && !movedHandle.value && !handle.value,"copy/move inherited owner-specific plan"))return false;
+        copiedHandle.value=plan;copiedHandle=movedHandle;
+        if(!check(!copiedHandle.value,"assignment retained stale plan"))return false;
+        if(!check(!detail::GltfSceneDrawPlanAccess::get(fresh),"copied snapshot retained another owner's bindings"))return false;
+        fresh.materials[0].alphaMode=2;fresh.materials[0].baseColor.rgba[0]^=255;
+        RecordingBackend changed;GltfSceneDrawStats changedStats;
+        draw.cullingViewProjection.reset();draw.instanceTransform=options.instanceTransform;
+        if(!check(drawGltfSceneAsset(changed,fresh,current,draw,changedStats,&error) &&
+            changed.submissions.size()==2 &&
+            changed.submissions.back().geometryKey==fresh.primitives[0].geometryKey &&
+            changed.submissions.back().texture.rgba==fresh.materials[0].baseColor.rgba.data(),
+            "mutable asset copy reused original order or texture pointers"))return false;
+        if(!check(gltfScenePreparationStats(*asset).instanceBuilds!=0 &&
+            cached->generation!=asset->generation && !detail::GltfSceneDrawPlanAccess::get(fresh),
+            "reload/copy ownership is not isolated"))return false;
+    }
+
+    // Collected views own pose/material inputs and survive cache eviction and
+    // producer teardown. Preparation must not issue GPU work or publish failures.
+    {
+        using namespace engine::render::gltf::scene;
+        std::shared_ptr<const GltfSceneAsset> collectedAsset;
+        if(!check(loadGltfSceneAsset(document.string(),collectedAsset,&error),"collection asset load failed"))return false;
+        GltfScenePose current;
+        if(!check(sampleGltfScenePose(collectedAsset,0,kBindPoseClip,current,&error),"collection pose failed"))return false;
+        GltfSceneDrawOptions draw;draw.surfaceWidth=640;draw.surfaceHeight=360;
+        GltfSceneCollectedView held;
+        RecordingBackend expected;
+        GltfSceneDrawStats drawn;
+        {
+            const auto require=[](bool value,const char* message){if(!value)throw std::runtime_error(message);};
+            GltfSceneCollectionScheduler scheduler;
+            const auto owner=std::this_thread::get_id();bool independent=false,independentJoined=false;
+            scheduler.collectIndependent([&]{require(std::this_thread::get_id()==owner,"Collection owner migrated");},
+                [&]{independent=true;});
+            require(independent,"Independent collection did not join");
+            try{scheduler.collectIndependent([]{throw std::runtime_error("owner failure");},[&]{independentJoined=true;});}
+            catch(const std::runtime_error&){}
+            require(independentJoined,"Owner failure escaped before independent collection joined");
+            scheduler.collectIndependent([]{},[]{});
+            GltfSceneViewFamily family;std::size_t id=99;
+            if(!check(family.collect(collectedAsset,current,draw.instanceTransform,id,&error) && id==0,"collection failed"))return false;
+            std::vector<std::array<float,3>> emission(collectedAsset->materials.size(),{.2f,.3f,.4f});
+            draw.emissiveFactors=emission;
+            std::vector<GltfSceneViewRequest> requests{{id,draw}};
+            if(!check(drawGltfSceneAsset(expected,*collectedAsset,current,draw,drawn,&error),"collection reference failed"))return false;
+            if(!check(family.prepareView(requests,held,&error) && held.size()==1,"view preparation failed"))return false;
+            auto counts=gltfScenePreparationStats(*collectedAsset);
+            current.global[0][3][0]+=200;current.palettes[0][0][3][0]+=100;
+            emission[0]={10,20,30};draw.emissiveFactors={};
+            RecordingBackend replay;
+            if(!check(held.draw(replay,0,drawn,&error) && replay.submissions.size()==expected.submissions.size(),
+                "collected view lost submissions"))return false;
+            for(std::size_t i=0;i<replay.submissions.size();++i) {
+                const auto& a=replay.submissions[i];const auto& b=expected.submissions[i];
+                if(!check(a.geometryKey==b.geometryKey && a.texture.modelMatrix==b.texture.modelMatrix &&
+                    a.palette==b.palette && a.texture.emissiveFactorR==b.texture.emissiveFactorR,
+                    "collection borrowed changed pose or material inputs"))return false;
+            }
+            if(!check(gltfScenePreparationStats(*collectedAsset).instanceReuses==counts.instanceReuses,
+                "collected submission repeated instance lookup"))return false;
+            GltfSceneCollectedView unchanged=held;
+            requests.push_back({999,draw});
+            if(!check(!family.prepareView(requests,held,&error) && held.size()==unchanged.size(),
+                "invalid complete view was published"))return false;
+            requests.resize(1);requests[0].options.instanceTransform[12]=1;
+            if(!check(!family.prepareView(requests,held,&error),"changed placement accepted without collection"))return false;
+            requests[0].options=draw;requests[0].options.surfaceWidth=0;
+            if(!check(!family.prepareView(requests,held,&error),"invalid view dimensions accepted"))return false;
+            auto mutableCopy=std::make_shared<GltfSceneAsset>(*collectedAsset);
+            if(!check(!family.collect(mutableCopy,current,draw.instanceTransform,id,&error),"mutable asset accepted as immutable"))return false;
+            {
+                GltfSceneViewFamily plan(&scheduler);
+                GltfScenePose fresh;require(sampleGltfScenePose(collectedAsset,0,kBindPoseClip,fresh,&error),"plan pose");
+                auto input=draw;input.instanceTransform[12]=311;input.motionObject=77;
+                std::size_t object=0;require(plan.collect(collectedAsset,fresh,input.instanceTransform,object,&error),"plan object");
+                std::vector<std::array<float,3>> colors(collectedAsset->materials.size(),{.7f,.2f,.1f});
+                input.emissiveFactors=colors;
+                std::array<GltfSceneViewRequest,1> request{{{object,input}}};
+                std::size_t first=99,second=99;
+                require(plan.planView(request,first,&error) && plan.planView(request,second,&error),"plan snapshots");
+                bool premature=false;try{(void)plan.plannedView(first);}catch(const std::out_of_range&){premature=true;}
+                require(premature,"Unprepared view was published");
+                colors.assign(colors.size(),{9,8,7});
+                bool threw=false;
+                try{plan.preparePlannedViews(&error,[]{throw std::runtime_error("selection worker failure");});}
+                catch(const std::runtime_error&){threw=true;}
+                require(threw,"Independent failure was swallowed");
+                premature=false;try{(void)plan.plannedView(first);}catch(const std::out_of_range&){premature=true;}
+                require(premature,"Failed view batch was published");
+                bool joined=false;require(plan.preparePlannedViews(&error,[&]{joined=true;}),"planned selection failed");
+                require(joined && plan.stats().views==2 && plan.stats().selectionBuilds==1 &&
+                    plan.stats().selectionReuses==1,"Cross-view duplicate selection was rebuilt");
+                RecordingBackend firstDraw,secondDraw;
+                require(plan.plannedView(first).drawWithMotion(firstDraw,0,nullptr,drawn,&error) &&
+                    plan.plannedView(second).drawWithMotion(secondDraw,0,nullptr,drawn,&error),"planned draw");
+                require(!firstDraw.submissions.empty() && firstDraw.submissions.size()==secondDraw.submissions.size() &&
+                    firstDraw.submissions[0].texture.emissiveFactorR<1,"Plan borrowed caller material scratch");
+
+                RecordingBackend budgeted;
+                std::size_t cursor=0;bool complete=false;unsigned batches=0;
+                const auto budgetView=plan.plannedView(first);
+                while(!complete){
+                    require(budgetView.drawBudgeted(budgeted,0,cursor,1,1,complete,drawn,&error),"budgeted collection draw");
+                    require(++batches<=firstDraw.submissions.size()+1,"budgeted draw failed to advance");
+                }
+                require(budgeted.submissions.size()==firstDraw.submissions.size(),"budgeted draw lost primitives");
+                for(std::size_t i=0;i<budgeted.submissions.size();++i)
+                    require(budgeted.submissions[i].geometryKey==firstDraw.submissions[i].geometryKey&&
+                        budgeted.submissions[i].palette==firstDraw.submissions[i].palette,"budgeted draw reordered material/pose inputs");
+                engine::render::WorldMotionHistory inactive;
+                require(!plan.plannedView(first).drawWithMotion(firstDraw,0,&inactive,drawn,&error),
+                    "Inactive live motion view accepted");
+                const auto before=plan.stats();
+                require(plan.preparePlannedViews(&error) && plan.stats().selectionBuilds==before.selectionBuilds,
+                    "Prepared plan repeated selection work");
+            }
+            // More than the per-asset instance/selection capacities, using the
+            // same asset on both lanes, exercises disjoint joined output records.
+            GltfScenePose fresh;
+            if(!check(sampleGltfScenePose(collectedAsset,0,kBindPoseClip,fresh,&error),"fresh collection pose failed"))return false;
+            constexpr unsigned collectionCount=192;
+            std::vector<GltfSceneViewRequest> many;
+            for(unsigned i=0;i<collectionCount;++i) {
+                auto placed=draw;placed.instanceTransform[12]=float(i);
+                if(!check(family.collect(collectedAsset,fresh,placed.instanceTransform,id,&error),"many collection failed"))return false;
+                many.push_back({id,placed});
+            }
+            GltfSceneCollectedView parallel;
+            if(!check(family.prepareView(many,parallel,&error) && parallel.size()==collectionCount &&
+                family.stats().parallelBatches==1,"joined visibility job coverage missing"))return false;
+            RecordingBackend joined;
+            for(std::size_t i=0;i<parallel.size();++i)if(!check(parallel.draw(joined,i,drawn,&error),"joined draw failed"))return false;
+            if(!check(joined.submissions.size()==collectionCount*collectedAsset->primitives.size(),"joined job dropped draws"))return false;
+            for(std::size_t i=0;i<collectionCount;++i) {
+                RecordingBackend serial;auto pose=fresh;
+                if(!check(drawGltfSceneAsset(serial,*collectedAsset,pose,many[i].options,drawn,&error),"serial joined reference failed"))return false;
+                for(std::size_t k=0;k<serial.submissions.size();++k) {
+                    const auto& a=joined.submissions[i*serial.submissions.size()+k];const auto& b=serial.submissions[k];
+                    if(!check(a.geometryKey==b.geometryKey && a.texture.modelMatrix==b.texture.modelMatrix && a.palette==b.palette,
+                        "joined selection changed order/pose"))return false;
+                }
+            }
+        }
+        collectedAsset.reset();current={};
+        RecordingBackend survivor;
+        if(!check(held.draw(survivor,0,drawn,&error) && survivor.submissions.size()==expected.submissions.size() &&
+            survivor.submissions[0].palette==expected.submissions[0].palette,
+            "view outlived its owned snapshots"))return false;
+        const auto previous=drawn.drawCalls;survivor.submissions.clear();
+        if(!check(!held.draw(survivor,999,drawn,&error) && survivor.submissions.empty() && drawn.drawCalls==previous,
+            "invalid collected draw touched the backend/stats"))return false;
+    }
+
     outFail.clear();
     return true;
 }

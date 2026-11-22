@@ -1,4 +1,5 @@
 #include "engine/render/AtmosphereSky.h"
+#include "engine/render/WorldSkyAssets.h"
 #include "engine/core/Environment.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -10,18 +11,6 @@
 namespace engine::render {
 namespace {
 constexpr float pi = 3.14159265359f;
-constexpr float earthRadius = 6360.f; // Kilometres inside the atmosphere integrator.
-constexpr float atmosphereRadius = earthRadius + 100.f;
-const glm::vec3 rayleigh(.0058f,.0135f,.0331f);
-constexpr float mie = .004f;
-float exitDistance(glm::vec3 p, glm::vec3 d, float radius) {
-    const float b = glm::dot(p,d), c = glm::dot(p,p)-radius*radius;
-    return -b + std::sqrt(std::max(0.f,b*b-c));
-}
-glm::vec2 density(glm::vec3 p) {
-    const float altitude = std::max(0.f,glm::length(p)-earthRadius);
-    return {std::exp(-altitude/8.f),std::exp(-altitude/1.2f)};
-}
 void requireScope(bool okay) {
     if (!okay) throw std::runtime_error("Atmosphere world resource scope admission failed");
 }
@@ -60,43 +49,16 @@ std::array<float, 2> AtmosphereSky::referenceCloudDensity(float u, float v) {
 }
 
 std::array<float, 3> AtmosphereSky::referenceRadiance(float sunElevation,
-    float viewElevation, float azimuth) {
-    if (!std::isfinite(sunElevation) || !std::isfinite(viewElevation) || !std::isfinite(azimuth))
-        return {};
-    const glm::vec3 origin(0,earthRadius+.002f,0);
-    const glm::vec3 sun(std::cos(sunElevation),std::sin(sunElevation),0);
-    const float horizontal = std::cos(viewElevation);
-    const glm::vec3 view(horizontal*std::cos(azimuth),std::sin(viewElevation),horizontal*std::sin(azimuth));
-    const float step = exitDistance(origin,view,atmosphereRadius)/24.f;
-    glm::vec2 viewDepth(0);
-    glm::vec3 rayleighSum(0),mieSum(0);
-    for (int sample=0;sample<24;++sample) {
-        const glm::vec3 p = origin + view*((static_cast<float>(sample)+.5f)*step);
-        const glm::vec2 localDensity = density(p);
-        const glm::vec2 midpointDepth = viewDepth+localDensity*(step*.5f);
-        viewDepth += localDensity*step;
-        const float b = glm::dot(p,sun);
-        const float discriminant = b*b-(glm::dot(p,p)-earthRadius*earthRadius);
-        if (b<0 && discriminant>0 && -b-std::sqrt(discriminant)>0) continue;
-        const float sunStep = exitDistance(p,sun,atmosphereRadius)/8.f;
-        glm::vec2 sunDepth(0);
-        for (int lightSample=0;lightSample<8;++lightSample)
-            sunDepth += density(p+sun*((static_cast<float>(lightSample)+.5f)*sunStep))*sunStep;
-        const glm::vec2 opticalDepth = midpointDepth+sunDepth;
-        const glm::vec3 transmittance = glm::exp(-(rayleigh*opticalDepth.x+glm::vec3(mie*1.1f*opticalDepth.y)));
-        rayleighSum += transmittance*(localDensity.x*step);
-        mieSum += transmittance*(localDensity.y*step);
-    }
-    const float cosine = glm::dot(sun,view);
-    const float rayleighPhase = 3.f/(16.f*pi)*(1.f+cosine*cosine);
-    constexpr float g = .76f;
-    const float miePhase = 3.f/(8.f*pi)*(1.f-g*g)*(1.f+cosine*cosine)/
-        ((2.f+g*g)*std::pow(std::max(.001f,1.f+g*g-2.f*g*cosine),1.5f));
-    const glm::vec3 color = 22.f*(rayleighSum*rayleigh*rayleighPhase+mieSum*mie*miePhase);
-    return {color.r,color.g,color.b};
+    float viewElevation,float azimuth) {
+    const auto model=prepareSkyModel(4,{.1f,.1f,.1f},std::max(sunElevation,0.f));
+    const float gamma=std::sin(sunElevation)*std::sin(viewElevation)+
+        std::cos(sunElevation)*std::cos(viewElevation)*std::cos(azimuth);
+    auto color=evaluateSkyModel(model,std::max(std::sin(viewElevation),.05f),gamma);
+    for(auto& c:color)c*=100;
+    return color;
 }
 
-AtmosphereSky::AtmosphereSky() : atlas_(2048u*290u*4u) {
+AtmosphereSky::AtmosphereSky() : atlas_(2048u*2112u*4u) {
     for (int layer=0;layer<32;++layer) for (int row=0;row<32;++row) for (int column=0;column<64;++column) {
         const float elevation = static_cast<float>(row)/31.f;
         const auto radiance = referenceRadiance(-.14f+static_cast<float>(layer)/31.f*(pi*.5f+.14f),
@@ -118,6 +80,13 @@ AtmosphereSky::AtmosphereSky() : atlas_(2048u*290u*4u) {
         atlas_[offset+1] = static_cast<unsigned char>(std::lround(cloud[1]*255.f));
         atlas_[offset+3] = 255;
     }
+    prepareCelestialAtlas(atlas_);
+    const auto copyCloud=[&](const auto& bytes,unsigned size,unsigned x,unsigned y) {
+        for(unsigned row=0;row<size;++row)std::copy_n(bytes.data()+row*size*4,size*4,
+            atlas_.data()+((y+row)*2048+x)*4);
+    };
+    copyCloud(cloudAssets_.weather,256,0,640);
+    copyCloud(cloudAssets_.noise,512,512,512);
     for (std::size_t i=0;i<vertices_.size();++i) {
         auto& v = vertices_[i];
         v.x = (i&1u) ? 10.f : -10.f;
@@ -131,8 +100,8 @@ AtmosphereSky::AtmosphereSky() : atlas_(2048u*290u*4u) {
 
 IRenderBackend::WorldTextureData AtmosphereSky::texture() const {
     IRenderBackend::WorldTextureData t;
-    t.key=t.cacheKey="phlosion-layered-atmosphere-v2";
-    t.rgba=atlas_.data();t.width=2048;t.height=290;t.textureSrgb=0;
+    t.key=t.cacheKey="phlosion-analytic-atmosphere-v6";
+    t.rgba=atlas_.data();t.width=2048;t.height=2112;t.textureSrgb=0;
     t.wrapS=t.wrapT=33071;t.materialMode=0;t.depthTestEnabled=0;
     return t;
 }
@@ -142,8 +111,28 @@ void AtmosphereSky::prewarm(IRenderBackend& renderer, WorldResourceScopeId scope
     requireScope(scopes->beginWorldResourceScope(scope));
     const auto t=texture();
     renderer.prewarmWorldTextureData(&t);
+    const auto inputs=cloudView(scope,{}, {},1);
+    renderer.prewarmWorldTextureData(&inputs.weather);renderer.prewarmWorldTextureData(&inputs.noise);
     renderer.prewarmWorldIndexedMeshCached("phlosion-atmosphere-cube-v1",vertices_.data(),vertices_.size(),indices_.data(),indices_.size());
     requireScope(scopes->endWorldResourceScope());
+}
+WorldCloudView AtmosphereSky::cloudView(WorldResourceScopeId owner,const WorldEnvironmentLighting& environment,
+    const WorldTemporalView& view,unsigned quality) const {
+    WorldCloudView out;out.owner=owner;out.environment=environment;out.view=view;out.quality=quality;
+    out.weather.key=out.weather.cacheKey="phlosion-cloud-weather-v1";out.weather.rgba=cloudAssets_.weather.data();
+    out.weather.width=out.weather.height=256;out.weather.textureSrgb=0;out.weather.wrapS=out.weather.wrapT=10497;
+    out.noise=out.weather;out.noise.key=out.noise.cacheKey="phlosion-cloud-noise-v1";
+    out.noise.rgba=cloudAssets_.noise.data();out.noise.width=out.noise.height=512;return out;
+}
+void AtmosphereSky::prepareClouds(IRenderBackend& renderer,const WorldCloudView& view) const {
+    auto* clouds=dynamic_cast<IWorldClouds*>(&renderer);
+    if(!clouds)throw std::runtime_error("Atmosphere cloud backend required");
+    clouds->prepareWorldClouds(view);
+}
+void AtmosphereSky::resolveClouds(IRenderBackend& renderer,const WorldCloudView& view) const {
+    auto* clouds=dynamic_cast<IWorldClouds*>(&renderer);
+    if(!clouds)throw std::runtime_error("Atmosphere cloud backend required");
+    clouds->resolveWorldClouds(view);
 }
 void AtmosphereSky::draw(IRenderBackend& renderer, WorldResourceScopeId scope,
     const WorldEnvironmentLighting& environment, const std::array<float,3>& camera,
@@ -153,7 +142,7 @@ void AtmosphereSky::draw(IRenderBackend& renderer, WorldResourceScopeId scope,
         throw std::invalid_argument("Invalid atmosphere lighting input");
     auto* scopes=dynamic_cast<IWorldResourceScope*>(&renderer);
     if (!scopes) throw std::runtime_error("Atmosphere requires managed world resources");
-    auto t=texture();t.environment=environment;t.environment.skyDraw=true;
+    auto t=texture();t.environment=environment;t.environment.skyDraw=true;t.environment.sky.screenSize=float(std::max(width,height));
     if (engine::env::flagEnabled("PHLOSION_DISABLE_CLOUD_LAYERS")) t.environment.cloudCoverage=0;
     t.cameraPosX=camera[0];t.cameraPosY=camera[1];t.cameraPosZ=camera[2];
     const auto model=glm::translate(glm::mat4(1),glm::vec3(camera[0],camera[1],camera[2]));

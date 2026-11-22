@@ -31,6 +31,7 @@ VulkanRenderBackendImpl::CachedWorldMesh* VulkanRenderBackendImpl::ensureCachedW
     std::size_t vertexCount,
     const std::uint32_t* indices,
     std::size_t indexCount) {
+    engine::render::WorldResourceScopeState::AssetResources assets(worldScopes);
     engine::render::WorldResourceScopeState::AllocationAttempt attempt(worldScopes);
     if (!worldScopes.admitted()) return nullptr;
     if (!geometryKey || geometryKey[0] == '\0' || !vertices || !indices ||
@@ -41,10 +42,6 @@ VulkanRenderBackendImpl::CachedWorldMesh* VulkanRenderBackendImpl::ensureCachedW
     const std::size_t safeVertexCount = std::min(vertexCount, kMaxWorldVertices);
     const std::size_t safeIndexCount = std::min(indexCount, kMaxWorldIndices);
     if (safeVertexCount != vertexCount || safeIndexCount != indexCount) return nullptr;
-    for (std::size_t i = 0u; i < safeIndexCount; ++i) {
-        if (indices[i] >= safeVertexCount) return nullptr;
-    }
-
     const std::string key = worldScopes.key(geometryKey);
     auto existing = cachedWorldMeshes.find(key);
     if (existing != cachedWorldMeshes.end()) {
@@ -58,6 +55,11 @@ VulkanRenderBackendImpl::CachedWorldMesh* VulkanRenderBackendImpl::ensureCachedW
         // Geometry keys are immutable contracts. Keep any in-flight resource alive
         // and let a mismatched caller use the transient fallback.
         return nullptr;
+    }
+
+    // An immutable cached mesh was validated before its original upload.
+    for (std::size_t i = 0u; i < safeIndexCount; ++i) {
+        if (indices[i] >= safeVertexCount) return nullptr;
     }
 
     const VkDeviceSize vertexBytes =
@@ -318,6 +320,7 @@ void VulkanRenderBackendImpl::drawWorldIndexedMeshCachedPreparedInstanced(
 }
 
 void VulkanRenderBackendImpl::destroyCachedWorldMeshes() {
+    preparedWorldGeometry.clear();
     for (auto& [key, mesh] : cachedWorldMeshes) {
         (void)key;
         destroyBuffer(mesh.ownedGeometry);

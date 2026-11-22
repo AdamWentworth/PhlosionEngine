@@ -5,9 +5,22 @@ Objective: coherent continuous pink/blue canopy lighting, believable overlap on
 surfaces and characters, and a sound path for shadows, indirect light, HDR glow
 and wet reflections on OpenGL, Vulkan and D3D12 in runtime and editor.
 
+## Current priority (2026-10-21)
+
+Visual-parity work is parked at the working **about 90%** estimate for the tested
+non-RT lighting foundation. Bounded redundant-work optimizations are implemented;
+see [performance closeout](PERFORMANCE_CLOSEOUT.md) for checks and observed costs.
+The user deferred clean performance timing because other applications compete
+for the GPU. Full-quality 1080p has not met 60 FPS. Preserve the current appearance
+and record that debt while moving to other game/environment work; larger
+reflection acceleration and startup work remain separate follow-ups.
+See [the checkpoint](CHECKPOINT.md) for scope, exit criteria, deferred visual gaps
+and the recorded 65-hour history / 60-120-hour estimate for a future 99% push.
+The phases below are historical context, not instructions to resume visual work.
+
 ## Evidence and existing work
 
-### Active target: recover the captured light response
+### Previous target: recover the captured light response
 
 The user's 2026-10-17 clarification makes the immediate target the actual
 Cyberpunk light-to-surface calculation with matched inputs, independent of scene
@@ -16,7 +29,7 @@ screenshots do not establish this match. The accepted haze remains an existing
 Phlosion feature, not an exact recovered Cyberpunk algorithm.
 
 Private research implementation and reproducible commands now live in
-`D:/Projects/Research/CyberpunkRainResearch/tools/lighting_matched`; draw-time
+`PROJECTS_ROOT/Research/CyberpunkRainResearch/tools/lighting_matched`; draw-time
 inputs, original outputs and measurements live in `evidence/lighting-matched` in
 that depot. PSO 20727 / indirect parent 7084 / dispatch 7085 is the first target.
 Keep captured binaries, raw resources and disassembly outside source repositories.
@@ -63,7 +76,7 @@ All general rendering belongs to the engine; scene placement belongs to the game
 
 The retained retail 2.31 night capture has RT disabled and SSR High. Its local
 light, probe, shadow, reflection and HDR glow passes are documented under
-`D:/Projects/Research/CyberpunkRainResearch/evidence/lighting-study`.
+`PROJECTS_ROOT/Research/CyberpunkRainResearch/evidence/lighting-study`.
 `capture-sufficiency-review.json` corrects the earlier shadow-pass count: 45 draws
 and two dispatches, not 47 draws. No new capture is needed for foundation work.
 The current pink rectangles face outward and illuminate no interior canopy

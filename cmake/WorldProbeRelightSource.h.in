@@ -1,0 +1,2 @@
+#pragma once
+inline constexpr const char* worldProbeRelightSource=R"PROBE(@PHLOSION_PROBE_RELIGHT_SOURCE@)PROBE";

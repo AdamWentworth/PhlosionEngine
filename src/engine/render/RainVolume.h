@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/render/IRenderBackend.h"
+#include "engine/render/IWorldParticleLighting.h"
 #include "engine/render/IWorldResourceScope.h"
 #include <functional>
 #include <cstdint>
@@ -147,11 +148,15 @@ public:
     void draw(IRenderBackend&, WorldResourceScopeId, const float* viewProjection,
         int width, int height,unsigned layerMask=7) const;
     std::span<const IRenderBackend::WorldMeshVertex> dropVertices() const { return drops_; }
+    void useImpactLighting(std::string key,std::span<const std::array<glm::vec2,4>> coordinates) {
+        applyParticleLightingCoordinates(impacts_,coordinates);impactLighting_=std::move(key);
+    }
     std::span<const IRenderBackend::WorldMeshVertex> impactVertices() const { return impacts_; }
     std::span<const IRenderBackend::WorldMeshVertex> mistVertices() const { return mist_; }
     std::span<const IRenderBackend::WorldMeshVertex> sprayVertices() const { return spray_; }
     std::span<const RainImpact> visibleImpacts() const { return visibleImpacts_; }
 private:
+    std::string impactLighting_;
     IRenderBackend::WorldTextureData texture(bool impact,bool layered=false) const;
     IRenderBackend::WorldTextureData mistTexture() const;
     void buildMist(const WorldEnvironmentLighting&,glm::vec3,const RainCoverQuery&,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/render/IRenderBackend.h"
+#include "engine/render/RenderPhaseProfile.h"
 #include "engine/render/IWorldDepthControl.h"
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -9,16 +10,19 @@
 
 namespace engine::render {
 // Private HDR scratch target, independent of scene/reflection color. End restores
-// the scene target and exposes the scratch image to material 248 only.
+// the scene target and exposes the scratch image to reconstruction and edge fallback.
 class IWorldLocalHaze {
 public:
     virtual ~IWorldLocalHaze() = default;
     virtual bool beginWorldLocalHaze(int width, int height) = 0;
     virtual bool endWorldLocalHaze() = 0;
+    // Optional stencil rejection preserves the software predicate on other backends.
+    virtual bool beginWorldLocalHazeComposition(int, int) {return false;}
+    virtual void endWorldLocalHazeComposition() {}
 };
 
 inline bool isWorldLocalHazePass(const IRenderBackend::WorldTextureData* t) {
-    return t && (t->materialMode == 247 || t->materialMode == 248);
+    return t && (t->materialMode == 239 || t->materialMode == 246 || t->materialMode == 247 || t->materialMode == 248);
 }
 
 // Call after opaque surfaces and before transparent effects. Ordinary material
@@ -30,8 +34,10 @@ inline void drawWorldLocalHaze(IRenderBackend& renderer, const WorldEnvironmentL
         throw std::invalid_argument("Invalid local haze view");
     auto* target = dynamic_cast<IWorldLocalHaze*>(&renderer);
     auto* depth = dynamic_cast<IWorldDepthControl*>(&renderer);
-    if (!target || !depth || !depth->captureWorldDepthSnapshot())
+    if (!target || !depth)
         throw std::runtime_error("Local haze requires scene depth and HDR target");
+    { RenderPhaseScope phase(renderer,"haze-depth");
+      if(!depth->captureWorldDepthSnapshot()) throw std::runtime_error("Local haze depth capture failed"); }
     const int lowWidth=(width+3)/4, lowHeight=(height+3)/4;
     const glm::mat4 inverse=glm::inverse(glm::make_mat4(viewProjection));
     for (int i=0;i<16;++i) if (!std::isfinite(glm::value_ptr(inverse)[i]))
@@ -54,10 +60,24 @@ inline void drawWorldLocalHaze(IRenderBackend& renderer, const WorldEnvironmentL
     std::copy_n(glm::value_ptr(inverse),16,t.projectedShadowMatrix.begin());
     for(int col=0;col<4;++col)t.lightProjectionUvRowU[col]=inverse[col][3];
     const glm::mat4 identity(1);
+    { RenderPhaseScope phase(renderer,"haze-integrate");
     if (!target->beginWorldLocalHaze(lowWidth,lowHeight)) throw std::runtime_error("Local haze target unavailable");
     renderer.drawWorldIndexedMeshTextured(vertices.data(),4,indices.data(),6,&t,glm::value_ptr(identity),lowWidth,lowHeight);
     if (!target->endWorldLocalHaze()) throw std::runtime_error("Local haze target close failed");
+    }
+    bool stencil=false;
+    { RenderPhaseScope phase(renderer,"haze-mask");
+      stencil=target->beginWorldLocalHazeComposition(width,height); }
+    { RenderPhaseScope phase(renderer,"haze-compose");
     t.materialMode=248;t.blendMode=1;
     renderer.drawWorldIndexedMeshTextured(vertices.data(),4,indices.data(),6,&t,glm::value_ptr(identity),width,height);
+    }
+    // Separate specialization keeps the full ray integrator out of the ordinary
+    // reconstruction shader. Complementary depth weights select exactly one draw.
+    { RenderPhaseScope fallback(renderer,"haze-edge");
+    t.materialMode=246;
+    renderer.drawWorldIndexedMeshTextured(vertices.data(),4,indices.data(),6,&t,glm::value_ptr(identity),width,height);
+    }
+    if(stencil) target->endWorldLocalHazeComposition();
 }
 }

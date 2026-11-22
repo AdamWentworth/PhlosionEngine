@@ -1,4 +1,7 @@
+#include "engine/assets/ResourceBank.h"
+#include <nlohmann/json.hpp>
 #include "GltfSceneAsset.h"
+#include "GltfSceneDrawPlan.h"
 
 #include <fastgltf/glm_element_traits.hpp>
 #include <fastgltf/tools.hpp>
@@ -1148,6 +1151,23 @@ bool importMaterial(LoadState& state,
         return false;
     }
 
+    if (state.options->layeredMaterials) {
+        const auto& package=*state.options->layeredMaterials;
+        const auto binding=package.bindings.find(name);
+        if(binding!=package.bindings.end()){
+            if(out.alphaMode!=0||out.unlit)return state.fail(label+" layered binding requires opaque lit geometry");
+            out.layeredMaterialIndex=binding->second;
+            out.hasBaseColorMap=out.hasNormalMap=out.hasMetallicRoughnessMap=out.hasOcclusionMap=out.hasEmissiveMap=false;
+            out.baseColorFactor={1,1,1,1};out.emissiveFactor={0,0,0};
+            out.baseColor=makeImplicitWhite();out.emissive=makeImplicitWhite();
+            out.baseColor.key=out.baseColor.cacheKey=materialKeyPrefix(state,materialIndex,"layered")+"/"+package.materials->identity;
+            out.emissive.key=out.emissive.cacheKey=out.baseColor.key+"/emissive";
+            out.bindKey=out.baseColor.key+"/"+std::to_string(out.layeredMaterialIndex);
+            if(state.retainedTextureBytes+8>state.options->maxTextureBytes)return state.fail("Layered fallback texture budget");
+            state.retainedTextureBytes+=8;state.textureCount+=2;return true;
+        }
+    }
+
     int texCoord = 0;
     const CPUTexture baseCPU =
         engine::render::gltf::model::decodeBaseColorTextureFast(
@@ -1890,7 +1910,7 @@ bool importPrimitive(LoadState& state,
                            out.indices.size() * sizeof(std::uint32_t),
                            geometryHash);
     out.geometryKey = "gltf-scene/" + state.sourceIdentity + "/g/" +
-                      std::to_string(nodeIndex) + "/" +
+                      (out.skinIndex<0?std::string("static"):std::to_string(nodeIndex)) + "/" +
                       std::to_string(meshIndex) + "/" +
                       std::to_string(primitiveIndex) + "/" +
                       hex64(geometryHash);
@@ -2244,7 +2264,7 @@ bool resolveStoreSources(fastgltf::Asset& asset, const engine::IAssetStore& stor
 bool loadSceneImpl(const engine::IAssetStore* store, const std::string& path,
                         std::shared_ptr<const GltfSceneAsset>& out,
                         std::string* error,
-                        const GltfSceneLoadOptions& options) {
+                        const GltfSceneLoadOptions& options, const std::string& origin = {}) {
     const auto fail = [&](std::string message) {
         if (error != nullptr) {
             *error = std::move(message);
@@ -2255,12 +2275,22 @@ bool loadSceneImpl(const engine::IAssetStore* store, const std::string& path,
         return fail("glTF scene path must not be empty");
     }
 
+    if(options.layeredMaterials){
+        try{
+            const auto& package=*options.layeredMaterials;
+            if(!package.materials||package.bindings.empty())return fail("Empty layered material package");
+            (void)packWorldLayerMaterialSet(*package.materials);
+            for(const auto& [name,index]:package.bindings)
+                if(name.empty()||!index||index>package.materials->materials.size())return fail("Invalid layered material binding");
+        }catch(const std::exception& e){return fail(e.what());}
+    }
     const auto started = std::chrono::steady_clock::now();
     const std::filesystem::path requested(path);
     std::error_code pathError;
     const std::filesystem::path absolute = store ? requested :
         std::filesystem::absolute(requested, pathError);
-    const std::filesystem::path usePath = store ? requested : (pathError ? requested : absolute);
+    const std::filesystem::path usePath = !origin.empty() ? std::filesystem::path(origin) :
+        store ? requested : (pathError ? requested : absolute);
 
     std::vector<std::uint8_t> fileBytes;
     if (store) {
@@ -2335,6 +2365,11 @@ bool loadSceneImpl(const engine::IAssetStore* store, const std::string& path,
     built->sourcePath = state.sourcePath;
     built->sourceIdentity = state.sourceIdentity;
     built->generation = state.generation;
+    if(options.layeredMaterials) {
+        // Keep the separately admitted package pinned while a scene uses its set.
+        built->layeredMaterials=std::shared_ptr<const WorldLayerMaterialSet>(
+            options.layeredMaterials,options.layeredMaterials->materials.get());
+    }
 
     if (!buildAsset(state, *built)) {
         // `out` and its current shared payload are untouched on failure.
@@ -2343,6 +2378,51 @@ bool loadSceneImpl(const engine::IAssetStore* store, const std::string& path,
                         : ("glTF scene import was rejected: " + state.error));
     }
 
+    if(options.lodGroups.size()>2048)return fail("glTF LOD group budget");
+    std::vector<bool> usedLodNode(built->nodes.size());
+    for(const auto& source:options.lodGroups){
+        if(source.nodes.empty()||source.nodes.size()>8||source.distances.size()+1!=source.nodes.size())
+            return fail("glTF LOD group extent");
+        GltfSceneLodGroup group;group.distances=source.distances;
+        float previous=0;
+        for(float distance:source.distances){
+            if(!std::isfinite(distance)||distance<=previous||distance>100000)return fail("glTF LOD distances must increase");
+            previous=distance;
+        }
+        for(const auto& name:source.nodes){
+            int node=-1;
+            for(std::size_t i=0;i<built->nodes.size();++i)if(built->nodes[i].name==name){
+                if(node!=-1)return fail("Ambiguous glTF LOD node: "+name);node=int(i);
+            }
+            if(node<0||usedLodNode[node])return fail("Missing or repeated glTF LOD node: "+name);
+            usedLodNode[node]=true;group.nodes.push_back(node);
+            bool found=false;
+            for(const auto& primitive:built->primitives)if(primitive.nodeIndex==node){
+                if(primitive.skinIndex>=0||!primitive.boundsValid)return fail("glTF static LOD needs bounded unskinned geometry");
+                found=true;
+            }
+            if(!found)return fail("Empty glTF LOD node: "+name);
+        }
+        // Decimation can expand a level slightly. Retain every level's local
+        // bounds; selection transforms their union using the current node poses.
+        for(int node:group.nodes){
+            std::array<float,3> low,high;
+            low.fill(std::numeric_limits<float>::max());high.fill(std::numeric_limits<float>::lowest());
+            for(const auto& primitive:built->primitives)if(primitive.nodeIndex==node)
+                for(unsigned axis=0;axis<3;++axis){
+                    low[axis]=std::min(low[axis],primitive.boundsMin[axis]);
+                    high[axis]=std::max(high[axis],primitive.boundsMax[axis]);
+                }
+            group.boundsMin.push_back(low);group.boundsMax.push_back(high);
+        }
+        built->lodGroups.push_back(std::move(group));
+    }
+    if(options.layeredMaterials){
+        for(const auto& [name,index]:options.layeredMaterials->bindings){
+            const auto found=std::find_if(built->materials.begin(),built->materials.end(),[&](const auto& m){return m.name==name&&m.layeredMaterialIndex==index;});
+            if(found==built->materials.end())return fail("Missing glTF layered material binding: "+name);
+        }
+    }
     const auto finished = std::chrono::steady_clock::now();
     built->stats.nodeCount = built->nodes.size();
     built->stats.primitiveCount = built->primitives.size();
@@ -2355,11 +2435,18 @@ bool loadSceneImpl(const engine::IAssetStore* store, const std::string& path,
     built->stats.sourceFileBytes = fileBytes.size();
     built->stats.retainedGeometryBytes = state.retainedGeometryBytes;
     built->stats.retainedTextureBytes = state.retainedTextureBytes;
+    if(built->layeredMaterials){
+        const auto packed=packWorldLayerMaterialSet(*built->layeredMaterials);
+        built->stats.retainedTextureBytes+=packed.textureBytes;
+        built->stats.textureCount+=built->layeredMaterials->textures.size();
+    }
     built->stats.retainedAssetBytes =
         static_cast<std::uint64_t>(state.retainedGeometryBytes) +
-        static_cast<std::uint64_t>(state.retainedTextureBytes);
+        built->stats.retainedTextureBytes;
     built->stats.loadSeconds =
         std::chrono::duration<double>(finished - started).count();
+
+    if (!detail::publishGltfSceneDrawPlan(*built, error)) return false;
 
     out = std::move(built);
     if (error != nullptr) {
@@ -2370,10 +2457,40 @@ bool loadSceneImpl(const engine::IAssetStore* store, const std::string& path,
 
 } // namespace
 
+engine::assets::ResourceRequest requestGltfSceneAsset(engine::assets::ResourceBank& bank,
+    const std::string& path,const GltfSceneLoadOptions& options) {
+        const auto canonical=engine::assets::canonicalResourcePath(path);
+        nlohmann::json variant{{"nodes",options.maxNodes},{"primitives",options.maxPrimitives},
+            {"vertices",options.maxVertices},{"indices",options.maxIndices},{"textures",options.maxTextureBytes}};
+        for(const auto& lod:options.lodGroups)variant["lod"].push_back({lod.nodes,lod.distances});
+        if(options.layeredMaterials){
+            // The shared immutable set stays alive in the resulting scene;
+            // pointer identity cannot be recycled while this cache entry lives.
+            variant["layer_set"]=reinterpret_cast<std::uintptr_t>(options.layeredMaterials->materials.get());
+            variant["bindings"]=options.layeredMaterials->bindings;
+        }
+        return bank.request<GltfSceneAsset>("gltf:"+canonical+"\n"+variant.dump(),
+            [canonical,options](engine::assets::ResourceLoadContext& context){
+                const std::filesystem::path file(canonical);
+                engine::assets::ResourceFileStore store(context,file.parent_path());
+                std::shared_ptr<const GltfSceneAsset> asset;std::string problem;
+                if(!loadSceneImpl(&store,file.filename().generic_string(),asset,&problem,options,canonical))
+                    throw std::runtime_error(problem);
+                // Shared layered storage is separately admitted by its package.
+                auto bytes=asset->stats.retainedAssetBytes;
+                if(asset->layeredMaterials)bytes-=packWorldLayerMaterialSet(*asset->layeredMaterials).textureBytes;
+                return engine::assets::ResourceValue<GltfSceneAsset>{asset,bytes};
+            });
+}
 bool loadGltfSceneAsset(const std::string& path,
                         std::shared_ptr<const GltfSceneAsset>& out,
                         std::string* error, const GltfSceneLoadOptions& options) {
-    return loadSceneImpl(nullptr, path, out, error, options);
+    auto* bank=engine::assets::currentResourceBank();
+    if(!bank)return loadSceneImpl(nullptr,path,out,error,options);
+    try {
+        auto value=requestGltfSceneAsset(*bank,path,options).get<GltfSceneAsset>();
+        out=std::move(value);if(error)error->clear();return true;
+    }catch(const std::exception& ex){if(error)*error=ex.what();return false;}
 }
 
 bool loadGltfSceneAsset(const engine::IAssetStore& store, const std::string& path,

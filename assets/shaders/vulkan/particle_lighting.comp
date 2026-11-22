@@ -1,0 +1,26 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_control_flow_attributes : require
+layout(set=0,binding=0)uniform sampler2D shadowTexture;
+layout(set=0,binding=1)uniform sampler2D momentTexture;
+layout(std430,set=0,binding=2)readonly buffer Transport{vec4 transport[];};
+layout(std430,set=0,binding=3)readonly buffer Radiance{vec4 radiance[];};
+layout(std430,set=0,binding=4)readonly buffer Quads{vec4 quads[];};
+layout(rgba16f,set=0,binding=5)uniform writeonly image2D outputTexture;
+layout(set=0,binding=7)uniform sampler2D maximumDepth;
+#define PL_DEPTH(p) texelFetch(maximumDepth,p,0).r
+layout(std140,set=0,binding=6)uniform Parameters{vec4 parameters[320];};
+#define PP(i) parameters[i]
+#define PQ(i) quads[i]
+#define WORLD_GI_DATA(i) transport[i]
+#define WORLD_GI_RESULT(i) radiance[i]
+#define WORLD_GI_LOOP [[dont_unroll]]
+#define PL_SHARED shared
+#define PL_LOOP [[dont_unroll]]
+#define PL_BARRIER barrier()
+#define PL_SHADOW(uv) textureLod(shadowTexture,uv,0.0).r
+#define PL_MOMENT(uv) textureLod(momentTexture,uv,0.0).rg
+#define PL_STORE(p,v) imageStore(outputTexture,p,v)
+#include "particle_lighting.glsl"
+layout(local_size_x=64,local_size_y=1,local_size_z=1)in;
+void main(){particleLighting(gl_WorkGroupID.x,gl_LocalInvocationIndex);}

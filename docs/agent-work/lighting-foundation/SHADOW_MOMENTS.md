@@ -65,7 +65,7 @@ error is 5.2663e-7 on GL/Vulkan and 5.1918e-7 on D3D12, against a 4e-5 limit.
 The original finite-response cases also pass after sharing the runner.
 
 Private captured-input verification is in
-`D:/Projects/Research/CyberpunkRainResearch/tools/shadow_matched`; all bytecode,
+`PROJECTS_ROOT/Research/CyberpunkRainResearch/tools/shadow_matched`; all bytecode,
 disassembly, buffers and replay files stay in that research depot. The owned
 replay observes resource states in queue submission order, saves inputs, runs an
 independent shader against those same inputs, restores outputs, and then executes

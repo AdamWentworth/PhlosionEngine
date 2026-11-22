@@ -28,13 +28,13 @@ struct alignas(16) WorldIndirectPushConstants {
 };
 
 static_assert(std::is_standard_layout_v<WorldIndirectDrawState>);
-static_assert(sizeof(WorldIndirectDrawState) == 272u);
+static_assert(sizeof(WorldIndirectDrawState) == 288u);
 static_assert(offsetof(WorldIndirectDrawState, specializedMaterial) == 0u);
-static_assert(offsetof(WorldIndirectDrawState, materialParams) == 192u);
-static_assert(offsetof(WorldIndirectDrawState, shadingParams) == 208u);
-static_assert(offsetof(WorldIndirectDrawState, pbrFactors) == 224u);
-static_assert(offsetof(WorldIndirectDrawState, emissiveAndCamera) == 240u);
-static_assert(offsetof(WorldIndirectDrawState, drawParams) == 256u);
+static_assert(offsetof(WorldIndirectDrawState, materialParams) == 208u);
+static_assert(offsetof(WorldIndirectDrawState, shadingParams) == 224u);
+static_assert(offsetof(WorldIndirectDrawState, pbrFactors) == 240u);
+static_assert(offsetof(WorldIndirectDrawState, emissiveAndCamera) == 256u);
+static_assert(offsetof(WorldIndirectDrawState, drawParams) == 272u);
 static_assert(std::is_standard_layout_v<WorldIndirectPushConstants>);
 static_assert(sizeof(WorldIndirectPushConstants) == 80u);
 
@@ -65,7 +65,7 @@ inline WorldIndirectDrawState makeWorldIndirectDrawState(
         material.emissiveFactorG,
         material.emissiveFactorB,
         material.reserved1};
-    out.drawParams = {materialIndex, instanceBaseWordIndex, 0u, 0u};
+    out.drawParams = {materialIndex, instanceBaseWordIndex, texture&&(texture->blendMode==1||texture->blendMode==3)?1u:0u, 0u};
     return out;
 }
 

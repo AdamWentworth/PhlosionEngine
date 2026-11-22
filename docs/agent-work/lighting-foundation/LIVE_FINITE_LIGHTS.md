@@ -49,7 +49,7 @@ does not port moment-map generation, change rain, or add another render pass.
 
 The private matched replay was repeated with the production singularity guards:
 `evidence/lighting-matched/gpu/local-production-guards-05` under
-`D:/Projects/Research/CyberpunkRainResearch`. All 873,728 active pixels are included.
+`PROJECTS_ROOT/Research/CyberpunkRainResearch`. All 873,728 active pixels are included.
 Aggregate relative L1 error is 0.000065974% diffuse and 0.000029806% specular.
 Exactly 2,620,706 / 2,621,184 diffuse channels and 2,620,926 / 2,621,184 specular
 channels agree. Four diffuse and two specular shadow-edge outliers remain above

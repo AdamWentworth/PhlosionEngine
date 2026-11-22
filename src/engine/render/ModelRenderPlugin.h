@@ -1,13 +1,16 @@
 #pragma once
 
 #include "engine/render/IRenderBackend.h"
+#include "engine/render/WorldTemporalMaterial.h"
 
 #include <cstdint>
 
 namespace engine::render {
 
-// ABI 17 adds local-scattering controls to the world-lighting frame.
-inline constexpr std::uint32_t modelRenderPluginAbi = 19;
+// ABI 38 returns the full sampled node transform for rigid effect attachments.
+// Rebuild providers; ModelNodePoseResult changed.
+class WorldMotionHistory;
+inline constexpr std::uint32_t modelRenderPluginAbi = 38;
 inline constexpr char modelRenderPluginEntryPoint[] = "phlosionModelRenderPluginCreate";
 
 // Project renderers may present cooked models outside the asset inspector.
@@ -31,6 +34,7 @@ struct ModelRenderFrame {
     int height = 0;
     // Generic translucent model overlays, e.g. motion trails. Defaults retain
     // the asset's materials. Alpha blending tests depth and does not write it.
+    // RGB multipliers [0,2]; alpha remains [0,1].
     float tint[4]{1.0f, 1.0f, 1.0f, 1.0f};
     bool translucent = false;
     bool unlit = false;
@@ -53,6 +57,13 @@ struct ModelRenderFrame {
     // advancing animation. Owner-thread use; no active render pass required.
     bool prewarmOnly = false;
     WorldEnvironmentLighting environment;
+    // Borrowed during this primary-view submission only. Auxiliary views leave
+    // these empty. The caller owns identity; the provider owns the sampled pose.
+    WorldMotionHistory* motionHistory = nullptr;
+    std::uint64_t motionObject = 0;
+    // Caller-owned scene lifetime. Zero keeps the unmanaged preview path.
+    std::uint64_t resourceScope = 0;
+    WorldTemporalMaterial temporalMaterial = WorldTemporalMaterial::Geometry;
 };
 
 // CPU sampling uses the same animation/root-motion and instance transform as
@@ -74,6 +85,8 @@ struct ModelNodePoseRequest {
 
 struct ModelNodePoseResult {
     float worldPosition[3]{};
+    // Column-major transform, including authored scale and instance placement.
+    float worldTransform[16]{};
 };
 
 struct ModelRenderPluginApi {
@@ -86,6 +99,22 @@ struct ModelRenderPluginApi {
     // Missing nodes/clips fail explicitly and leave the result unchanged.
     bool (*sampleNodePose)(void*, const ModelNodePoseRequest*,
                            ModelNodePoseResult*) noexcept = nullptr;
+    // One owner-thread family at a time. Collect samples immutable CPU inputs
+    // without GPU calls. Handles expire at endCollection and are never recycled.
+    bool (*beginCollection)(void*) noexcept = nullptr;
+    bool (*collect)(void*,const ModelRenderFrame*,std::uint64_t*) noexcept = nullptr;
+    // Reads live camera/environment/lighting/prewarm/motion inputs only; pose,
+    // placement and material state come from the collected handle.
+    bool (*renderCollected)(void*,std::uint64_t,const ModelRenderFrame*) noexcept = nullptr;
+    void (*endCollection)(void*) noexcept = nullptr;
+    // Owner thread copies CPU view inputs and backend capabilities. No retained
+    // request pointers. Once prepared, collected draws require a planned view.
+    bool (*planCollected)(void*,std::uint64_t,const ModelRenderFrame*) noexcept = nullptr;
+    // Joins per-object CPU jobs before returning, including failure paths.
+    bool (*prepareCollected)(void*) noexcept = nullptr;
+    // Loaded resource version captured by this handle; zero for an expired/foreign handle.
+    std::uint64_t (*collectedResourceRevision)(void*,std::uint64_t) noexcept = nullptr;
+
 };
 
 using CreateModelRenderPlugin =

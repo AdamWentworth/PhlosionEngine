@@ -7,11 +7,15 @@
 
 namespace engine::render {
 
+struct WorldSunShadowPlan;
+
 // Column-major OpenGL clip coordinates (-1..1 depth), matching world draws.
 // Bias is normalized depth; normal offset is in world metres.
 struct WorldDirectionalShadowView {
     bool enabled = false;
+    std::uint32_t sunTile=~0u;
     std::array<float, 16> viewProjection{};
+    std::array<float,16> casterViewProjection{};
     std::uint32_t resolution = 2048;
     float strength = 1;
     float depthBias = .0004f;
@@ -19,7 +23,13 @@ struct WorldDirectionalShadowView {
     // Perspective radial moments: far/near, 1-far/near, tan(fov/2), 1/far.
     // All zero retains depth PCF. Only local perspective shadows use this.
     std::array<float, 4> distanceMoments{};
+    std::uint32_t momentKernel=5;
+    bool momentCentreRay=false, staticOnly=false;
 };
+
+inline const std::array<float,16>& worldShadowCasterProjection(const WorldDirectionalShadowView& view) {
+    return view.casterViewProjection==std::array<float,16>{}?view.viewProjection:view.casterViewProjection;
+}
 
 struct WorldDirectionalShadowState {
     std::array<float, 16> viewProjection{};
@@ -28,6 +38,7 @@ struct WorldDirectionalShadowState {
 static_assert(sizeof(WorldDirectionalShadowState) == 80);
 
 inline bool validWorldDirectionalShadowView(const WorldDirectionalShadowView& view) {
+    if(view.momentKernel<1 || view.momentKernel>15)return false;
     if (view.distanceMoments != std::array<float, 4>{}) {
         const auto& m = view.distanceMoments;
         for (float value : m) if (!std::isfinite(value)) return false;
@@ -40,6 +51,7 @@ inline bool validWorldDirectionalShadowView(const WorldDirectionalShadowView& vi
         !std::isfinite(view.depthBias) || view.depthBias < 0 || view.depthBias > .01f ||
         !std::isfinite(view.normalOffset) || view.normalOffset < 0 || view.normalOffset > 1)
         return false;
+    for(float value:view.casterViewProjection)if(!std::isfinite(value))return false;
     float magnitude = 0;
     for (float value : view.viewProjection) {
         if (!std::isfinite(value) || std::abs(value) > 1000000) return false;
@@ -63,6 +75,11 @@ inline WorldDirectionalShadowState packWorldDirectionalShadow(
 class IWorldDirectionalShadow {
 public:
     virtual ~IWorldDirectionalShadow() = default;
+    virtual void prewarmWorldSunShadows(unsigned) {}
+    virtual bool setWorldSunShadowPlan(const engine::render::WorldSunShadowPlan&) { return false; }
+    virtual void clearWorldSunShadows() {}
+    virtual std::uint64_t worldSunShadowIdentity() const { return 0; }
+
     virtual void prewarmWorldDirectionalShadow(std::uint32_t resolution) = 0;
     virtual bool beginWorldDirectionalShadow(
         const engine::render::WorldDirectionalShadowView& view) = 0;

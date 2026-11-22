@@ -1,4 +1,14 @@
+#include "engine/render/WorldEnvironmentPacketCache.h"
+#include "engine/render/WorldMaterialBindingCache.h"
+#include "engine/render/WorldPlacedProbeCache.h"
 #pragma once
+#include "engine/render/WorldSunShadows.h"
+#include "engine/render/IWorldDeformationPreparation.h"
+#include "engine/render/WorldPreparedResources.h"
+#include "engine/render/WorldPreparedView.h"
+#include "engine/render/WorldDeformationStorage.h"
+#include "engine/render/WorldMaterialFrameCache.h"
+#include "engine/render/WorldRecordingWorkers.h"
 
 #include <array>
 #include <cstdint>
@@ -7,14 +17,32 @@
 #include <unordered_map>
 
 #include "engine/render/IRenderBackend.h"
+#include "engine/render/RenderPhaseProfile.h"
 #include "engine/render/IWorldDepthControl.h"
+#include "engine/render/IWorldContactVisibility.h"
+#include "engine/render/WorldContactFilter.h"
+#include "engine/render/IWorldScreenReflection.h"
+#include "engine/render/IWorldLocalReflection.h"
+#include "engine/render/IWorldProbeScheduling.h"
+#include "engine/render/WorldProbeResidency.h"
 #include "engine/render/IWorldBloom.h"
 #include "engine/render/IWorldSceneRadiance.h"
 #include "engine/render/WorldDiffuseProbes.h"
+#include "engine/render/WorldIndirectLighting.h"
 #include "engine/render/IWorldPlanarReflection.h"
 #include "engine/render/IWorldLocalHaze.h"
+#include "engine/render/IWorldRainMap.h"
+#include "engine/render/IWorldWetSurfaces.h"
+#include "engine/render/IWorldLayeredMaterials.h"
+#include "engine/render/IWorldPrecipitationLighting.h"
+#include "engine/render/IWorldClouds.h"
+#include "engine/render/IWorldWindField.h"
+#include "engine/render/IWorldParticleLighting.h"
+#include "engine/render/IWorldSurfaceBuffer.h"
 #include "engine/render/IWorldDirectionalShadow.h"
 #include "engine/render/IWorldLocalShadow.h"
+#include "engine/render/IWorldLocalShadowCache.h"
+#include "engine/render/WorldShadowSchedule.h"
 #include "engine/render/WorldResourceScopeState.h"
 
 struct SDL_Window;
@@ -24,6 +52,7 @@ struct SDL_Window;
 #define NOMINMAX
 #endif
 #include <d3d12.h>
+#include "engine/render/d3d12/D3D12WorldDrawPacket.h"
 #include <wrl/client.h>
 
 struct IDXGIAdapter1;
@@ -41,24 +70,151 @@ struct ID3D12Resource;
 struct ID3D12RootSignature;
 #endif
 
-class D3D12RenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public IWorldDirectionalShadow, public IWorldLocalShadow, public engine::render::IWorldBloom, public engine::render::IWorldSceneRadiance, public engine::render::IWorldDiffuseProbes, public engine::render::IWorldPlanarReflection, public engine::render::IWorldLocalHaze {
+class D3D12RenderBackend final : public IRenderBackend, public IWorldResourceScope, public IWorldDepthControl, public engine::render::IWorldContactVisibility, public engine::render::IWorldScreenReflection, public engine::render::IWorldLocalReflection, public engine::render::IWorldProbeScheduling, public IWorldDirectionalShadow, public IWorldLocalShadow, public engine::render::IWorldBloom, public engine::render::IWorldSceneRadiance, public engine::render::IWorldDiffuseProbes, public engine::render::IWorldIndirectLighting, public engine::render::IWorldPlanarReflection, public engine::render::IWorldLocalHaze, public engine::render::IWorldPrecipitationLighting, public engine::render::IWorldClouds, public engine::render::IWorldWindField, public engine::render::IWorldParticleLighting,
+                             public engine::render::IWorldLayeredMaterials, public engine::render::IWorldWetSurfaces, public engine::render::IWorldRainMap, public engine::render::IWorldSurfaceBuffer, public engine::render::IWorldLocalShadowCache, public engine::render::IWorldLocalShadowPlan, public engine::render::IWorldShadowScheduling, public engine::render::IRenderPhaseProfile, public engine::render::IRenderCpuPhaseProfile, public engine::render::IWorldPreparedResources, public engine::render::IWorldDeformationPreparation {
 public:
+    engine::render::WorldPreparedResourceToken prepareWorldGeometry(const char*,const WorldMeshVertex*,std::size_t,const std::uint32_t*,std::size_t) override;
+    engine::render::WorldPreparedResourceToken prepareWorldMaterial(const WorldTextureData&) override;
+    bool worldPreparedGeometryValid(engine::render::WorldPreparedResourceToken) const override;
+    bool worldPreparedMaterialValid(engine::render::WorldPreparedResourceToken) const override;
+    bool drawWorldPreparedIndexed(engine::render::WorldPreparedResourceToken,engine::render::WorldPreparedResourceToken,
+        const WorldTextureData&,const float*,int,int) override;
+    engine::render::WorldPreparedResourceStats worldPreparedResourceStats() const override;
+  int beginRenderPhase(const char* name) override;
+  void endRenderPhase(int token) override;
+  int beginRenderCpuPhase(const char* name) override;
+  void endRenderCpuPhase(int token) override;
+  engine::render::backend::WorldPreparedViewStats worldPreparedViewStats() const override;
+  engine::render::backend::WorldPreparedViewToken prepareWorldViewData(const WorldTextureData&) override;
+  void beginWorldDeformationBatch() override;
+  void commitWorldDeformationBatch() override;
+  void cancelWorldDeformationBatch() noexcept override;
+  void prepareWorldDeformations(std::span<const engine::render::WorldSkinPalette>) override;
+  engine::render::WorldDeformationPreparationStats worldDeformationPreparationStats() const override;
+  void invalidatePreparedWorldViews();
+  void beginWorldIndexedBatchSubmission() override;
+  void endWorldIndexedBatchSubmission() override;
   bool clearWorldDepth() override;
+    engine::render::WorldParticleLightingResult updateWorldParticleLighting(const engine::render::WorldParticleLightingView&) override;
+    bool captureWorldParticleLighting() override;
+    engine::render::WorldParticleLightingDiagnostic readWorldParticleLighting() override;
+    engine::render::WorldPrecipitationLightingResult updateWorldPrecipitationLighting(const engine::render::WorldPrecipitationLightingView&) override;
+    void prepareWorldClouds(const engine::render::WorldCloudView&) override;
+    void resolveWorldClouds(const engine::render::WorldCloudView&) override;
+    void clearWorldClouds() override;
+    void prepareWorldWindField(const engine::render::WorldWindFieldInput&) override;
+    void clearWorldWindField() override;
+    bool captureWorldWindField() override;
+    engine::render::WorldWindFieldDiagnostic readWorldWindField() override;
+    bool captureWorldClouds() override;
+    engine::render::WorldCloudDiagnostic readWorldClouds() override;
+    void bindWorldLayeredMaterials(std::uint64_t, std::shared_ptr<const engine::render::WorldLayerMaterialSet>) override;
+    void bindWorldWetSurfaces(const engine::render::WorldWetSurfaceView*) override;
+    void bindWorldFog(const engine::render::WorldPrecipitationLightingView*,const engine::render::WorldPrecipitationLightingResult*,const engine::render::WorldPrecipitationLightingResult*) override;
+    bool captureWorldPrecipitationLighting() override;
+    engine::render::WorldPrecipitationLightingDiagnostic readWorldPrecipitationLighting() override;
+    bool captureWorldRainMap(engine::render::WorldResourceScopeId) override;
+    engine::render::WorldRainMapDiagnostic readWorldRainMap() override;
+    void prewarmWorldRainMap(engine::render::WorldResourceScopeId,unsigned) override;
+    bool beginWorldRainMap(engine::render::WorldResourceScopeId,const engine::render::WorldDirectionalShadowView&,bool) override;
+    bool endWorldRainMap() override;
+    bool publishWorldRainMap(engine::render::WorldResourceScopeId,unsigned) override;
+    std::string worldRainMapTexture(engine::render::WorldResourceScopeId) const override;
+
+    bool captureWorldClusteredLighting() override;
+    engine::render::WorldClusteredLightingDiagnostic readWorldClusteredLighting() override;
+    bool updateWorldIndirectLighting(const engine::render::WorldIndirectLightingUpdate&) override;
+    bool prepareWorldIndirectLighting(std::span<const engine::render::WorldIndirectLightingUpdate>,std::uint64_t) override;
+    bool bindWorldIndirectLighting(const engine::render::WorldIndirectLightingUpdate&) override;
+    void clearWorldIndirectLighting() override;
+    bool captureWorldIndirectLighting() override;
+    engine::render::WorldIndirectLightingDiagnostic readWorldIndirectLighting() override;
+    bool resolveWorldClusteredLighting(const engine::render::WorldClusteredLightingView& view) override;
+    bool beginWorldTemporalScene(const engine::render::WorldTemporalView&) override;
+    void releaseWorldTemporalView(std::uint64_t) override;
+    bool resolveWorldTemporalScene() override;
+    bool resolveWorldHeatHaze() override;
+    bool resolveWorldTemporalReflection(const engine::render::WorldTemporalReflectionView&) override;
+    engine::render::WorldTemporalFeedback worldTemporalFeedback() const override;
+    bool captureWorldTemporalScene() override;
+    engine::render::WorldTemporalImage readWorldTemporalScene() override;
+    bool relightWorldProbeSurface(const engine::render::WorldClusteredLightingView&,const std::array<std::array<float,4>,32>&) override;
+    void invalidateWorldPlacedProbes(std::span<const std::uint64_t>) override;
+    bool reserveWorldProbes(std::span<const std::uint64_t>,float) override;
+    bool worldProbePublished(std::uint64_t) const override;
+    bool worldProbeBlending(std::uint64_t) const override;
+    bool filterWorldProbe(std::uint64_t,unsigned) override;
+    bool beginWorldPlacedProbeFace(std::uint64_t,std::uint64_t,const engine::render::WorldLocalReflectionProbe&,unsigned,std::span<const std::uint64_t>) override;
+    bool endWorldPlacedProbeFace() override;
+    bool selectWorldPlacedProbes(std::span<const std::uint64_t>) override;
+    bool captureWorldProbeRadiance(std::span<const std::uint64_t>) override;
+    engine::render::WorldProbeRadianceImage readWorldProbeRadiance() override;
+    bool beginWorldProbeSurface(std::uint64_t,std::uint64_t,unsigned,const float*,int) override;
+    bool endWorldProbeSurface() override;
+    bool selectWorldProbeSurface(std::uint64_t,unsigned) override;
+    std::uint64_t worldProbeSurfaceRevision(std::uint64_t) const override;
+    bool releaseWorldProbeSurface(std::uint64_t) override;
+    bool beginWorldSurfaceBuffer(const float*, int width, int height) override;
+    bool setWorldSurfaceMotion(const engine::render::WorldMotionMatrix&,std::span<const engine::render::WorldMotionSample>) override;
+    bool captureWorldSurfaceMotion() override;
+    engine::render::WorldMotionImage readWorldSurfaceMotion() override;
+    bool endWorldSurfaceBuffer() override;
+    void clearWorldSurfaceBuffer() override;
+    bool resolveWorldSurfaceContact(const engine::render::WorldContactUniforms&) override;
+    bool restoreWorldSurfaceDepth(const engine::render::WorldContactUniforms&) override;
+    bool beginWorldSurfaceCompositionCapture(const float*,int,int,const engine::render::WorldClusteredLightingView&) override;
+    bool beginWorldSurfaceComposition(const engine::render::WorldContactUniforms&,const engine::render::WorldClusteredLightingView&) override;
+    void endWorldSurfaceComposition() override;
+    const engine::render::WorldClusteredLightingView* worldSurfaceCompositionLighting() const override;
+  bool prefersWorldSurfaceDepthReuse() const override { return true; }
+    bool resolveWorldSurfaceScreenReflection() override;
+    bool showWorldSurfaceBuffer(unsigned plane) override;
     bool beginWorldLocalHaze(int width, int height) override;
     bool endWorldLocalHaze() override;
+    bool beginWorldLocalHazeComposition(int width,int height) override;
+    void endWorldLocalHazeComposition() override;
   bool beginWorldPlanarReflection(const engine::render::WorldPlanarReflectionView&) override;
     bool endWorldPlanarReflection() override;
+    bool beginWorldContactVisibility(const engine::render::WorldContactUniforms&) override;
+    bool endWorldContactVisibility() override;
+    void clearWorldContactVisibility() override;
+    bool captureWorldContactVisibility() override;
+    engine::render::WorldContactImage readWorldContactVisibility() override;
+    bool beginWorldScreenReflection(const engine::render::WorldScreenReflectionUniforms&) override;
+    bool endWorldScreenReflection() override;
+    void clearWorldScreenReflection() override;
+    bool beginWorldLocalReflection(const engine::render::WorldLocalReflectionProbe&) override;
+    bool endWorldLocalReflectionFace() override;
+    void clearWorldLocalReflection() override;
     bool captureWorldDepthSnapshot() override;
     void prewarmWorldLocalShadows() override;
     void clearWorldLocalShadows() override;
     bool beginWorldLocalShadow(std::uint32_t index, const engine::render::WorldDirectionalShadowView& view) override;
     bool endWorldLocalShadow() override;
+    engine::render::WorldShadowCacheResult beginWorldStaticShadow(std::uint32_t index,
+        const engine::render::WorldDirectionalShadowView& view, engine::render::WorldShadowCacheKey key) override;
+    bool endWorldStaticShadow() override;
+    engine::render::WorldShadowUpdateQuery queryWorldShadowUpdate(std::span<const std::uint32_t>,std::uint32_t,
+        const engine::render::WorldDirectionalShadowView&,engine::render::WorldShadowUpdateKey) const override;
+    bool reuseWorldShadowUpdate(std::uint32_t,const engine::render::WorldDirectionalShadowView&,engine::render::WorldShadowUpdateKey) override;
+    void commitWorldShadowUpdate(std::uint32_t,const engine::render::WorldDirectionalShadowView&,engine::render::WorldShadowUpdateKey) override;
+    engine::render::WorldShadowCacheResult queryWorldStaticShadow(std::span<const std::uint32_t>,
+        std::uint32_t,const engine::render::WorldDirectionalShadowView&,engine::render::WorldShadowCacheKey) const override;
+    void setWorldLocalShadowIdentities(std::span<const std::uint64_t>) override;
+    void planWorldLocalShadowSources(std::span<const std::uint32_t>) override;
+    void invalidateWorldStaticShadows() override;
+    void prewarmWorldSunShadows(unsigned quality) override;
+    bool setWorldSunShadowPlan(const engine::render::WorldSunShadowPlan&) override;
+    void clearWorldSunShadows() override;
+    std::uint64_t worldSunShadowIdentity() const override;
     void prewarmWorldDirectionalShadow(std::uint32_t resolution) override;
     bool beginWorldDirectionalShadow(const engine::render::WorldDirectionalShadowView& view) override;
     bool endWorldDirectionalShadow() override;
     void clearWorldDirectionalShadow() override;
 
   engine::render::WorldResourceScopeId createWorldResourceScope(std::uint64_t payloadByteLimit) override;
+  bool bindWorldResourceAssetGroup(engine::render::WorldResourceScopeId child,
+      std::uint64_t identity,std::uint64_t limit) override;
   bool beginWorldResourceScope(engine::render::WorldResourceScopeId id) override;
   bool endWorldResourceScope() override;
   bool requestWorldResourceScopeRelease(engine::render::WorldResourceScopeId id) override;
@@ -216,6 +372,8 @@ public:
 #endif
 
 private:
+    bool captureWorldDepthSnapshotFor(const char* purpose);
+    bool restoreWorldDepthSnapshot();
     engine::render::WorldResourceScopeState worldScopes_;
     bool collectWorldResourceScopes();
     void configureScreenshotCapture();
@@ -227,7 +385,12 @@ private:
     void releaseDepthResources();
     void createDebugPipeline();
     void createWorldPipeline(bool createBuffers = true);
-    void bindWorldDiffuseProbes(bool haze = false);
+    void bindWorldDiffuseProbes(bool haze = false, bool clustered = false, bool composable = false, bool additiveFog = false);
+#if defined(_WIN32)
+    engine::render::d3d12_internal::WorldDiffuseBindings prepareWorldDiffuseBindings(bool haze, bool clustered, bool composable, bool additiveFog = false);
+    D3D12_GPU_VIRTUAL_ADDRESS prepareWorldMaterialConstants(const void*, std::size_t viewOffset, bool outline = false);
+    D3D12_GPU_VIRTUAL_ADDRESS prepareWorldSurfaceMotion();
+#endif
     void bindWorldMaterialConstants(const void*, std::size_t viewOffset, bool outline = false);
     void createSpritePipeline();
     void createWorldSceneColorPipeline();
@@ -256,7 +419,8 @@ private:
                                          bool srgb,
                                          const WorldTextureMipLevel*
                                              authoredMipLevels = nullptr,
-                                         std::uint32_t authoredMipLevelCount = 0u);
+                                         std::uint32_t authoredMipLevelCount = 0u,
+                                         bool materialImage = false);
     SpriteTexture* ensureWorldTextureRawHalfFloat(const char* key,
                                                   const std::uint16_t* rgba16f,
                                                   int width,
@@ -387,7 +551,7 @@ private:
         int surfaceHeight,
         float materialPrepMs);
     ID3D12PipelineState* selectWorldPipelineState(
-        const WorldTextureData* textureData, float materialMode);
+        const WorldTextureData* textureData, float materialMode, const engine::render::WorldEnvironmentPacket& packet);
     static unsigned worldPipelineVariant(const WorldTextureData* textureData);
     ID3D12PipelineState* ensureWorldPointLightPipeline(float mode, unsigned variant);
 #endif
@@ -469,7 +633,9 @@ private:
     float clearColor_[4] = {0.1f, 0.1f, 0.1f, 1.0f};
 
     static constexpr std::uint32_t kFrameCount = 2;
-    static constexpr std::uint32_t kTimestampQueriesPerFrame = 2;
+    static constexpr std::uint32_t kTimestampQueriesPerFrame = engine::render::RenderPhaseProfile::queryCapacity;
+    engine::render::RenderPhaseProfile phaseProfile_;
+    std::array<engine::render::RenderPhaseProfile::Frame,kFrameCount> phaseFrames_{};
     static constexpr std::uint32_t kTimestampQueryCount = kFrameCount * kTimestampQueriesPerFrame;
     std::uint32_t frameIndex_ = 0;
     std::uint64_t fenceValue_ = 0;
@@ -499,6 +665,7 @@ private:
     int feedbackWidth_=0,feedbackHeight_=0,feedbackHistory_=0,feedbackDisplayInput_=0;
     engine::render::ScreenFeedbackUpdate feedbackLast_{};
     Microsoft::WRL::ComPtr<ID3D12RootSignature> worldSceneColorRootSignature_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> worldDepthRestorePipeline_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldSceneColorPipelineState_;
     std::uint32_t worldSceneColorSrvDescriptorIndex_ = 0xffffffffu;
     bool worldSceneColorPassActive_ = false;
@@ -514,6 +681,7 @@ private:
     void* fenceEvent_ = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> debugRootSignature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> debugPipelineState_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> debugSceneColorPipelineState_;
     Microsoft::WRL::ComPtr<ID3D12Resource> debugVertexBuffer_;
     std::uint64_t debugVertexBufferGpuAddress_ = 0;
     std::uint32_t debugVertexStride_ = 0;
@@ -530,8 +698,11 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldSceneSkyPipelineState_;
     std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, 11> worldScenePipelines_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldShadowPipelineState_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> worldContactFilterPipelineState_;
     Microsoft::WRL::ComPtr<ID3D12Resource> worldShadowDepth_;
-    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,2> worldMomentTargets_;
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,3> worldMomentTargets_;
+    engine::render::WorldShadowCache worldShadowCache_;
+    engine::render::WorldShadowUpdateCache worldShadowUpdates_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> worldMomentRtvHeap_;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> worldMomentRoot_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> worldMomentPipeline_;
@@ -541,6 +712,15 @@ private:
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> worldShadowDsvHeap_;
     engine::render::WorldLocalShadowAtlas worldLocalShadows_;
     engine::render::WorldDirectionalShadowView worldShadowView_{};
+    Microsoft::WRL::ComPtr<ID3D12Resource> worldSunDepth_;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> worldSunDsv_;
+    engine::render::WorldSunShadowPlan worldSunPlan_{};
+    engine::render::WorldSunShadowUniforms lastWorldSun_{};
+    engine::render::WorldDirectionalShadowView worldSunSavedView_{};
+    std::uint32_t worldSunDescriptor_=0xffffffffu,worldSunQuality_=~0u;
+    bool worldSunSavedReady_=false;
+    unsigned worldSunPending_=0;
+    std::array<std::uint32_t,2> worldShadowOffset() const;
     std::uint32_t worldShadowResolution_ = 0;
     bool worldShadowActive_ = false, worldShadowReady_ = false;
     D3D12_VIEWPORT worldLastViewport_{}, worldShadowSavedViewport_{};
@@ -578,7 +758,39 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> worldDiffuseProbeBuffer_;
     std::uint8_t* worldDiffuseProbeMapped_ = nullptr;
     std::uint32_t worldDiffuseProbePacketCount_ = 0;
+    engine::render::WorldMaterialFrameCache worldDiffusePackets_;
+    std::uint64_t worldDiffusePacketAddress_ = 0;
     engine::render::WorldDiffuseProbeUniforms lastWorldDiffuseProbes_{};
+    engine::render::WorldContactUniforms lastWorldContact_{};
+    engine::render::WorldScreenReflectionUniforms lastWorldScreenReflection_{};
+    std::uint32_t worldScreenReflectionDescriptor_=0xffffffffu;
+    bool screenSourceSpecialization_ = true;
+    struct PreparedWorldView {
+        std::uint64_t address = 0;
+        engine::render::WorldEnvironmentPacket packet{};
+    };
+    engine::render::WorldPreparedViews<PreparedWorldView> preparedWorldViews_;
+    struct WorldRecordingLane {
+        Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator;
+        std::vector<Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>> lists;
+        std::size_t used=0;
+    };
+    std::array<std::array<WorldRecordingLane,2>,kFrameCount> worldRecordingFrames_;
+    std::unique_ptr<engine::render::WorldRecordingWorkers> worldRecordingWorkers_;
+    std::vector<engine::render::d3d12_internal::WorldIndexedDrawPacket> worldDrawPackets_;
+    engine::render::WorldRecordingStats worldRecordingStats_;
+    void submitWorldDrawPacket(const engine::render::d3d12_internal::WorldIndexedDrawPacket& packet);
+    void flushWorldDrawPackets();
+    void resetWorldRecordingFrame();
+    engine::render::backend::WorldPreparedViewToken prepareWorldViewDataInternal(const WorldTextureData*);
+    const PreparedWorldView& resolvePreparedWorldView(const WorldTextureData*);
+    void uploadPreparedWorldDeformations(std::span<const engine::render::WorldSkinPalette>,bool commit);
+    bool uploadWorldSkinPalette(const float*, std::size_t, std::uint64_t&, engine::render::WorldDeformation version={});
+    engine::render::WorldEnvironmentPacketCache worldEnvironmentPackets_;
+    engine::render::WorldMaterialBindingCache<std::pair<std::uint32_t,float>> retainedWorldMaterialBindings_;
+    std::uint32_t worldLocalReflectionDescriptor_=0xffffffffu;
+    engine::render::WorldLocalReflectionUniforms lastWorldLocalReflection_{};
+    bool captureWorldRadianceSnapshot(const char*,int,int,std::uint32_t&,std::array<float,4>&,int atlasFace=-1,int atlasLevel=0,int atlasResolution=0,int offsetY=0,int offsetX=0,int residentExtent=0,bool clearScene=true,bool batchFaces=false);
     Microsoft::WRL::ComPtr<ID3D12Resource> worldVsConstantBuffer_;
     std::uint64_t worldVsConstantBufferGpuAddress_ = 0;
     std::uint32_t worldVsConstantBufferSize_ = 0;
@@ -593,10 +805,10 @@ private:
     std::uint32_t worldSkinMatrixFrameBaseOffset_ = 0;
     std::uint32_t worldSkinMatrixFrameOffset_ = 0;
     std::uint8_t* worldSkinMatrixMappedData_ = nullptr;
-    const float* lastWorldSkinMatrices_ = nullptr;
-    std::uint8_t lastWorldSkinningMode_ = 0u;
-    std::uint32_t lastWorldSkinMatrixCount_ = 0u;
-    std::uint64_t lastWorldSkinMatrixGpuAddress_ = 0u;
+    engine::render::WorldDeformationStorage frameSkinPalettes_;
+    engine::render::WorldMaterialFrameCache frameMaterialConstants_;
+    std::uint64_t deformationSerial_=0,deformationCompleted_=0;
+    std::array<std::uint64_t,kFrameCount> deformationFrameSerials_{};
     Microsoft::WRL::ComPtr<ID3D12Resource> worldInstanceBuffer_;
     std::uint64_t worldInstanceBufferGpuAddress_ = 0;
     std::uint32_t worldInstanceBufferSize_ = 0;
@@ -639,12 +851,125 @@ private:
     std::uint8_t* spriteVertexMappedData_ = nullptr;
     std::unordered_map<std::string, SpriteTexture> spriteTextures_;
     std::unordered_map<std::string, SpriteTexture> worldTextures_;
+    struct IndirectState;
+    std::shared_ptr<IndirectState> indirect_;
+    std::array<std::uint32_t,2> worldIndirectDescriptors_{0xffffffffu,0xffffffffu};
+    std::uint32_t worldIndirectReceiver_=0xffffffffu;
+    std::uint32_t ensureWorldIndirectNull();
+    void destroyWorldIndirectLighting();
+    struct ParticleLightingState;
+    std::shared_ptr<ParticleLightingState> particleLighting_;
+    void releaseWorldParticleLighting(std::uint64_t owner=~std::uint64_t{0});
+    SpriteTexture* findWorldParticleLightingTexture(const char*);
+    const SpriteTexture* findWorldParticleLightingTexture(std::uint32_t descriptor) const;
+    struct WindState;
+    std::shared_ptr<WindState> windField_;
+    struct LayeredState;
+    std::shared_ptr<LayeredState> layeredMaterials_;
+    D3D12_GPU_VIRTUAL_ADDRESS worldLayeredAddress();
+    D3D12_GPU_DESCRIPTOR_HANDLE worldLayeredTextures();
+    void releaseWorldLayeredMaterials(std::uint64_t owner=~0ull);
+    D3D12_GPU_VIRTUAL_ADDRESS worldWindAddress();
+    void releaseWorldWindField(std::uint64_t owner=~0ull);
+    struct CloudState;
+    std::shared_ptr<CloudState> clouds_;
+    engine::render::WorldCloudUniforms worldClouds_{},lastWorldClouds_{};
+    engine::render::WorldCloudRows worldSkyCloud_{},lastWorldSkyCloud_{};
+    std::uint32_t worldSkyModelDescriptor_=0xffffffffu;
+    std::array<std::uint32_t,2> worldCloudDescriptors_{0xffffffffu,0xffffffffu};
+    std::uint64_t worldCloudOwner_=0;
+    void recordWorldClouds(const engine::render::WorldCloudView&,bool);
+    void releaseWorldClouds(std::uint64_t owner=~std::uint64_t{0});
+    const SpriteTexture* findWorldCloudTexture(std::uint32_t) const;
+    struct PrecipitationState;
+    std::shared_ptr<PrecipitationState> precipitation_;
+    engine::render::WorldFogUniforms worldFog_{},lastWorldFog_{};
+    engine::render::WorldWetUniforms worldWet_{},lastWorldWet_{};
+    std::uint32_t worldWetDescriptor_=0xffffffffu;
+    std::array<std::uint32_t,5> worldWetInputs_{};
+    std::uint64_t worldWetOwner_=0;
+    engine::render::WorldWetBindingHistory worldWetHistory_;
+    std::unordered_map<std::uint64_t,std::uint32_t> worldWetFallbackDescriptors_;
+    std::array<std::uint32_t,2> worldFogDescriptors_{0xffffffffu,0xffffffffu};
+    void releaseWorldPrecipitation(std::uint64_t owner=~std::uint64_t{0});
+    SpriteTexture* findWorldPrecipitationTexture(const char*);
+    const SpriteTexture* findWorldPrecipitationDepth(const engine::render::WorldParticleLightingView&,std::array<float,4>&) const;
+    const SpriteTexture* findWorldPrecipitationTexture(std::uint32_t descriptor) const;
+    struct RainMapState;
+    std::shared_ptr<RainMapState> rainMaps_;
+    void releaseWorldRainMaps(std::uint64_t owner=~std::uint64_t{0});
+    SpriteTexture* findWorldRainTexture(const char* key);
+
+    void releaseWorldIndirectScope(std::uint64_t owner);
+    struct ClusteredState;
+    std::shared_ptr<ClusteredState> clustered_;
+    void destroyWorldClusteredLighting();
+    engine::render::WorldClusteredLightingView worldCompositionLighting{};
+    engine::render::WorldClusteredConsumerUniforms worldClusteredView_{};
+    engine::render::WorldClusteredConsumerUniforms lastWorldClusteredView_{};
+    std::array<std::uint32_t,4> worldStoredSurfaceDescriptors_{0xffffffffu,0xffffffffu,0xffffffffu,0xffffffffu};
+    std::array<std::uint32_t,3> worldClusteredDescriptors_{0xffffffffu,0xffffffffu,0xffffffffu};
+    struct TemporalState;
+    std::shared_ptr<TemporalState> temporal_;
+    std::uint32_t worldTemporalOutput_=0xffffffffu;
+    bool worldDisplayReady_=false;
+    void clearWorldTemporalScene();
+    void releaseWorldTemporalScene();
+    void collectWorldTemporalViews();
+    bool processWorldTemporalScene(bool finish,bool distort=false);
+    bool processWorldContactVisibility();
+    struct SurfaceTarget {
+        std::array<SpriteTexture,6> planes;
+        Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> rtvs, probeDsv;
+        SpriteTexture probeDepth;
+        bool probeScratch=false;
+        engine::render::WorldContactUniforms view{};
+    };
+    std::unordered_map<std::string,SurfaceTarget> worldSurfaceTargets_;
+    std::unordered_map<std::string,SpriteTexture> worldProbeScratch_;
+    SurfaceTarget* worldSurfaceTarget_=nullptr;
+    engine::render::WorldProbeSurfaceCache worldProbeSurfaces_;
+    engine::render::WorldPlacedProbeCache placedProbes;
+    engine::render::WorldProbeResidency probeResidency;
+    std::uint32_t placedProbeDescriptor=0xffffffffu;
+    Microsoft::WRL::ComPtr<ID3D12Resource> worldProbeRadianceReadback_;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT worldProbeReadbackFootprint_{};
+    std::uint64_t worldProbeReadbackBytes_=0;
+    engine::render::WorldProbeRadianceImage worldProbeDiagnostic_{};
+    std::uint32_t worldProbeCopyUav_=0xffffffffu;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> worldProbeCopyRoot_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> worldProbeCopyPipeline_;
+    std::string worldProbeSurfaceKey_;
+    std::vector<std::array<float,4>> worldMotionWords_{{}};
+    D3D12_GPU_VIRTUAL_ADDRESS worldMotionGpu_=0;
+    void bindWorldSurfaceMotion();
+    Microsoft::WRL::ComPtr<ID3D12Resource> worldMotionReadback_;
+    std::array<D3D12_PLACED_SUBRESOURCE_FOOTPRINT,5> worldMotionFootprints_{};
+    std::uint64_t worldMotionReadbackBytes_=0,worldMotionSurfaceBytes_=0;
+    int worldMotionWidth_=0,worldMotionHeight_=0;
+    std::uint64_t worldSurfaceFrame_=0;
+    unsigned worldSurfaceSlot_=0;
+    // Retained probe views must not renumber transient scene allocations.
+    std::array<unsigned,2> worldSurfaceAllocationSlots_{};
+    engine::render::WorldContactUniforms worldSurfaceView_{};
+    std::uint32_t worldSurfaceDepth_=0xffffffffu;
+    bool worldSurfacePlanar_=false;
+    bool worldSurfaceFoliageComposing_=false, worldSurfaceComposing_=false, worldSurfaceComposed_=false, worldSurfaceCompositionFinished_=false, worldSurfaceCompositionCapture_=false;
+    bool worldSurfaceActive_=false,worldSurfaceReady_=false,worldSurfaceContact_=false;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> worldHazeRtvHeap_;
     ID3D12Resource* worldHazeTarget_ = nullptr;
     std::uint32_t worldHazeDescriptor_ = 0xffffffffu;
     bool worldHazeActive_ = false;
+    bool worldHazeStencilActive_ = false;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> worldHazeDsvHeap_;
+    std::array<std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>>, kFrameCount> worldHazeStencil_;
+    std::size_t worldHazeStencilSlot_ = 0;
     std::uint32_t worldPlanarDescriptor_ = 0xffffffffu;
+    std::array<int,4> worldPlanarScissor_{};
     std::uint32_t worldDepthSnapshotDescriptor_ = 0xffffffffu;
+    engine::render::WorldContactHistory worldContactHistory_{};
+    std::array<std::uint32_t,3> worldContactFilterDescriptors_{0xffffffffu,0xffffffffu,0xffffffffu};
+    std::uint32_t worldContactPreviousVisibility_=0xffffffffu,worldContactPreviousDepth_=0xffffffffu;
     std::unordered_map<WorldMaterialDescriptorBlockKey,
                        std::uint32_t,
                        WorldMaterialDescriptorBlockKeyHash>
@@ -657,6 +982,9 @@ private:
     std::vector<WorldSceneMaterialBindingCacheEntry> worldSceneMaterialBindingCache_;
     std::uint32_t worldSceneMaterialBindingCacheGeneration_ = 0u;
     const void* worldSceneMaterialBindingCacheRegistryIdentity_ = nullptr;
+    engine::render::WorldPreparedResources<const CachedWorldMesh*> preparedWorldGeometry_;
+    engine::render::WorldPreparedResources<std::pair<std::uint32_t,float>> preparedWorldMaterials_;
+    engine::render::WorldPreparedResourceStats preparedWorldResourceStats_;
     std::unordered_map<std::string, CachedWorldMesh> cachedWorldMeshes_;
 #endif
 };

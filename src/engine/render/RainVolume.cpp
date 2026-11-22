@@ -239,12 +239,12 @@ RainVolumeStats RainVolume::build(const WorldEnvironmentLighting& e,glm::vec3 ca
 RainVolumeStats RainVolume::buildImpacts(const WorldEnvironmentLighting& e,glm::vec3 camera,
     std::span<const RainImpact> impacts,const RainVisualSettings& s,float motionLifetime) {
     drops_.clear();impacts_.clear();mist_.clear();spray_.clear();fog_.clear();visibleImpacts_.clear();
-    contacts_={};contactSeconds_=0;layered_=true;RainVolumeStats stats;
+    contacts_={};contactSeconds_=0;layered_=true;impactLighting_.clear();RainVolumeStats stats;
     if(impacts.size()>maxImpacts || impactAtlasPixels_.empty() || !invalidRainSetting(s).empty() ||
         s.mistOpacity!=0 || s.sprayOpacity!=0 || s.glowOpacity!=0 ||
         !std::isfinite(motionLifetime) || motionLifetime<0 || motionLifetime>1)
         throw std::runtime_error("Invalid sampled rain contacts/settings");
-    if(!e.enabled || !std::isfinite(e.rainIntensity) || e.rainIntensity<=0 || !finite(camera) ||
+    if(!e.enabled || !std::isfinite(e.rainIntensity) || !finite(camera) ||
         packWorldEnvironment(e)[0][3]==0) return stats;
     for(std::size_t i=0;i<impacts.size();++i) {
         const auto& hit=impacts[i];
@@ -321,14 +321,14 @@ void RainVolume::contact(const RainHit& hit,glm::vec3 tip,float speed,std::uint3
 void RainVolume::drawContacts(const WorldEnvironmentLighting& e,glm::vec3 camera,const RainVisualSettings& s,
     const RainLayerSettings& layers,RainVolumeStats& stats,bool sampled,float motionLifetime) {
     const float brightness=std::clamp(e.ambientRadiance[1]*s.ambientScale+s.ambientBias,s.brightnessMin,s.brightnessMax);
-    const glm::vec3 color=glm::vec3(s.tintR,s.tintG,s.tintB)*brightness;
+    const glm::vec3 color=glm::vec3(s.tintR,s.tintG,s.tintB)*(sampled?1.f:brightness);
     for (const auto& entry : contacts_) {
         if (!entry.active) continue;
         const float age=static_cast<float>(contactSeconds_-entry.born);
         if (age<0||age>=s.impactLifetime) continue;
         const float distance=glm::length(entry.point-camera);
         const float population=sampled?entry.strength:std::clamp((std::min(e.rainIntensity*s.densityScale*layers.bands[entry.band].density,1.f)-random(entry.seed+4))*8,0.f,1.f);
-        const float exposure=population*std::clamp((s.horizontalRange-distance)/s.horizontalFade,0.f,1.f)*std::exp(-distance*e.hazeDensity);
+        const float exposure=population*std::clamp((s.horizontalRange-distance)/s.horizontalFade,0.f,1.f)*(sampled?1.f:std::exp(-distance*e.hazeDensity));
         const float alpha=exposure*s.impactOpacity;
         if (alpha<.005f && exposure*s.sprayOpacity<.001f && exposure*s.glowOpacity<.001f) continue;
         const float radius=s.impactRadius*(.8f+random(entry.seed+12)*.4f);
@@ -525,7 +525,8 @@ void RainVolume::draw(IRenderBackend& renderer,WorldResourceScopeId scope,const 
     for (bool impact : {false,true}) {
         if (!(layerMask&(impact?2:1))) continue;
         const auto& vertices=impact?impacts_:drops_;if (vertices.empty()) continue;
-        const auto t=texture(impact,layered_);
+        auto t=texture(impact,layered_);
+        if(impact&&!impactLighting_.empty()){t.emissiveKey=impactLighting_.c_str();t.emissiveTextureSrgb=0;t.materialRect1V=1;}
         renderer.drawWorldIndexedMeshTextured(vertices.data(),vertices.size(),indices_.data(),vertices.size()/4*6,&t,vp,width,height);
     }
     scopeCheck(scopes->endWorldResourceScope());

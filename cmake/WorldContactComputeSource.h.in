@@ -1,0 +1,6 @@
+#pragma once
+namespace engine::render {
+inline constexpr const char* worldContactComputeSource=R"CONTACT(
+@WORLD_CONTACT_COMPUTE_SOURCE@
+)CONTACT";
+}

@@ -1,0 +1,2 @@
+#pragma once
+namespace engine::render {inline constexpr char worldPrecipitationSource[]=R"PHLOSION(@PHLOSION_PRECIPITATION_SOURCE@)PHLOSION";}

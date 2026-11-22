@@ -1,9 +1,12 @@
 #version 450
 #extension GL_EXT_control_flow_attributes : require
+#extension GL_EXT_control_flow_attributes : require
 #define PHLOSION_DIFFUSE_PROBE_LOOP [[dont_unroll]]
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_GOOGLE_include_directive : require
 #include "portable_material.glsl"
+layout(constant_id=1) const bool worldClusteredComposition=false;
+#define CLUSTER_FORWARD_FALLBACK (!worldClusteredComposition)
 
 #include "world_indirect_state.glsl"
 
@@ -35,14 +38,27 @@ layout(set = 1, binding = 0) uniform WorldViewState {
     vec4 weatherShelters[4];
     vec4 weatherShelterHeights;
     vec4 weatherMaterial;
-    vec4 pointLights[8];
+    vec4 pointLights[20];
     mat4 directionalShadowMatrix;
     vec4 directionalShadowParams;
-    vec4 rectLights[64];
+    vec4 rectLights[112];
     vec4 shadowAtlasUv;
-    vec4 localShadows[96];
+    vec4 localShadows[120];
     vec4 diffuseProbes[483];
     vec4 planar[6];
+    vec4 contact[24];
+    vec4 screenReflection[11];
+    vec4 localReflection[68];
+    vec4 reflectionResponse;
+    vec4 reflectionResponseParams;
+    vec4 clustered[5];
+    vec4 puddles[32];
+    vec4 fog[13];
+    vec4 wet[11];
+    vec4 sky[24];
+    vec4 clouds[12];
+    vec4 sun[72];
+    vec4 skyCloud[72];
 } worldView;
 layout(set = 1, binding = 6) uniform sampler2D directionalShadowTexture;
 layout(set = 1, binding = 7) uniform sampler2D rectLightLut;
@@ -64,6 +80,7 @@ layout(location = 0) out vec4 outColor;
 #endif
 
 #define WORLD_SCENE_RADIANCE (worldView.cameraPosition.w > 0.5)
+#define ENV_SKY(i) worldView.sky[i]
 #define ENV_SUN worldView.environmentSun
 #define ENV_RADIANCE worldView.environmentRadiance
 #define ENV_AMBIENT worldView.environmentAmbient
@@ -80,7 +97,35 @@ layout(location = 0) out vec4 outColor;
 #define ENV_SHELTER(index) worldView.weatherShelters[index]
 #define ENV_SHELTER_HEIGHT worldView.weatherShelterHeights
 #define ENV_WEATHER_MATERIAL worldView.weatherMaterial
+#define ENV_PUDDLE(index) worldView.puddles[index]
+#define ENV_REFLECTION_RESPONSE worldView.reflectionResponse
+#define ENV_REFLECTION_RESPONSE_PARAMS worldView.reflectionResponseParams
 #define ENV_LUT(uv) vec3(0.0)
+layout(set=6,binding=13) uniform sampler2D worldFogNear;
+layout(set=6,binding=14) uniform sampler2D worldFogFar;
+bool worldFogAdditive=false;
+#define WORLD_FOG_ADDITIVE worldFogAdditive
+#define WORLD_FOG_VIEW(i) worldView.fog[i]
+#define WORLD_FOG_SAMPLE(uv,far) ((far) ? textureLod(worldFogFar,uv,0.0) : textureLod(worldFogNear,uv,0.0))
+
+layout(set=6,binding=15) uniform sampler2D worldWetDrops;
+layout(set=6,binding=16) uniform sampler2D worldWetLeaks;
+layout(set=6,binding=17) uniform sampler2D worldWetRipples;
+layout(set=6,binding=18) uniform sampler2D worldWetFields;
+layout(set=6,binding=19) uniform sampler2D worldWetRain;
+#define WORLD_WET_LOOP [[dont_unroll]]
+layout(set=6,binding=20) uniform sampler2D worldCloudShadow;
+layout(set=6,binding=21) uniform sampler2D worldCloudResolved;
+#define WORLD_CLOUD(i) worldView.clouds[i]
+#define WORLD_CLOUD_SHADOW(uv) textureLod(worldCloudShadow,uv,0.0).r
+#define WORLD_CLOUD_COLOR(uv) textureLod(worldCloudResolved,uv,0.0)
+#define WORLD_WET_VIEW(i) worldView.wet[i]
+#define WORLD_WET_DROPS(uv) textureGrad(worldWetDrops,uv,dFdx(uv),dFdy(uv))
+#define WORLD_WET_LEAKS(uv) textureGrad(worldWetLeaks,uv,dFdx(uv),dFdy(uv))
+#define WORLD_WET_RIPPLES(uv) textureGrad(worldWetRipples,uv,dFdx(uv),dFdy(uv))
+#define WORLD_WET_FIELD(p) texelFetch(worldWetFields,p,0)
+#define WORLD_WET_RAIN(p) texelFetch(worldWetRain,p,0).r
+
 #include "world_atmosphere.glsl"
 layout(set = 2, binding = 0) uniform sampler2D worldPlanarTexture;
 #define PLANAR(index) worldView.planar[index]
@@ -94,7 +139,61 @@ layout(set = 2, binding = 0) uniform sampler2D worldPlanarTexture;
 #else
 #define ENV_BOUNCE(index) worldView.diffuseProbes[index]
 #endif
+layout(set=3,binding=0) uniform sampler2D worldContactDepth;
+layout(set=5,binding=0) uniform sampler2D worldLocalReflectionTexture;
+#define LOCAL_REFLECTION(index) worldView.localReflection[index]
+#define LOCAL_REFLECTION_LOOP [[dont_unroll]]
+#define LOCAL_REFLECTION_SAMPLE(uv) textureLod(worldLocalReflectionTexture,uv,0.0)
+layout(set=4,binding=0) uniform sampler2D worldScreenReflectionTexture;
+#define SCREEN_REFLECTION(index) worldView.screenReflection[index]
+#define SCREEN_REFLECTION_LOOP [[dont_unroll]]
+#define SCREEN_REFLECTION_DEPTH(p) texelFetch(worldContactDepth,ivec2(p),0).r
+#define SCREEN_REFLECTION_SAMPLE(uv) textureLod(worldScreenReflectionTexture,uv,0.0)
+#define CONTACT(index) worldView.contact[index]
+#define CONTACT_LOOP [[dont_unroll]]
+#define CONTACT_DEPTH(p) texelFetch(worldContactDepth,ivec2(p),0).r
+layout(set=6,binding=0) uniform sampler2D worldContactBuffer;
+layout(set=6,binding=1) uniform sampler2D worldContactHistory;
+layout(set=6,binding=2) uniform sampler2D worldContactAux;
+layout(set=6,binding=3) uniform sampler2D clusteredDiffuse;
+layout(set=6,binding=4) uniform sampler2D clusteredSpecular;
+layout(set=6,binding=5) uniform sampler2D clusteredDepth;
+#define CLUSTER_VIEW(i) ((i)==4 && worldIndirectDraws.states[drawStateIndex].materialParams.x>1.5 ? vec4(0.0) : worldView.clustered[i])
+#define CLUSTER_DIFFUSE(p) texelFetch(clusteredDiffuse,p,0)
+#define CLUSTER_SPECULAR(p) texelFetch(clusteredSpecular,p,0)
+#define CLUSTER_DEPTH(p) texelFetch(clusteredDepth,p,0).r
+layout(set=6,binding=6) uniform sampler2D storedAlbedo;
+layout(set=6,binding=7) uniform sampler2D storedNormal;
+layout(set=6,binding=8) uniform sampler2D storedMaterial;
+layout(set=6,binding=9) uniform sampler2D storedEmission;
+#define STORED_ALBEDO(p) texelFetch(storedAlbedo,p,0)
+#define STORED_NORMAL(p) texelFetch(storedNormal,p,0)
+#define STORED_MATERIAL(p) texelFetch(storedMaterial,p,0)
+#define STORED_EMISSION(p) texelFetch(storedEmission,p,0)
+#define CONTACT_BUFFER_FETCH(p) texelFetch(worldContactBuffer,ivec2(p),0)
+#define CONTACT_HISTORY_SAMPLE(uv) textureLod(worldContactHistory,uv,0.0)
+#define SCREEN_REFLECTION_PREPARED(p) texelFetch(worldContactHistory,ivec2(p),0)
+#define SCREEN_REFLECTION_CONFIDENCE(p) texelFetch(worldContactAux,ivec2(p),0).r
+#define SCREEN_REFLECTION_PREPARED_ELIGIBLE (worldIndirectDraws.states[drawStateIndex].materialParams.x<1.5)
+#define CONTACT_AUX_FETCH(p) texelFetch(worldContactAux,ivec2(p),0)
+layout(std430,set=6,binding=10) readonly buffer WorldGiTransport {vec4 worldGiTransport[];};
+layout(std430,set=6,binding=11) readonly buffer WorldGiRadiance {vec4 worldGiRadiance[];};
+layout(set=6,binding=12) uniform sampler2D worldIndirectReceiver;
+#define WORLD_GI_RECEIVER(p) texelFetch(worldIndirectReceiver,p,0)
+#define WORLD_GI_FORWARD (worldIndirectDraws.states[drawStateIndex].materialParams.x>1.5)
+#define WORLD_GI_DATA(i) worldGiTransport[i]
+#define WORLD_GI_RESULT(i) worldGiRadiance[i]
+#define WORLD_GI_LOOP [[dont_unroll]]
 #include "world_lighting.glsl"
+uint worldLayeredMaterialIndex=0u;
+#define WORLD_LAYERED_MATERIAL_INDEX worldLayeredMaterialIndex
+#include "world_layered_bindings.glsl"
+layout(set=6,binding=23) uniform sampler2D worldSunNoise;
+#define WORLD_SUN_NOISE(p) texelFetch(worldSunNoise,ivec2(p),0)
+#define WORLD_SUN_PRIVATE
+layout(set=6,binding=22) uniform sampler2DShadow worldSunDepth;
+#define WORLD_SUN(i) worldView.sun[i]
+#define WORLD_SUN_COMPARE(uv,z) textureLod(worldSunDepth,vec3(uv,z),0.0)
 #define WORLD_SHADOW_PARAMS worldView.directionalShadowParams
 #define WORLD_SHADOW_CLIP(position) (worldView.directionalShadowMatrix * vec4(position, 1.0))
 layout(set=1,binding=8) uniform sampler2D localShadowMoments;
@@ -138,11 +237,20 @@ vec3 hsvToRgb(vec3 hsv) {
 #ifdef PHLOSION_PROJECT_MATERIAL
 #include "project_world_indirect_declarations.glsl"
 #endif
+#ifdef PHLOSION_WORLD_PIXEL_DEPTH
+layout(depth_greater) out float gl_FragDepth;
+#endif
 void writeWorldColor(vec4 color) {
+#ifdef PHLOSION_WORLD_PIXEL_DEPTH
+    gl_FragDepth=worldFoliageRasterDepth(gl_FragCoord.z);
+#endif
+    if(worldContactPrepass())color=vec4(vertexNormal*inversesqrt(max(dot(vertexNormal,vertexNormal),1e-12))*.5+.5,1.0);
+    if(!(ENV_SUN.w>.5 && ENV_RADIANCE.w>.5))
+        color=worldLocalReflectionOutput(color,worldPosition,cross(dFdx(worldPosition),dFdy(worldPosition)));
 #if defined(PHLOSION_VULKAN_DUAL_SOURCE_BLEND)
     float blendAlpha = clamp(color.a, 0.0, 1.0);
     float quantizedAlpha = floor(blendAlpha * 63.0 + 0.5) / 63.0;
-    outColor = vec4(color.rgb, quantizedAlpha);
+    outColor = vec4(color.rgb, worldLocalReflectionCapture()?color.a:quantizedAlpha);
     outBlendAlpha = vec4(0.0, 0.0, 0.0, blendAlpha);
 #else
     outColor = color;
@@ -164,13 +272,20 @@ vec3 encodeWorldSurfaceColor(vec3 linearColor) {
 
 
 void main() {
+#ifdef PHLOSION_WORLD_PIXEL_DEPTH
+    gl_FragDepth=gl_FragCoord.z;
+#endif
+    worldWetScreen=gl_FragCoord.xy;worldWetDepth=gl_FragCoord.z;
     WorldIndirectDrawState portableDraw = worldIndirectDraws.states[drawStateIndex];
+    worldLayeredMaterialIndex=portableDraw.specializedLayered.x;
+    worldFogAdditive=portableDraw.drawParams.z!=0u;
+    if((worldContactPrepass() || worldScreenReflectionCapture() || worldLocalReflectionCapture()) && (portableDraw.materialParams.x>1.5 || (portableDraw.materialParams.w>246.5 && portableDraw.materialParams.w!=254.0)))discard;
     worldReflectionClip(worldPosition,portableDraw.materialParams.w);
     updateEnvironmentDirectionalVisibility(worldPosition, vertexNormal, portableDraw.materialParams.w);
     if (portableDraw.materialParams.w == 249.0) {
         volumeMaterialIndex=portableDraw.drawParams.x;
-        writeWorldColor(worldVolumeColor(vec3(vertexSourceUv1,vertexSourceUv2.x),vertexSourceUv2.y,
-            portableDraw.specializedTimingFlagsAtlas.x,vertexColor,vertexUv.x));
+        writeWorldColor(worldFogTransparent(worldVolumeColor(vec3(vertexSourceUv1,vertexSourceUv2.x),vertexSourceUv2.y,
+            portableDraw.specializedTimingFlagsAtlas.x,vertexColor,vertexUv.x),worldPosition));
         return;
     }
     if (portableDraw.materialParams.w >= 249.5 && portableDraw.materialParams.w != 254.0) {
@@ -178,7 +293,7 @@ void main() {
         vec4 color = portableMaterial(portableDraw.materialParams.w,
             texture(baseColorTextures[nonuniformEXT(materialIndex)], vertexUv),
             vertexColor, vec3(vertexSourceUv1, vertexSourceUv2.x));
-        writeWorldColor(color);
+        writeWorldColor(worldFogTransparent(color,worldPosition));
         return;
     }
 #ifdef PHLOSION_PROJECT_MATERIAL

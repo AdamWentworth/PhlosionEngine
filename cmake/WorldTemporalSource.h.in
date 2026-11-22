@@ -1,0 +1,2 @@
+#pragma once
+inline constexpr const char* worldTemporalSource=R"TEMPORAL(@PHLOSION_TEMPORAL_SOURCE@)TEMPORAL";

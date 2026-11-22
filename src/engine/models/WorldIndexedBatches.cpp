@@ -1,4 +1,6 @@
 #include "engine/models/WorldIndexedBatches.h"
+#include "engine/models/WorldIndexedResources.h"
+#include "engine/render/IWorldSurfaceBuffer.h"
 
 #include <algorithm>
 #include <chrono>
@@ -295,8 +297,8 @@ struct AutoInstanceKeyHash {
     }
 };
 
-bool canAutoInstance(const IRenderBackend& renderer, const WorldIndexedBatch& batch) {
-    if (!renderer.supportsWorldIndexedMeshInstancing()) return false;
+bool canAutoInstance(bool supportsInstancing, const WorldIndexedBatch& batch) {
+    if (!supportsInstancing) return false;
     if (!batch.instances.empty()) return false;
     if (batch.geometryCacheKey.empty()) return false;
     if (batch.gpuSkinning != 0u) return false;
@@ -510,8 +512,8 @@ AutoInstanceKey makeAutoInstanceKey(const WorldIndexedBatch& batch) {
     return key;
 }
 
-bool canAutoInstanceWithResolvedPayload(const IRenderBackend& renderer, const WorldIndexedBatch& batch) {
-    if (!canAutoInstance(renderer, batch)) {
+bool canAutoInstanceWithResolvedPayload(bool supportsInstancing, const WorldIndexedBatch& batch) {
+    if (!canAutoInstance(supportsInstancing, batch)) {
         return false;
     }
     return resolvedTextureHasStableIdentity(
@@ -954,9 +956,8 @@ void clearSubmissionScratch(SubmissionScratch& scratch) {
     scratch.autoInstanceBatchIndex.clear();
 }
 
-SubmissionScratch& buildSubmissionScratch(const IRenderBackend& renderer,
-                                          const std::vector<WorldIndexedBatch>& batches) {
-    SubmissionScratch& scratch = submissionScratch();
+SubmissionScratch& buildSubmissionScratch(SubmissionScratch& scratch,bool supportsInstancing,
+                                          const std::vector<WorldIndexedBatch>& batches,bool allowAutoInstance) {
     clearSubmissionScratch(scratch);
     if (scratch.opaqueBatches.capacity() < batches.size()) {
         scratch.opaqueBatches.reserve(batches.size());
@@ -979,7 +980,7 @@ SubmissionScratch& buildSubmissionScratch(const IRenderBackend& renderer,
         } else if (batch.preserveSubmissionOrder) {
             scratch.orderedOpaqueBatches.push_back(
                 OpaqueBatchEntry{&batch, makeSubmissionSortKey(batch)});
-        } else if (canAutoInstanceWithResolvedPayload(renderer, batch)) {
+        } else if (allowAutoInstance && canAutoInstanceWithResolvedPayload(supportsInstancing, batch)) {
             const AutoInstanceKey key = makeAutoInstanceKey(batch);
             auto it = scratch.autoInstanceBatchIndex.find(key);
             if (it == scratch.autoInstanceBatchIndex.end()) {
@@ -1041,6 +1042,18 @@ SubmissionScratch& buildSubmissionScratch(const IRenderBackend& renderer,
     }
 
     return scratch;
+}
+
+SubmissionScratch& buildSubmissionScratch(const IRenderBackend& renderer,
+    const std::vector<WorldIndexedBatch>& batches,bool allowAutoInstance=true) {
+    return buildSubmissionScratch(submissionScratch(),renderer.supportsWorldIndexedMeshInstancing(),batches,allowAutoInstance);
+}
+
+void setTextureCamera(IRenderBackend::WorldTextureData& tex,const float* position,
+    const float* forward,const float* target) {
+    if(position){tex.cameraPosX=position[0];tex.cameraPosY=position[1];tex.cameraPosZ=position[2];}
+    if(forward){tex.cameraForwardX=forward[0];tex.cameraForwardY=forward[1];tex.cameraForwardZ=forward[2];}
+    if(target){tex.cameraTargetX=target[0];tex.cameraTargetY=target[1];tex.cameraTargetZ=target[2];}
 }
 
 IRenderBackend::WorldTextureData toWorldTextureData(const WorldIndexedBatch& batch,
@@ -1408,15 +1421,7 @@ IRenderBackend::WorldTextureData toWorldTextureData(const WorldIndexedBatch& bat
     tex.vertexColorMulB = batch.vertexColorMulB;
     tex.vertexColorMulA = batch.vertexColorMulA;
     tex.characterInkingEnabled = materialBatch.characterInkingEnabled;
-    tex.cameraPosX = (cameraWorldPos3 ? cameraWorldPos3[0] : tex.cameraPosX);
-    tex.cameraPosY = (cameraWorldPos3 ? cameraWorldPos3[1] : tex.cameraPosY);
-    tex.cameraPosZ = (cameraWorldPos3 ? cameraWorldPos3[2] : tex.cameraPosZ);
-    tex.cameraForwardX = (cameraForward3 ? cameraForward3[0] : tex.cameraForwardX);
-    tex.cameraForwardY = (cameraForward3 ? cameraForward3[1] : tex.cameraForwardY);
-    tex.cameraForwardZ = (cameraForward3 ? cameraForward3[2] : tex.cameraForwardZ);
-    tex.cameraTargetX = (cameraTarget3 ? cameraTarget3[0] : tex.cameraTargetX);
-    tex.cameraTargetY = (cameraTarget3 ? cameraTarget3[1] : tex.cameraTargetY);
-    tex.cameraTargetZ = (cameraTarget3 ? cameraTarget3[2] : tex.cameraTargetZ);
+    setTextureCamera(tex,cameraWorldPos3,cameraForward3,cameraTarget3);
     tex.materialTimeSec = materialBatch.materialTimeSec;
     tex.materialFlags = materialBatch.materialFlags;
     tex.materialAtlasWidth = materialBatch.materialAtlasWidth;
@@ -1444,6 +1449,7 @@ IRenderBackend::WorldTextureData toWorldTextureData(const WorldIndexedBatch& bat
     tex.gpuSkinning = batch.gpuSkinning;
     tex.gpuSkinningMode = batch.gpuSkinningMode;
     tex.skinMatrixCount = batch.skinMatrixCount;
+    tex.deformation = batch.deformation;
     tex.skinMatrices = batch.sharedSkinMatrices
         ? batch.sharedSkinMatrices
         : (batch.skinMatrices.empty() ? nullptr : batch.skinMatrices.data());
@@ -1457,7 +1463,10 @@ void drawOneBatch(IRenderBackend& renderer,
                   int surfaceHeight,
                   const float* cameraWorldPos3,
                   const float* cameraForward3,
-                  const float* cameraTarget3) {
+                  const float* cameraTarget3,
+                  render::WorldMotionHistory* motion, std::uint64_t motionObject,
+                  WorldIndexedResources* resources,
+                  const IRenderBackend::WorldTextureData* preparedTexture=nullptr) {
     const bool useSharedVertices = batch.sharedVertices && batch.sharedVertexCount > 0u;
     const bool useSharedIndices = batch.sharedIndices && batch.sharedIndexCount > 0u;
     const IRenderBackend::WorldMeshVertex* vertices = useSharedVertices
@@ -1474,20 +1483,65 @@ void drawOneBatch(IRenderBackend& renderer,
         : batch.indices.size();
     if (!vertices || !indices || vertexCount == 0u || indexCount == 0u) return;
 
-    IRenderBackend::WorldTextureData tex =
-        toWorldTextureData(batch, cameraWorldPos3, cameraForward3, cameraTarget3);
+    IRenderBackend::WorldTextureData tex = preparedTexture ? *preparedTexture :
+        toWorldTextureData(batch, nullptr, nullptr, nullptr);
+    setTextureCamera(tex,cameraWorldPos3,cameraForward3,cameraTarget3);
+    tex.preparedView = renderer.prepareWorldViewData(tex);
+    std::vector<render::WorldMotionSample> motionSamples;
+    if (motion && tex.alphaMode != 2 && batch.motionRevision) {
+        if(!batch.instances.empty() && batch.motionInstances.size()!=batch.instances.size())
+            throw std::invalid_argument("Explicit motion instances require authored identities");
+        std::vector<std::array<float,3>> positions;
+        if(batch.cpuDeformedMotion) {
+            positions.reserve(vertexCount);
+            for(std::size_t i=0;i<vertexCount;++i)positions.push_back({vertices[i].x,vertices[i].y,vertices[i].z});
+        }
+        const auto count=std::max(std::size_t(1),batch.instances.size());
+        motionSamples.reserve(count);
+        for(std::size_t i=0;i<count;++i) {
+            render::WorldMotionObject object;
+            object.identity = {motionObject, batch.motionPart, batch.instances.empty()?0:batch.motionInstances[i]};
+            if(!batch.instances.empty() && !object.identity.instance)
+                throw std::invalid_argument("Motion instance identity must be nonzero");
+            object.revision = batch.motionRevision;
+            object.temporalMaterial=batch.temporalMaterial;
+            object.model = tex.modelMatrix;
+            const auto* instance=batch.instances.empty()?nullptr:&batch.instances[i];
+            if(instance) {
+                // The one-instance draw replaces the model; multi-instance draws multiply it.
+                if(count==1)object.model=instance->modelMatrix;
+                else object.instance=instance->modelMatrix;
+            }
+            const bool instanceSkin=instance && (count==1 || instance->gpuSkinning);
+            object.matrixCount = instanceSkin?(instance->gpuSkinning?instance->skinMatrixCount:0):(tex.gpuSkinning?tex.skinMatrixCount:0);
+            object.skinningMode = instanceSkin?instance->gpuSkinningMode:tex.gpuSkinningMode;
+            const auto* palette=instanceSkin?instance->skinMatrices:tex.skinMatrices;
+            if(object.matrixCount)
+                object.deformation = {palette, std::size_t(object.matrixCount) * (object.skinningMode ? 32 : 16)};
+            object.deformationVersion = instanceSkin?instance->deformation:tex.deformation;
+            object.positions=positions;
+            object.materialMode = tex.materialMode;
+            object.materialParameters = {tex.materialTimeSec,tex.materialFlags,0,0,
+                tex.materialRect0U,tex.materialRect0V,tex.materialRect0W,tex.materialRect0H,
+                tex.materialRect1U,tex.materialRect1V,tex.materialRect1W,tex.materialRect1H};
+            motionSamples.push_back(motion->submit(object));
+        }
+    }
+    render::WorldSurfaceMotionDraw motionDraw(renderer,motionSamples.empty()?nullptr:motion,motionSamples);
+
     if (batch.instances.size() == 1u) {
-        const IRenderBackend::WorldMeshInstance& instance =
-            batch.instances.front();
-        tex.modelMatrix = instance.modelMatrix;
-        tex.vertexColorMulR = instance.vertexColorMulR;
-        tex.vertexColorMulG = instance.vertexColorMulG;
-        tex.vertexColorMulB = instance.vertexColorMulB;
-        tex.vertexColorMulA = instance.vertexColorMulA;
-        tex.gpuSkinning = instance.gpuSkinning;
-        tex.gpuSkinningMode = instance.gpuSkinningMode;
-        tex.skinMatrixCount = instance.skinMatrixCount;
-        tex.skinMatrices = instance.skinMatrices;
+        const auto& instance=batch.instances.front();
+        tex.modelMatrix=instance.modelMatrix;
+        tex.vertexColorMulR=instance.vertexColorMulR;tex.vertexColorMulG=instance.vertexColorMulG;
+        tex.vertexColorMulB=instance.vertexColorMulB;tex.vertexColorMulA=instance.vertexColorMulA;
+        tex.gpuSkinning=instance.gpuSkinning;tex.gpuSkinningMode=instance.gpuSkinningMode;
+        tex.skinMatrixCount=instance.skinMatrixCount;tex.skinMatrices=instance.skinMatrices;tex.deformation=instance.deformation;
+    }
+    if(resources && batch.instances.size()<=1u && !batch.geometryCacheKey.empty() &&
+        resources->draw(batch.geometryCacheKey.c_str(),vertices,vertexCount,indices,indexCount,
+            tex,viewProjectionMatrix4x4,surfaceWidth,surfaceHeight))return;
+
+    if (batch.instances.size() == 1u) {
         if (!batch.geometryCacheKey.empty()) {
             renderer.drawWorldIndexedMeshTexturedCached(
                 batch.geometryCacheKey.c_str(),
@@ -1618,38 +1672,10 @@ std::size_t prewarmWorldIndexedBatches(IRenderBackend& renderer,
     return warmed;
 }
 
-void submitWorldIndexedBatches(IRenderBackend& renderer,
-                               const std::vector<WorldIndexedBatch>& batches,
-                               const float* viewProjectionMatrix4x4,
-                               int surfaceWidth,
-                               int surfaceHeight,
-                               const float* cameraWorldPos3,
-                               const float* cameraForward3,
-                               const float* cameraTarget3) {
-    if (batches.empty() || !viewProjectionMatrix4x4 || surfaceWidth <= 0 || surfaceHeight <= 0) return;
-    const bool perfLog = indexedSubmitPerfLogEnabled();
-    Clock::time_point totalStart{};
-    if (perfLog) totalStart = Clock::now();
-    SubmissionScratch& scratch = buildSubmissionScratch(renderer, batches);
-    Clock::time_point afterScratch{};
-    if (perfLog) afterScratch = Clock::now();
-
-    renderer.beginWorldIndexedBatchSubmission();
-    Clock::time_point afterBegin{};
-    if (perfLog) afterBegin = Clock::now();
-
-    IRenderBackend::WorldIndexedSubmissionStats submissionStats{};
-    bool havePreviousSubmissionKey = false;
-    SubmissionSortKey previousSubmissionKey{};
-    float opaqueDrawMs = 0.0f;
-    float blendKeyMs = 0.0f;
-    float blendDrawMs = 0.0f;
-    float maxDrawMs = 0.0f;
-    std::string maxDrawKey;
-    std::size_t maxDrawInstances = 0u;
-    const auto recordAndDraw = [&](const WorldIndexedBatch& batch,
-                                   const SubmissionSortKey& key,
-                                   bool opaquePass) {
+namespace {
+void recordSubmissionStats(IRenderBackend::WorldIndexedSubmissionStats& submissionStats,
+    SubmissionSortKey& previousSubmissionKey,bool& havePreviousSubmissionKey,
+    const SubmissionSortKey& key,bool opaquePass) {
         if (opaquePass) {
             ++submissionStats.opaqueDraws;
         } else {
@@ -1677,6 +1703,76 @@ void submitWorldIndexedBatches(IRenderBackend& renderer,
         }
         previousSubmissionKey = key;
         havePreviousSubmissionKey = true;
+}
+}
+struct PreparedWorldIndexedSubmission::Impl {
+    const std::vector<WorldIndexedBatch>& batches;
+    SubmissionScratch scratch;
+    std::vector<IRenderBackend::WorldTextureData> textures;
+    std::vector<SubmissionSortKey> blendKeys;
+    IRenderBackend::WorldIndexedSubmissionStats stats{};
+    bool autoInstance;
+    Impl(const std::vector<WorldIndexedBatch>& input,bool allow):
+        batches(input),autoInstance(allow) {
+        buildSubmissionScratch(scratch,allow,input,allow);
+        textures.reserve(scratch.orderedOpaqueBatches.size()+scratch.opaqueBatches.size()+scratch.blendBatches.size());
+        SubmissionSortKey previous;bool havePrevious=false;
+        const auto retain=[&](const WorldIndexedBatch& batch,const SubmissionSortKey& key,bool opaque) {
+            textures.push_back(toWorldTextureData(batch,nullptr,nullptr,nullptr));
+            recordSubmissionStats(stats,previous,havePrevious,key,opaque);
+        };
+        for(const auto& entry:scratch.orderedOpaqueBatches)retain(*entry.batch,entry.key,true);
+        for(const auto& entry:scratch.opaqueBatches)retain(*entry.batch,entry.key,true);
+        for(const auto* batch:scratch.blendBatches) {
+            blendKeys.push_back(makeSubmissionSortKey(*batch));
+            retain(*batch,blendKeys.back(),false);
+        }
+    }
+};
+
+static void submitWorldIndexedBatchesImpl(IRenderBackend& renderer,
+                               const std::vector<WorldIndexedBatch>& batches,
+                               const float* viewProjectionMatrix4x4,
+                               int surfaceWidth,
+                               int surfaceHeight,
+                               const float* cameraWorldPos3,
+                               const float* cameraForward3,
+                               const float* cameraTarget3,
+                               render::WorldMotionHistory* motion, std::uint64_t motionObject,
+                               WorldIndexedResources* resources,
+                               const PreparedWorldIndexedSubmission::Impl* prepared) {
+    if (batches.empty() || !viewProjectionMatrix4x4 || surfaceWidth <= 0 || surfaceHeight <= 0) return;
+    if(motion && (!motion->active() || !motionObject))
+        throw std::invalid_argument("Model motion requires an active primary view and scene identity");
+    const bool perfLog = indexedSubmitPerfLogEnabled();
+    Clock::time_point totalStart{};
+    if (perfLog) totalStart = Clock::now();
+    const SubmissionScratch& scratch = prepared ? prepared->scratch :
+        buildSubmissionScratch(renderer,batches,motion==nullptr);
+    std::size_t drawIndex=0,blendIndex=0;
+    Clock::time_point afterScratch{};
+    if (perfLog) afterScratch = Clock::now();
+
+    renderer.beginWorldIndexedBatchSubmission();
+    Clock::time_point afterBegin{};
+    if (perfLog) afterBegin = Clock::now();
+
+    IRenderBackend::WorldIndexedSubmissionStats submissionStats=
+        prepared ? prepared->stats : IRenderBackend::WorldIndexedSubmissionStats{};
+    bool havePreviousSubmissionKey = false;
+    SubmissionSortKey previousSubmissionKey{};
+    float opaqueDrawMs = 0.0f;
+    float blendKeyMs = 0.0f;
+    float blendDrawMs = 0.0f;
+    float maxDrawMs = 0.0f;
+    std::string maxDrawKey;
+    std::size_t maxDrawInstances = 0u;
+    const auto recordAndDraw = [&](const WorldIndexedBatch& batch,
+                                   const SubmissionSortKey& key,
+                                   bool opaquePass) {
+        if(!prepared)recordSubmissionStats(submissionStats,previousSubmissionKey,
+            havePreviousSubmissionKey,key,opaquePass);
+        const auto* preparedTexture=prepared ? &prepared->textures[drawIndex++] : nullptr;
         if (perfLog) {
             const Clock::time_point drawStart = Clock::now();
             drawOneBatch(
@@ -1687,7 +1783,7 @@ void submitWorldIndexedBatches(IRenderBackend& renderer,
                 surfaceHeight,
                 cameraWorldPos3,
                 cameraForward3,
-                cameraTarget3);
+                cameraTarget3, motion, motionObject, resources,preparedTexture);
             const float drawMs = elapsedMs(drawStart, Clock::now());
             if (opaquePass) {
                 opaqueDrawMs += drawMs;
@@ -1708,7 +1804,7 @@ void submitWorldIndexedBatches(IRenderBackend& renderer,
                 surfaceHeight,
                 cameraWorldPos3,
                 cameraForward3,
-                cameraTarget3);
+                cameraTarget3, motion, motionObject, resources,preparedTexture);
         }
     };
 
@@ -1724,7 +1820,7 @@ void submitWorldIndexedBatches(IRenderBackend& renderer,
         if (!batch) continue;
         Clock::time_point keyStart{};
         if (perfLog) keyStart = Clock::now();
-        const SubmissionSortKey key = makeSubmissionSortKey(*batch);
+        const SubmissionSortKey key=prepared ? prepared->blendKeys[blendIndex++] : makeSubmissionSortKey(*batch);
         if (perfLog) blendKeyMs += elapsedMs(keyStart, Clock::now());
         recordAndDraw(*batch, key, false);
     }
@@ -1750,6 +1846,7 @@ void submitWorldIndexedBatches(IRenderBackend& renderer,
                   << " blend_draw_ms=" << blendDrawMs
                   << " stats_ms=" << elapsedMs(afterDraws, afterStats)
                   << " end_ms=" << elapsedMs(afterStats, afterEnd)
+                  << " prepared=" << (prepared?1:0)
                   << " input=" << batches.size()
                   << " ordered_opaque_entries="
                   << scratch.orderedOpaqueBatches.size()
@@ -1766,6 +1863,28 @@ void submitWorldIndexedBatches(IRenderBackend& renderer,
                   << " max_draw_key=" << maxDrawKey
                   << "\n";
     }
+}
+
+PreparedWorldIndexedSubmission::PreparedWorldIndexedSubmission(const IRenderBackend& renderer,
+    const std::vector<WorldIndexedBatch>& batches,bool allowAutoInstance):
+    PreparedWorldIndexedSubmission(batches,allowAutoInstance && renderer.supportsWorldIndexedMeshInstancing()) {}
+PreparedWorldIndexedSubmission::PreparedWorldIndexedSubmission(
+    const std::vector<WorldIndexedBatch>& batches,bool autoInstance):
+    impl_(std::make_unique<Impl>(batches,autoInstance)) {}
+PreparedWorldIndexedSubmission::~PreparedWorldIndexedSubmission()=default;
+std::size_t PreparedWorldIndexedSubmission::drawCount()const{return impl_->textures.size();}
+void PreparedWorldIndexedSubmission::submit(IRenderBackend& renderer,const float* matrix,int width,int height,
+    const float* position,const float* forward,const float* target,render::WorldMotionHistory* motion,
+    std::uint64_t object,WorldIndexedResources* resources)const {
+    if(impl_->autoInstance && (motion || !renderer.supportsWorldIndexedMeshInstancing()))
+        throw std::invalid_argument("Prepared model submission has incompatible instancing/motion policy");
+    submitWorldIndexedBatchesImpl(renderer,impl_->batches,matrix,width,height,position,forward,target,
+        motion,object,resources,impl_.get());
+}
+void submitWorldIndexedBatches(IRenderBackend& renderer,const std::vector<WorldIndexedBatch>& batches,
+    const float* matrix,int width,int height,const float* position,const float* forward,const float* target,
+    render::WorldMotionHistory* motion,std::uint64_t object,WorldIndexedResources* resources) {
+    submitWorldIndexedBatchesImpl(renderer,batches,matrix,width,height,position,forward,target,motion,object,resources,nullptr);
 }
 
 } // namespace engine::models::batches

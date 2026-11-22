@@ -1,0 +1,12 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+layout(local_size_x=64) in;
+layout(std430,set=0,binding=0) buffer Field {vec4 field[];};
+layout(std430,set=0,binding=1) readonly buffer Inputs {vec4 inputs[];};
+layout(push_constant) uniform Params {vec4 params[2];};
+#define WF_READ(i) field[i]
+#define WF_WRITE(i,v) field[i]=v
+#define WF_INPUT(i) inputs[i]
+#define WF_PARAM(i) params[i]
+#include "world_wind_field.glsl"
+void main(){windField(gl_GlobalInvocationID.x);}

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "WorldDisplay.h"
 #include <cmath>
 #include <stdexcept>
 
@@ -16,7 +17,18 @@ public:
             throw std::invalid_argument("Invalid scene radiance exposure.");
         worldSceneRadianceExposure_ = exposure;
     }
+    virtual void setWorldDisplaySettings(const WorldDisplaySettings& settings) {
+        validateWorldDisplay(settings);worldDisplaySettings_=settings;
+    }
+    virtual void setWorldHeatHazeNoise(const WorldHeatHazeNoise& noise) {
+        noise.validate();
+        if(worldHeatHazeNoise_.key!=noise.key)worldHeatHazeNoise_=noise;
+    }
+    const WorldDisplaySettings& worldDisplaySettings() const noexcept { return worldDisplaySettings_; }
 protected:
+    WorldDisplaySettings worldDisplaySettings_{};
+    WorldHeatHazeNoise worldHeatHazeNoise_;
+
     float worldSceneRadianceExposure_ = 0;
 };
 }

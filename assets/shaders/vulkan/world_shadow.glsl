@@ -1,5 +1,10 @@
+#include "world_sun_shadow.glsl"
+#ifndef PHLOSION_LOCAL_SHADOW_ONLY
 // Manual bounded 3x3 PCF preserves the same comparison on all supported APIs.
 float environmentShadowVisibility(vec3 position, vec3 normal) {
+#ifdef WORLD_SUN
+    if(WORLD_SUN(67).x>.5)return sunCascadeVisibility(position,normal);
+#endif
     if (ENV_SUN.w < 0.5 || WORLD_SHADOW_PARAMS.x <= 0.0) return 1.0;
     float normalLength = dot(normal, normal);
     if (normalLength > 0.00000001) {
@@ -40,14 +45,21 @@ float environmentShadowVisibility(vec3 position, vec3 normal) {
 void updateEnvironmentDirectionalVisibility(vec3 position, vec3 normal, float mode) {
     environmentDirectionalVisibility = 1.0;
     if (mode >= 1.5 && (mode < 249.5 || mode == 254.0) && !(mode > 2.5 && mode < 3.5))
-        environmentDirectionalVisibility = environmentShadowVisibility(position, normal);
+        environmentDirectionalVisibility = environmentShadowVisibility(position, normal)*environmentCloudShadow(position);
 }
 
+void updateEnvironmentForwardDirectionalVisibility(vec3 position,vec3 normal,float mode) {
+    environmentDirectionalVisibility=1.0;
+    if(mode>=1.5&&(mode<249.5||mode==254.0)&&!(mode>2.5&&mode<3.5))
+        environmentDirectionalVisibility=min(environmentShadowVisibility(position,normal),environmentCloudShadow(position));
+}
+
+#endif
 
 float environmentLocalMomentVisibility(int index, vec4 projected, vec4 parameters) {
     if (projected.w <= .00000001) return 1.0;
     vec3 clip = projected.xyz / projected.w;
-    if (max(abs(clip.x),max(abs(clip.y),abs(clip.z))) >= 1.0) return 1.0;
+    if (max(abs(clip.x),abs(clip.y)) >= 1.0) return 1.0;
     vec2 uv = clip.xy * vec2(.5,WORLD_SHADOW_Y*.5) + vec2(.5,.5);
     float texelSize = -parameters.w;
     vec2 texel = uv / texelSize - vec2(.5,.5), base = floor(texel), fraction = texel-base;
@@ -95,6 +107,14 @@ float environmentLocalShadowVisibility(int index, vec3 position, vec3 normal) {
     vec4 parameters = WORLD_LOCAL_SHADOW(index*6+4);
     if (parameters.x <= 0.0 || ENV_SUN.w < 0.5) return 1.0;
     if (parameters.w < 0.0) {
+        // Distance moments need the same surface separation as PCF. Without it,
+        // a coplanar floor shadows itself inside the square projection footprint.
+        float n2=dot(normal,normal);
+        if(n2>1e-8) {
+            vec3 n=normal*inversesqrt(n2);
+            vec3 light=index<16?ENV_RECT(index*4).xyz:ENV_POINT((index-16)*2).xyz;
+            position+=n*(dot(n,light-position)<0.0?-.012:.012);
+        }
         vec4 radialClip = WORLD_LOCAL_SHADOW(index*6)*position.x +
             WORLD_LOCAL_SHADOW(index*6+1)*position.y +
             WORLD_LOCAL_SHADOW(index*6+2)*position.z + WORLD_LOCAL_SHADOW(index*6+3);
@@ -103,7 +123,7 @@ float environmentLocalShadowVisibility(int index, vec3 position, vec3 normal) {
     float n2 = dot(normal,normal);
     if (n2 > 0.00000001) {
         normal *= inversesqrt(n2);
-        float signToLight = dot(normal, ENV_RECT(index*4).xyz-position) < 0.0 ? -1.0 : 1.0;
+        float signToLight = dot(normal, (index<16?ENV_RECT(index*4).xyz:ENV_POINT((index-16)*2).xyz)-position) < 0.0 ? -1.0 : 1.0;
         position += normal * (signToLight * parameters.z);
     }
     vec4 projected = WORLD_LOCAL_SHADOW(index*6)*position.x +
@@ -113,7 +133,12 @@ float environmentLocalShadowVisibility(int index, vec3 position, vec3 normal) {
     vec3 clip = projected.xyz/projected.w;
     vec2 uv = clip.xy*vec2(0.5,WORLD_SHADOW_Y*0.5)+vec2(0.5,0.5);
     float referenceDepth = clip.z*0.5+0.5-parameters.y;
+#ifdef PHLOSION_EXPLICIT_LOCAL_SHADOW_DERIVATIVES
+    vec3 dx,dy;
+    worldLocalShadowDerivatives(index,position,normal,uv,referenceDepth,dx,dy);
+#else
     vec3 dx = dFdx(vec3(uv,referenceDepth)), dy = dFdy(vec3(uv,referenceDepth));
+#endif
     float determinant = dx.x*dy.y-dx.y*dy.x;
     vec2 gradient = vec2(0.0,0.0);
     if (abs(determinant)>0.00000000000000000001)

@@ -94,6 +94,14 @@ bool validFilter(const QueryFilter& filter, std::string* error) {
     return fail(error, "Invalid sensor policy");
 }
 
+void traceJolt(const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    std::vfprintf(stderr, format, args);
+    va_end(args);
+    std::fputc('\n', stderr);
+}
+
 // The function-local runtime is constructed before any world and destroyed
 // after its worlds (including static-storage worlds). No simulation workers run.
 class Runtime {
@@ -106,13 +114,7 @@ public:
             throw std::logic_error("CollisionWorld cannot adopt externally configured Jolt allocators");
 #endif
         JPH::RegisterDefaultAllocator();
-        JPH::Trace = [](const char* format, ...) {
-            va_list args;
-            va_start(args, format);
-            std::vfprintf(stderr, format, args);
-            va_end(args);
-            std::fputc('\n', stderr);
-        };
+        JPH::Trace = traceJolt;
 #ifdef JPH_ENABLE_ASSERTS
         JPH::AssertFailed = [](const char* expression, const char* message, const char* file, JPH::uint line) {
             std::fprintf(stderr, "Jolt assertion: %s (%s) at %s:%u\n", expression, message ? message : "", file, line);

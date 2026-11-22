@@ -1,0 +1,4 @@
+#pragma once
+namespace engine::render {
+inline constexpr char worldIndirectSource[]=R"PHLOSION(@PHLOSION_INDIRECT_SOURCE@)PHLOSION";
+}

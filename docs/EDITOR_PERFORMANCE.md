@@ -74,7 +74,7 @@ Use this repeatable smoke benchmark from the engine repository:
 
 ```powershell
 .\build\Debug\PhlosionEditor.exe `
-  --project=D:\Projects\YourGame\phlosion.project.json `
+  --project=PROJECTS_ROOT\YourGame\phlosion.project.json `
   --renderer=d3d12 --frames=2
 ```
 
@@ -96,14 +96,14 @@ instead of starting an interactive editor:
 
 ```powershell
 .\build\Debug\PhlosionEditor.exe `
-  --project=D:\Projects\YourGame\phlosion.project.json `
+  --project=PROJECTS_ROOT\YourGame\phlosion.project.json `
   --renderer=vulkan --hidden `
-  --state-directory=D:\Temp\phlosion-editor-state `
+  --state-directory=TEMP_DIR\phlosion-editor-state `
   --asset-preview=Example.phlo `
   --asset-preview-quality=ultra `
   --asset-preview-animation=bind --asset-preview-time=0 `
   --fixed-delta=0.016666667 --frames=90 `
-  --metrics-output=D:\Temp\phlosion-editor-metrics.json
+  --metrics-output=TEMP_DIR\phlosion-editor-metrics.json
 ```
 
 `--hidden` creates the SDL window with `SDL_WINDOW_HIDDEN` and suppresses the
@@ -136,3 +136,28 @@ Screenshot capture is backend-owned through
 `PHLOSION_BACKEND_SCREENSHOT_FRAME`. Project repositories should wrap these
 low-level switches in a checked baseline command that verifies editor/plugin
 compatibility, isolates state, and rejects renderer fallback.
+
+
+## Selecting a Windows GPU
+
+Set the process environment variable PHLOSION_GPU_LUID to a 16-digit hexadecimal
+Windows adapter LUID before launching the runtime or editor. D3D12 and Vulkan
+log each candidate's name and LUID, then the selected LUID. This distinguishes
+two cards with identical names and selects the same physical device across both
+APIs. The explicit identity overrides the existing preferred-name/automatic
+selection; malformed or unavailable identities fail instead of silently falling
+back to another GPU. Unset it to restore normal selection.
+
+LUIDs are Windows boot-local identifiers: read them again after reboot. Do not
+treat NVIDIA's index, Vulkan's enumeration order, or a PCIe slot number as that
+identifier. This is a Windows diagnostic selector, not a persistent hardware
+preference or multi-GPU rendering feature. Linux retains its existing selection.
+
+The worker's two-card comparison and unchanged-visual checks are recorded in
+[the GPU selection/performance follow-up](agent-work/lighting-foundation/GPU_SELECTION_PERFORMANCE.md).
+
+Opaque-depth reuse is opt-in for matching contact/source/final geometry. PokemonCyberpunk
+uses it outside battle arrivals/active effects; PHLOSION_DISABLE_DEPTH_REUSE=1
+selects the original game path for diagnosis. See
+[depth reuse qualification](agent-work/lighting-foundation/DEPTH_REUSE_PERFORMANCE.md)
+for worker timings, visual checks and thermal limitations.

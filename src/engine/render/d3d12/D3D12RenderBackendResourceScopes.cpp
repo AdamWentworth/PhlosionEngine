@@ -5,6 +5,10 @@ using namespace engine::render;
 WorldResourceScopeId D3D12RenderBackend::createWorldResourceScope(std::uint64_t limit) {
     return worldScopes_.create(limit);
 }
+bool D3D12RenderBackend::bindWorldResourceAssetGroup(WorldResourceScopeId child,
+    std::uint64_t identity,std::uint64_t limit) {
+    return worldScopes_.bindAssetGroup(child,identity,limit);
+}
 bool D3D12RenderBackend::beginWorldResourceScope(WorldResourceScopeId id) {
     if (!worldScopes_.begin(id)) return false;
 #if defined(_WIN32)
@@ -13,6 +17,10 @@ bool D3D12RenderBackend::beginWorldResourceScope(WorldResourceScopeId id) {
     return true;
 }
 bool D3D12RenderBackend::endWorldResourceScope() {
+#if defined(_WIN32)
+    // Scope close drops lookup caches, not frame-owned native resources.
+    if(!preparedWorldViews_.inBatch()) flushWorldDrawPackets();
+#endif
     const bool ended = worldScopes_.end();
 #if defined(_WIN32)
     worldSceneMaterialBindingCache_.clear();
@@ -20,7 +28,9 @@ bool D3D12RenderBackend::endWorldResourceScope() {
     return ended;
 }
 bool D3D12RenderBackend::requestWorldResourceScopeRelease(WorldResourceScopeId id) {
-    return worldScopes_.release(id);
+    const bool released=worldScopes_.release(id);
+    if(released)releaseWorldIndirectScope(id);
+    return released;
 }
 bool D3D12RenderBackend::getWorldResourceScopeStats(WorldResourceScopeId id, WorldResourceScopeStats& out) const {
     return worldScopes_.query(id, out);
@@ -42,6 +52,8 @@ bool D3D12RenderBackend::collectWorldResourceScopes() {
             worldScopes_.fail(id, "D3D12 queue completion failed", WorldResourceScopeStatus::GpuWaitFailed);
         return false;
     }
+    preparedWorldGeometry_.clear();preparedWorldMaterials_.clear();
+    retainedWorldMaterialBindings_.clear();
     worldSceneMaterialBindingCache_.clear();
     for (const auto id : pending) {
         for (auto it = worldMaterialDescriptorBlocks_.begin(); it != worldMaterialDescriptorBlocks_.end();) {
@@ -58,6 +70,10 @@ bool D3D12RenderBackend::collectWorldResourceScopes() {
             freeWorldTextureDescriptors_.push_back(it->second.descriptorIndex);
             it = worldTextures_.erase(it);
         }
+        releaseWorldPrecipitation(id);
+        releaseWorldLayeredMaterials(id);releaseWorldClouds(id);releaseWorldWindField(id);
+        releaseWorldParticleLighting(id);
+        releaseWorldRainMaps(id);
         worldScopes_.collect(id);
     }
     return true;

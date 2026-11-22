@@ -8,6 +8,7 @@ enum class Mode : std::uint8_t {
     Alpha = 0u,
     Additive = 1u,
     Premultiplied = 2u,
+    PremultipliedAdditive = 3u,
 };
 
 struct State {
@@ -22,7 +23,8 @@ constexpr Mode sanitizeMode(std::uint8_t mode) noexcept {
         ? Mode::Additive
         : mode == static_cast<std::uint8_t>(Mode::Premultiplied)
             ? Mode::Premultiplied
-            : Mode::Alpha;
+            : mode == static_cast<std::uint8_t>(Mode::PremultipliedAdditive)
+                ? Mode::PremultipliedAdditive : Mode::Alpha;
 }
 
 constexpr State resolve(std::uint8_t alphaMode,
@@ -36,6 +38,8 @@ constexpr State resolve(std::uint8_t alphaMode,
     state.mode = sanitizeMode(blendMode);
     state.dualSourceEnabled =
         state.enabled && dualSourceRequested && dualSourceAvailable;
+
+    if (state.mode == Mode::PremultipliedAdditive) state.dualSourceEnabled = false;
 
     // The authored dual-source contract has alpha and additive equations.
     // A premultiplied request therefore resolves to its alpha equation, matching

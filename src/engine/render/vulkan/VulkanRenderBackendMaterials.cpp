@@ -1,3 +1,4 @@
+#include "engine/render/WorldTextureQuality.h"
 #include "engine/render/vulkan/VulkanRenderBackendInternal.h"
 #include "engine/render/IWorldDepthControl.h"
 #include "engine/render/vulkan/VulkanWorldTextureKey.h"
@@ -41,8 +42,10 @@ VulkanRenderBackendImpl::Texture* VulkanRenderBackendImpl::ensureWorldTextureRaw
     bool srgb,
     std::string* outResolvedKey,
     const IRenderBackend::WorldTextureMipLevel* authoredMipLevels,
-    std::uint32_t authoredMipLevelCount) {
+    std::uint32_t authoredMipLevelCount, bool linearMipSampling, bool materialImage) {
+    if(auto* weather=findWorldRainTexture(key)) {if(outResolvedKey)*outResolvedKey=key;return weather;}
     if (!rgba || width <= 0 || height <= 0) return nullptr;
+    engine::render::WorldResourceScopeState::AssetResources assets(worldScopes);
     engine::render::WorldResourceScopeState::AllocationAttempt attempt(worldScopes);
     if (!worldScopes.admitted()) return nullptr;
     const std::string resolved = worldScopes.key(engine::render::vulkan_backend::resolvedWorldTextureKey(
@@ -54,11 +57,14 @@ VulkanRenderBackendImpl::Texture* VulkanRenderBackendImpl::ensureWorldTextureRaw
         wrapS,
         wrapT,
         srgb,
-        authoredMipLevelCount));
+        authoredMipLevelCount, linearMipSampling)+"|quality="+std::to_string(materialImage?worldMaterialProfile.textureMipDrop:0)+
+        "|af="+std::to_string(worldMaterialProfile.maxAnisotropy));
     if (outResolvedKey) *outResolvedKey = resolved;
     auto existing = worldTextures.find(resolved);
     if (existing != worldTextures.end()) { attempt.success(); return &existing->second; }
 
+    engine::render::texture_quality::Selection qualityMips;
+    qualityMips.reduce(materialImage?worldMaterialProfile.textureMipDrop:0,rgba,width,height,wrapS,wrapT,srgb,authoredMipLevels,authoredMipLevelCount);
     Texture uploaded;
     try {
         uploaded = createTexture(
@@ -70,7 +76,7 @@ VulkanRenderBackendImpl::Texture* VulkanRenderBackendImpl::ensureWorldTextureRaw
         wrapT,
         false,
         authoredMipLevels,
-        authoredMipLevelCount);
+        authoredMipLevelCount, linearMipSampling);
     } catch (...) {
         if (worldScopes.active()) return nullptr;
         throw;
@@ -144,6 +150,10 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
     const IRenderBackend::WorldTextureData* texture) {
     if (!worldScopes.admitted()) return nullptr;
     if (!texture) return &fallbackWorldMaterial;
+    const auto binding=engine::render::worldMaterialBindingIdentity(texture,worldScopes.active());
+    if(binding&&!(texture&&texture->environment.skyDraw))if(const auto* cached=retainedWorldMaterialBindings.find(*binding)) {
+        (void)registerIndexedWorldMaterial(**cached);return *cached;
+    }
     engine::render::WorldResourceScopeState::AllocationAttempt attempt(worldScopes);
 
     std::array<
@@ -165,12 +175,12 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->rgba,
         texture->width,
         texture->height,
-        texture->wrapS,
-        texture->wrapT,
+        texture->linearMipSampling ? (texture->linearMipSampling == 1u ? 33071 : 10497) : texture->wrapS,
+        texture->linearMipSampling ? (texture->linearMipSampling == 1u ? 33071 : 10497) : texture->wrapT,
         texture->textureSrgb != 0u,
         &keys[0],
         texture->mipLevels,
-        texture->mipLevelCount);
+        texture->mipLevelCount, texture->linearMipSampling != 0u, texture->linearMipSampling==0 && texture->materialMode<239);
     if (!base) base = &fallbackWorldTexture;
 
     Texture* normal = ensureWorldTextureRaw(
@@ -184,7 +194,7 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->normalTextureSrgb != 0u,
         &keys[1],
         texture->normalMipLevels,
-        texture->normalMipLevelCount);
+        texture->normalMipLevelCount, false, true);
     if (!normal) normal = &fallbackWorldNormalTexture;
 
     Texture* metallicRoughness = ensureWorldTextureRaw(
@@ -198,7 +208,7 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->metallicRoughnessTextureSrgb != 0u,
         &keys[2],
         texture->metallicRoughnessMipLevels,
-        texture->metallicRoughnessMipLevelCount);
+        texture->metallicRoughnessMipLevelCount, false, true);
     if (!metallicRoughness) metallicRoughness = &fallbackWorldLinearTexture;
 
     Texture* occlusion = ensureWorldTextureRaw(
@@ -212,7 +222,7 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->occlusionTextureSrgb != 0u,
         &keys[3],
         texture->occlusionMipLevels,
-        texture->occlusionMipLevelCount);
+        texture->occlusionMipLevelCount, false, true);
     if (!occlusion) occlusion = &fallbackWorldLinearTexture;
 
     Texture* emissive = ensureWorldTextureRaw(
@@ -226,7 +236,7 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         texture->emissiveTextureSrgb != 0u,
         &keys[4],
         texture->emissiveMipLevels,
-        texture->emissiveMipLevelCount);
+        texture->emissiveMipLevelCount, false, true);
     if (!emissive) emissive = &fallbackWorldEmissiveTexture;
 
     Texture* environment = [&]() {
@@ -265,6 +275,10 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
         keys[6] = "scene-depth/" + std::to_string(lightProjection->width) + "x" + std::to_string(lightProjection->height);
     }
 
+    if(texture->environment.skyDraw&&worldSkyModelTexture){
+        lightProjection=worldSkyModelTexture;
+        keys[6]="sky-model/"+std::to_string(reinterpret_cast<std::uintptr_t>(lightProjection->view));
+    }
     Texture* projectedShadow = ensureWorldTextureRaw(
         texture->projectedShadowKey,
         texture->projectedShadowCacheKey,
@@ -285,6 +299,7 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
     if (existing != worldMaterials.end()) {
         (void)registerIndexedWorldMaterial(existing->second);
         attempt.success();
+        if(binding)retainedWorldMaterialBindings.insert(*binding,&existing->second);
         return &existing->second;
     }
     WorldMaterial material;
@@ -303,6 +318,7 @@ VulkanRenderBackendImpl::WorldMaterial* VulkanRenderBackendImpl::ensureWorldMate
     worldScopes.commit(counts);
     attempt.success();
     (void)registerIndexedWorldMaterial(inserted);
+    if(binding)retainedWorldMaterialBindings.insert(*binding,&inserted);
     return &inserted;
 }
 

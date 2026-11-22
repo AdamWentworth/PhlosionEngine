@@ -1,3 +1,5 @@
+#include "engine/render/VulkanRenderBackend.h"
+#include "engine/render/WorldPlanarCapture.h"
 #include "engine/render/vulkan/VulkanRenderBackendInternal.h"
 
 #include "engine/core/Environment.h"
@@ -38,187 +40,111 @@ bool VulkanRenderBackendImpl::writeCachedWorldSpecializedMaterialState(
     VkDeviceSize alignment,
     VkBuffer& outBuffer,
     VkDeviceSize& outOffset) {
-    for (const CachedWorldSpecializedMaterialState& cached :
-         frameWorldSpecializedMaterialStates) {
-        if (std::memcmp(&cached.value, &state, sizeof(state)) != 0) continue;
-        outBuffer = frames[currentFrame].transient.buffer;
-        outOffset = cached.offset;
-        frameWorldStateReuseBytes += sizeof(state);
-        return true;
-    }
-    if (!writeTransient(
-            &state,
-            sizeof(state),
-            alignment,
-            outBuffer,
-            outOffset)) {
-        return false;
-    }
-    frameWorldSpecializedMaterialStates.push_back({state, outOffset});
-    frameWorldStateUploadBytes += sizeof(state);
+    bool built=false;
+    const auto result=frameMaterialConstants.resolve(std::as_bytes(std::span(&state,1)),[&]() -> std::optional<std::uint64_t> {
+        if(!writeTransient(&state,sizeof(state),alignment,outBuffer,outOffset))return {};
+        built=true;return outOffset;
+    });
+    if(!result)return false;
+    outBuffer=frames[currentFrame].transient.buffer;outOffset=*result;
+    if(built)frameWorldStateUploadBytes+=sizeof(state);else frameWorldStateReuseBytes+=sizeof(state);
     return true;
 }
 
-void VulkanRenderBackendImpl::bindGraphicsPipeline(
-    VkCommandBuffer commandBuffer,
-    VkPipeline pipeline) {
-    if (boundGraphicsPipeline == pipeline) {
-        ++framePipelineBindSkips;
-        return;
-    }
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-    boundGraphicsPipeline = pipeline;
-    ++framePipelineBindCalls;
+void VulkanRenderBackendImpl::bindGraphicsPipeline(VkCommandBuffer commandBuffer, VkPipeline pipeline) {
+    flushWorldDrawPackets();
+    engine::render::vulkan_backend::WorldCommandRecorder<> recorder{{},worldRecordingCommand(commandBuffer),texturedPipelineLayout,worldCommandState,worldCommandCounters};
+    recorder.bindGraphicsPipeline(pipeline);
 }
 
-void VulkanRenderBackendImpl::bindVertexBuffer(
-    VkCommandBuffer commandBuffer,
-    VkBuffer buffer,
-    VkDeviceSize offset) {
-    if (boundVertexBuffer == buffer && boundVertexOffset == offset) {
-        ++frameVertexBufferBindSkips;
-        return;
-    }
-    vkCmdBindVertexBuffers(commandBuffer, 0u, 1u, &buffer, &offset);
-    boundVertexBuffer = buffer;
-    boundVertexOffset = offset;
-    ++frameVertexBufferBindCalls;
+void VulkanRenderBackendImpl::bindVertexBuffer(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset) {
+    flushWorldDrawPackets();
+    engine::render::vulkan_backend::WorldCommandRecorder<> recorder{{},worldRecordingCommand(commandBuffer),texturedPipelineLayout,worldCommandState,worldCommandCounters};
+    recorder.bindVertexBuffer(buffer, offset);
 }
 
-void VulkanRenderBackendImpl::bindIndexBuffer(
-    VkCommandBuffer commandBuffer,
-    VkBuffer buffer,
-    VkDeviceSize offset,
-    VkIndexType indexType) {
-    if (boundIndexBuffer == buffer && boundIndexOffset == offset &&
-        boundIndexType == indexType) {
-        ++frameIndexBufferBindSkips;
-        return;
-    }
-    vkCmdBindIndexBuffer(commandBuffer, buffer, offset, indexType);
-    boundIndexBuffer = buffer;
-    boundIndexOffset = offset;
-    boundIndexType = indexType;
-    ++frameIndexBufferBindCalls;
+void VulkanRenderBackendImpl::bindIndexBuffer(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset, VkIndexType indexType) {
+    flushWorldDrawPackets();
+    engine::render::vulkan_backend::WorldCommandRecorder<> recorder{{},worldRecordingCommand(commandBuffer),texturedPipelineLayout,worldCommandState,worldCommandCounters};
+    recorder.bindIndexBuffer(buffer, offset, indexType);
 }
 
-void VulkanRenderBackendImpl::bindTextureDescriptorSet(
-    VkCommandBuffer commandBuffer,
-    VkDescriptorSet descriptorSet) {
-    if (boundTexturedDescriptorSet == descriptorSet) {
-        ++frameDescriptorBindSkips;
-        return;
-    }
-    vkCmdBindDescriptorSets(
-        commandBuffer,
-        VK_PIPELINE_BIND_POINT_GRAPHICS,
-        texturedPipelineLayout,
-        0u,
-        1u,
-        &descriptorSet,
-        0u,
-        nullptr);
-    boundTexturedDescriptorSet = descriptorSet;
-    ++frameDescriptorBindCalls;
+void VulkanRenderBackendImpl::bindTextureDescriptorSet(VkCommandBuffer commandBuffer, VkDescriptorSet descriptorSet) {
+    flushWorldDrawPackets();
+    engine::render::vulkan_backend::WorldCommandRecorder<> recorder{{},worldRecordingCommand(commandBuffer),texturedPipelineLayout,worldCommandState,worldCommandCounters};
+    recorder.bindTextureDescriptorSet(descriptorSet);
 }
 
-void VulkanRenderBackendImpl::bindWorldStateDescriptorSets(
-    VkCommandBuffer commandBuffer,
-    VkDescriptorSet materialDescriptorSet,
-    const std::array<std::uint32_t, 4>& dynamicOffsets, bool haze) {
+engine::render::vulkan_backend::WorldDescriptorBindings VulkanRenderBackendImpl::prepareWorldStateBindings(
+    VkDescriptorSet materialDescriptorSet, const std::array<std::uint32_t,4>& dynamicOffsets, bool haze) {
     const auto planarSet=haze ? worldHazeDescriptor : worldPlanarDescriptor ? worldPlanarDescriptor : worldPlanarFallback;
+    const auto contactSet=worldContactDescriptor ? worldContactDescriptor : worldPlanarFallback;
+    const auto localSet=worldLocalReflectionDescriptor ? worldLocalReflectionDescriptor : worldPlanarFallback;
+    const auto screenSet=worldScreenReflectionDescriptor ? worldScreenReflectionDescriptor : worldPlanarFallback;
     const VkDescriptorSet worldStateDescriptorSet =
         worldShadowActive ? frames[currentFrame].shadowWorldStateDescriptorSet : frames[currentFrame].worldStateDescriptorSet;
-    if (boundTexturedDescriptorSet == materialDescriptorSet) {
-        const std::array<VkDescriptorSet,2> viewSets{worldStateDescriptorSet,planarSet};
-        vkCmdBindDescriptorSets(
-            commandBuffer,
-            VK_PIPELINE_BIND_POINT_GRAPHICS,
-            texturedPipelineLayout,
-            1u,
-            2u,
-            viewSets.data(),
-            static_cast<std::uint32_t>(dynamicOffsets.size()),
-            dynamicOffsets.data());
-        ++frameDescriptorBindCalls;
-        ++frameDescriptorBindSkips;
-        return;
-    }
-
-    const std::array<VkDescriptorSet, 3> descriptorSets{
-        materialDescriptorSet,
-        worldStateDescriptorSet,
-        planarSet,
-    };
-    vkCmdBindDescriptorSets(
-        commandBuffer,
-        VK_PIPELINE_BIND_POINT_GRAPHICS,
-        texturedPipelineLayout,
-        0u,
-        static_cast<std::uint32_t>(descriptorSets.size()),
-        descriptorSets.data(),
-        static_cast<std::uint32_t>(dynamicOffsets.size()),
-        dynamicOffsets.data());
-    boundTexturedDescriptorSet = materialDescriptorSet;
-    ++frameDescriptorBindCalls;
+    return {{materialDescriptorSet,worldStateDescriptorSet,planarSet,contactSet,screenSet,localSet,
+        worldShadowActive?worldContactFilterFallback:worldContactFilterSet?worldContactFilterSet:worldContactFilterFallback,worldWindDescriptorSet()},dynamicOffsets};
+}
+void VulkanRenderBackendImpl::bindWorldStateDescriptorSets(VkCommandBuffer commandBuffer,
+    VkDescriptorSet materialDescriptorSet, const std::array<std::uint32_t,4>& dynamicOffsets, bool haze) {
+    flushWorldDrawPackets();
+    engine::render::vulkan_backend::WorldCommandRecorder<> recorder{{},worldRecordingCommand(commandBuffer),texturedPipelineLayout,worldCommandState,worldCommandCounters};
+    recorder.bindWorldDescriptors(prepareWorldStateBindings(materialDescriptorSet,dynamicOffsets,haze));
 }
 
-void VulkanRenderBackendImpl::setViewportAndScissor(
-    VkCommandBuffer commandBuffer,
-    int surfaceWidth,
-    int surfaceHeight) {
-    const std::uint32_t width = std::min(
-        worldShadowActive ? worldShadowResolution : swapchainExtent.width,
-        static_cast<std::uint32_t>(std::max(1, surfaceWidth)));
-    const std::uint32_t height = std::min(
-        worldShadowActive ? worldShadowResolution : swapchainExtent.height,
-        static_cast<std::uint32_t>(std::max(1, surfaceHeight)));
-    if (boundViewportValid &&
-        boundViewportWidth == width &&
-        boundViewportHeight == height) {
-        ++frameViewportSkips;
-        return;
-    }
-
-    const auto tile = worldShadowActive ? worldLocalShadows_.offset() : std::array<std::uint32_t,2>{};
+engine::render::vulkan_backend::WorldViewport VulkanRenderBackendImpl::prepareWorldViewport(int surfaceWidth, int surfaceHeight) const {
+    const std::uint32_t width = worldShadowActive ? worldShadowView.resolution : std::min(
+        swapchainExtent.width, static_cast<std::uint32_t>(std::max(1, surfaceWidth)));
+    const std::uint32_t height = worldShadowActive ? worldShadowView.resolution : std::min(
+        swapchainExtent.height, static_cast<std::uint32_t>(std::max(1, surfaceHeight)));
+    const auto tile = worldShadowActive ? worldShadowOffset() : std::array<std::uint32_t,2>{};
     VkViewport viewport{};
     viewport.x = float(tile[0]); viewport.y = float(tile[1]);
     viewport.width = static_cast<float>(width);
     viewport.height = static_cast<float>(height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(commandBuffer, 0u, 1u, &viewport);
     VkRect2D scissor{{int32_t(tile[0]), int32_t(tile[1])}, {width, height}};
-    vkCmdSetScissor(commandBuffer, 0u, 1u, &scissor);
-    boundViewportWidth = width;
-    boundViewportHeight = height;
-    boundViewportValid = true;
-    ++frameViewportUpdates;
+    if(!worldShadowActive && worldPlanarReflection[4][3]<0) {
+        const auto bounds=worldHazeActive
+            ? engine::render::worldPlanarHazeScissor(worldPlanarScissor,worldPlanarReflectionView,width,height)
+            : worldPlanarScissor;
+        scissor.offset={bounds[0],bounds[1]};
+        scissor.extent={std::uint32_t(bounds[2]-bounds[0]),std::uint32_t(bounds[3]-bounds[1])};
+    }
+    return {viewport,scissor};
+}
+void VulkanRenderBackendImpl::setViewportAndScissor(VkCommandBuffer commandBuffer, int width, int height) {
+    flushWorldDrawPackets();
+    engine::render::vulkan_backend::WorldCommandRecorder<> recorder{{},worldRecordingCommand(commandBuffer),texturedPipelineLayout,worldCommandState,worldCommandCounters};
+    recorder.setViewport(prepareWorldViewport(width,height));
 }
 
 void VulkanRenderBackendImpl::resetWorldFrameStateCache() {
+    preparedWorldViews.invalidate();
     frameWorldViewStates.clear();
-    frameWorldSpecializedMaterialStates.clear();
-    boundGraphicsPipeline = VK_NULL_HANDLE;
-    boundTexturedDescriptorSet = VK_NULL_HANDLE;
-    boundVertexBuffer = VK_NULL_HANDLE;
-    boundVertexOffset = 0u;
-    boundIndexBuffer = VK_NULL_HANDLE;
-    boundIndexOffset = 0u;
-    boundIndexType = VK_INDEX_TYPE_MAX_ENUM;
-    boundViewportWidth = 0u;
-    boundViewportHeight = 0u;
-    boundViewportValid = false;
+    frameMaterialConstants.beginFrame();
+    worldCommandState.boundGraphicsPipeline = VK_NULL_HANDLE;
+    worldCommandState.boundTexturedDescriptorSet = VK_NULL_HANDLE;
+    worldCommandState.boundVertexBuffer = VK_NULL_HANDLE;
+    worldCommandState.boundVertexOffset = 0u;
+    worldCommandState.boundIndexBuffer = VK_NULL_HANDLE;
+    worldCommandState.boundIndexOffset = 0u;
+    worldCommandState.boundIndexType = VK_INDEX_TYPE_MAX_ENUM;
+    worldCommandState.boundViewportWidth = 0u;
+    worldCommandState.boundViewportHeight = 0u;
+    worldCommandState.boundViewportValid = false;
     frameWorldStateUploadBytes = 0u;
     frameWorldStateReuseBytes = 0u;
-    framePipelineBindCalls = 0u;
-    framePipelineBindSkips = 0u;
-    frameDescriptorBindCalls = 0u;
-    frameDescriptorBindSkips = 0u;
-    frameVertexBufferBindCalls = 0u;
-    frameVertexBufferBindSkips = 0u;
-    frameIndexBufferBindCalls = 0u;
-    frameIndexBufferBindSkips = 0u;
+    worldCommandCounters.framePipelineBindCalls = 0u;
+    worldCommandCounters.framePipelineBindSkips = 0u;
+    worldCommandCounters.frameDescriptorBindCalls = 0u;
+    worldCommandCounters.frameDescriptorBindSkips = 0u;
+    worldCommandCounters.frameVertexBufferBindCalls = 0u;
+    worldCommandCounters.frameVertexBufferBindSkips = 0u;
+    worldCommandCounters.frameIndexBufferBindCalls = 0u;
+    worldCommandCounters.frameIndexBufferBindSkips = 0u;
     framePreparedMaterialCacheHits = 0u;
     framePreparedMaterialCacheMisses = 0u;
     frameIndirectWorldApiCalls = 0u;
@@ -229,8 +155,8 @@ void VulkanRenderBackendImpl::resetWorldFrameStateCache() {
     frameSpriteDrawsSaved = 0u;
     frameSpriteUploadBatches = 0u;
     frameSpriteUploadsSaved = 0u;
-    frameViewportUpdates = 0u;
-    frameViewportSkips = 0u;
+    worldCommandCounters.frameViewportUpdates = 0u;
+    worldCommandCounters.frameViewportSkips = 0u;
 }
 
 void VulkanRenderBackendImpl::maybeLogWorldFrameCache() const {
@@ -255,14 +181,14 @@ void VulkanRenderBackendImpl::maybeLogWorldFrameCache() const {
               << " palette_reuse_bytes=" << frameSkinPaletteReuseBytes
               << " state_upload_bytes=" << frameWorldStateUploadBytes
               << " state_reuse_bytes=" << frameWorldStateReuseBytes
-              << " pipeline_binds=" << framePipelineBindCalls
-              << " pipeline_skips=" << framePipelineBindSkips
-              << " descriptor_binds=" << frameDescriptorBindCalls
-              << " descriptor_set0_reuses=" << frameDescriptorBindSkips
-              << " vertex_buffer_binds=" << frameVertexBufferBindCalls
-              << " vertex_buffer_reuses=" << frameVertexBufferBindSkips
-              << " index_buffer_binds=" << frameIndexBufferBindCalls
-              << " index_buffer_reuses=" << frameIndexBufferBindSkips
+              << " pipeline_binds=" << worldCommandCounters.framePipelineBindCalls
+              << " pipeline_skips=" << worldCommandCounters.framePipelineBindSkips
+              << " descriptor_binds=" << worldCommandCounters.frameDescriptorBindCalls
+              << " descriptor_set0_reuses=" << worldCommandCounters.frameDescriptorBindSkips
+              << " vertex_buffer_binds=" << worldCommandCounters.frameVertexBufferBindCalls
+              << " vertex_buffer_reuses=" << worldCommandCounters.frameVertexBufferBindSkips
+              << " index_buffer_binds=" << worldCommandCounters.frameIndexBufferBindCalls
+              << " index_buffer_reuses=" << worldCommandCounters.frameIndexBufferBindSkips
               << " geometry_pages=" << worldGeometryPages.size()
               << " geometry_used_bytes=" << geometryUsedBytes
               << " geometry_reserved_bytes=" << geometryReservedBytes
@@ -276,7 +202,20 @@ void VulkanRenderBackendImpl::maybeLogWorldFrameCache() const {
               << " sprite_draws_saved=" << frameSpriteDrawsSaved
               << " sprite_upload_batches=" << frameSpriteUploadBatches
               << " sprite_uploads_saved=" << frameSpriteUploadsSaved
-              << " viewport_updates=" << frameViewportUpdates
-              << " viewport_skips=" << frameViewportSkips
+              << " viewport_updates=" << worldCommandCounters.frameViewportUpdates
+              << " viewport_skips=" << worldCommandCounters.frameViewportSkips
               << '\n';
+}
+
+engine::render::backend::WorldPreparedViewToken VulkanRenderBackend::prepareWorldViewData(const WorldTextureData& texture) {
+    return impl_->prepareWorldViewData(&texture);
+}
+void VulkanRenderBackend::beginWorldIndexedBatchSubmission() { impl_->preparedWorldViews.beginBatch(); }
+void VulkanRenderBackend::endWorldIndexedBatchSubmission() {
+    impl_->preparedWorldViews.endBatch();
+    if(!impl_->preparedWorldViews.inBatch())impl_->flushWorldDrawPackets();
+}
+
+engine::render::backend::WorldPreparedViewStats VulkanRenderBackend::worldPreparedViewStats() const {
+    return impl_->preparedWorldViews.stats;
 }

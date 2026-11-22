@@ -43,7 +43,11 @@ jobs:
           & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Configure engine and editor
-        run: cmake --preset vs2026 -DPHLOSION_BUILD_EDITOR=ON -DPHLOSION_BUILD_TESTS=ON -DPHLOSION_WARNINGS_AS_ERRORS=ON
+        run: |
+          $fixturePowerShell = Join-Path $PSHOME 'pwsh.exe'
+          cmake --preset vs2026 -DPHLOSION_BUILD_EDITOR=ON -DPHLOSION_BUILD_TESTS=ON `
+            -DPHLOSION_WARNINGS_AS_ERRORS=ON -DPHLOSION_BUILD_GPU_TESTS=OFF `
+            "-DPHLOSION_POWERSHELL:FILEPATH=$fixturePowerShell"
       - name: Build
         run: cmake --build --preset debug --parallel 4
       - name: Engine contracts

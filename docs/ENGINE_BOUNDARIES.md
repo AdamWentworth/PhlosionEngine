@@ -5,6 +5,25 @@ content rules, imported-source adapters, scene catalog, and editor extensions.
 Opening a car-racing or shooter project must not initialize, expose, or require
 Pokemon Autochess systems.
 
+## Reference-game research
+
+Capture analysis, independent reference models and measured comparisons belong
+in the separate research workspace for rain, lighting and shadows, environment,
+and capture tooling. Raw evidence stays in the local research data directory.
+
+The engine owns reusable lighting, shadows, reflections, weather primitives and
+their backend tests. Games own authored materials, fixture values, environment
+schedules and scene layout. PokemonModelSupport remains the character adapter.
+Neither engine configuration nor runtime may require the research checkout or
+raw captures. A research comparison may explicitly read the engine under test;
+promoting its result into production requires a generic contract and independent
+tests. Synthetic reference generators write a new review artifact rather than
+silently updating production test expectations.
+
+Historical implementation/evidence notes remain in `docs/agent-work/lighting-foundation`.
+Current research tooling and further retail studies belong in the research repo;
+the original capture hashes and comparison thresholds remain authoritative.
+
 The [2026-09-26 boundary audit](ENGINE_GAME_BOUNDARY_AUDIT.md) records the
 Outskirt preview migration and the source-neutral model-render ABI.
 

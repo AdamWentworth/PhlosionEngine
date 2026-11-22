@@ -330,11 +330,11 @@ unsigned int OpenGLRenderBackend::ensureWorldTexture(const WorldTextureData* tex
         textureData->rgba,
         textureData->width,
         textureData->height,
-        textureData->wrapS,
-        textureData->wrapT,
+        textureData->linearMipSampling ? (textureData->linearMipSampling == 1u ? 33071 : 10497) : textureData->wrapS,
+        textureData->linearMipSampling ? (textureData->linearMipSampling == 1u ? 33071 : 10497) : textureData->wrapT,
         textureData->textureSrgb != 0u,
         textureData->mipLevels,
-        textureData->mipLevelCount);
+        textureData->mipLevelCount, textureData->linearMipSampling != 0u);
 }
 
 unsigned int OpenGLRenderBackend::ensureWorldTextureRaw(const char* keyCStr,
@@ -346,7 +346,7 @@ unsigned int OpenGLRenderBackend::ensureWorldTextureRaw(const char* keyCStr,
                                                         int wrapTIn,
                                                         bool srgb,
                                                         const WorldTextureMipLevel* authoredMipLevels,
-                                                        std::uint32_t authoredMipLevelCount) {
+                                                        std::uint32_t authoredMipLevelCount, bool linearMipSampling) {
     if (!rgba || width <= 0 || height <= 0 || !keyCStr || keyCStr[0] == '\0') {
         return 0;
     }
@@ -360,6 +360,7 @@ unsigned int OpenGLRenderBackend::ensureWorldTextureRaw(const char* keyCStr,
         cacheKey = std::string(keyCStr) + "|" + std::to_string(width) + "x" + std::to_string(height) +
             "|ws=" + std::to_string(wrapSIn) + "|wt=" + std::to_string(wrapTIn) + (srgb ? "|srgb" : "|lin");
     }
+    if (linearMipSampling) cacheKey += "|trilinear|ws=" + std::to_string(wrapSIn) + "|wt=" + std::to_string(wrapTIn);
     cacheKey = worldScopes_.key(cacheKey);
     const auto existing = worldTextures_.find(cacheKey);
     if (existing != worldTextures_.end()) {
@@ -455,7 +456,7 @@ unsigned int OpenGLRenderBackend::ensureWorldTextureRaw(const char* keyCStr,
                      rgba);
     }
 #if defined(GL_TEXTURE_MAX_ANISOTROPY_EXT) && defined(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT)
-    if (useMipChain && GLAD_GL_EXT_texture_filter_anisotropic) {
+    if (useMipChain && !linearMipSampling && GLAD_GL_EXT_texture_filter_anisotropic) {
         float maxAniso = 1.0f;
         glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxAniso);
         const float requested = std::max(1.0f, maxAniso);

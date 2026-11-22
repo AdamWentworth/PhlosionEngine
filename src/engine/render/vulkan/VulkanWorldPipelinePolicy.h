@@ -8,7 +8,7 @@
 
 namespace engine::render::vulkan_backend {
 
-inline constexpr std::size_t kWorldPipelineCount = 12u;
+inline constexpr std::size_t kWorldPipelineCount = 14u;
 inline constexpr std::size_t kFirstStandardBlendPipeline = 2u;
 inline constexpr std::size_t kFirstDualSourceBlendPipeline = 8u;
 
@@ -29,6 +29,7 @@ inline std::size_t worldPipelineIndex(
             : 0u;
         return kFirstDualSourceBlendPipeline + modeOffset + depthOffset;
     }
+    if (blendState.mode == world_blend::Mode::PremultipliedAdditive) return 12u + depthOffset;
     return kFirstStandardBlendPipeline +
            static_cast<std::size_t>(blendState.mode) * 2u + depthOffset;
 }

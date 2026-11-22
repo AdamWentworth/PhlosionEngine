@@ -118,7 +118,7 @@ vec3 evaluateDirectPbr(vec3 normal,
                        vec3 albedo,
                        vec3 reflectanceAtNormal,
                        float roughness,
-                       float metallic) {
+                       float metallic,vec3 diffuseFactor,float specularFactor) {
     float normalDotLight = max(dot(normal, light), 0.0);
     float normalDotView = max(dot(normal, view), 0.0);
     if (normalDotLight <= 0.0 || normalDotView <= 0.0) return vec3(0.0);
@@ -133,7 +133,7 @@ vec3 evaluateDirectPbr(vec3 normal,
                     max(4.0 * normalDotView * normalDotLight, 1e-4);
     vec3 diffuseWeight = (vec3(1.0) - fresnel) * (1.0 - metallic);
     vec3 directIntensity = ENV_SUN.w > 0.5 ? environmentLightRadiance() : vec3(0.72 * 3.14159265);
-    return (diffuseWeight * albedo / 3.14159265 + specular) *
+    return (diffuseWeight * albedo / 3.14159265 * diffuseFactor + specular * specularFactor * environmentGlobalSpecularTint()) *
            directIntensity * normalDotLight;
 }
 
@@ -206,6 +206,151 @@ vec3 mappedWorldNormal(vec2 uv,
         normal);
 }
 
+WorldSurfaceMaterial prepareWorldMaterial(vec3 albedo,
+                                         vec2 uv,
+                                         vec3 position,
+                                         vec3 sourceNormal,
+                                         vec4 sourceTangent,
+                                         sampler2D normalMap,
+                                         sampler2D metallicRoughnessMap,
+                                         sampler2D occlusionMap,
+                                         float textureDetailLodBias,
+                                         vec4 factors,
+                                         float dielectricSpecularIntensity,
+                                         bool useMetallicRoughnessMap) {
+#ifdef WORLD_LAYERED_MATERIAL_INDEX
+    if(WORLD_LAYERED_MATERIAL_INDEX!=0u)
+        return worldLayeredSurface(WORLD_LAYERED_MATERIAL_INDEX,uv,position,sourceNormal,sourceTangent,textureDetailLodBias);
+#endif
+    vec3 normal = mappedWorldNormal(
+        uv,
+        position,
+        sourceNormal,
+        sourceTangent,
+        normalMap,
+        textureDetailLodBias,
+        factors.x);
+    vec4 orm = useMetallicRoughnessMap
+        ? sampleWorldMaterialTexture(
+              metallicRoughnessMap, uv, textureDetailLodBias)
+        : vec4(1.0);
+    float metallic = clamp(orm.b * factors.y, 0.0, 1.0);
+    float roughness = environmentMaterialRoughness(orm.g * factors.z);
+    float occlusion = mix(
+        1.0,
+        sampleWorldMaterialTexture(
+            occlusionMap, uv, textureDetailLodBias).r,
+        factors.w);
+    float dielectricSpecular = dielectricSpecularIntensity >= 0.0
+        ? clamp(dielectricSpecularIntensity, 0.0, 1.0) *
+              clamp(orm.a, 0.0, 1.0)
+        : 0.04;
+    environmentWetMaterial(position, normal, albedo, roughness, dielectricSpecular, metallic, sourceNormal);
+    WorldSurfaceMaterial surface;
+    surface.albedo = albedo;
+    surface.normal = normal;
+    surface.orm = orm;
+    surface.metallic = metallic;
+    surface.roughness = roughness;
+    surface.occlusion = occlusion;
+    surface.dielectricSpecular = dielectricSpecular;
+    return surface;
+}
+
+// Lighting consumes evaluated attributes; material textures and coverage stay in the producer.
+vec3 lightWorldSurface(WorldSurfaceMaterial surface,
+                      vec3 emissive,
+                      vec3 position,
+                      vec3 sourceNormal,
+                      vec3 cameraPosition,
+                      vec3 cameraForwardPacked,
+                      vec3 cameraTarget,
+                      sampler2D environmentMap,
+                      float dielectricSpecularIntensity,
+                      float specularIblScale) {
+    // Evaluated PBR already contains wetness; haze must not dampen it again.
+    environmentWetMaterialApplied = 1.0;
+    vec3 albedo = worldWetEmissiveColor(surface.albedo,emissive);
+    vec3 normal = surface.normal;
+    vec4 orm = surface.orm;
+    float metallic = surface.metallic;
+    float roughness = surface.roughness;
+    float occlusion = surface.occlusion;
+    float dielectricSpecular = surface.dielectricSpecular;
+    vec3 cameraForward = safeNormalize(
+        cameraForwardPacked,
+        normalize(vec3(0.0, -0.6139406, -0.7893522)));
+    vec3 cameraRight = cross(cameraForward, vec3(0.0, 1.0, 0.0));
+    if (dot(cameraRight, cameraRight) < 1e-6) {
+        cameraRight = cross(cameraForward, vec3(0.0, 0.0, 1.0));
+    }
+    cameraRight = safeNormalize(cameraRight, vec3(1.0, 0.0, 0.0));
+    vec3 view = safeNormalize(cameraPosition - position, -cameraForward);
+    vec3 lightPosition =
+        cameraPosition + cameraRight * 0.5 - cameraForward * 0.8660254;
+    vec3 light = ENV_SUN.w > 0.5 ? environmentLightDirection() : safeNormalize(
+        lightPosition - cameraTarget, vec3(0.45, 0.86, 0.24));
+    vec3 reflectanceAtNormal = mix(
+        vec3(dielectricSpecular),
+        albedo,
+        metallic);
+
+    if(worldContactPrepass())return safeNormalize(sourceNormal,normal)*.5+.5;
+    vec4 contact=worldContactVisibility(position,safeNormalize(sourceNormal,normal),cameraPosition);
+    float rawContact=min(occlusion,worldContactDiffuseVisibility(contact,normal,view));
+    vec4 contactResponse=worldContactResponse(rawContact,worldContactSpecularVisibility(contact,normal,view,roughness),0.0);
+    float contactOcclusion=min(occlusion,contactResponse.x);
+    vec3 directContact=environmentDiffuseOcclusion(contactResponse.z,albedo);
+    // Preserve the established direct-light lobe during this reflection pass.
+    float directRoughness = max(roughness, .16);
+    vec3 direct = evaluateDirectPbr(
+        normal, view, light, albedo, reflectanceAtNormal, directRoughness, metallic,directContact,contactResponse.w);
+    direct += environmentStandardLocalPbr(position,normal,view,albedo,reflectanceAtNormal,directRoughness,metallic,contactOcclusion,directContact,contactResponse.w);
+
+    float normalDotView = max(dot(normal, view), 0.0);
+    vec3 fresnel = fresnelSchlickRoughness(
+        normalDotView, reflectanceAtNormal, roughness);
+    vec3 diffuseWeight = (vec3(1.0) - fresnel) * (1.0 - metallic);
+    vec3 reflection = reflect(-view, normal);
+    vec3 environmentIrradiance =
+        ENV_SUN.w > 0.5 ? worldIndirectAmbient(position,normal) * 3.14159265 :
+        3.14159265 * sampleNeutralEnvironment(environmentMap, normal, 1.0);
+    vec3 environmentRadiance =
+        ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb * 0.5 :
+        sampleNeutralEnvironment(environmentMap, reflection, roughness);
+    environmentRadiance = worldReflectionRadiance(environmentRadiance, position, normal, view, roughness);
+    environmentRadiance *= contactResponse.y;
+    vec3 singleScattering;
+    vec3 multiScattering;
+    computeMultiscattering(
+        normal,
+        view,
+        reflectanceAtNormal,
+        roughness,
+        singleScattering,
+        multiScattering);
+    environmentIndirectScattering(normal, view, reflectanceAtNormal, roughness, singleScattering, multiScattering);
+    vec3 indirectOcclusion = environmentDiffuseOcclusion(contactOcclusion, albedo);
+    vec3 cosineWeightedIrradiance = environmentIrradiance / 3.14159265;
+    vec3 totalScattering = singleScattering + multiScattering;
+    float remainingEnergy = 1.0 - max(
+        max(totalScattering.r, totalScattering.g), totalScattering.b);
+    vec3 diffuseIbl = albedo * (1.0 - metallic) * max(remainingEnergy, 0.0) *
+                      cosineWeightedIrradiance * (worldIndirectEnabled()?1.0:1.26) * indirectOcclusion;
+    vec3 reflectionResponse = environmentReflectionResponse(normal, view, reflectanceAtNormal, roughness, albedo, rawContact, singleScattering);
+    vec3 specularIbl =
+        (environmentRadiance * reflectionResponse +
+         multiScattering * cosineWeightedIrradiance) * environmentSpecularScale(0.44);
+    specularIbl *= clamp(specularIblScale, 0.0, 1.0);
+    specularIbl *= computeSpecularOcclusion(normalDotView, occlusion, roughness);
+    vec3 ambient = diffuseWeight * albedo * (ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb * indirectOcclusion : vec3(0.56));
+    if(worldIndirectEnabled())ambient=vec3(0.0);
+    vec3 shaded = direct + diffuseIbl + specularIbl + ambient;
+
+
+    return max(shaded + worldReflectionEmission(emissive), vec3(0.0));
+}
+
 vec3 evaluateWorldMaterial(vec3 albedo,
                            vec2 uv,
                            vec3 position,
@@ -225,92 +370,25 @@ vec3 evaluateWorldMaterial(vec3 albedo,
                            float dielectricSpecularIntensity,
                            float specularIblScale,
                            bool useMetallicRoughnessMap) {
-    vec3 normal = mappedWorldNormal(
-        uv,
-        position,
-        sourceNormal,
-        sourceTangent,
-        normalMap,
-        textureDetailLodBias,
-        factors.x);
-    vec3 cameraForward = safeNormalize(
-        cameraForwardPacked,
-        normalize(vec3(0.0, -0.6139406, -0.7893522)));
-    vec3 cameraRight = cross(cameraForward, vec3(0.0, 1.0, 0.0));
-    if (dot(cameraRight, cameraRight) < 1e-6) {
-        cameraRight = cross(cameraForward, vec3(0.0, 0.0, 1.0));
-    }
-    cameraRight = safeNormalize(cameraRight, vec3(1.0, 0.0, 0.0));
-    vec3 view = safeNormalize(cameraPosition - position, -cameraForward);
-    vec3 lightPosition =
-        cameraPosition + cameraRight * 0.5 - cameraForward * 0.8660254;
-    vec3 light = ENV_SUN.w > 0.5 ? environmentLightDirection() : safeNormalize(
-        lightPosition - cameraTarget, vec3(0.45, 0.86, 0.24));
-    vec4 orm = useMetallicRoughnessMap
-        ? sampleWorldMaterialTexture(
-              metallicRoughnessMap, uv, textureDetailLodBias)
-        : vec4(1.0);
-    float metallic = clamp(orm.b * factors.y, 0.0, 1.0);
-    float roughness = clamp(orm.g * factors.z, 0.16, 1.0);
-    float occlusion = mix(
-        1.0,
-        sampleWorldMaterialTexture(
-            occlusionMap, uv, textureDetailLodBias).r,
-        factors.w);
-    float dielectricSpecular = dielectricSpecularIntensity >= 0.0
-        ? clamp(dielectricSpecularIntensity, 0.0, 1.0) *
-              clamp(orm.a, 0.0, 1.0)
-        : 0.04;
-    environmentWetMaterial(position, normal, albedo, roughness, dielectricSpecular);
-    vec3 reflectanceAtNormal = mix(
-        vec3(dielectricSpecular),
-        albedo,
-        metallic);
-
-    vec3 direct = evaluateDirectPbr(
-        normal, view, light, albedo, reflectanceAtNormal, roughness, metallic);
-    direct += environmentLocalPbr(position, normal, view, albedo, reflectanceAtNormal, roughness, metallic);
-
-    float normalDotView = max(dot(normal, view), 0.0);
-    vec3 fresnel = fresnelSchlickRoughness(
-        normalDotView, reflectanceAtNormal, roughness);
-    vec3 diffuseWeight = (vec3(1.0) - fresnel) * (1.0 - metallic);
-    vec3 reflection = reflect(-view, normal);
-    vec3 environmentIrradiance =
-        ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb * 3.14159265 :
-        3.14159265 * sampleNeutralEnvironment(environmentMap, normal, 1.0);
-    vec3 environmentRadiance =
-        ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb * 0.5 :
-        sampleNeutralEnvironment(environmentMap, reflection, roughness);
-    vec3 singleScattering;
-    vec3 multiScattering;
-    computeMultiscattering(
-        normal,
-        view,
-        reflectanceAtNormal,
-        roughness,
-        singleScattering,
-        multiScattering);
-    vec3 cosineWeightedIrradiance = environmentIrradiance / 3.14159265;
-    vec3 totalScattering = singleScattering + multiScattering;
-    float remainingEnergy = 1.0 - max(
-        max(totalScattering.r, totalScattering.g), totalScattering.b);
-    vec3 diffuseIbl = albedo * (1.0 - metallic) * max(remainingEnergy, 0.0) *
-                      cosineWeightedIrradiance * 1.26 * occlusion;
-    vec3 specularIbl =
-        (environmentRadiance * singleScattering +
-         multiScattering * cosineWeightedIrradiance) * 0.44;
-    specularIbl = worldPlanarSpecular(specularIbl, position, normal, view, reflectanceAtNormal, roughness);
-    specularIbl *= clamp(specularIblScale, 0.0, 1.0);
-    specularIbl *= computeSpecularOcclusion(normalDotView, occlusion, roughness);
-    vec3 ambient = diffuseWeight * albedo * (ENV_SUN.w > 0.5 ? ENV_AMBIENT.rgb : vec3(0.56));
-    vec3 shaded = direct + diffuseIbl + specularIbl + ambient;
-    vec3 emissive = clamp(
-        sampleWorldMaterialTexture(
-            emissiveMap, uv, textureDetailLodBias).rgb,
-        0.0,
-        1.0) *
-                    max(emissiveFactor, vec3(0.0));
-
-    return max(shaded + worldReflectionEmission(emissive), vec3(0.0));
+    WorldSurfaceMaterial surface;
+    vec3 storedEmission;
+    bool storedSurface=worldStoredSurface(position,surface,storedEmission);
+    if(!storedSurface)surface=prepareWorldMaterial(
+        albedo, uv, position, sourceNormal, sourceTangent, normalMap,
+        metallicRoughnessMap, occlusionMap, textureDetailLodBias, factors,
+        dielectricSpecularIntensity, useMetallicRoughnessMap);
+#ifdef PHLOSION_WORLD_SURFACE_CAPTURE
+    vec3 surfaceEmission = clamp(sampleWorldMaterialTexture(
+        emissiveMap, uv, textureDetailLodBias).rgb, 0.0, 1.0) *
+        max(emissiveFactor, vec3(0.0));
+    storeWorldSurface(surface, surfaceEmission);
+    return vec3(0.0);
+#else
+    vec3 emissive = storedSurface ? storedEmission : clamp(
+        sampleWorldMaterialTexture(emissiveMap, uv, textureDetailLodBias).rgb,
+        0.0, 1.0) * max(emissiveFactor, vec3(0.0));
+    return lightWorldSurface(surface, emissive, position, sourceNormal,
+        cameraPosition, cameraForwardPacked, cameraTarget, environmentMap,
+        dielectricSpecularIntensity, specularIblScale);
+#endif
 }

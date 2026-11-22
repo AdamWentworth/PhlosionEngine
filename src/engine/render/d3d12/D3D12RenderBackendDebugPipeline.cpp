@@ -1,3 +1,4 @@
+#include "engine/render/d3d12/D3D12PipelinePreparation.h"
 #include "engine/render/D3D12RenderBackend.h"
 #include "engine/render/RendererParityContract.h"
 #include "engine/render/d3d12/D3D12RenderBackendInternal.h"
@@ -58,7 +59,7 @@ void D3D12RenderBackend::createDebugPipeline() {
         !serializedRs) {
         throw std::runtime_error("D3D12SerializeRootSignature failed.");
     }
-    if (FAILED(device_->CreateRootSignature(0,
+    if (FAILED(engine::render::prepareRootSignature(device_.Get(), 0,
                                             serializedRs->GetBufferPointer(),
                                             serializedRs->GetBufferSize(),
                                             IID_PPV_ARGS(debugRootSignature_.ReleaseAndGetAddressOf()))) ||
@@ -134,10 +135,17 @@ void D3D12RenderBackend::createDebugPipeline() {
     pso.NumRenderTargets = 1;
     pso.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
     pso.SampleDesc.Count = 1;
-    if (FAILED(device_->CreateGraphicsPipelineState(&pso,
+    if (FAILED(engine::render::prepareGraphicsPipeline(device_.Get(), &pso,
                                                     IID_PPV_ARGS(debugPipelineState_.ReleaseAndGetAddressOf()))) ||
         !debugPipelineState_) {
         throw std::runtime_error("CreateGraphicsPipelineState failed for D3D12 debug pipeline.");
+    }
+
+    pso.RTVFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    if (FAILED(engine::render::prepareGraphicsPipeline(device_.Get(), &pso,
+            IID_PPV_ARGS(debugSceneColorPipelineState_.ReleaseAndGetAddressOf()))) ||
+        !debugSceneColorPipelineState_) {
+        throw std::runtime_error("CreateGraphicsPipelineState failed for D3D12 HDR debug pipeline.");
     }
 
     const std::size_t kDebugVertexBufferBytesPerFrame =

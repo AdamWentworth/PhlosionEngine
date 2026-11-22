@@ -45,6 +45,9 @@ void D3D12RenderBackend::drawWorldTriangles(const WorldTriangle* triangles,
                                             int surfaceWidth,
                                             int surfaceHeight) {
 #if defined(_WIN32)
+    flushWorldDrawPackets();
+#endif
+#if defined(_WIN32)
     if (!recording_ || !triangles || triangleCount == 0 || !viewProjectionMatrix4x4) return;
     if (surfaceWidth <= 0 || surfaceHeight <= 0) return;
     if (!worldPipelineState_ || !worldRootSignature_ || !worldVertexBuffer_ || !commandList_ || !srvHeap_) return;
@@ -64,6 +67,7 @@ void D3D12RenderBackend::drawWorldTriangles(const WorldTriangle* triangles,
     const std::size_t vertexCount = safeCount * 3;
     const std::size_t neededBytes = vertexCount * sizeof(WorldVertex);
     const std::size_t writeOffset = alignUp(static_cast<std::size_t>(worldVertexFrameOffset_), 256u);
+    const auto& preparedView = resolvePreparedWorldView(nullptr);
     const std::size_t vsConstantsWriteOffset =
         alignUp(static_cast<std::size_t>(worldVsConstantFrameOffset_), 256u);
     const std::size_t vertexFrameEnd =
@@ -120,6 +124,7 @@ void D3D12RenderBackend::drawWorldTriangles(const WorldTriangle* triangles,
         commandList_->SetDescriptorHeaps(1, heaps);
     }
     commandList_->SetGraphicsRootSignature(worldRootSignature_.Get());
+    if(worldSurfaceActive_)bindWorldSurfaceMotion();
     bindWorldDiffuseProbes();
     float vsConstants[kWorldViewConstantFloats] = {};
     packWorldVsConstants(viewProjectionMatrix4x4, nullptr, false, 0u, 0u, 0.0f, vsConstants);
@@ -127,6 +132,7 @@ void D3D12RenderBackend::drawWorldTriangles(const WorldTriangle* triangles,
         worldVsConstantMappedData_ + vsConstantsWriteOffset,
         vsConstants,
         sizeof(vsConstants));
+    commandList_->SetGraphicsRootConstantBufferView(24, preparedView.address);
     commandList_->SetGraphicsRootConstantBufferView(
         0,
         worldVsConstantBufferGpuAddress_ + static_cast<std::uint64_t>(vsConstantsWriteOffset));
@@ -162,7 +168,7 @@ void D3D12RenderBackend::drawWorldTriangles(const WorldTriangle* triangles,
     ++frameDrawCalls_;
     frameTriangles_ += static_cast<std::uint64_t>(vertexCount / 3u);
     worldVertexFrameOffset_ = static_cast<UINT>(writeOffset + neededBytes);
-    worldVsConstantFrameOffset_ = static_cast<UINT>(vsConstantsWriteOffset + kWorldViewConstantStride);
+    worldVsConstantFrameOffset_ = std::max(worldVsConstantFrameOffset_,static_cast<UINT>(vsConstantsWriteOffset + kWorldViewConstantStride));
 #else
     (void)triangles;
     (void)triangleCount;
@@ -179,6 +185,9 @@ void D3D12RenderBackend::drawWorldIndexedMesh(const WorldMeshVertex* vertices,
                                               const float* viewProjectionMatrix4x4,
                                               int surfaceWidth,
                                               int surfaceHeight) {
+#if defined(_WIN32)
+    flushWorldDrawPackets();
+#endif
 #if defined(_WIN32)
     std::uint32_t materialDescriptorBlockIndex = 0u;
     float useTexture = 0.0f;
@@ -219,6 +228,9 @@ void D3D12RenderBackend::drawWorldIndexedMeshTextured(const WorldMeshVertex* ver
                                                       const float* viewProjectionMatrix4x4,
                                                       int surfaceWidth,
                                                       int surfaceHeight) {
+#if defined(_WIN32)
+    flushWorldDrawPackets();
+#endif
 #if defined(_WIN32)
     std::uint32_t materialDescriptorBlockIndex = 0u;
     float useTexture = 0.0f;
@@ -327,5 +339,69 @@ void D3D12RenderBackend::drawWorldIndexedMeshTexturedCached(const char* geometry
     (void)viewProjectionMatrix4x4;
     (void)surfaceWidth;
     (void)surfaceHeight;
+#endif
+}
+
+engine::render::WorldPreparedResourceToken D3D12RenderBackend::prepareWorldGeometry(
+    const char* key,const WorldMeshVertex* vertices,std::size_t vertexCount,
+    const std::uint32_t* indices,std::size_t indexCount) {
+#if defined(_WIN32)
+    if(!worldScopes_.active() || !worldScopes_.admitted())return {};
+    const auto* mesh=ensureCachedWorldMesh(key,vertices,vertexCount,indices,indexCount);
+    if(!mesh || !mesh->valid)return {};
+    const auto token=preparedWorldGeometry_.insert(worldScopes_.active(),mesh);
+    if(token)++preparedWorldResourceStats_.geometryPreparations;
+    return token;
+#else
+    (void)key;(void)vertices;(void)vertexCount;(void)indices;(void)indexCount;return {};
+#endif
+}
+engine::render::WorldPreparedResourceToken D3D12RenderBackend::prepareWorldMaterial(const WorldTextureData& texture) {
+#if defined(_WIN32)
+    if(!worldScopes_.admitted() || !engine::render::worldMaterialBindingIdentity(&texture,worldScopes_.active()))return {};
+    std::uint32_t descriptor=0;float useTexture=0;
+    if(!prepareWorldMaterialDescriptorBlock(&texture,false,descriptor,useTexture))return {};
+    const auto token=preparedWorldMaterials_.insert(worldScopes_.active(),{descriptor,useTexture});
+    if(token)++preparedWorldResourceStats_.materialPreparations;
+    return token;
+#else
+    (void)texture;return {};
+#endif
+}
+bool D3D12RenderBackend::worldPreparedGeometryValid(engine::render::WorldPreparedResourceToken token) const {
+#if defined(_WIN32)
+    return worldScopes_.admitted() && preparedWorldGeometry_.get(token,worldScopes_.active());
+#else
+    (void)token;return false;
+#endif
+}
+bool D3D12RenderBackend::worldPreparedMaterialValid(engine::render::WorldPreparedResourceToken token) const {
+#if defined(_WIN32)
+    return worldScopes_.admitted() && preparedWorldMaterials_.get(token,worldScopes_.active());
+#else
+    (void)token;return false;
+#endif
+}
+bool D3D12RenderBackend::drawWorldPreparedIndexed(engine::render::WorldPreparedResourceToken geometry,
+    engine::render::WorldPreparedResourceToken material,const WorldTextureData& texture,
+    const float* view,int width,int height) {
+#if defined(_WIN32)
+    const auto* mesh=preparedWorldGeometry_.get(geometry,worldScopes_.active());
+    const auto* binding=preparedWorldMaterials_.get(material,worldScopes_.active());
+    if(!worldScopes_.admitted() || !mesh || !binding){++preparedWorldResourceStats_.staleDraws;return false;}
+    drawWorldIndexedMeshTexturedCachedInternal(**mesh,nullptr,0,nullptr,0,binding->first,&texture,binding->second,
+        view,worldInstanceBufferGpuAddress_+static_cast<std::uint64_t>(worldInstanceFrameBaseOffset_),
+        1u,width,height);
+    ++preparedWorldResourceStats_.draws;
+    return true;
+#else
+    (void)geometry;(void)material;(void)texture;(void)view;(void)width;(void)height;return false;
+#endif
+}
+engine::render::WorldPreparedResourceStats D3D12RenderBackend::worldPreparedResourceStats() const {
+#if defined(_WIN32)
+    return preparedWorldResourceStats_;
+#else
+    return {};
 #endif
 }

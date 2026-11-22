@@ -12,6 +12,7 @@ struct WorldIndirectDrawState {
     vec4 specializedProjectedShadowParams;
     vec4 specializedLightProjectionUvRowU;
     vec4 specializedLightProjectionUvRowV;
+    uvec4 specializedLayered;
     vec4 materialParams;
     vec4 shadingParams;
     vec4 pbrFactors;

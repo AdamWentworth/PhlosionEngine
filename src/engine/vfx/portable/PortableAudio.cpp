@@ -1,3 +1,4 @@
+#include "engine/assets/ResourceBank.h"
 #include "engine/vfx/portable/PortableAudio.h"
 
 #include "vfxlibrary/Effect.h"
@@ -26,11 +27,19 @@ std::uint32_t u32(const std::vector<std::uint8_t>& data, std::size_t offset) {
 }
 
 std::shared_ptr<const engine::audio::AudioClip> decodeWav(
-    const vfxlibrary::AudioCue& cue) {
-    std::ifstream file(cue.file, std::ios::binary);
-    if (!file) throw std::runtime_error("Missing portable effect WAV: " + cue.file.string());
-    const std::vector<std::uint8_t> bytes(
-        std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{});
+    const vfxlibrary::AudioCue& cue, engine::assets::ResourceLoadContext* input=nullptr) {
+    if(!input){
+        if(auto* bank=engine::assets::currentResourceBank()){
+            const auto key="wav:"+engine::assets::canonicalResourcePath(cue.file)+
+                "/"+std::to_string(cue.sourceStartMs)+"/"+std::to_string(cue.sourceEndMs);
+            return bank->acquire<engine::audio::AudioClip>(key,[cue](engine::assets::ResourceLoadContext& context){
+                auto clip=decodeWav(cue,&context);
+                return engine::assets::ResourceValue<engine::audio::AudioClip>{clip,clip->samples().size_bytes()};
+            });
+        }
+    }
+    engine::assets::ResourceLoadContext local;
+    const auto bytes=(input?*input:local).read(cue.file,128ull<<20);
     if (bytes.size() < 12 || u32(bytes, 0) != 0x46464952u ||
         u32(bytes, 8) != 0x45564157u)
         throw std::runtime_error("Invalid portable effect RIFF/WAVE header");

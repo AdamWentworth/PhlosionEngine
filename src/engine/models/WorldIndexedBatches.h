@@ -4,10 +4,14 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <memory>
 
 #include "engine/render/IRenderBackend.h"
+#include "engine/render/WorldMotionHistory.h"
 
 namespace engine::models::batches {
+
+class WorldIndexedResources;
 
 struct WorldIndexedBatch {
     // Optional shared/static material template for reducing per-frame metadata copies.
@@ -23,7 +27,14 @@ struct WorldIndexedBatch {
     const std::uint32_t* sharedIndices = nullptr;
     std::size_t sharedIndexCount = 0u;
     std::string geometryCacheKey;
+    // Authored geometry template identity, before visibility filtering/sorting.
+    // Zero revision excludes geometry without an authored temporal identity.
+    std::uint64_t motionPart = 0, motionRevision = 0;
     std::vector<IRenderBackend::WorldMeshInstance> instances;
+    // Required for motion on explicit instances; identities survive reordering/culling.
+    std::vector<std::uint64_t> motionInstances;
+    bool cpuDeformedMotion = false;
+    render::WorldTemporalMaterial temporalMaterial = render::WorldTemporalMaterial::Geometry;
     std::string textureKey;
     std::string textureCacheKey;
     std::vector<unsigned char> ownedTextureRgba;
@@ -189,6 +200,7 @@ struct WorldIndexedBatch {
     std::uint32_t skinMatrixCount = 0u;
     const float* sharedSkinMatrices = nullptr;
     std::vector<float> skinMatrices;
+    render::WorldDeformation deformation;
     render::WorldEnvironmentLighting environment;
     std::uint8_t directionalShadowCaster = 1u, directionalShadowReceiver = 1u;
 
@@ -212,6 +224,28 @@ std::size_t prewarmWorldIndexedBatches(IRenderBackend& renderer,
                                        const float* cameraForward3 = nullptr,
                                        const float* cameraTarget3 = nullptr);
 
+// Borrows an immutable collected view. Keep its batches and their source
+// snapshot alive until this plan is destroyed. Native pass/view/motion bindings
+// are resolved at each submission, never retained in the plan.
+class PreparedWorldIndexedSubmission {
+public:
+    struct Impl;
+    PreparedWorldIndexedSubmission(const IRenderBackend& renderer,
+        const std::vector<WorldIndexedBatch>& batches,bool allowAutoInstance);
+    // CPU-only construction. Capture the backend capability on the owner thread.
+    PreparedWorldIndexedSubmission(const std::vector<WorldIndexedBatch>& batches,bool autoInstance);
+    ~PreparedWorldIndexedSubmission();
+    PreparedWorldIndexedSubmission(const PreparedWorldIndexedSubmission&)=delete;
+    PreparedWorldIndexedSubmission& operator=(const PreparedWorldIndexedSubmission&)=delete;
+    std::size_t drawCount() const;
+    void submit(IRenderBackend& renderer,const float* matrix,int width,int height,
+        const float* cameraPosition,const float* cameraForward,const float* cameraTarget,
+        render::WorldMotionHistory* motion,std::uint64_t motionObject,
+        WorldIndexedResources* resources) const;
+private:
+    std::unique_ptr<Impl> impl_;
+};
+
 void submitWorldIndexedBatches(IRenderBackend& renderer,
                                const std::vector<WorldIndexedBatch>& batches,
                                const float* viewProjectionMatrix4x4,
@@ -219,6 +253,9 @@ void submitWorldIndexedBatches(IRenderBackend& renderer,
                                int surfaceHeight,
                                const float* cameraWorldPos3 = nullptr,
                                const float* cameraForward3 = nullptr,
-                               const float* cameraTarget3 = nullptr);
+                               const float* cameraTarget3 = nullptr,
+                               render::WorldMotionHistory* motion = nullptr,
+                               std::uint64_t motionObject = 0,
+                               WorldIndexedResources* resources = nullptr);
 
 } // namespace engine::models::batches

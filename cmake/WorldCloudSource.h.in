@@ -1,0 +1,4 @@
+#pragma once
+namespace engine::render {
+inline constexpr char worldCloudSource[]=R"CLOUD(@PHLOSION_CLOUD_SOURCE@)CLOUD";
+}

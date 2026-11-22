@@ -42,6 +42,8 @@ int main() try {
             check(resolvedWorldTextureKey("asset/texture|variant:1", nullptr, &pixel, width, height, wrapS, wrapT, srgb, mips) ==
                 legacy.str(), "Legacy texture identity changed");
         }
+    check(resolvedWorldTextureKey("source", "cache", &pixel, 1024, 512, 10497, 33071, true, 4, true) ==
+        key("source", "cache") + "|trilinear", "Explicit filtering aliased the anisotropic sampler");
     const auto previous = std::locale::global(std::locale(std::locale::classic(), new GroupedNumbers));
     const auto localized = key("source", "cache");
     std::locale::global(previous);

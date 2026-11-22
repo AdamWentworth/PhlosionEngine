@@ -21,8 +21,14 @@ foreach(_file IN LISTS _engine_boundary_files)
     file(READ "${_file}" _content)
     string(TOLOWER "${_content}" _lower)
     string(TOLOWER "${_file}" _path_lower)
-    if (_lower MATCHES "pokemon|autochess|gamefreak|lgpe|route[ _-]*1|pac_|evaluatefieldgroundsurface|evaluatefieldcliffsurface|fieldtreeshader|fieldgrassshader|fieldgroundshader|fieldcliffshader|gastly|charmander|tailfire|ikcharacter|nativesss|nativefresneleffect|nativeeyeclearcoat|zaui|zaik|zasourcestage|svlocalprobe|svlocalspecularprobe|zalocalreflectionprobe|z-a|outskirt|cyberpunk|colosseum|espeon|umbreon|bulbasaur"
+    if (_lower MATCHES "pokemon|autochess|gamefreak|lgpe|route[ _-]*1|pac_|evaluatefieldgroundsurface|evaluatefieldcliffsurface|fieldtreeshader|fieldgrassshader|fieldgroundshader|fieldcliffshader|gastly|charmander|tailfire|ikcharacter|nativesss|nativefresneleffect|nativeeyeclearcoat|zaui|zaik|zasourcestage|svlocalprobe|svlocalspecularprobe|zalocalreflectionprobe|outskirt|cyberpunk|colosseum|espeon|umbreon|bulbasaur"
             OR _path_lower MATCHES "pokemon|autochess|outskirt|cyberpunk|colosseum")
+        list(APPEND _violations "${_file}")
+    endif()
+    # A bare hyphenated marker also matches valid subtraction (z-a, xyz-axis).
+    # Keep the game asset/name check at quoted-string and path boundaries.
+    if (_lower MATCHES [[["'/\\]z-a(["'/\\. ]|$)]]
+            OR _path_lower MATCHES [[[/\\]z-a([/\\. ]|$)]])
         list(APPEND _violations "${_file}")
     endif()
     if (_lower MATCHES "(^|[^a-z0-9_])(wes|willie)([^a-z0-9_]|$)")

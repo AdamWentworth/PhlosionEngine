@@ -4,7 +4,7 @@
 #define SCENE_EXPOSURE 0.0
 #endif
 vec3 sceneDitherDisplay(vec3 encoded,vec2 uv) {
-    if (SCENE_EXPOSURE<=0.0) return encoded;
+    if (SCENE_EXPOSURE==0.0) return encoded;
     vec2 size=SCENE_SIZE;
     vec2 pixel=clamp(floor(uv*size),vec2(0.0,0.0),size-vec2(1.0,1.0));
     // Mirror Y so framebuffer origin conventions produce the same display noise.

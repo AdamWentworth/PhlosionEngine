@@ -1,0 +1,2 @@
+#pragma once
+namespace engine::render {inline constexpr char worldParticleLightingSource[]=R"PHLOSION(@PHLOSION_PARTICLE_LIGHTING_SOURCE@)PHLOSION";}

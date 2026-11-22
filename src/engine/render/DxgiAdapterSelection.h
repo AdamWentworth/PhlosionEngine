@@ -1,5 +1,7 @@
 #pragma once
 
+#include "engine/render/GpuAdapterIdentity.h"
+#include <iostream>
 #include <algorithm>
 #include <cctype>
 #include <string>
@@ -159,8 +161,12 @@ inline std::vector<AdapterCandidate> enumerateHardwareAdapters(IDXGIFactory1* fa
 
 inline AdapterSelection selectHardwareAdapter(IDXGIFactory1* factory, std::string_view preferredName) {
     AdapterSelection out;
+    const auto requested=requestedGpuLuid();
     const auto candidates = enumerateHardwareAdapters(factory);
-    if (candidates.empty()) return out;
+    if(candidates.empty()) {
+        if(requested)throw std::runtime_error("Requested PHLOSION_GPU_LUID is not an available DXGI adapter");
+        return out;
+    }
 
     std::vector<AdapterPreferenceCandidate> policyCandidates;
     policyCandidates.reserve(candidates.size());
@@ -170,7 +176,14 @@ inline AdapterSelection selectHardwareAdapter(IDXGIFactory1* factory, std::strin
         });
     }
 
-    const int index = selectPreferredAdapterCandidate(policyCandidates, preferredName);
+    int index = selectPreferredAdapterCandidate(policyCandidates, preferredName);
+    if(requested) index=-1;
+    for(std::size_t i=0;i<candidates.size();++i) {
+        const auto id=luidKey(candidates[i].desc.AdapterLuid);
+        std::cout<<"[D3D12] GPU candidate luid="<<gpuLuidText(id)<<" name='"<<candidates[i].name<<"'\n";
+        if(requested && id==*requested)index=static_cast<int>(i);
+    }
+    if(requested && index<0)throw std::runtime_error("Requested PHLOSION_GPU_LUID is not an available DXGI adapter");
     if (index < 0 || static_cast<std::size_t>(index) >= candidates.size()) {
         return out;
     }

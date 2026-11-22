@@ -1,0 +1,52 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_control_flow_attributes : require
+layout(std140,set=0,binding=12)uniform Parameters{vec4 rows[264];};
+#define CP(i) rows[i]
+layout(set=0,binding=0)uniform sampler2D depthTexture;
+layout(set=0,binding=1)uniform sampler2D albedoTexture;
+layout(set=0,binding=2)uniform sampler2D normalTexture;
+layout(set=0,binding=3)uniform sampler2D materialTexture;
+layout(set=0,binding=4)uniform sampler2D lutTexture;
+layout(set=0,binding=5)uniform sampler2D shadowTexture;
+layout(set=0,binding=6)uniform sampler2D momentTexture;
+layout(set=0,binding=7)uniform usampler2D identityTexture;
+layout(rgba16f,set=0,binding=8)uniform writeonly image2D diffuseImage;
+layout(rgba16f,set=0,binding=9)uniform writeonly image2D specularImage;
+layout(std430,set=0,binding=10)buffer Work{uint words[];};
+layout(std430,set=0,binding=11)buffer Arguments{uint arguments[];};
+#define WORK(i) words[i]
+#define ARGS(i) arguments[i]
+#define DEPTH_LOAD(p) texelFetch(depthTexture,p,0).r
+#define ALBEDO_LOAD(p) texelFetch(albedoTexture,p,0)
+#define NORMAL_LOAD(p) texelFetch(normalTexture,p,0)
+#define MATERIAL_LOAD(p) texelFetch(materialTexture,p,0)
+#define IDENTITY_LOAD(p) texelFetch(identityTexture,p,0).r
+#define LIGHT_CHANNELS_LOAD(p) (texelFetch(identityTexture,p,0).g&255u)
+#define ENV_SUN CP(11)
+#define ENV_POINT(i) CP(12+i)
+#define ENV_RECT(i) CP(32+i)
+#define ENV_RECT_LUT(p) textureLod(lutTexture,p,0.0)
+#define WORLD_LOCAL_SHADOW(i) CP(144+i)
+#define WORLD_SHADOW_Y -1.0
+#define WORLD_SHADOW_SAMPLE(p) textureLod(shadowTexture,p,0.0).r
+#define WORLD_MOMENT_SAMPLE(p) textureLod(momentTexture,p,0.0).rg
+#define STORE_DIFFUSE(p,v) imageStore(diffuseImage,p,v)
+#define STORE_SPECULAR(p,v) imageStore(specularImage,p,v)
+#define CLUSTER_STATIC
+#define CLUSTER_SHARED shared
+#define CLUSTER_LOOP [[dont_unroll]]
+#define CLUSTER_FIRST(v) uint(findLSB(v))
+#define CLUSTER_BARRIER barrier()
+#define CLUSTER_CLASS_OR(v) atomicOr(classMask,v)
+#define CLUSTER_APPEND(c,outSlot) outSlot=atomicAdd(words[c],1u)
+#include "clustered_common.glsl"
+#include "clustered_entry.glsl"
+#if CLUSTER_PASS < 2
+layout(local_size_x=8,local_size_y=8,local_size_z=8)in;
+#elif CLUSTER_PASS == 3
+layout(local_size_x=1,local_size_y=1,local_size_z=1)in;
+#else
+layout(local_size_x=8,local_size_y=8,local_size_z=1)in;
+#endif
+void main(){clusteredMain(gl_WorkGroupID,gl_LocalInvocationID);}

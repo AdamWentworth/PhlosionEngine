@@ -50,10 +50,11 @@ struct alignas(16) WorldSpecializedMaterialState {
         1.0f, 0.0f, 0.0f, 0.0f};
     std::array<float, 4> lightProjectionUvRowV{
         0.0f, 1.0f, 0.0f, 0.0f};
+    std::array<std::uint32_t,4> layered{};
 };
 
 static_assert(std::is_standard_layout_v<WorldSpecializedMaterialState>);
-static_assert(sizeof(WorldSpecializedMaterialState) == 192u);
+static_assert(sizeof(WorldSpecializedMaterialState) == 208u);
 static_assert(offsetof(WorldSpecializedMaterialState, timingFlagsAtlas) == 0u);
 static_assert(offsetof(WorldSpecializedMaterialState, rect0) == 16u);
 static_assert(offsetof(WorldSpecializedMaterialState, rect1) == 32u);
@@ -109,6 +110,7 @@ inline WorldSpecializedMaterialState makeWorldSpecializedMaterialState(
         std::max(texture->projectedShadowSamplingScale, 0.0f),
         std::max(texture->projectedShadowBias, 0.0f),
         0.0f};
+    out.layered[0]=texture->layeredMaterialIndex;
     out.lightProjectionUvRowU = texture->lightProjectionUvRowU;
     out.lightProjectionUvRowV = texture->lightProjectionUvRowV;
     return out;

@@ -38,10 +38,39 @@ public:
         catch (...) { ++failures_; return 0; }
         return id;
     }
+    bool bindAssetGroup(WorldResourceScopeId child, std::uint64_t identity, std::uint64_t limit) {
+        const auto it=scopes_.find(child);
+        if (!identity || !limit || active_ || it==scopes_.end() || it->second.releasePending ||
+            it->second.status!=WorldResourceScopeStatus::Ready || it->second.retained.payloadBytes ||
+            it->second.retained.materialDescriptors || it->second.retained.textureDescriptors ||
+            it->second.retained.geometryBuffers || it->second.retained.textures || isAssetGroup(child)) return false;
+        const auto existing=assetGroups_.find(identity);
+        if (it->second.assetGroup)
+            return existing!=assetGroups_.end() && existing->second==it->second.assetGroup &&
+                scopes_.at(existing->second).payloadByteLimit==limit;
+        if (existing!=assetGroups_.end()) {
+            const auto& group=scopes_.at(existing->second);
+            if(group.status!=WorldResourceScopeStatus::Ready || group.releasePending ||
+                group.payloadByteLimit!=limit) return false;
+            it->second.assetGroup=existing->second;return true;
+        }
+        const auto group=create(limit);if(!group)return false;
+        try {assetGroups_.emplace(identity,group);}
+        catch (...) {scopes_.erase(group);++failures_;return false;}
+        scopes_.at(child).assetGroup=group;return true;
+    }
+    WorldResourceScopeId assetOwner() const {
+        const auto it=scopes_.find(active_);
+        return it!=scopes_.end() && it->second.assetGroup ? it->second.assetGroup : active_;
+    }
+    std::string assetKey(std::string_view legacy) const {
+        return scopedKey(assetOwner(),legacy);
+    }
     bool begin(WorldResourceScopeId id) {
         const auto it = scopes_.find(id);
-        if (active_ != 0 || it == scopes_.end() ||
-            it->second.status != WorldResourceScopeStatus::Ready || it->second.releasePending) return false;
+        WorldResourceScopeStats state;
+        if (active_ != 0 || it == scopes_.end() || isAssetGroup(id) || !query(id,state) ||
+            state.status != WorldResourceScopeStatus::Ready || state.releasePending) return false;
         active_ = id;
         return true;
     }
@@ -52,16 +81,35 @@ public:
     }
     bool release(WorldResourceScopeId id) {
         const auto it = scopes_.find(id);
-        if (it == scopes_.end() || it->second.releasePending) return false;
+        if (it == scopes_.end() || it->second.releasePending || isAssetGroup(id)) return false;
         it->second.releasePending = true;
         if (it->second.status == WorldResourceScopeStatus::Ready)
             it->second.status = WorldResourceScopeStatus::ReleasePending;
+        const auto group=it->second.assetGroup;
+        if(group) {
+            bool used=false;
+            for(const auto& [other,state]:scopes_)
+                if(other!=id && state.assetGroup==group && !state.releasePending) {used=true;break;}
+            if(!used) {
+                auto& state=scopes_.at(group);state.releasePending=true;
+                if(state.status==WorldResourceScopeStatus::Ready)state.status=WorldResourceScopeStatus::ReleasePending;
+                for(auto entry=assetGroups_.begin();entry!=assetGroups_.end();++entry)
+                    if(entry->second==group){assetGroups_.erase(entry);break;}
+            }
+        }
         return true;
     }
     bool query(WorldResourceScopeId id, WorldResourceScopeStats& out) const {
         const auto it = scopes_.find(id);
         if (it == scopes_.end()) { out = {}; return false; }
         out = it->second;
+        if(out.assetGroup && !out.releasePending) {
+            const auto group=scopes_.find(out.assetGroup);
+            if(group==scopes_.end()) {out.status=WorldResourceScopeStatus::AllocationFailed;out.error="Missing asset group";}
+            else if(group->second.status!=WorldResourceScopeStatus::Ready) {
+                out.status=group->second.status;out.error=group->second.error;
+            }
+        }
         return true;
     }
     WorldResourceStats stats() const {
@@ -84,9 +132,11 @@ public:
     WorldResourceScopeId active() const { return active_; }
     bool admitted() const {
         if (active_ == 0) return true;
-        const auto it = scopes_.find(active_);
-        return it != scopes_.end() && !it->second.releasePending &&
-            it->second.status == WorldResourceScopeStatus::Ready;
+        const auto it=scopes_.find(active_);
+        if(it==scopes_.end() || it->second.releasePending || it->second.status!=WorldResourceScopeStatus::Ready)return false;
+        if(!it->second.assetGroup)return true;
+        const auto group=scopes_.find(it->second.assetGroup);
+        return group!=scopes_.end() && !group->second.releasePending && group->second.status==WorldResourceScopeStatus::Ready;
     }
     bool admit(std::uint64_t bytes) {
         if (!admitted()) return false;
@@ -112,9 +162,12 @@ public:
         }
     }
     void commit(const WorldResourceCounts& resources) {
-        if (active_ == 0) return;
-        addWorldResourceCounts(scopes_.at(active_).retained, resources);
-        addWorldResourceCounts(allocated_, resources);
+        commit(active_, resources);
+    }
+    void commit(WorldResourceScopeId owner, const WorldResourceCounts& resources) {
+        if(owner==0)return;
+        addWorldResourceCounts(scopes_.at(owner).retained,resources);
+        addWorldResourceCounts(allocated_,resources);
     }
     // A native cache can also invalidate an object while its scope stays live
     // (for example GL mesh VAOs during material pipeline replacement).
@@ -149,14 +202,24 @@ public:
             (void)id;
             addWorldResourceCounts(reclaimed_, value.retained);
         }
-        scopes_.clear();
+        scopes_.clear();assetGroups_.clear();
         active_ = 0;
     }
     std::string key(std::string_view legacy) const {
-        if (active_ == 0) return std::string(legacy);
-        // C-string legacy identities cannot begin with this embedded NUL.
-        return std::string(1, '\0') + std::to_string(active_) + ':' + std::string(legacy);
+        return scopedKey(active_,legacy);
     }
+    class AssetResources {
+    public:
+        explicit AssetResources(WorldResourceScopeState& state) : state_(state), saved_(state.active_) {
+            if(state.admitted())state_.active_=state.assetOwner();
+        }
+        ~AssetResources(){state_.active_=saved_;}
+        AssetResources(const AssetResources&)=delete;
+        AssetResources& operator=(const AssetResources&)=delete;
+    private:
+        WorldResourceScopeState& state_;
+        WorldResourceScopeId saved_;
+    };
     class SharedResources {
     public:
         explicit SharedResources(WorldResourceScopeState& state) : state_(state), saved_(state.active_) {
@@ -177,6 +240,15 @@ public:
         bool succeeded_ = false;
     };
 private:
+    bool isAssetGroup(WorldResourceScopeId id) const {
+        for(const auto& [identity,owner]:assetGroups_) { (void)identity;if(owner==id)return true; }
+        return false;
+    }
+    static std::string scopedKey(WorldResourceScopeId id,std::string_view legacy) {
+        if(!id)return std::string(legacy);
+        return std::string(1,'\0')+std::to_string(id)+':'+std::string(legacy);
+    }
+    std::unordered_map<std::uint64_t,WorldResourceScopeId> assetGroups_;
     inline static std::atomic<WorldResourceScopeId> nextId_{1};
     WorldResourceScopeId active_ = 0;
     std::unordered_map<WorldResourceScopeId, WorldResourceScopeStats> scopes_;

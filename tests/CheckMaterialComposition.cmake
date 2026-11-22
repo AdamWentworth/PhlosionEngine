@@ -45,6 +45,27 @@ foreach(_fragment IN ITEMS surface_lighting.glsl d3d12_surface.hlsl
     endif()
 endforeach()
 
+
+phlosion_expand_material_source("#include \"phlosion/opengl_surface.glsl\"\n"
+    "${TEST_ROOT}/defaults" _legacy_surface)
+if(NOT _legacy_surface MATCHES "= worldPlanarRadiance\\(")
+    message(FATAL_ERROR "Legacy composed surface bypasses planar reflections")
+endif()
+file(READ "${PHLOSION_ROOT}/assets/shaders/vulkan/world_lighting.glsl" _lighting)
+foreach(_reflection IN ITEMS worldPlanarFiltered worldLocalReflectionRadiance worldScreenReflectionRadiance)
+    if(NOT _lighting MATCHES "${_reflection}\\(")
+        message(FATAL_ERROR "Shared reflection dispatcher bypasses ${_reflection}")
+    endif()
+endforeach()
+foreach(_fragment IN ITEMS surface_lighting.glsl d3d12_surface.hlsl)
+    phlosion_expand_material_source("#include \"phlosion/${_fragment}\"\n"
+        "${TEST_ROOT}/defaults" _surface)
+    if(NOT _surface MATCHES "= worldReflectionRadiance\\(" OR
+       NOT _surface MATCHES "storeWorldSurface\\(surface, surfaceEmission\\)")
+        message(FATAL_ERROR "Composed ${_fragment} bypasses shared reflection/surface evaluation")
+    endif()
+endforeach()
+
 phlosion_expand_material_source("#include \"world_environment.glsl\"\n"
     "${TEST_ROOT}" _native)
 if(NOT _native STREQUAL "#include \"world_environment.glsl\"\n")

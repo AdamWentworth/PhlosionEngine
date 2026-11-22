@@ -22,7 +22,7 @@ bool validFrame(const MeshData& mesh, const ModelFrame& frame) {
         frame.animationTime < 0.0f || frame.materialTime < 0.0f) return false;
     for (int i = 0; i < 16; ++i) if (!std::isfinite(glm::value_ptr(frame.modelMatrix)[i])) return false;
     for (int i = 0; i < 4; ++i)
-        if (!std::isfinite(frame.tint[i]) || frame.tint[i] < 0.0f || frame.tint[i] > 1.0f) return false;
+        if (!std::isfinite(frame.tint[i]) || frame.tint[i] < 0.0f || frame.tint[i] > (i == 3 ? 1.0f : 2.0f)) return false;
     return true;
 }
 ModelFrame resolvedFrame(const MeshData& mesh, ModelFrame frame) {
@@ -95,7 +95,8 @@ bool ModelInstance::setMesh(MeshData mesh, std::string* error) {
         std::any_of(mesh.indices.begin(), mesh.indices.end(), [&](auto i) { return i >= mesh.vertices.size(); }))
         return fail(error, "Invalid model geometry");
     static std::atomic<std::uint64_t> revision{0};
-    mesh.assetCacheIdentity += "#resource:" + std::to_string(++revision);
+    const auto resourceRevision = ++revision;
+    mesh.assetCacheIdentity += "#resource:" + std::to_string(resourceRevision);
     auto candidate = std::make_shared<const MeshData>(std::move(mesh));
     geometry::FastTexturedMeshTemplateCache geometry;
     const auto preserveColor = profile_->preserveVertexColor(*candidate);
@@ -104,12 +105,14 @@ bool ModelInstance::setMesh(MeshData mesh, std::string* error) {
         return fail(error, "Model has no renderable geometry");
     clear();
     mesh_ = std::move(candidate);
-    geometry_ = std::move(geometry);
+    geometry_ = std::make_shared<const geometry::FastTexturedMeshTemplateCache>(std::move(geometry));
+    motionRevision_ = resourceRevision;
     if (error) error->clear();
     return true;
 }
 void ModelInstance::clear() {
     frames_ = {};
+    deformations_=std::make_shared<render::WorldDeformationSet>();
     materials_ = {};
     geometry_ = {};
     mesh_.reset();
@@ -126,6 +129,13 @@ bool ModelInstance::samplePose(const ModelFrame& input, PoseEval& out, std::stri
 }
 bool ModelInstance::sampleNode(const ModelFrame& frame, std::string_view name, glm::vec3& out,
     std::string* error) const {
+    glm::mat4 transform;
+    if (!sampleNodeTransform(frame,name,transform,error)) return false;
+    out=glm::vec3(transform[3]);
+    return true;
+}
+bool ModelInstance::sampleNodeTransform(const ModelFrame& frame,std::string_view name,glm::mat4& out,
+    std::string* error) const {
     if (!mesh_) return fail(error, "No model loaded");
     auto found = std::find(mesh_->nodeNames.begin(), mesh_->nodeNames.end(), name);
     if (found == mesh_->nodeNames.end()) return fail(error, "Model node is missing");
@@ -133,48 +143,64 @@ bool ModelInstance::sampleNode(const ModelFrame& frame, std::string_view name, g
     if (!samplePose(frame, pose, error)) return false;
     const auto index = static_cast<std::size_t>(found - mesh_->nodeNames.begin());
     if (index >= pose.nodeGlobals.size()) return fail(error, "Model node pose is missing");
-    const glm::vec3 result(frame.modelMatrix * pose.nodeGlobals[index] * glm::vec4(0, 0, 0, 1));
-    if (!std::isfinite(result.x) || !std::isfinite(result.y) || !std::isfinite(result.z))
+    const auto result=frame.modelMatrix * pose.nodeGlobals[index];
+    for(int i=0;i<16;++i) if(!std::isfinite(glm::value_ptr(result)[i]))
         return fail(error, "Non-finite model node pose");
     out = result;
     return true;
 }
 
-const std::vector<batches::WorldIndexedBatch>* ModelInstance::prepare(const ModelFrame& input,
-    std::size_t slot, std::string* error) {
-    if (!mesh_ || slot >= frames_.size() || !validFrame(*mesh_, input)) {
-        fail(error, "Invalid model render request"); return nullptr;
+struct ModelCollectedFrame::Data {
+    std::shared_ptr<const MeshData> mesh;
+    std::shared_ptr<const geometry::FastTexturedMeshTemplateCache> geometry;
+    std::shared_ptr<const std::vector<batches::WorldIndexedBatch>> materials;
+    ModelFrame frame;
+    PoseEval pose;
+    std::vector<batches::WorldIndexedBatch> batches;
+    std::shared_ptr<render::WorldDeformationSet> deformations;
+};
+bool ModelInstance::collect(const ModelFrame& input,ModelCollectedFrame& output,std::string* error) {
+    if (!mesh_ || !validFrame(*mesh_, input)) {
+        fail(error, "Invalid model render request"); return false;
     }
     const auto frame = resolvedFrame(*mesh_, input);
     PoseEval pose;
-    if (!samplePose(frame, pose, error)) return nullptr;
+    if (!samplePose(frame, pose, error)) return false;
     const auto quality = static_cast<std::size_t>(std::clamp(frame.graphicsQuality, 0, 3)) * 2 + (frame.inking ? 1 : 0);
     if (!materials_[quality]) materials_[quality] = std::make_shared<const std::vector<batches::WorldIndexedBatch>>(
         profile_->materialTemplates(*mesh_, "__runtime_mesh_id__:" + mesh_->assetCacheIdentity, frame));
-    FrameStorage candidate;
+    auto owned=std::make_shared<ModelCollectedFrame::Data>();
+    auto& candidate=*owned;
+    candidate.mesh=mesh_;candidate.geometry=geometry_;candidate.frame=frame;
+    candidate.pose=pose;candidate.deformations=deformations_;
     candidate.materials = materials_[quality];
-    candidate.batches.reserve(geometry_.batches.size() + mesh_->animatedBillboards.size());
+    candidate.batches.reserve(geometry_->batches.size() + mesh_->animatedBillboards.size());
     transforms::Resolver resolver;
     resolver.initialize({.mesh = mesh_.get(), .nodeGlobals = &pose.nodeGlobals,
         .modelMatrix = frame.modelMatrix, .hasClipPose = pose.hasClipPose,
         .pairedSkinMatrices = frame.pairedSkinMatrices});
-    for (const auto& geometry : geometry_.batches) {
+    std::uint64_t geometryPart = 0;
+    for (const auto& geometry : geometry_->batches) {
+        const auto motionPart = geometryPart++;
         const auto submesh = geometry.baseSubmeshIndex;
         if (submesh >= candidate.materials->size()) {
-            fail(error, "Model profile omitted a material"); return nullptr;
+            fail(error, "Model profile omitted a material"); return false;
         }
         const float visibility = profile_->visibility(*mesh_, frame, submesh);
         if (visibility <= 0.0f) continue;
         batches::WorldIndexedBatch batch;
         profile_->prepareMaterial(*mesh_, pose, frame, submesh, (*candidate.materials)[submesh], batch);
         batch.geometryCacheKey = geometry.geometryCacheKey;
+        batch.motionPart = motionPart;
+        batch.motionRevision = motionRevision_;
+        batch.temporalMaterial=frame.temporalMaterial;
         batch.vertexColorMulR = frame.tint.r;
         batch.vertexColorMulG = frame.tint.g;
         batch.vertexColorMulB = frame.tint.b;
         batch.vertexColorMulA = frame.tint.a * visibility;
         batch.sortDepth = glm::dot(frame.cameraPosition - glm::vec3(frame.modelMatrix[3]),
             frame.cameraPosition - glm::vec3(frame.modelMatrix[3]));
-        const int node = geometry.triNodeIndex >= 0 ? geometry.triNodeIndex : geometry_.defaultSkinNodeIndex;
+        const int node = geometry.triNodeIndex >= 0 ? geometry.triNodeIndex : geometry_->defaultSkinNodeIndex;
         batch.sharedVertices = geometry.gpuTemplateVertices.data();
         batch.sharedVertexCount = geometry.gpuTemplateVertices.size();
         batch.sharedIndices = geometry.indices.data();
@@ -188,6 +214,7 @@ const std::vector<batches::WorldIndexedBatch>* ModelInstance::prepare(const Mode
             std::copy_n(glm::value_ptr(matrix), 16, batch.modelMatrix.begin());
         } else {
             batch.geometryCacheKey.clear();
+            batch.cpuDeformedMotion = true;
             batch.sharedVertices = nullptr;
             batch.sharedVertexCount = 0;
             batch.vertices = geometry.gpuTemplateVertices;
@@ -210,13 +237,39 @@ const std::vector<batches::WorldIndexedBatch>* ModelInstance::prepare(const Mode
         }
         candidate.batches.push_back(std::move(batch));
     }
-    appendAnimatedBillboards(*mesh_, pose.nodeGlobals, frame.modelMatrix, frame.animationIndex,
-        frame.animationTime, frame.cameraPosition, frame.cameraUp, frame.cameraFacing,
-        frame.tint.a, candidate.batches);
-    frames_[slot] = std::move(candidate);
-    for (auto& batch : frames_[slot].batches)
-        if (!batch.skinMatrices.empty()) batch.sharedSkinMatrices = batch.skinMatrices.data();
-    if (error) error->clear();
+    for(auto& batch:candidate.batches)if(!batch.skinMatrices.empty()) {
+        batch.deformation=deformations_->publish(batch.motionPart,batch.skinMatrices);
+        batch.sharedSkinMatrices=batch.deformation->values().data();
+        batch.skinMatrices.clear();
+    }
+    output.data_=std::move(owned);if(error)error->clear();return true;
+}
+bool ModelCollectedFrame::prepareView(const glm::vec3& position,const glm::vec3& up,
+    const glm::vec3& facing,std::vector<batches::WorldIndexedBatch>& output,std::string* error) const {
+    if(!data_)return fail(error,"No collected model frame");
+    for(const auto& v:{position,up,facing})for(int i=0;i<3;++i)
+        if(!std::isfinite(v[i]))return fail(error,"Invalid collected model view");
+    const auto& d=*data_;auto batches=d.batches;
+    const float depth=glm::dot(position-glm::vec3(d.frame.modelMatrix[3]),
+        position-glm::vec3(d.frame.modelMatrix[3]));
+    for(auto& batch:batches)batch.sortDepth=depth;
+    appendAnimatedBillboards(*d.mesh,d.pose.nodeGlobals,d.frame.modelMatrix,d.frame.animationIndex,
+        d.frame.animationTime,position,up,facing,d.frame.tint.a,batches);
+    output=std::move(batches);
+    for(std::size_t i=0;i<output.size();++i)if(auto& batch=output[i];!batch.skinMatrices.empty()) {
+        batch.deformation=d.deformations->publish((1ull<<32)+i,batch.skinMatrices);
+        batch.sharedSkinMatrices=batch.deformation->values().data();batch.skinMatrices.clear();
+    }
+    if(error)error->clear();return true;
+}
+const std::vector<batches::WorldIndexedBatch>* ModelInstance::prepare(const ModelFrame& input,
+    std::size_t slot,std::string* error) {
+    if(slot>=frames_.size()){fail(error,"Invalid model pose slot");return nullptr;}
+    FrameStorage candidate;
+    if(!collect(input,candidate.collection,error) ||
+       !candidate.collection.prepareView(input.cameraPosition,input.cameraUp,input.cameraFacing,
+           candidate.batches,error))return nullptr;
+    frames_[slot]=std::move(candidate);
     return &frames_[slot].batches;
 }
 }

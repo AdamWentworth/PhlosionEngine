@@ -1,0 +1,4 @@
+#pragma once
+inline constexpr char worldClusteredSource[]=R"CLUSTER(
+@PHLOSION_CLUSTERED_SOURCE@
+)CLUSTER";

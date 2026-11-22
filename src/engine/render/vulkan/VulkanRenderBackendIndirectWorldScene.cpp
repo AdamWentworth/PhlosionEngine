@@ -58,8 +58,8 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
     const IRenderBackend::WorldSceneFrame& frame,
     const IRenderBackend::WorldSceneView& view) {
     namespace vulkan = engine::render::vulkan_backend;
-    if (worldShadowActive || worldPlanarReflection[4][3]<0) return false;
-    if (worldShadowReady && view.materials)
+    if (worldSurfaceComposed || worldSurfaceActive || worldShadowActive || worldPlanarReflection[4][3]<0) return false;
+    if ((worldShadowReady || worldClusteredView[4][3]>.5f) && view.materials)
         for (const auto& material : *view.materials)
             if (!engine::render::worldSceneShadowSwitch(material, engine::render::backend::WorldSceneSourceMaterialSwitchReceiveShadow)) return false;
     if (!indirectWorldSceneEnabled() || !indirectWorldBatchingSupported ||
@@ -124,6 +124,9 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
             !IRenderBackend::worldSceneGeometrySourceSemanticsValid(geometry)) {
             continue;
         }
+        // Only active draws matter. This loop prepares state before any draw
+        // is emitted; the caller can replay through the family instanced path.
+        if (worldMaterialProfile.transparentFamilyIndex(material.materialMode) >= 0) return false;
         IRenderBackend::WorldTextureData texture =
             vulkan::makeWorldSceneTextureData(material, view);
         if (worldSceneMaterials.size() <= materialIndex) {
@@ -245,9 +248,14 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
 
     VkBuffer drawStateBuffer = VK_NULL_HANDLE;
     VkDeviceSize drawStateOffset = 0u;
-    const VkDeviceSize storageAlignment = std::max<VkDeviceSize>(
-        16u,
-        physicalDeviceProperties.limits.minStorageBufferOffsetAlignment);
+    // Binding 5 spans the whole transient buffer and therefore has zero
+    // dynamic offset. Address its structured records through the draw index.
+    constexpr VkDeviceSize stride=sizeof(vulkan::WorldIndirectDrawState);
+    auto& transient=frames[currentFrame].transient;
+    const auto recordStart=((transient.offset+stride-1)/stride)*stride;
+    if(recordStart>transient.size || drawStates.size()>((transient.size-recordStart)/stride))return false;
+    transient.offset=recordStart;
+    constexpr VkDeviceSize storageAlignment=alignof(vulkan::WorldIndirectDrawState);
     if (!writeTransient(
             drawStates.data(),
             drawStates.size() * sizeof(vulkan::WorldIndirectDrawState),
@@ -271,14 +279,15 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
     }
 
     auto viewState =
-        vulkan::makeWorldViewState(&viewTexture);
+        vulkan::makeWorldViewState(&viewTexture, &worldEnvironmentPackets);
     if (worldShadowReady && viewTexture.environment.enabled)
         viewState.directionalShadow = engine::render::packWorldDirectionalShadow(worldShadowView);
     viewState.shadowAtlasUv = worldLocalShadows_.directionalUv();
     viewState.cameraPosition[3] = worldSceneColorPassActive && worldSceneRadianceExposure > 0 ? 1.f : 0.f;
     if (!worldShadowActive && viewTexture.environment.enabled) viewState.localShadows = worldLocalShadows_.uniforms;
     if (!worldShadowActive && viewTexture.environment.enabled) viewState.diffuseProbes = worldDiffuseProbes;
-    if (!worldShadowActive) viewState.planar=worldPlanarReflection;
+    if (!worldShadowActive && !worldSurfaceActive && viewTexture.environment.enabled && viewTexture.directionalShadowReceiver) viewState.clustered=worldClusteredView;
+    if (!worldShadowActive) {viewState.planar=worldPlanarReflection;viewState.contact=worldContact;viewState.screenReflection=worldScreenReflection;viewState.localReflection=worldLocalReflection;viewState.fog=worldFog;viewState.wet=worldWet;viewState.clouds=worldClouds;viewState.sun=worldSunPlan.uniforms;viewState.skyCloud=worldSkyCloud;}
     VkBuffer viewBuffer = VK_NULL_HANDLE;
     VkDeviceSize viewOffset = 0u;
     const VkDeviceSize uniformAlignment = std::max<VkDeviceSize>(
@@ -295,20 +304,24 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
     }
 
     FrameResources& frameResources = frames[currentFrame];
-    const std::array<VkDescriptorSet, 3> descriptorSets{
+    const std::array<VkDescriptorSet, 8> descriptorSets{
         frameResources.indexedWorldMaterialDescriptorSet,
         frameResources.worldStateDescriptorSet,
         worldPlanarDescriptor ? worldPlanarDescriptor : worldPlanarFallback,
+        worldContactDescriptor ? worldContactDescriptor : worldPlanarFallback,
+        worldScreenReflectionDescriptor ? worldScreenReflectionDescriptor : worldPlanarFallback,
+        worldLocalReflectionDescriptor ? worldLocalReflectionDescriptor : worldPlanarFallback,
+        worldContactFilterSet?worldContactFilterSet:worldContactFilterFallback,worldWindDescriptorSet(),
     };
     const std::array<std::uint32_t, 4> dynamicOffsets{
         static_cast<std::uint32_t>(viewOffset),
         0u,
         0u,
-        static_cast<std::uint32_t>(drawStateOffset),
+        0u,
     };
     VkCommandBuffer commandBuffer = frameResources.commandBuffer;
     vkCmdBindDescriptorSets(
-        commandBuffer,
+        worldRecordingCommand(commandBuffer),
         VK_PIPELINE_BIND_POINT_GRAPHICS,
         indirectWorldPipelineLayout,
         0u,
@@ -317,8 +330,8 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
         static_cast<std::uint32_t>(dynamicOffsets.size()),
         dynamicOffsets.data());
     frameResources.indexedWorldMaterialSetBound = true;
-    boundTexturedDescriptorSet = VK_NULL_HANDLE;
-    ++frameDescriptorBindCalls;
+    worldCommandState.boundTexturedDescriptorSet = VK_NULL_HANDLE;
+    ++worldCommandCounters.frameDescriptorBindCalls;
     setViewportAndScissor(commandBuffer, view.surfaceWidth, view.surfaceHeight);
 
     const std::vector<vulkan::WorldIndirectRun> runs =
@@ -327,7 +340,11 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
     for (const vulkan::WorldIndirectRun& run : runs) {
         bindGraphicsPipeline(
             commandBuffer,
-            (worldSceneColorPassActive ? sceneIndirectWorldPipelines : indirectWorldPipelines)[run.key.pipelineIndex]);
+            worldSceneColorPassActive && worldSurfaceReady && !worldSurfaceCompositionFinished && worldClusteredView[4][3]>.5f &&
+                viewTexture.environment.enabled && viewTexture.directionalShadowReceiver && run.key.pipelineIndex==0 &&
+                worldPlanarReflection[4][3]>=0 && worldLocalReflection[0][3]>=0 && worldScreenReflection[8][3]>=0 ?
+                worldClusteredIndirectCompositionPipeline :
+                (worldSceneColorPassActive ? sceneIndirectWorldPipelines : indirectWorldPipelines)[run.key.pipelineIndex]);
         VkBuffer geometryBuffer = VK_NULL_HANDLE;
         static_assert(sizeof(geometryBuffer) <= sizeof(run.key.geometryBufferKey));
         std::memcpy(
@@ -349,16 +366,16 @@ bool VulkanRenderBackendImpl::submitWorldSceneIndirect(
                 view.viewProjectionMatrix4x4,
                 sizeof(float) * 16u);
             push.batchParams[0] = static_cast<std::uint32_t>(
-                run.firstDraw + submitted);
+                drawStateOffset/stride + run.firstDraw + submitted);
             vkCmdPushConstants(
-                commandBuffer,
+                worldRecordingCommand(commandBuffer),
                 indirectWorldPipelineLayout,
                 VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                 0u,
                 sizeof(push),
                 &push);
             vkCmdDrawIndexedIndirect(
-                commandBuffer,
+                worldRecordingCommand(commandBuffer),
                 indirectBuffer,
                 indirectOffset +
                     (run.firstDraw + submitted) *

@@ -26,6 +26,8 @@
 #include "engine/render/ModelAnimationTypes.h"
 #include "engine/render/AnimationBlend.h"
 #include "engine/render/RenderBackendTypes.h"
+#include "engine/render/WorldLayerMaterialPackage.h"
+#include "engine/assets/ResourceBank.h"
 
 namespace engine { class IAssetStore; }
 
@@ -40,7 +42,18 @@ inline constexpr int kBindPoseClip = -1;
 // The native world renderers all support 128 palette matrices.
 inline constexpr std::size_t kMaxSkinJoints = 128u;
 
+struct GltfSceneLodSource {
+    std::vector<std::string> nodes;
+    std::vector<float> distances;
+};
+struct GltfSceneLodGroup {
+    std::vector<int> nodes;
+    std::vector<float> distances;
+    std::vector<std::array<float,3>> boundsMin,boundsMax;
+};
 struct GltfSceneLoadOptions {
+    std::shared_ptr<const WorldLayerMaterialPackage> layeredMaterials;
+    std::vector<GltfSceneLodSource> lodGroups;
     std::size_t maxNodes = 8192u;
     std::size_t maxPrimitives = 16384u;
     std::size_t maxVertices = 1u << 21;
@@ -74,6 +87,7 @@ struct GltfSceneTexture {
 };
 
 struct GltfSceneMaterial {
+    std::uint32_t layeredMaterialIndex = 0;
     std::string name;
     GltfSceneTexture baseColor;
     GltfSceneTexture normal;
@@ -141,7 +155,24 @@ struct GltfSceneStats {
     double loadSeconds = 0.0;
 };
 
+namespace detail {
+class GltfSceneDrawPlan;
+struct GltfSceneDrawPlanAccess;
+// Plans contain bindings into one published asset. A copy/move must never
+// inherit them, even if an allocator later reuses the original owner's address.
+struct GltfSceneDrawPlanHandle {
+    std::shared_ptr<GltfSceneDrawPlan> value;
+    GltfSceneDrawPlanHandle() = default;
+    GltfSceneDrawPlanHandle(const GltfSceneDrawPlanHandle&) {}
+    GltfSceneDrawPlanHandle(GltfSceneDrawPlanHandle&& other) noexcept { other.value.reset(); }
+    GltfSceneDrawPlanHandle& operator=(const GltfSceneDrawPlanHandle&) { value.reset(); return *this; }
+    GltfSceneDrawPlanHandle& operator=(GltfSceneDrawPlanHandle&& other) noexcept { value.reset(); other.value.reset(); return *this; }
+};
+}
+
 struct GltfSceneAsset {
+    std::shared_ptr<const WorldLayerMaterialSet> layeredMaterials;
+    std::vector<GltfSceneLodGroup> lodGroups;
     std::string sourcePath;
     // Hex digest of the main document bytes. A reload creates a new generation;
     // content-dependent geometry/texture keys also cover external payloads.
@@ -159,6 +190,11 @@ struct GltfSceneAsset {
     std::vector<std::string> nodeNames;
     std::vector<std::vector<int>> nodeChildren;
     GltfSceneStats stats;
+private:
+    // Published immutable assets own their CPU submission plan. A copied asset
+    // cannot reuse another snapshot's bindings; owner identity is checked.
+    friend struct detail::GltfSceneDrawPlanAccess;
+    detail::GltfSceneDrawPlanHandle drawPlan_;
 };
 
 // Result of one pose sample. Owns its arrays; the asset must outlive the pose.
@@ -176,6 +212,11 @@ struct GltfScenePose {
     std::vector<std::vector<glm::mat4>> palettes;
     double sampleSeconds = 0.0;
 };
+
+// Queued preparation with the same identity/validation as synchronous import.
+// Keep the request alive until admission; abandoning it cancels only this caller.
+engine::assets::ResourceRequest requestGltfSceneAsset(engine::assets::ResourceBank& bank,
+    const std::string& path,const GltfSceneLoadOptions& options = {});
 
 // Synchronous, CPU-only load. On success `out` is replaced with a fully owned
 // snapshot. On failure `out` is left exactly as the caller passed it and

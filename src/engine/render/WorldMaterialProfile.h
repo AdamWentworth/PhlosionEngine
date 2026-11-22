@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <bitset>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -13,7 +14,7 @@ namespace engine::render {
 
 // Versioned world vertex/fragment programs. Profiles are project data;
 // an empty profile is the standalone engine's standard material implementation.
-inline constexpr int kWorldMaterialProfileVersion = 2;
+inline constexpr int kWorldMaterialProfileVersion = 3;
 
 struct WorldMaterialShaderSource {
     std::string declarations;
@@ -48,23 +49,54 @@ struct WorldMaterialConstantOverride {
 
 struct WorldMaterialModeOptions {
     bool pbrPacking = true;
+    // Exports standard local-light attributes while retaining custom primary shading.
+    bool sharedLocalLighting = false;
+    bool foliageComposition = false;
     bool openglDebugParameter = true;
     bool d3d12DebugParameter = true;
     float occlusionMaximum = 1.0f;
     bool operator==(const WorldMaterialModeOptions &) const = default;
 };
 
+struct WorldPipelineWarmup {
+    std::uint32_t mode = 0;
+    std::uint32_t variant = 0;
+    bool operator==(const WorldPipelineWarmup&) const = default;
+};
+
+// Color-only transparent families own their vertex/fragment programs. Opaque
+// surface/shadow passes retain the base profile; scene submission routes these
+// materials through the ordinary direct/instanced path.
+struct WorldMaterialFamily {
+    std::string id;
+    std::bitset<256> modes;
+    WorldMaterialShaderSource d3d12;
+    WorldMaterialShaderSource d3d12Vertex;
+    // Standard fragment, dual-source fragment, vertex.
+    std::array<std::vector<std::uint32_t>, 3> vulkan;
+    bool operator==(const WorldMaterialFamily&) const = default;
+};
+
 struct WorldMaterialProfile {
     std::string id;
+    unsigned textureMipDrop=0,maxAnisotropy=16;
     WorldMaterialShaderSource opengl;
     WorldMaterialShaderSource d3d12;
     WorldMaterialShaderSource openglVertex;
     WorldMaterialShaderSource d3d12Vertex;
     // Direct/indirect fragments, each standard/dual-source; direct/indirect vertices.
-    std::array<std::vector<std::uint32_t>, 7> vulkan;
+    // Optional directional-shadow and surface-data fragments follow the six required variants.
+    std::array<std::vector<std::uint32_t>, 9> vulkan;
     std::array<std::vector<WorldMaterialConstantOverride>, 256> d3d12Constants;
     std::array<WorldMaterialModeOptions, 256> modes;
+    std::vector<WorldPipelineWarmup> d3d12PipelineWarmup;
+    // Direct ordinary Vulkan pipelines: material mode and standard blend/depth index.
+    // Both display and HDR scene variants are prepared before drawing.
+    std::vector<WorldPipelineWarmup> vulkanPipelineWarmup;
 
+    std::vector<WorldMaterialFamily> transparentFamilies;
+    // -1 selects the base program; no alternate family is silently substituted.
+    int transparentFamilyIndex(std::uint32_t mode) const noexcept;
     bool operator==(const WorldMaterialProfile &) const = default;
     bool empty() const noexcept { return id.empty(); }
     void validate() const;

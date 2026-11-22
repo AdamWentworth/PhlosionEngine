@@ -89,7 +89,7 @@ WorldDiffuseProbeUniforms relightDiffuseProbes(const DiffuseProbeTransport& t,st
     for(std::size_t s=0;s<lights.size();++s) {
         validateSource(lights[s]);
         if(!sameSource(lights[s],t.sources[s])) throw std::invalid_argument("Diffuse probe source moved; rebake required");
-        for(float c:lights[s].radiance) active|=c>0;
+        if(lights[s].affectsDiffuseProbes && lights[s].channels)for(float c:lights[s].radiance) active|=c>0;
     }
     WorldDiffuseProbeUniforms out{}; if(!active) return out;
     const auto& g=t.settings.grid;
@@ -98,7 +98,7 @@ WorldDiffuseProbeUniforms relightDiffuseProbes(const DiffuseProbeTransport& t,st
     for(std::size_t p=0;p<t.validity.size();++p) {
         const auto offset=3+p*kDiffuseProbeStride;
         for(std::size_t i=0;i<9;++i) for(std::size_t s=0;s<lights.size();++s) for(std::size_t c=0;c<3;++c)
-            out[offset+i][c]+=t.transfer[p*lights.size()+s][i][c]*lights[s].radiance[c];
+            if(lights[s].affectsDiffuseProbes && lights[s].channels)out[offset+i][c]+=t.transfer[p*lights.size()+s][i][c]*lights[s].radiance[c];
         out[offset][3]=t.validity[p];
         for(std::size_t i=0;i<6;++i) {out[offset+9+i][0]=t.distanceMoments[p][i][0];out[offset+9+i][1]=t.distanceMoments[p][i][1];}
     }

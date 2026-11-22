@@ -22,18 +22,34 @@
       "name": "imgui",
       "features": [
         "docking-experimental",
-        "dx12-binding",
         "opengl3-binding",
         "vulkan-binding"
+      ]
+    },
+    {
+      "name": "imgui",
+      "platform": "windows",
+      "features": [
+        "dx12-binding"
       ]
     },
     "stb",
     "vulkan",
     {
+      "name": "vulkan-loader",
+      "platform": "linux",
+      "features": [
+        "xcb",
+        "xlib",
+        "wayland"
+      ]
+    },
+    {
       "name": "glslang",
       "host": true,
       "features": [
-        "tools"
+        "tools",
+        "opt"
       ]
     }
   ],

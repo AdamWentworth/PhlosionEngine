@@ -1,8 +1,12 @@
+#include "engine/render/PreparationBatch.h"
+#include "engine/render/ShaderCacheStorage.h"
+#include "engine/render/vulkan/VulkanPipelinePreparation.h"
 #include "engine/render/AreaLightLut.h"
 #include "engine/render/vulkan/VulkanRenderBackendInternal.h"
 #include "engine/render/vulkan/VulkanSpriteInstanceState.h"
 #include "engine/render/vulkan/VulkanPipelineCacheData.h"
 #include "engine/core/Paths.h"
+#include "engine/render/GpuAdapterIdentity.h"
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -27,6 +31,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
+#include <source_location>
 
 #include <stb_image_write.h>
 
@@ -44,7 +49,7 @@ std::filesystem::path pipelineCachePath(const VkPhysicalDeviceProperties& device
     std::ostringstream name;
     name<<std::hex<<device.vendorID<<'-'<<device.deviceID<<'-'<<device.driverVersion;
     for(auto byte:device.pipelineCacheUUID) name<<'-'<<unsigned(byte);
-    return std::filesystem::path(engine::paths::data("cache/shaders/vulkan"))/(name.str()+".vkcache");
+    return engine::render::shader_cache::writableRoot()/"vulkan"/(name.str()+".vkcache");
 }
 std::vector<std::uint8_t> readPipelineCache(const VkPhysicalDeviceProperties& device) {
     using namespace engine::render::vulkan_backend;
@@ -63,7 +68,12 @@ void storePipelineCache(VkDevice device,VkPipelineCache cache,const VkPhysicalDe
     if(cache==VK_NULL_HANDLE||engine::env::flagEnabled("PHLOSION_DISABLE_VULKAN_PIPELINE_CACHE")) return;
     try {
         std::size_t size=0;
-        if(vkGetPipelineCacheData(device,cache,&size,nullptr)!=VK_SUCCESS||size>kMaxPipelineCacheBytes) return;
+        if(vkGetPipelineCacheData(device,cache,&size,nullptr)!=VK_SUCCESS) return;
+        if(size>kMaxPipelineCacheBytes) {
+            std::cerr<<"[Vulkan][PipelineCache] not_saved_bytes="<<size
+                     <<" limit_bytes="<<kMaxPipelineCacheBytes<<"; next launch may recompile pipelines\n";
+            return;
+        }
         std::vector<std::uint8_t> data(size);
         if(vkGetPipelineCacheData(device,cache,&size,data.data())!=VK_SUCCESS) return;
         data.resize(size);const auto file=encodePipelineCache(data,properties);if(file.empty()) return;
@@ -201,6 +211,7 @@ VkCompositeAlphaFlagBitsKHR chooseCompositeAlpha(VkCompositeAlphaFlagsKHR suppor
 VkPipeline createGraphicsPipeline(
     VkDevice device,
     VkPipelineCache pipelineCache,
+    engine::render::VulkanGraphicsPipelineLibrary& libraries,
     VkRenderPass renderPass,
     VkPipelineLayout layout,
     VkShaderModule vertexShader,
@@ -211,10 +222,15 @@ VkPipeline createGraphicsPipeline(
     std::uint8_t blendMode,
     bool dualSourceBlend,
     bool depthTestEnabled,
-    bool depthWriteEnabled, bool depthOnly = false, bool volumeOnly = false) {
-    const VkBool32 volumeEnabled = VK_TRUE;
-    const VkSpecializationMapEntry volumeEntry{0u, 0u, sizeof(volumeEnabled)};
-    const VkSpecializationInfo volumeSpecialization{1u, &volumeEntry, sizeof(volumeEnabled), &volumeEnabled};
+    bool depthWriteEnabled, bool depthOnly = false, bool volumeOnly = false, unsigned colorCount = 1, bool preserveAlpha = false, bool sceneColor = false, bool clusteredComposition = false, std::uint32_t hazeMode = 0, bool hazeStencil = false, std::int32_t materialMode = -1,
+    std::source_location source = std::source_location::current()) {
+    const std::array<std::uint32_t,2> specializationValues{hazeMode ? hazeMode : VK_TRUE, static_cast<std::uint32_t>(materialMode)};
+    std::array<VkSpecializationMapEntry,2> specializationEntries{};
+    unsigned specializationCount=0;
+    if(volumeOnly || clusteredComposition || hazeMode)
+        specializationEntries[specializationCount++]={hazeMode ? 2u : clusteredComposition ? 1u : 0u,0u,sizeof(std::uint32_t)};
+    if(materialMode>=0)specializationEntries[specializationCount++]={3u,sizeof(std::uint32_t),sizeof(std::uint32_t)};
+    const VkSpecializationInfo specialization{specializationCount,specializationEntries.data(),sizeof(specializationValues),specializationValues.data()};
     const VkPipelineShaderStageCreateInfo stages[2]{
         VkPipelineShaderStageCreateInfo{
             VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -231,7 +247,7 @@ VkPipeline createGraphicsPipeline(
             VK_SHADER_STAGE_FRAGMENT_BIT,
             fragmentShader,
             "main",
-            volumeOnly ? &volumeSpecialization : nullptr},
+            specializationCount ? &specialization : nullptr},
     };
 
     VkPipelineVertexInputStateCreateInfo vertexInput{
@@ -275,6 +291,13 @@ VkPipeline createGraphicsPipeline(
         ? VK_COMPARE_OP_LESS_OR_EQUAL
         : VK_COMPARE_OP_LESS;
 
+    if(hazeStencil) {
+        depthStencil.stencilTestEnable=VK_TRUE;
+        depthStencil.front={VK_STENCIL_OP_KEEP,hazeMode==248?VK_STENCIL_OP_REPLACE:VK_STENCIL_OP_KEEP,
+            VK_STENCIL_OP_KEEP,hazeMode==248?VK_COMPARE_OP_ALWAYS:VK_COMPARE_OP_EQUAL,
+            0xffu,hazeMode==248?0xffu:0u,hazeMode==248?0u:1u};
+        depthStencil.back=depthStencil.front;
+    }
     VkPipelineColorBlendAttachmentState blendAttachment{};
     blendAttachment.colorWriteMask =
         VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
@@ -294,6 +317,11 @@ VkPipeline createGraphicsPipeline(
         blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
         blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
         blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    } else if (blendMode == 3u) {
+        blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     } else if (blendMode == 2u) {
         blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
         blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
@@ -307,10 +335,28 @@ VkPipeline createGraphicsPipeline(
         blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     }
 
+    if(sceneColor && colorCount==1 && !depthOnly &&
+       binding.stride==sizeof(IRenderBackend::WorldMeshVertex) && (depthTestEnabled||blendEnabled||volumeOnly)) {
+        if(!blendEnabled) {
+            blendAttachment.blendEnable=VK_TRUE;
+            blendAttachment.srcColorBlendFactor=VK_BLEND_FACTOR_ONE;
+            blendAttachment.dstColorBlendFactor=VK_BLEND_FACTOR_ZERO;
+            blendAttachment.srcAlphaBlendFactor=blendAttachment.dstAlphaBlendFactor=VK_BLEND_FACTOR_ZERO;
+        } else if(dualSourceBlend) {
+            blendAttachment.srcAlphaBlendFactor=VK_BLEND_FACTOR_SRC1_ALPHA;
+            blendAttachment.dstAlphaBlendFactor=VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;
+        }
+    }
+    if(preserveAlpha) {
+        blendAttachment.srcAlphaBlendFactor=VK_BLEND_FACTOR_ZERO;
+        blendAttachment.dstAlphaBlendFactor=VK_BLEND_FACTOR_ONE;
+    }
     VkPipelineColorBlendStateCreateInfo colorBlend{
         VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    colorBlend.attachmentCount = depthOnly ? 0u : 1u;
-    colorBlend.pAttachments = &blendAttachment;
+    std::array<VkPipelineColorBlendAttachmentState,6> blendAttachments{};
+    blendAttachments.fill(blendAttachment);
+    colorBlend.attachmentCount = depthOnly ? 0u : colorCount;
+    colorBlend.pAttachments = blendAttachments.data();
 
     constexpr std::array<VkDynamicState, 2> dynamicStates{
         VK_DYNAMIC_STATE_VIEWPORT,
@@ -339,7 +385,12 @@ VkPipeline createGraphicsPipeline(
 
     VkPipeline pipeline = VK_NULL_HANDLE;
     requireVk(
-        vkCreateGraphicsPipelines(device, pipelineCache, 1u, &createInfo, nullptr, &pipeline),
+        libraries.prepare(device, pipelineCache, createInfo, std::string("line") + std::to_string(source.line())
+            + "-mode" + std::to_string(materialMode) + "-haze" + std::to_string(hazeMode)
+            + "-blend" + std::to_string(blendEnabled ? blendMode + 1 : 0)
+            + "-depth" + std::to_string(depthTestEnabled) + std::to_string(depthWriteEnabled)
+            + "-scene" + std::to_string(sceneColor) + "-colors" + std::to_string(colorCount),
+            &pipeline),
         "vkCreateGraphicsPipelines");
     return pipeline;
 }
@@ -391,6 +442,9 @@ void VulkanRenderBackendImpl::initialize(SDL_Window* sdlWindow,
             }
         }
         worldPlanarFallback=createPlanarDescriptor(fallbackWorldLinearTexture);
+        worldWet={};worldWetTextures={};worldWetOwner=0;worldFog={};worldFogTextures={};
+        worldContactFilterFallback=createContactFilterSet({worldPlanarFallback,worldPlanarFallback,worldPlanarFallback});
+        worldContactFilterSets[currentFrame][0]=VK_NULL_HANDLE;worldContactFilterSetCount=0;
         updateWorldShadowDescriptors();
         createEnvironmentResources();
         fallbackWorldMaterial = createWorldMaterial(
@@ -486,12 +540,20 @@ void VulkanRenderBackendImpl::selectPhysicalDevice(const std::string& preferredA
     requireVk(vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data()),
               "vkEnumeratePhysicalDevices(devices)");
 
+    const auto requested=engine::render::requestedGpuLuid();
     VkPhysicalDevice best = VK_NULL_HANDLE;
     QueueFamilies bestFamilies;
     int bestScore = std::numeric_limits<int>::min();
     for (VkPhysicalDevice candidate : devices) {
-        VkPhysicalDeviceProperties properties{};
-        vkGetPhysicalDeviceProperties(candidate, &properties);
+        VkPhysicalDeviceIDProperties identity{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+        VkPhysicalDeviceProperties2 details{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+        details.pNext=&identity;vkGetPhysicalDeviceProperties2(candidate,&details);
+        const auto& properties=details.properties;
+        std::uint64_t luid=0;
+        std::memcpy(&luid,identity.deviceLUID,sizeof(luid));
+        std::cout<<"[Vulkan] GPU candidate luid="<<(identity.deviceLUIDValid?engine::render::gpuLuidText(luid):"unavailable")
+                 <<" name='"<<properties.deviceName<<"'\n";
+        if(requested && (!identity.deviceLUIDValid || luid!=*requested))continue;
         const QueueFamilies families = findQueueFamilies(candidate, surface);
         if (!families.complete() ||
             !hasDeviceExtension(candidate, VK_KHR_SWAPCHAIN_EXTENSION_NAME) ||
@@ -516,9 +578,14 @@ void VulkanRenderBackendImpl::selectPhysicalDevice(const std::string& preferredA
     }
     if (best == VK_NULL_HANDLE) {
         throw std::runtime_error(
-            "No Vulkan device supports graphics, presentation, and VK_KHR_swapchain.");
+            "No requested/available Vulkan device supports graphics, presentation, and VK_KHR_swapchain.");
     }
 
+    VkPhysicalDeviceIDProperties chosenId{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+    VkPhysicalDeviceProperties2 chosen{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    chosen.pNext=&chosenId;vkGetPhysicalDeviceProperties2(best,&chosen);
+    std::uint64_t chosenLuid=0;std::memcpy(&chosenLuid,chosenId.deviceLUID,sizeof(chosenLuid));
+    std::cout<<"[Vulkan] Selected GPU luid="<<(chosenId.deviceLUIDValid?engine::render::gpuLuidText(chosenLuid):"unavailable")<<std::endl;
     physicalDevice = best;
     graphicsQueueFamily = bestFamilies.graphics;
     presentQueueFamily = bestFamilies.present;
@@ -546,13 +613,19 @@ void VulkanRenderBackendImpl::createDevice() {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES};
     VkPhysicalDeviceVulkan11Features availableVulkan11{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+    VkPhysicalDeviceGraphicsPipelineLibraryFeaturesEXT availableLibraries{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GRAPHICS_PIPELINE_LIBRARY_FEATURES_EXT};
+    const bool libraryExtensions = hasDeviceExtension(physicalDevice, VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME)
+        && hasDeviceExtension(physicalDevice, VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
     availableVulkan11.pNext = &availableDescriptorIndexing;
+    if (libraryExtensions) availableDescriptorIndexing.pNext = &availableLibraries;
     VkPhysicalDeviceFeatures2 availableFeatures2{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     availableFeatures2.pNext = &availableVulkan11;
     vkGetPhysicalDeviceFeatures2(physicalDevice, &availableFeatures2);
     const VkPhysicalDeviceFeatures& availableFeatures = availableFeatures2.features;
     VkPhysicalDeviceFeatures enabledFeatures{};
+    enabledFeatures.shaderStorageImageExtendedFormats=availableFeatures.shaderStorageImageExtendedFormats;
     samplerAnisotropyEnabled = availableFeatures.samplerAnisotropy == VK_TRUE;
     enabledFeatures.samplerAnisotropy = samplerAnisotropyEnabled ? VK_TRUE : VK_FALSE;
     dualSourceBlendSupported = availableFeatures.dualSrcBlend == VK_TRUE;
@@ -586,7 +659,9 @@ void VulkanRenderBackendImpl::createDevice() {
         ? std::min(16.0f, physicalDeviceProperties.limits.maxSamplerAnisotropy)
         : 1.0f;
 
+    pipelineLibraries.feedbackEnabled = hasDeviceExtension(physicalDevice, VK_EXT_PIPELINE_CREATION_FEEDBACK_EXTENSION_NAME);
     std::vector<const char*> extensions{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    if (pipelineLibraries.feedbackEnabled) extensions.push_back(VK_EXT_PIPELINE_CREATION_FEEDBACK_EXTENSION_NAME);
     if (descriptorIndexingSupported) {
         extensions.push_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
     }
@@ -601,6 +676,20 @@ void VulkanRenderBackendImpl::createDevice() {
     if (descriptorIndexingSupported) {
         enabledVulkan11.pNext = &enabledDescriptorIndexing;
     }
+    VkPhysicalDeviceGraphicsPipelineLibraryFeaturesEXT enabledLibraries{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GRAPHICS_PIPELINE_LIBRARY_FEATURES_EXT};
+    pipelineLibraries.enabled = libraryExtensions && availableLibraries.graphicsPipelineLibrary
+        && !engine::env::flagEnabled("PHLOSION_VULKAN_DISABLE_PIPELINE_LIBRARIES");
+    pipelineLibraries.linkTimeOptimization = engine::env::flagEnabled("PHLOSION_VULKAN_PIPELINE_LIBRARY_LTO");
+    if (pipelineLibraries.enabled) {
+        extensions.push_back(VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME);
+        extensions.push_back(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
+        enabledLibraries.graphicsPipelineLibrary = VK_TRUE;
+        enabledLibraries.pNext = enabledVulkan11.pNext;
+        enabledVulkan11.pNext = &enabledLibraries;
+    }
+    std::cout << "[Vulkan][PipelineLibraries] enabled=" << pipelineLibraries.enabled
+        << " lto=" << pipelineLibraries.linkTimeOptimization << '\n';
     VkDeviceCreateInfo createInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     createInfo.pNext = &enabledVulkan11;
     createInfo.queueCreateInfoCount = static_cast<std::uint32_t>(queueInfos.size());
@@ -644,7 +733,7 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
         textureBindings[i].descriptorCount = 1u;
         textureBindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     }
-    textureBindings[1].stageFlags =
+    textureBindings[1].stageFlags = textureBindings[5].stageFlags =
         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo setLayoutInfo{
@@ -671,6 +760,10 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
                   "vkCreateDescriptorSetLayout(indexed world materials)");
     }
 
+    if(!windFallback.buffer){
+        windFallback=createBuffer(1024,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        std::memset(windFallback.mapped,0,1024);
+    }
     std::array<VkDescriptorSetLayoutBinding, 9> worldStateBindings{};
     worldStateBindings[0].binding = 0u;
     worldStateBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
@@ -732,6 +825,11 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
                   &worldSceneColorSetLayout),
               "vkCreateDescriptorSetLayout(world scene color)");
 
+    std::array<VkDescriptorSetLayoutBinding,25> contactBindings{};
+    for(unsigned i=0;i<contactBindings.size();++i){contactBindings[i]=sceneColorBinding;contactBindings[i].binding=i;if(i==10||i==11)contactBindings[i].descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;}
+    auto contactLayoutInfo=sceneColorSetLayoutInfo;contactLayoutInfo.bindingCount=unsigned(contactBindings.size());contactLayoutInfo.pBindings=contactBindings.data();
+    requireVk(vkCreateDescriptorSetLayout(device,&contactLayoutInfo,nullptr,&worldContactFilterLayout),"create contact filter layout");
+
     std::array<VkDescriptorPoolSize, 4> poolSizes{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     poolSizes[0].descriptorCount =
@@ -745,17 +843,25 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     poolSizes[1].descriptorCount = kFramesInFlight * 6u;
     poolSizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSizes[2].descriptorCount = kFramesInFlight * 4u;
+    poolSizes[2].descriptorCount = kFramesInFlight * (4u+96u*2u)+11u;
     poolSizes[3].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
     poolSizes[3].descriptorCount = kFramesInFlight * 2u;
     VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    poolInfo.maxSets = 4096u + kFramesInFlight + kFramesInFlight +
+    poolInfo.maxSets = 4105u + kFramesInFlight + kFramesInFlight +
                        (descriptorIndexingSupported ? kFramesInFlight : 0u);
     poolInfo.poolSizeCount = static_cast<std::uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
     requireVk(vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool),
               "vkCreateDescriptorPool");
+
+    const std::array<VkDescriptorSetLayoutBinding,3> windBindings{{
+        {0,VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,1,VK_SHADER_STAGE_VERTEX_BIT,nullptr},
+        {1,VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,1,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr},
+        {2,VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,engine::render::kWorldLayerTextureLimit,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr}}};
+    VkDescriptorSetLayoutCreateInfo windLayout{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    windLayout.bindingCount=static_cast<std::uint32_t>(windBindings.size());windLayout.pBindings=windBindings.data();
+    requireVk(vkCreateDescriptorSetLayout(device,&windLayout,nullptr,&windDrawSetLayout),"Wind draw layout");
 
     VkPushConstantRange debugPushRange{};
     debugPushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
@@ -772,10 +878,14 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
     texturedPushRange.size = static_cast<std::uint32_t>(sizeof(WorldPushConstants));
     VkPipelineLayoutCreateInfo texturedLayoutInfo{
         VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    const std::array<VkDescriptorSetLayout, 3> texturedSetLayouts{
+    const std::array<VkDescriptorSetLayout, 8> texturedSetLayouts{
         textureSetLayout,
         worldStateSetLayout,
         worldSceneColorSetLayout,
+        worldSceneColorSetLayout,
+        worldSceneColorSetLayout,
+        worldSceneColorSetLayout,
+        worldContactFilterLayout,windDrawSetLayout,
     };
     texturedLayoutInfo.setLayoutCount = static_cast<std::uint32_t>(texturedSetLayouts.size());
     texturedLayoutInfo.pSetLayouts = texturedSetLayouts.data();
@@ -829,11 +939,15 @@ void VulkanRenderBackendImpl::createDescriptorResources() {
               "vkCreateSampler(world scene color)");
 
     if (descriptorIndexingSupported) {
-        const std::array<VkDescriptorSetLayout, 3> indirectSetLayouts{
+        const std::array<VkDescriptorSetLayout, 8> indirectSetLayouts{
             indexedWorldMaterialSetLayout,
             worldStateSetLayout,
             worldSceneColorSetLayout,
-        };
+            worldSceneColorSetLayout,
+            worldSceneColorSetLayout,
+            worldSceneColorSetLayout,
+            worldContactFilterLayout,windDrawSetLayout,
+    };
         VkPushConstantRange indirectPushRange{};
         indirectPushRange.stageFlags =
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -864,14 +978,22 @@ void VulkanRenderBackendImpl::createFrameResources() {
     requireVk(vkAllocateCommandBuffers(device, &allocateInfo, commandBuffers.data()),
               "vkAllocateCommandBuffers");
 
+    deformationBuffer=createBuffer(64u*1024u*1024u,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    frameSkinPalettes.configure(static_cast<std::byte*>(deformationBuffer.mapped),
+        std::size_t(deformationBuffer.size),0,64,[this]{
+            if(!deformationBuffer.coherent) {
+                VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
+                range.memory=deformationBuffer.memory;range.offset=0;range.size=VK_WHOLE_SIZE;
+                requireVk(vkFlushMappedMemoryRanges(device,1,&range),"vkFlushMappedMemoryRanges(deformation)");
+            }
+        },std::max<std::size_t>(256,physicalDeviceProperties.limits.nonCoherentAtomSize));
     for (std::uint32_t i = 0u; i < kFramesInFlight; ++i) {
         FrameResources& frame = frames[i];
         frame.commandBuffer = commandBuffers[i];
         VkSemaphoreCreateInfo semaphoreInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
         requireVk(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &frame.imageAvailable),
                   "vkCreateSemaphore(imageAvailable)");
-        requireVk(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &frame.renderFinished),
-                  "vkCreateSemaphore(renderFinished)");
         VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         requireVk(vkCreateFence(device, &fenceInfo, nullptr, &frame.inFlight),
@@ -881,7 +1003,7 @@ void VulkanRenderBackendImpl::createFrameResources() {
             timestampPeriodNs > 0.0f) {
             VkQueryPoolCreateInfo queryInfo{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
             queryInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
-            queryInfo.queryCount = 2u;
+            queryInfo.queryCount = engine::render::RenderPhaseProfile::queryCapacity;
             requireVk(vkCreateQueryPool(device, &queryInfo, nullptr, &frame.timestampQueries),
                       "vkCreateQueryPool");
         }
@@ -926,9 +1048,9 @@ void VulkanRenderBackendImpl::createFrameResources() {
         std::array<VkDescriptorBufferInfo, 6> bufferInfos{};
         std::array<VkWriteDescriptorSet, 6> writes{};
         for (std::uint32_t binding = 0u; binding < writes.size(); ++binding) {
-            bufferInfos[binding].buffer = frame.transient.buffer;
+            bufferInfos[binding].buffer = binding==3u?deformationBuffer.buffer:frame.transient.buffer;
             bufferInfos[binding].offset = 0u;
-            bufferInfos[binding].range = ranges[binding];
+            bufferInfos[binding].range = binding==3u?deformationBuffer.size:ranges[binding];
             writes[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[binding].dstSet = frame.worldStateDescriptorSet;
             writes[binding].dstBinding = binding;
@@ -961,6 +1083,7 @@ bool VulkanRenderBackendImpl::recreateSwapchain() {
     }
     requestedWidth = drawableWidth;
     requestedHeight = drawableHeight;
+    requireVk(presentPendingFrame(), "vkQueuePresentKHR(recreateSwapchain)");
     requireVk(vkDeviceWaitIdle(device), "vkDeviceWaitIdle(recreateSwapchain)");
     destroySwapchainResources();
     createSwapchainResources();
@@ -1042,6 +1165,15 @@ void VulkanRenderBackendImpl::createSwapchainResources() {
 
     requireVk(vkGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr),
               "vkGetSwapchainImagesKHR(count)");
+    // Holding the preceding image must still leave acquisition forward progress.
+    canDeferPresent = imageCount > capabilities.minImageCount &&
+        !engine::env::flagEnabled("PHLOSION_VULKAN_DISABLE_PRESENT_OVERLAP");
+    renderFinishedSemaphores.assign(imageCount, VK_NULL_HANDLE);
+    for (auto& semaphore : renderFinishedSemaphores) {
+        VkSemaphoreCreateInfo info{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+        requireVk(vkCreateSemaphore(device, &info, nullptr, &semaphore),
+                  "vkCreateSemaphore(renderFinished)");
+    }
     swapchainImages.resize(imageCount);
     requireVk(vkGetSwapchainImagesKHR(
                   device, swapchain, &imageCount, swapchainImages.data()),
@@ -1099,7 +1231,7 @@ void VulkanRenderBackendImpl::createRenderPass() {
     depthAttachment.format = depthFormat;
     depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
     depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -1141,10 +1273,21 @@ void VulkanRenderBackendImpl::createRenderPass() {
     beginDependency.dstSubpass = 0u;
     beginDependency.srcStageMask =
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    beginDependency.dstStageMask = beginDependency.srcStageMask;
-    beginDependency.dstAccessMask =
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+        VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT |
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    beginDependency.dstStageMask =
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+        VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    beginDependency.srcAccessMask =
         VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+        VK_ACCESS_SHADER_READ_BIT;
+    beginDependency.dstAccessMask =
+        VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
         VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     createCompatibleRenderPass(
         colorAttachment,
@@ -1154,28 +1297,23 @@ void VulkanRenderBackendImpl::createRenderPass() {
         renderPass,
         "vkCreateRenderPass");
 
+    // Editor display targets use the ordinary pipelines and swapchain format,
+    // but finish as sampled textures rather than presentable images.
+    auto editorDisplayAttachment = colorAttachment;
+    editorDisplayAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    createCompatibleRenderPass(editorDisplayAttachment, depthAttachment, &beginDependency, 1u,
+        editorDisplayRenderPass, "vkCreateRenderPass(editor display)");
+
     VkAttachmentDescription loadColorAttachment = colorAttachment;
     loadColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
     loadColorAttachment.initialLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     VkAttachmentDescription loadDepthAttachment = depthAttachment;
     loadDepthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    loadDepthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     loadDepthAttachment.initialLayout =
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    VkSubpassDependency loadDependency{};
-    loadDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    loadDependency.dstSubpass = 0u;
-    loadDependency.srcStageMask =
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    loadDependency.dstStageMask = loadDependency.srcStageMask;
-    loadDependency.srcAccessMask =
-        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    loadDependency.dstAccessMask =
-        VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
-        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+    // Clear/load variants share framebuffers and pipelines, so their subpass
+    // dependencies must match as well as their attachment formats.
+    const auto loadDependency = beginDependency;
     createCompatibleRenderPass(
         loadColorAttachment,
         loadDepthAttachment,
@@ -1195,9 +1333,11 @@ void VulkanRenderBackendImpl::createRenderPass() {
         VkSubpassDependency{
             0u,
             VK_SUBPASS_EXTERNAL,
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
             VK_ACCESS_SHADER_READ_BIT,
             0u},
     };
@@ -1212,17 +1352,39 @@ void VulkanRenderBackendImpl::createRenderPass() {
     sceneColorAttachment.initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     sceneDepthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
     sceneDepthAttachment.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    auto loadSceneDependencies = sceneDependencies;
-    auto& begin = loadSceneDependencies[0];
-    begin.srcStageMask |= VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    begin.dstStageMask |= VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-    begin.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-    begin.dstAccessMask |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-    auto& end = loadSceneDependencies[1];
-    end.srcStageMask |= VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-    end.srcAccessMask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    createCompatibleRenderPass(sceneColorAttachment, sceneDepthAttachment, loadSceneDependencies.data(), 2,
+    createCompatibleRenderPass(sceneColorAttachment, sceneDepthAttachment, sceneDependencies.data(), 2,
         worldSceneColorLoadRenderPass, "vkCreateRenderPass(world scene color load)");
+    std::array<VkAttachmentDescription,7> surfaceAttachments{};
+    for(unsigned i=0;i<6;++i) {
+        surfaceAttachments[i]=sceneColorAttachment;
+        surfaceAttachments[i].format=kWorldSurfaceFormats[i];
+        surfaceAttachments[i].loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;
+        surfaceAttachments[i].initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+        surfaceAttachments[i].finalLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    }
+    surfaceAttachments[6]=sceneDepthAttachment;
+    surfaceAttachments[6].loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;
+    surfaceAttachments[6].initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+    surfaceAttachments[6].finalLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    std::array<VkAttachmentReference,6> surfaceColors{};
+    for(unsigned i=0;i<6;++i)surfaceColors[i]={i,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    VkAttachmentReference surfaceDepth{6,VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+    VkSubpassDescription surfaceSubpass{};
+    surfaceSubpass.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS;
+    surfaceSubpass.colorAttachmentCount=6;surfaceSubpass.pColorAttachments=surfaceColors.data();
+    surfaceSubpass.pDepthStencilAttachment=&surfaceDepth;
+    auto surfaceDependencies=sceneDependencies;
+    for(auto& d:surfaceDependencies) {
+        d.srcStageMask|=VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        d.dstStageMask|=VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        d.srcAccessMask|=VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        d.dstAccessMask|=VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    }
+    VkRenderPassCreateInfo surfaceInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+    surfaceInfo.attachmentCount=7;surfaceInfo.pAttachments=surfaceAttachments.data();
+    surfaceInfo.subpassCount=1;surfaceInfo.pSubpasses=&surfaceSubpass;
+    surfaceInfo.dependencyCount=2;surfaceInfo.pDependencies=surfaceDependencies.data();
+    requireVk(vkCreateRenderPass(device,&surfaceInfo,nullptr,&worldSurfaceRenderPass),"create surface render pass");
     createWorldShadowRenderPass();
 }
 
@@ -1240,7 +1402,7 @@ void VulkanRenderBackendImpl::createDepthResources() {
         imageInfo.arrayLayers = 1u;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-        imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         requireVk(vkCreateImage(device, &imageInfo, nullptr, &depthImages[i]),
                   "vkCreateImage(depth)");
@@ -1288,11 +1450,11 @@ void VulkanRenderBackendImpl::createFramebuffers() {
     }
 }
 
-VkShaderModule VulkanRenderBackendImpl::loadShaderModule(const char* fileName) const {
-    constexpr std::array<std::string_view, 7> profileFiles{
+VkShaderModule VulkanRenderBackendImpl::loadShaderModule(const char* fileName) {
+    constexpr std::array<std::string_view, 9> profileFiles{
         "world.frag.spv", "world_dual_source.frag.spv",
         "world_indirect.frag.spv", "world_indirect_dual_source.frag.spv",
-        "world.vert.spv", "world_indirect.vert.spv", "world_shadow.frag.spv"};
+        "world.vert.spv", "world_indirect.vert.spv", "world_shadow.frag.spv", "world_surface.frag.spv", "world_motion.vert.spv"};
     const auto found = std::find(profileFiles.begin(), profileFiles.end(), fileName);
     if (!worldMaterialProfile.empty() && found != profileFiles.end()) {
         const auto &words = worldMaterialProfile.vulkan[static_cast<std::size_t>(found - profileFiles.begin())];
@@ -1301,9 +1463,16 @@ VkShaderModule VulkanRenderBackendImpl::loadShaderModule(const char* fileName) c
         info.pCode = words.data();
         VkShaderModule module = VK_NULL_HANDLE;
         requireVk(vkCreateShaderModule(device, &info, nullptr, &module), "vkCreateShaderModule(project material)");
+        pipelineLibraries.registerShader(module, fileName);
+        if (engine::env::flagEnabled("PHLOSION_SHADER_PREPARATION_TRACE"))
+            std::osyncstream(std::clog) << "[Vulkan][ShaderModule] name=" << fileName
+                << " bytes=" << info.codeSize << " module=" << module << " project=1\n";
         return module;
     }
-    const std::filesystem::path path = std::filesystem::path(PHLOSION_VULKAN_SHADER_DIR) / fileName;
+    const auto shaderDirectory=engine::env::get("PHLOSION_VULKAN_SHADER_DIR");
+    const std::filesystem::path path =
+        std::filesystem::path(shaderDirectory && !shaderDirectory->empty()
+            ? *shaderDirectory : PHLOSION_VULKAN_SHADER_DIR) / fileName;
     std::ifstream input(path, std::ios::binary | std::ios::ate);
     if (!input.is_open()) {
         throw std::runtime_error("Unable to open Vulkan shader: " + path.string());
@@ -1323,6 +1492,10 @@ VkShaderModule VulkanRenderBackendImpl::loadShaderModule(const char* fileName) c
     VkShaderModule module = VK_NULL_HANDLE;
     requireVk(vkCreateShaderModule(device, &createInfo, nullptr, &module),
               "vkCreateShaderModule");
+    pipelineLibraries.registerShader(module, fileName);
+    if (engine::env::flagEnabled("PHLOSION_SHADER_PREPARATION_TRACE"))
+        std::osyncstream(std::clog) << "[Vulkan][ShaderModule] name=" << fileName
+            << " bytes=" << createInfo.codeSize << " module=" << module << " project=0\n";
     return module;
 }
 
@@ -1336,11 +1509,37 @@ void VulkanRenderBackendImpl::createPipelines() {
     VkShaderModule worldVs = VK_NULL_HANDLE;
     VkShaderModule worldFs = VK_NULL_HANDLE;
     VkShaderModule shadowFs = VK_NULL_HANDLE;
+    VkShaderModule contactFs = VK_NULL_HANDLE;
     VkShaderModule worldDualSourceFs = VK_NULL_HANDLE;
     VkShaderModule worldIndirectVs = VK_NULL_HANDLE;
     VkShaderModule worldIndirectFs = VK_NULL_HANDLE;
     VkShaderModule worldIndirectDualSourceFs = VK_NULL_HANDLE;
+    std::vector<std::array<VkShaderModule, 3>> familyModules(worldMaterialProfile.transparentFamilies.size());
+    const auto destroyFamilyModules = [&] {
+        for (const auto& modules : familyModules)
+            for (const auto module : modules) if (module) vkDestroyShaderModule(device, module, nullptr);
+    };
+    engine::render::PreparationBatch preparation;
     try {
+        transparentPipelines.resize(familyModules.size());
+        for (std::size_t index = 0; index < familyModules.size(); ++index) {
+            const auto& family = worldMaterialProfile.transparentFamilies[index];
+            for (std::size_t stage = 0; stage < 3; ++stage) {
+                if (stage == 1 && !dualSourceBlendSupported) continue;
+                const auto& words = family.vulkan[stage];
+                VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+                info.codeSize = words.size() * sizeof(std::uint32_t);
+                info.pCode = words.data();
+                auto& module = familyModules[index][stage];
+                requireVk(vkCreateShaderModule(device, &info, nullptr, &module), "vkCreateShaderModule(transparent family)");
+                const auto name = "family/" + family.id + "/" + std::to_string(stage);
+                pipelineLibraries.registerShader(module, name.c_str());
+                if (engine::env::flagEnabled("PHLOSION_SHADER_PREPARATION_TRACE"))
+                    std::osyncstream(std::clog) << "[Vulkan][ShaderModule] name=" << name
+                        << " bytes=" << info.codeSize << " module=" << module << " project=1\n";
+            }
+        }
+
         debugVs = loadShaderModule("debug.vert.spv");
         debugFs = loadShaderModule("debug.frag.spv");
         spriteVs = loadShaderModule("sprite.vert.spv");
@@ -1349,6 +1548,7 @@ void VulkanRenderBackendImpl::createPipelines() {
         sceneColorFs = loadShaderModule("scene_color.frag.spv");
         worldVs = loadShaderModule("world.vert.spv");
         worldFs = loadShaderModule("world.frag.spv");
+        contactFs = loadShaderModule("contact_filter.frag.spv");
         if (worldMaterialProfile.empty() || !worldMaterialProfile.vulkan[6].empty())
             shadowFs = loadShaderModule("world_shadow.frag.spv");
         if (dualSourceBlendSupported) {
@@ -1368,7 +1568,7 @@ void VulkanRenderBackendImpl::createPipelines() {
             {0u, 0u, VK_FORMAT_R32G32_SFLOAT, offsetof(DebugVertex, x)},
             {1u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(DebugVertex, r)},
         };
-        debugPipeline = createGraphicsPipeline(device, pipelineCache,
+        preparation.add([=, &output = debugPipeline] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries,
                                                renderPass,
                                                debugPipelineLayout,
                                                debugVs,
@@ -1379,7 +1579,7 @@ void VulkanRenderBackendImpl::createPipelines() {
                                                0u,
                                                false,
                                                false,
-                                               false);
+                                               false); });
 
         VkVertexInputBindingDescription spriteBinding{
             0u,
@@ -1393,7 +1593,7 @@ void VulkanRenderBackendImpl::createPipelines() {
             {2u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
              offsetof(engine::render::vulkan_backend::SpriteInstanceState, color)},
         };
-        spritePipeline = createGraphicsPipeline(device, pipelineCache,
+        preparation.add([=, &output = spritePipeline] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries,
                                                 renderPass,
                                                 texturedPipelineLayout,
                                                 spriteVs,
@@ -1404,14 +1604,21 @@ void VulkanRenderBackendImpl::createPipelines() {
                                                 0u,
                                                 false,
                                                 false,
-                                                false);
+                                                false); });
+
+        preparation.add([=, &output = sceneDebugPipeline] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries,
+            worldSceneColorRenderPass, debugPipelineLayout, debugVs, debugFs,
+            debugBinding, debugAttributes, true, 0u, false, false, false); });
+        preparation.add([=, &output = sceneSpritePipeline] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries,
+            worldSceneColorRenderPass, texturedPipelineLayout, spriteVs, spriteFs,
+            spriteBinding, spriteAttributes, true, 0u, false, false, false); });
 
         VkVertexInputBindingDescription sceneColorBinding{
             0u, 0u, VK_VERTEX_INPUT_RATE_VERTEX};
         const std::vector<VkVertexInputAttributeDescription>
             sceneColorAttributes{};
-        worldSceneColorPipeline = createGraphicsPipeline(
-            device, pipelineCache,
+        preparation.add([=, &output = worldSceneColorPipeline] { output = createGraphicsPipeline(
+            device, pipelineCache, pipelineLibraries,
             loadRenderPass,
             worldSceneColorPipelineLayout,
             sceneColorVs,
@@ -1422,7 +1629,7 @@ void VulkanRenderBackendImpl::createPipelines() {
             0u,
             false,
             false,
-            false);
+            false); });
 
         VkVertexInputBindingDescription worldBinding{
             0u,
@@ -1448,90 +1655,154 @@ void VulkanRenderBackendImpl::createPipelines() {
             {8u, 0u, VK_FORMAT_R32G32_SFLOAT,
              offsetof(IRenderBackend::WorldMeshVertex, sourceUv2U)},
         };
+        ensureWorldHazeStencilPass();
+        preparation.add([=, &output = worldHazeStencilComposePipeline] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries,worldHazeStencilRenderPass,texturedPipelineLayout,
+            worldVs,worldFs,worldBinding,worldAttributes,true,1u,false,false,false,false,false,1,true,false,false,248u,true); });
+        preparation.add([=, &output = worldHazeStencilEdgePipeline] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries,worldHazeStencilRenderPass,texturedPipelineLayout,
+            worldVs,worldFs,worldBinding,worldAttributes,true,1u,false,false,false,false,false,1,true,false,false,246u,true); });
+        preparation.add([=, &output = worldFogComposePipeline] { output=createGraphicsPipeline(device, pipelineCache, pipelineLibraries,worldSceneColorRenderPass,texturedPipelineLayout,
+            worldVs,worldFs,worldBinding,worldAttributes,true,2u,false,false,false,false,false,1,true,true,false,0u,false,239); });
+        preparation.add([=, &output = worldHazePipeline] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries,worldSceneColorRenderPass,texturedPipelineLayout,
+            worldVs,worldFs,worldBinding,worldAttributes,true,2u,false,false,false,false,false,1,false,false,false,247u); });
+        preparation.add([=, &output = worldHazeEdgePipeline] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries,worldSceneColorRenderPass,texturedPipelineLayout,
+            worldVs,worldFs,worldBinding,worldAttributes,true,1u,false,false,false,false,false,1,true,false,false,246u); });
+        preparation.add([=, &output = worldTemporalHazePipeline] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries,worldSceneColorRenderPass,texturedPipelineLayout,
+            worldVs,worldFs,worldBinding,worldAttributes,true,1u,false,false,false,false,false,1,true,false,false,248u); });
+        preparation.add([=, &output = worldContactFilterPipeline] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries,worldSceneColorRenderPass,texturedPipelineLayout,
+            worldVs,contactFs,worldBinding,worldAttributes,false,0u,false,false,false); });
         if (shadowFs != VK_NULL_HANDLE)
-            worldShadowPipeline = createGraphicsPipeline(device, pipelineCache, worldShadowRenderPass, texturedPipelineLayout,
-                worldVs, shadowFs, worldBinding, worldAttributes, false, 0, false, true, true, true);
+            preparation.add([=, &output = worldShadowPipeline] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries, worldShadowRenderPass, texturedPipelineLayout,
+                worldVs, shadowFs, worldBinding, worldAttributes, false, 0, false, true, true, true); });
+        preparation.add([=, &output = worldClusteredCompositionPipeline] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries,worldSceneColorRenderPass,texturedPipelineLayout,
+            worldVs,worldFs,worldBinding,worldAttributes,false,0u,false,true,true,false,false,1,false,true,true); });
+        if(indirectWorldBatchingSupported)
+            preparation.add([=, &output = worldClusteredIndirectCompositionPipeline] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries,worldSceneColorRenderPass,indirectWorldPipelineLayout,
+                worldIndirectVs,worldIndirectFs,worldBinding,worldAttributes,false,0u,false,true,true,false,false,1,false,true,true); });
+        for (std::size_t family = 0; family < familyModules.size(); ++family) {
+            const auto vertex = familyModules[family][2];
+            for (bool sceneColor : {false, true}) {
+                auto& pipelines = sceneColor ? transparentPipelines[family].scene : transparentPipelines[family].display;
+                const auto pass = sceneColor ? worldSceneColorRenderPass : renderPass;
+                for (unsigned index = 2; index < pipelines.size(); ++index) {
+                    const bool dual = index >= 8 && index < 12;
+                    if (dual && !dualSourceBlendSupported) continue;
+                    const auto fragment = familyModules[family][dual ? 1 : 0];
+                    const auto blend = static_cast<std::uint8_t>(index >= 12 ? 3 : (index - (dual ? 8 : 2)) / 2);
+                    const bool depth = (index & 1u) == 0;
+                    preparation.add([=, &output = pipelines[index]] {
+                        output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries, pass, texturedPipelineLayout,
+                            vertex, fragment, worldBinding, worldAttributes, true, blend, dual, depth, false,
+                            false, false, 1, false, sceneColor);
+                    });
+                }
+            }
+        }
+        for(const auto request:worldMaterialProfile.vulkanPipelineWarmup) {
+            const auto index=request.variant;
+            const auto family = worldMaterialProfile.transparentFamilyIndex(request.mode);
+            const auto vertex = family >= 0 ? familyModules[family][2] : worldVs;
+            const auto fragment = family >= 0 ? familyModules[family][0] : worldFs;
+
+            const bool blend=index>=2,depth=(index&1u)==0;
+            const std::uint8_t mode=index>=12?3u:index>=2?static_cast<std::uint8_t>((index-2)/2):0u;
+            for(bool sceneColor:{false,true}) {
+                const auto key=request.mode*32+index+(sceneColor?8192u:0u);
+                auto& output=worldMaterialPipelines[key];
+                const auto pass=sceneColor?worldSceneColorRenderPass:renderPass;
+                preparation.add([=,&output] {output=createGraphicsPipeline(device, pipelineCache, pipelineLibraries,pass,texturedPipelineLayout,
+                    vertex,fragment,worldBinding,worldAttributes,blend,mode,false,depth,!blend&&depth,
+                    false,false,1,false,sceneColor,false,0u,false,static_cast<std::int32_t>(request.mode));});
+                if(sceneColor && index==0 && worldMaterialProfile.modes[request.mode].sharedLocalLighting) {
+                    auto& shared=worldMaterialPipelines[key|16384u];
+                    preparation.add([=,&shared] {shared=createGraphicsPipeline(device,pipelineCache,pipelineLibraries,pass,texturedPipelineLayout,
+                        vertex,fragment,worldBinding,worldAttributes,false,0u,false,true,true,
+                        false,false,1,false,true,true,0u,false,static_cast<std::int32_t>(request.mode));});
+                }
+            }
+        }
         for (bool sceneColor : {false, true}) {
             auto& targetPipelines = sceneColor ? sceneWorldPipelines : this->worldPipelines;
             auto& targetVolumePipeline = sceneColor ? sceneWorldVolumePipeline : this->worldVolumePipeline;
             auto& targetIndirectPipelines = sceneColor ? sceneIndirectWorldPipelines : this->indirectWorldPipelines;
             const auto targetPass = sceneColor ? worldSceneColorRenderPass : this->renderPass;
-            targetPipelines[0] = createGraphicsPipeline(device, pipelineCache, targetPass, texturedPipelineLayout,
+            preparation.add([=, &output = targetPipelines[0]] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries, targetPass, texturedPipelineLayout,
                                                        worldVs, worldFs, worldBinding, worldAttributes,
-                                                       false, 0u, false, true, true);
-            targetPipelines[1] = createGraphicsPipeline(device, pipelineCache, targetPass, texturedPipelineLayout,
+                                                       false, 0u, false, true, true,false,false,1,false,sceneColor); });
+            preparation.add([=, &output = targetPipelines[1]] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries, targetPass, texturedPipelineLayout,
                                                        worldVs, worldFs, worldBinding, worldAttributes,
-                                                       false, 0u, false, false, false);
-            for (std::uint8_t blendMode = 0u; blendMode < 3u; ++blendMode) {
-                const std::size_t base = 2u + static_cast<std::size_t>(blendMode) * 2u;
-                targetPipelines[base] = createGraphicsPipeline(device, pipelineCache, targetPass, texturedPipelineLayout,
+                                                       false, 0u, false, false, false,false,false,1,false,sceneColor); });
+            for (std::uint8_t blendMode = 0u; blendMode < 4u; ++blendMode) {
+                const std::size_t base = blendMode == 3u ? 12u : 2u + static_cast<std::size_t>(blendMode) * 2u;
+                preparation.add([=, &output = targetPipelines[base]] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries, targetPass, texturedPipelineLayout,
                                                               worldVs, worldFs, worldBinding, worldAttributes,
-                                                              true, blendMode, false, true, false);
-                targetPipelines[base + 1u] = createGraphicsPipeline(
-                    device, pipelineCache, targetPass, texturedPipelineLayout,
+                                                              true, blendMode, false, true, false,false,false,1,false,sceneColor); });
+                preparation.add([=, &output = targetPipelines[base + 1u]] { output = createGraphicsPipeline(
+                    device, pipelineCache, pipelineLibraries, targetPass, texturedPipelineLayout,
                     worldVs, worldFs, worldBinding, worldAttributes,
-                    true, blendMode, false, false, false);
+                    true, blendMode, false, false, false,false,false,1,false,sceneColor); });
             }
             if (dualSourceBlendSupported) {
                 for (std::uint8_t blendMode = 0u; blendMode < 2u; ++blendMode) {
                     const std::size_t base =
                         engine::render::vulkan_backend::kFirstDualSourceBlendPipeline +
                         static_cast<std::size_t>(blendMode) * 2u;
-                    targetPipelines[base] = createGraphicsPipeline(
-                        device, pipelineCache, targetPass, texturedPipelineLayout,
+                    preparation.add([=, &output = targetPipelines[base]] { output = createGraphicsPipeline(
+                        device, pipelineCache, pipelineLibraries, targetPass, texturedPipelineLayout,
                         worldVs, worldDualSourceFs, worldBinding, worldAttributes,
-                        true, blendMode, true, true, false);
-                    targetPipelines[base + 1u] = createGraphicsPipeline(
-                        device, pipelineCache, targetPass, texturedPipelineLayout,
+                        true, blendMode, true, true, false,false,false,1,false,sceneColor); });
+                    preparation.add([=, &output = targetPipelines[base + 1u]] { output = createGraphicsPipeline(
+                        device, pipelineCache, pipelineLibraries, targetPass, texturedPipelineLayout,
                         worldVs, worldDualSourceFs, worldBinding, worldAttributes,
-                        true, blendMode, true, false, false);
+                        true, blendMode, true, false, false,false,false,1,false,sceneColor); });
                 }
             }
             // The rain volume's standard alpha/depth variant eliminates the material
             // dispatcher through specialization; other blend variants retain fallback.
-            targetVolumePipeline = createGraphicsPipeline(device, pipelineCache, targetPass, texturedPipelineLayout,
-                worldVs, worldFs, worldBinding, worldAttributes, true, 0u, false, true, false, false, true);
+            preparation.add([=, &output = targetVolumePipeline] { output = createGraphicsPipeline(device, pipelineCache, pipelineLibraries, targetPass, texturedPipelineLayout,
+                worldVs, worldFs, worldBinding, worldAttributes, true, 0u, false, true, false, false, true,1,false,sceneColor); });
             if (indirectWorldBatchingSupported) {
-                targetIndirectPipelines[0] = createGraphicsPipeline(
-                    device, pipelineCache, targetPass, indirectWorldPipelineLayout,
+                preparation.add([=, &output = targetIndirectPipelines[0]] { output = createGraphicsPipeline(
+                    device, pipelineCache, pipelineLibraries, targetPass, indirectWorldPipelineLayout,
                     worldIndirectVs, worldIndirectFs, worldBinding, worldAttributes,
-                    false, 0u, false, true, true);
-                targetIndirectPipelines[1] = createGraphicsPipeline(
-                    device, pipelineCache, targetPass, indirectWorldPipelineLayout,
+                    false, 0u, false, true, true,false,false,1,false,sceneColor); });
+                preparation.add([=, &output = targetIndirectPipelines[1]] { output = createGraphicsPipeline(
+                    device, pipelineCache, pipelineLibraries, targetPass, indirectWorldPipelineLayout,
                     worldIndirectVs, worldIndirectFs, worldBinding, worldAttributes,
-                    false, 0u, false, false, false);
-                for (std::uint8_t blendMode = 0u; blendMode < 3u; ++blendMode) {
+                    false, 0u, false, false, false,false,false,1,false,sceneColor); });
+                for (std::uint8_t blendMode = 0u; blendMode < 4u; ++blendMode) {
                     const std::size_t base =
-                        2u + static_cast<std::size_t>(blendMode) * 2u;
-                    targetIndirectPipelines[base] = createGraphicsPipeline(
-                        device, pipelineCache, targetPass, indirectWorldPipelineLayout,
+                        blendMode == 3u ? 12u : 2u + static_cast<std::size_t>(blendMode) * 2u;
+                    preparation.add([=, &output = targetIndirectPipelines[base]] { output = createGraphicsPipeline(
+                        device, pipelineCache, pipelineLibraries, targetPass, indirectWorldPipelineLayout,
                         worldIndirectVs, worldIndirectFs, worldBinding, worldAttributes,
-                        true, blendMode, false, true, false);
-                    targetIndirectPipelines[base + 1u] = createGraphicsPipeline(
-                        device, pipelineCache, targetPass, indirectWorldPipelineLayout,
+                        true, blendMode, false, true, false,false,false,1,false,sceneColor); });
+                    preparation.add([=, &output = targetIndirectPipelines[base + 1u]] { output = createGraphicsPipeline(
+                        device, pipelineCache, pipelineLibraries, targetPass, indirectWorldPipelineLayout,
                         worldIndirectVs, worldIndirectFs, worldBinding, worldAttributes,
-                        true, blendMode, false, false, false);
+                        true, blendMode, false, false, false,false,false,1,false,sceneColor); });
                 }
                 if (dualSourceBlendSupported) {
                     for (std::uint8_t blendMode = 0u; blendMode < 2u; ++blendMode) {
                         const std::size_t base =
                             engine::render::vulkan_backend::kFirstDualSourceBlendPipeline +
                             static_cast<std::size_t>(blendMode) * 2u;
-                        targetIndirectPipelines[base] = createGraphicsPipeline(
-                            device, pipelineCache, targetPass, indirectWorldPipelineLayout,
+                        preparation.add([=, &output = targetIndirectPipelines[base]] { output = createGraphicsPipeline(
+                            device, pipelineCache, pipelineLibraries, targetPass, indirectWorldPipelineLayout,
                             worldIndirectVs, worldIndirectDualSourceFs,
                             worldBinding, worldAttributes,
-                            true, blendMode, true, true, false);
-                        targetIndirectPipelines[base + 1u] = createGraphicsPipeline(
-                            device, pipelineCache, targetPass, indirectWorldPipelineLayout,
+                            true, blendMode, true, true, false,false,false,1,false,sceneColor); });
+                        preparation.add([=, &output = targetIndirectPipelines[base + 1u]] { output = createGraphicsPipeline(
+                            device, pipelineCache, pipelineLibraries, targetPass, indirectWorldPipelineLayout,
                             worldIndirectVs, worldIndirectDualSourceFs,
                             worldBinding, worldAttributes,
-                            true, blendMode, true, false, false);
+                            true, blendMode, true, false, false,false,false,1,false,sceneColor); });
                     }
                 }
             }
         }
+        preparation.run(4);
     } catch (...) {
+        destroyFamilyModules();
         if (debugVs != VK_NULL_HANDLE) vkDestroyShaderModule(device, debugVs, nullptr);
         if (debugFs != VK_NULL_HANDLE) vkDestroyShaderModule(device, debugFs, nullptr);
         if (spriteVs != VK_NULL_HANDLE) vkDestroyShaderModule(device, spriteVs, nullptr);
@@ -1545,6 +1816,7 @@ void VulkanRenderBackendImpl::createPipelines() {
         if (worldVs != VK_NULL_HANDLE) vkDestroyShaderModule(device, worldVs, nullptr);
         if (worldFs != VK_NULL_HANDLE) vkDestroyShaderModule(device, worldFs, nullptr);
         if (shadowFs != VK_NULL_HANDLE) vkDestroyShaderModule(device, shadowFs, nullptr);
+    if(contactFs)vkDestroyShaderModule(device,contactFs,nullptr);
         if (worldDualSourceFs != VK_NULL_HANDLE) {
             vkDestroyShaderModule(device, worldDualSourceFs, nullptr);
         }
@@ -1559,6 +1831,7 @@ void VulkanRenderBackendImpl::createPipelines() {
         }
         throw;
     }
+    destroyFamilyModules();
     vkDestroyShaderModule(device, debugVs, nullptr);
     vkDestroyShaderModule(device, debugFs, nullptr);
     vkDestroyShaderModule(device, spriteVs, nullptr);
@@ -1568,6 +1841,7 @@ void VulkanRenderBackendImpl::createPipelines() {
     vkDestroyShaderModule(device, worldVs, nullptr);
     vkDestroyShaderModule(device, worldFs, nullptr);
     if (shadowFs != VK_NULL_HANDLE) vkDestroyShaderModule(device, shadowFs, nullptr);
+    if(contactFs)vkDestroyShaderModule(device,contactFs,nullptr);
     if (worldDualSourceFs != VK_NULL_HANDLE) {
         vkDestroyShaderModule(device, worldDualSourceFs, nullptr);
     }
@@ -1583,6 +1857,15 @@ void VulkanRenderBackendImpl::createPipelines() {
 }
 
 void VulkanRenderBackendImpl::destroyPipelines() {
+    if (device) pipelineLibraries.clear(device);
+    if(worldSurfaceCompositionPipeline)vkDestroyPipeline(device,worldSurfaceCompositionPipeline,nullptr);
+    worldSurfaceCompositionPipeline=VK_NULL_HANDLE;
+    if(worldSurfaceReflectionPipeline)vkDestroyPipeline(device,worldSurfaceReflectionPipeline,nullptr);
+    worldSurfaceReflectionPipeline=VK_NULL_HANDLE;
+    if(worldProbeRelightPipeline)vkDestroyPipeline(device,worldProbeRelightPipeline,nullptr);
+    worldProbeRelightPipeline=VK_NULL_HANDLE;
+    if(worldSurfacePipeline)vkDestroyPipeline(device,worldSurfacePipeline,nullptr);
+    worldSurfacePipeline=VK_NULL_HANDLE;
     if(device!=VK_NULL_HANDLE) {
         if(feedbackPipeline)vkDestroyPipeline(device,feedbackPipeline,nullptr);
         if(feedbackDisplayPipeline)vkDestroyPipeline(device,feedbackDisplayPipeline,nullptr);
@@ -1591,15 +1874,40 @@ void VulkanRenderBackendImpl::destroyPipelines() {
     if (device == VK_NULL_HANDLE) return;
     if (debugPipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, debugPipeline, nullptr);
     if (spritePipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, spritePipeline, nullptr);
+    if (sceneDebugPipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, sceneDebugPipeline, nullptr);
+    if (sceneSpritePipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, sceneSpritePipeline, nullptr);
     if (worldSceneColorPipeline != VK_NULL_HANDLE) {
         vkDestroyPipeline(device, worldSceneColorPipeline, nullptr);
     }
     if (worldShadowPipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, worldShadowPipeline, nullptr);
     worldShadowPipeline = VK_NULL_HANDLE;
+    if(worldHazePipeline)vkDestroyPipeline(device,worldHazePipeline,nullptr);
+    worldHazePipeline=VK_NULL_HANDLE;
+    if(worldHazeEdgePipeline)vkDestroyPipeline(device,worldHazeEdgePipeline,nullptr);
+    worldHazeEdgePipeline=VK_NULL_HANDLE;
+    if(worldHazeStencilComposePipeline)vkDestroyPipeline(device,worldHazeStencilComposePipeline,nullptr);
+    if(worldHazeStencilEdgePipeline)vkDestroyPipeline(device,worldHazeStencilEdgePipeline,nullptr);
+    worldHazeStencilComposePipeline=worldHazeStencilEdgePipeline=VK_NULL_HANDLE;
+    if(worldTemporalHazePipeline)vkDestroyPipeline(device,worldTemporalHazePipeline,nullptr);
+    worldTemporalHazePipeline=VK_NULL_HANDLE;
+    if(worldFogComposePipeline)vkDestroyPipeline(device,worldFogComposePipeline,nullptr);
+    worldFogComposePipeline=VK_NULL_HANDLE;
+    if(worldContactFilterPipeline)vkDestroyPipeline(device,worldContactFilterPipeline,nullptr);
+    worldContactFilterPipeline=VK_NULL_HANDLE;
     if (worldVolumePipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, worldVolumePipeline, nullptr);
     worldVolumePipeline = VK_NULL_HANDLE;
     if (sceneWorldVolumePipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, sceneWorldVolumePipeline, nullptr);
     sceneWorldVolumePipeline = VK_NULL_HANDLE;
+    for(const auto& [key,pipeline]:worldMaterialPipelines)if(pipeline)vkDestroyPipeline(device,pipeline,nullptr);
+    worldMaterialPipelines.clear();
+    for (const auto& family : transparentPipelines)
+        for (const auto* pipelines : {&family.display, &family.scene})
+            for (auto pipeline : *pipelines) if (pipeline) vkDestroyPipeline(device, pipeline, nullptr);
+    transparentPipelines.clear();
+    if(worldClusteredCompositionPipeline)vkDestroyPipeline(device,worldClusteredCompositionPipeline,nullptr);
+    worldClusteredCompositionPipeline=VK_NULL_HANDLE;
+    if(worldClusteredIndirectCompositionPipeline)vkDestroyPipeline(device,worldClusteredIndirectCompositionPipeline,nullptr);
+    worldClusteredIndirectCompositionPipeline=VK_NULL_HANDLE;
     for (auto* family : {&sceneWorldPipelines, &sceneIndirectWorldPipelines}) {
         for (auto& pipeline : *family) {
             if (pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, pipeline, nullptr);
@@ -1608,6 +1916,8 @@ void VulkanRenderBackendImpl::destroyPipelines() {
     }
     debugPipeline = VK_NULL_HANDLE;
     spritePipeline = VK_NULL_HANDLE;
+    sceneDebugPipeline = VK_NULL_HANDLE;
+    sceneSpritePipeline = VK_NULL_HANDLE;
     worldSceneColorPipeline = VK_NULL_HANDLE;
     for (VkPipeline& pipeline : worldPipelines) {
         if (pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, pipeline, nullptr);
@@ -1645,9 +1955,13 @@ void VulkanRenderBackendImpl::destroySwapchainResources() {
     depthImages.clear();
     depthMemories.clear();
     if (renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, renderPass, nullptr);
+    if (editorDisplayRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, editorDisplayRenderPass, nullptr);
+    editorDisplayRenderPass = VK_NULL_HANDLE;
     if (loadRenderPass != VK_NULL_HANDLE) {
         vkDestroyRenderPass(device, loadRenderPass, nullptr);
     }
+    if(worldSurfaceRenderPass)vkDestroyRenderPass(device,worldSurfaceRenderPass,nullptr);
+    worldSurfaceRenderPass=VK_NULL_HANDLE;
     if (worldSceneColorRenderPass != VK_NULL_HANDLE) {
         vkDestroyRenderPass(device, worldSceneColorRenderPass, nullptr);
     }
@@ -1655,19 +1969,27 @@ void VulkanRenderBackendImpl::destroySwapchainResources() {
     loadRenderPass = VK_NULL_HANDLE;
     if (worldSceneColorLoadRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, worldSceneColorLoadRenderPass, nullptr);
     worldSceneColorLoadRenderPass = VK_NULL_HANDLE;
+    if(worldHazeStencilRenderPass)vkDestroyRenderPass(device,worldHazeStencilRenderPass,nullptr);
+    worldHazeStencilRenderPass=VK_NULL_HANDLE;worldHazeStencilFormat=VK_FORMAT_UNDEFINED;
     worldSceneColorRenderPass = VK_NULL_HANDLE;
     for (VkImageView view : swapchainImageViews) {
         if (view != VK_NULL_HANDLE) vkDestroyImageView(device, view, nullptr);
     }
     swapchainImageViews.clear();
     swapchainImages.clear();
+    for (auto semaphore : renderFinishedSemaphores)
+        if (semaphore != VK_NULL_HANDLE) vkDestroySemaphore(device, semaphore, nullptr);
+    renderFinishedSemaphores.clear();
+    canDeferPresent = false;
     imagesInFlight.clear();
     if (swapchain != VK_NULL_HANDLE) vkDestroySwapchainKHR(device, swapchain, nullptr);
     swapchain = VK_NULL_HANDLE;
 }
 
 void VulkanRenderBackendImpl::beginFrame(float r, float g, float b, float a) {
+    const auto phaseCpuStart=phaseProfile.enabled()?engine::render::RenderPhaseProfile::Clock::now():engine::render::RenderPhaseProfile::Clock::time_point{};
     clearWorldDirectionalShadow();
+    lastTimings.presentWaitMs = 0;
     frameActive = false;
     mainRenderPassActive = false;
     worldSceneColorPassActive = false;
@@ -1676,24 +1998,31 @@ void VulkanRenderBackendImpl::beginFrame(float r, float g, float b, float a) {
     if (!initialized || device == VK_NULL_HANDLE) return;
     if (!collectWorldResourceScopes()) return;
     ++frameCounter;
+    worldContactFilterSetCount=0;
+    feedbackViewCount=0;
     if ((swapchainDirty || swapchain == VK_NULL_HANDLE) && !recreateSwapchain()) return;
 
     FrameResources& frame = frames[currentFrame];
     requireVk(vkWaitForFences(device, 1u, &frame.inFlight, VK_TRUE, UINT64_MAX),
               "vkWaitForFences(frame)");
+    deformationCompleted=std::max(deformationCompleted,frame.deformationSerial);
+    // Clear completed ownership before reusing this fence for another image.
+    for (auto& imageFence : imagesInFlight)
+        if (imageFence == frame.inFlight) imageFence = VK_NULL_HANDLE;
 
     lastTimings.gpuFrameValid = false;
     if (frame.timestampQueries != VK_NULL_HANDLE && frame.timestampIssued) {
-        std::array<std::uint64_t, 2> timestamps{};
+        std::array<std::uint64_t, engine::render::RenderPhaseProfile::queryCapacity> timestamps{};
         const VkResult queryResult = vkGetQueryPoolResults(
             device,
             frame.timestampQueries,
             0u,
-            2u,
+            phaseProfile.queryCount(frame.phaseFrame),
             sizeof(timestamps),
             timestamps.data(),
             sizeof(std::uint64_t),
             VK_QUERY_RESULT_64_BIT);
+        if (queryResult == VK_SUCCESS)phaseProfile.collect(frame.phaseFrame,timestamps.data(),timestampPeriodNs);
         if (queryResult == VK_SUCCESS && timestamps[1] >= timestamps[0]) {
             const double nanoseconds = static_cast<double>(timestamps[1] - timestamps[0]) *
                                        static_cast<double>(timestampPeriodNs);
@@ -1733,24 +2062,28 @@ void VulkanRenderBackendImpl::beginFrame(float r, float g, float b, float a) {
     imagesInFlight[acquiredImage] = frame.inFlight;
     requireVk(vkResetFences(device, 1u, &frame.inFlight), "vkResetFences");
     requireVk(vkResetCommandBuffer(frame.commandBuffer, 0u), "vkResetCommandBuffer");
+    resetWorldRecordingFrame();
     frame.transient.offset = 0u;
     frame.indexedWorldMaterialSetBound = false;
     frameStats = {};
-    frameSkinPalettes.clear();
+    frameSkinPalettes.beginFrame(++deformationSerial,deformationCompleted);
     frameSkinPaletteUploadBytes = 0u;
     frameSkinPaletteReuseBytes = 0u;
     frameSkinPaletteUploads = 0u;
     frameSkinPaletteReuses = 0u;
+    preparedWorldViews.beginFrame();
+    clearWorldWindField();
     resetWorldFrameStateCache();
     transientOverflowLogged = false;
 
     VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     requireVk(vkBeginCommandBuffer(frame.commandBuffer, &beginInfo), "vkBeginCommandBuffer");
+    phaseProfile.start(frame.phaseFrame,frameCounter,phaseCpuStart);
     frame.timestampIssued = frame.timestampQueries != VK_NULL_HANDLE;
     if (frame.timestampIssued) {
-        vkCmdResetQueryPool(frame.commandBuffer, frame.timestampQueries, 0u, 2u);
-        vkCmdWriteTimestamp(frame.commandBuffer,
+        vkCmdResetQueryPool(frame.commandBuffer, frame.timestampQueries, 0u, engine::render::RenderPhaseProfile::queryCapacity);
+        vkCmdWriteTimestamp(worldRecordingCommand(frame.commandBuffer),
                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                             frame.timestampQueries,
                             0u);
@@ -1766,7 +2099,7 @@ void VulkanRenderBackendImpl::beginFrame(float r, float g, float b, float a) {
     renderPassInfo.renderArea.extent = swapchainExtent;
     renderPassInfo.clearValueCount = static_cast<std::uint32_t>(clearValues.size());
     renderPassInfo.pClearValues = clearValues.data();
-    vkCmdBeginRenderPass(frame.commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    beginWorldRecordingRenderPass(frame.commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
     frameClearColor = {r, g, b, a};
     mainRenderPassActive = true;
 
@@ -1787,18 +2120,21 @@ void VulkanRenderBackendImpl::endFrame() {
     }
     FrameResources& frame = frames[currentFrame];
     if (mainRenderPassActive) {
-        vkCmdEndRenderPass(frame.commandBuffer);
+        endWorldRecordingRenderPass(frame.commandBuffer);
         mainRenderPassActive = false;
     }
     const bool capturedThisFrame = recordScreenshotCopy(frame.commandBuffer);
     if (frame.timestampIssued) {
-        vkCmdWriteTimestamp(frame.commandBuffer,
+        vkCmdWriteTimestamp(worldRecordingCommand(frame.commandBuffer),
                             VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                             frame.timestampQueries,
                             1u);
     }
     requireVk(vkEndCommandBuffer(frame.commandBuffer), "vkEndCommandBuffer");
 
+    // Record this frame while the preceding frame renders, then present it
+    // before submitting another. At most one presentation is deferred.
+    requireVk(presentPendingFrame(), "vkQueuePresentKHR(previous frame)");
     constexpr VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     submitInfo.waitSemaphoreCount = 1u;
@@ -1807,33 +2143,46 @@ void VulkanRenderBackendImpl::endFrame() {
     submitInfo.commandBufferCount = 1u;
     submitInfo.pCommandBuffers = &frame.commandBuffer;
     submitInfo.signalSemaphoreCount = 1u;
-    submitInfo.pSignalSemaphores = &frame.renderFinished;
+    submitInfo.pSignalSemaphores = &renderFinishedSemaphores[acquiredImage];
     requireVk(vkQueueSubmit(graphicsQueue, 1u, &submitInfo, frame.inFlight), "vkQueueSubmit");
+    frame.deformationSerial=deformationSerial;
 
-    VkPresentInfoKHR presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-    presentInfo.waitSemaphoreCount = 1u;
-    presentInfo.pWaitSemaphores = &frame.renderFinished;
-    presentInfo.swapchainCount = 1u;
-    presentInfo.pSwapchains = &swapchain;
-    presentInfo.pImageIndices = &acquiredImage;
-    const auto presentStart = std::chrono::steady_clock::now();
-    const VkResult presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
-    const auto presentEnd = std::chrono::steady_clock::now();
-    lastTimings.presentWaitMs = static_cast<float>(
-        std::chrono::duration<double, std::milli>(presentEnd - presentStart).count());
-    if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
-        swapchainDirty = true;
-    } else if (presentResult != VK_SUCCESS) {
-        throwVk("vkQueuePresentKHR", presentResult);
-    }
+    pendingPresentSemaphore = renderFinishedSemaphores[acquiredImage];
+    pendingPresentImage = acquiredImage;
+    if (!canDeferPresent || capturedThisFrame || frameCounter == 1u)
+        requireVk(presentPendingFrame(), "vkQueuePresentKHR(frame)");
     if (capturedThisFrame) {
         finishScreenshotCapture(frame.inFlight);
     }
 
+    if(phaseProfile.detailed()){worldRecordingStats.print(std::clog,"vulkan",frameCounter);preparedWorldResourceStats.print(std::clog,"vulkan",frameCounter);frameSkinPalettes.print(std::clog,"vulkan",frameCounter);frameMaterialConstants.print(std::clog,"vulkan",frameCounter);}
     maybeLogWorldFrameCache();
     lastStats = frameStats;
+    phaseProfile.finishCpu(frame.phaseFrame,lastTimings.presentWaitMs);
     frameActive = false;
     currentFrame = (currentFrame + 1u) % kFramesInFlight;
+}
+
+VkResult VulkanRenderBackendImpl::presentPendingFrame() {
+    if (pendingPresentSemaphore == VK_NULL_HANDLE) return VK_SUCCESS;
+    VkPresentInfoKHR presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+    presentInfo.waitSemaphoreCount = 1u;
+    presentInfo.pWaitSemaphores = &pendingPresentSemaphore;
+    presentInfo.swapchainCount = 1u;
+    presentInfo.pSwapchains = &swapchain;
+    presentInfo.pImageIndices = &pendingPresentImage;
+    const auto presentStart = std::chrono::steady_clock::now();
+    const VkResult presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
+    const auto presentEnd = std::chrono::steady_clock::now();
+    lastTimings.presentWaitMs += static_cast<float>(
+        std::chrono::duration<double, std::milli>(presentEnd - presentStart).count());
+    pendingPresentSemaphore = VK_NULL_HANDLE;
+    if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
+        swapchainDirty = true;
+    } else if (presentResult != VK_SUCCESS) {
+        return presentResult;
+    }
+    return VK_SUCCESS;
 }
 
 void VulkanRenderBackendImpl::requestResize(int width, int height) {
@@ -1989,20 +2338,42 @@ void VulkanRenderBackendImpl::endOneTimeCommands(VkCommandBuffer commandBuffer) 
 }
 
 void VulkanRenderBackendImpl::shutdown() {
+    engine::render::WorldPreparedViewBoundary preparedViewBoundary([&] { flushWorldDrawPackets(); preparedWorldViews.invalidate(); });
+
     worldScopes.reset();
     frameActive = false;
     initialized = false;
-    if (device != VK_NULL_HANDLE) vkDeviceWaitIdle(device);
+    if (device != VK_NULL_HANDLE) {
+        (void)presentPendingFrame();
+        vkDeviceWaitIdle(device);
+    }
 
+    if(device!=VK_NULL_HANDLE){releaseWorldTemporalScene();destroyBuffer(worldMotionReadback);}
+    if(phaseProfile.enabled() && device!=VK_NULL_HANDLE) {
+        for(auto& frame:frames)if(frame.timestampIssued && frame.timestampQueries!=VK_NULL_HANDLE) {
+            std::array<std::uint64_t,engine::render::RenderPhaseProfile::queryCapacity> ticks{};
+            if(vkGetQueryPoolResults(device,frame.timestampQueries,0,phaseProfile.queryCount(frame.phaseFrame),
+                sizeof(ticks),ticks.data(),sizeof(std::uint64_t),VK_QUERY_RESULT_64_BIT)==VK_SUCCESS)
+                phaseProfile.collect(frame.phaseFrame,ticks.data(),timestampPeriodNs);
+        }
+    }
+    phaseProfile.flush("vulkan");
     if (device != VK_NULL_HANDLE) {
         storePipelineCache(device,pipelineCache,physicalDeviceProperties);
+        destroyBuffer(worldIndirectFallbackBuffer);
         destroyBuffer(screenshotReadback);
         destroyCachedWorldMeshes();
         indexedWorldMaterials.clear();
+        preparedWorldMaterials.clear();
+        retainedWorldMaterialBindings.clear();
         worldMaterials.clear();
         worldSceneMaterialDescriptorSets.clear();
         worldSceneMaterials.clear();
         worldSceneMaterialCacheGeneration = 0u;
+        releaseWorldPrecipitation();
+        releaseWorldLayeredMaterials();releaseWorldClouds();releaseWorldWindField();
+        releaseWorldParticleLighting();
+    releaseWorldRainMaps();
         for (auto& [_, texture] : worldTextures) destroyTexture(texture);
         for (auto& [_, texture] : spriteTextures) destroyTexture(texture);
         worldTextures.clear();
@@ -2027,6 +2398,8 @@ void VulkanRenderBackendImpl::shutdown() {
         }
         editorSurfaceSampler = VK_NULL_HANDLE;
 
+        frameSkinPalettes.cancelBatch();frameSkinPalettes.reset();
+        destroyBuffer(deformationBuffer);deformationSerial=deformationCompleted=0;
         for (FrameResources& frame : frames) {
             destroyBuffer(frame.transient);
             if (frame.timestampQueries != VK_NULL_HANDLE) {
@@ -2034,9 +2407,6 @@ void VulkanRenderBackendImpl::shutdown() {
             }
             if (frame.imageAvailable != VK_NULL_HANDLE) {
                 vkDestroySemaphore(device, frame.imageAvailable, nullptr);
-            }
-            if (frame.renderFinished != VK_NULL_HANDLE) {
-                vkDestroySemaphore(device, frame.renderFinished, nullptr);
             }
             if (frame.inFlight != VK_NULL_HANDLE) {
                 vkDestroyFence(device, frame.inFlight, nullptr);
@@ -2069,13 +2439,16 @@ void VulkanRenderBackendImpl::shutdown() {
             vkDestroyDescriptorSetLayout(
                 device, indexedWorldMaterialSetLayout, nullptr);
         }
+        if(windDrawSetLayout)vkDestroyDescriptorSetLayout(device,windDrawSetLayout,nullptr);
         if (worldStateSetLayout != VK_NULL_HANDLE) {
             vkDestroyDescriptorSetLayout(device, worldStateSetLayout, nullptr);
         }
+        if(worldContactFilterLayout)vkDestroyDescriptorSetLayout(device,worldContactFilterLayout,nullptr);
         if (worldSceneColorSetLayout != VK_NULL_HANDLE) {
             vkDestroyDescriptorSetLayout(
                 device, worldSceneColorSetLayout, nullptr);
         }
+        destroyWorldRecordingFrames();
         if (commandPool != VK_NULL_HANDLE) vkDestroyCommandPool(device, commandPool, nullptr);
         destroyScreenFeedback();
         if (pipelineCache != VK_NULL_HANDLE) vkDestroyPipelineCache(device, pipelineCache, nullptr);
@@ -2092,8 +2465,10 @@ void VulkanRenderBackendImpl::shutdown() {
     descriptorPool = VK_NULL_HANDLE;
     textureSetLayout = VK_NULL_HANDLE;
     indexedWorldMaterialSetLayout = VK_NULL_HANDLE;
-    worldStateSetLayout = VK_NULL_HANDLE;
+    worldStateSetLayout = VK_NULL_HANDLE;windDrawSetLayout=VK_NULL_HANDLE;windFallbackSet=VK_NULL_HANDLE;
     worldSceneColorSetLayout = VK_NULL_HANDLE;
+    worldContactFilterLayout=VK_NULL_HANDLE;worldContactFilterSets={};worldContactFilterSet=worldContactFilterFallback=VK_NULL_HANDLE;
+    worldContactHistory={};
     worldSceneColorDescriptorSets.fill(VK_NULL_HANDLE);
     editorSurfaceSampler = VK_NULL_HANDLE;
     editorSurfaces.clear();
@@ -2255,8 +2630,8 @@ void VulkanRenderBackendImpl::createScreenFeedbackPipeline() {
     try {
         fs=loadShaderModule("screen_feedback.frag.spv");
         VkVertexInputBindingDescription binding{0,0,VK_VERTEX_INPUT_RATE_VERTEX};
-        feedbackPipeline=createGraphicsPipeline(device, pipelineCache,feedbackRenderPass,feedbackLayout,vs,fs,binding,{},false,0,false,false,false);
-        feedbackDisplayPipeline=createGraphicsPipeline(device, pipelineCache,loadRenderPass,feedbackLayout,vs,fs,binding,{},false,0,false,false,false);
+        feedbackPipeline=createGraphicsPipeline(device, pipelineCache, pipelineLibraries,feedbackRenderPass,feedbackLayout,vs,fs,binding,{},false,0,false,false,false);
+        feedbackDisplayPipeline=createGraphicsPipeline(device, pipelineCache, pipelineLibraries,loadRenderPass,feedbackLayout,vs,fs,binding,{},false,0,false,false,false);
     } catch(...) {if(fs)vkDestroyShaderModule(device,fs,nullptr);vkDestroyShaderModule(device,vs,nullptr);throw;}
     vkDestroyShaderModule(device,fs,nullptr);vkDestroyShaderModule(device,vs,nullptr);
 }
@@ -2267,7 +2642,176 @@ void VulkanRenderBackendImpl::createWorldShadowMomentPipeline() {
     try {
         fs=loadShaderModule("shadow_moment.frag.spv");
         VkVertexInputBindingDescription binding{0,0,VK_VERTEX_INPUT_RATE_VERTEX};
-        worldMomentPipeline=createGraphicsPipeline(device,pipelineCache,worldMomentRenderPass,worldMomentLayout,vs,fs,binding,{},false,0,false,false,false);
+        worldMomentPipeline=createGraphicsPipeline(device, pipelineCache, pipelineLibraries,worldMomentRenderPass,worldMomentLayout,vs,fs,binding,{},false,0,false,false,false);
     } catch(...) {if(fs)vkDestroyShaderModule(device,fs,nullptr);vkDestroyShaderModule(device,vs,nullptr);throw;}
     vkDestroyShaderModule(device,fs,nullptr);vkDestroyShaderModule(device,vs,nullptr);
+}
+
+bool VulkanRenderBackendImpl::ensureWorldSurfacePipeline() {
+    if(worldSurfacePipeline)return true;
+    if(!worldMaterialProfile.empty() && (worldMaterialProfile.vulkan[7].empty() || worldMaterialProfile.vulkan[8].empty()))return false;
+    VkShaderModule vertex=VK_NULL_HANDLE,fragment=VK_NULL_HANDLE;
+    try {
+        vertex=loadShaderModule("world_motion.vert.spv");
+        fragment=loadShaderModule("world_surface.frag.spv");
+    VkVertexInputBindingDescription worldBinding{
+        0u,
+        sizeof(IRenderBackend::WorldMeshVertex),
+        VK_VERTEX_INPUT_RATE_VERTEX};
+    const std::vector<VkVertexInputAttributeDescription> worldAttributes{
+        {0u, 0u, VK_FORMAT_R32G32B32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, x)},
+        {1u, 0u, VK_FORMAT_R32G32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, u)},
+        {2u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, r)},
+        {3u, 0u, VK_FORMAT_R32G32B32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, nx)},
+        {4u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, joint0)},
+        {5u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, weight0)},
+        {6u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, tx)},
+        {7u, 0u, VK_FORMAT_R32G32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, sourceUv1U)},
+        {8u, 0u, VK_FORMAT_R32G32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, sourceUv2U)},
+    };
+
+        worldSurfacePipeline=createGraphicsPipeline(device, pipelineCache, pipelineLibraries,worldSurfaceRenderPass,texturedPipelineLayout,
+            vertex,fragment,worldBinding,worldAttributes,false,0u,false,true,true,false,false,6);
+    } catch(...) {
+        if(vertex)vkDestroyShaderModule(device,vertex,nullptr);
+        if(fragment)vkDestroyShaderModule(device,fragment,nullptr);
+        throw;
+    }
+    vkDestroyShaderModule(device,vertex,nullptr);vkDestroyShaderModule(device,fragment,nullptr);
+    return true;
+}
+
+bool VulkanRenderBackendImpl::ensureWorldSurfaceCompositionPipeline() {
+    if(worldSurfaceCompositionPipeline)return true;
+    VkShaderModule vertex=VK_NULL_HANDLE,fragment=VK_NULL_HANDLE;
+    try {
+        vertex=loadShaderModule("world.vert.spv");
+        fragment=loadShaderModule("surface_composition.frag.spv");
+    VkVertexInputBindingDescription worldBinding{
+        0u,
+        sizeof(IRenderBackend::WorldMeshVertex),
+        VK_VERTEX_INPUT_RATE_VERTEX};
+    const std::vector<VkVertexInputAttributeDescription> worldAttributes{
+        {0u, 0u, VK_FORMAT_R32G32B32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, x)},
+        {1u, 0u, VK_FORMAT_R32G32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, u)},
+        {2u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, r)},
+        {3u, 0u, VK_FORMAT_R32G32B32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, nx)},
+        {4u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, joint0)},
+        {5u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, weight0)},
+        {6u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, tx)},
+        {7u, 0u, VK_FORMAT_R32G32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, sourceUv1U)},
+        {8u, 0u, VK_FORMAT_R32G32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, sourceUv2U)},
+    };
+
+        worldSurfaceCompositionPipeline=createGraphicsPipeline(device, pipelineCache, pipelineLibraries,worldSceneColorRenderPass,texturedPipelineLayout,
+            vertex,fragment,worldBinding,worldAttributes,false,0u,false,false,false);
+    } catch(...) {
+        if(vertex)vkDestroyShaderModule(device,vertex,nullptr);
+        if(fragment)vkDestroyShaderModule(device,fragment,nullptr);
+        throw;
+    }
+    vkDestroyShaderModule(device,vertex,nullptr);vkDestroyShaderModule(device,fragment,nullptr);
+    return true;
+}
+
+bool VulkanRenderBackendImpl::ensureWorldSurfaceReflectionPipeline() {
+    if(worldSurfaceReflectionPipeline)return true;
+    VkShaderModule vertex=VK_NULL_HANDLE,fragment=VK_NULL_HANDLE;
+    try {
+        vertex=loadShaderModule("world.vert.spv");
+        fragment=loadShaderModule("surface_reflection.frag.spv");
+    VkVertexInputBindingDescription worldBinding{
+        0u,
+        sizeof(IRenderBackend::WorldMeshVertex),
+        VK_VERTEX_INPUT_RATE_VERTEX};
+    const std::vector<VkVertexInputAttributeDescription> worldAttributes{
+        {0u, 0u, VK_FORMAT_R32G32B32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, x)},
+        {1u, 0u, VK_FORMAT_R32G32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, u)},
+        {2u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, r)},
+        {3u, 0u, VK_FORMAT_R32G32B32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, nx)},
+        {4u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, joint0)},
+        {5u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, weight0)},
+        {6u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, tx)},
+        {7u, 0u, VK_FORMAT_R32G32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, sourceUv1U)},
+        {8u, 0u, VK_FORMAT_R32G32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, sourceUv2U)},
+    };
+
+        worldSurfaceReflectionPipeline=createGraphicsPipeline(device, pipelineCache, pipelineLibraries,worldSceneColorRenderPass,texturedPipelineLayout,
+            vertex,fragment,worldBinding,worldAttributes,false,0u,false,false,false);
+    } catch(...) {
+        if(vertex)vkDestroyShaderModule(device,vertex,nullptr);
+        if(fragment)vkDestroyShaderModule(device,fragment,nullptr);
+        throw;
+    }
+    vkDestroyShaderModule(device,vertex,nullptr);vkDestroyShaderModule(device,fragment,nullptr);
+    return true;
+}
+
+bool VulkanRenderBackendImpl::ensureWorldProbeRelightPipeline() {
+    if(worldProbeRelightPipeline)return true;
+    VkShaderModule vertex=VK_NULL_HANDLE,fragment=VK_NULL_HANDLE;
+    try {
+        vertex=loadShaderModule("world.vert.spv");
+        fragment=loadShaderModule("probe_relight.frag.spv");
+    VkVertexInputBindingDescription worldBinding{
+        0u,
+        sizeof(IRenderBackend::WorldMeshVertex),
+        VK_VERTEX_INPUT_RATE_VERTEX};
+    const std::vector<VkVertexInputAttributeDescription> worldAttributes{
+        {0u, 0u, VK_FORMAT_R32G32B32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, x)},
+        {1u, 0u, VK_FORMAT_R32G32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, u)},
+        {2u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, r)},
+        {3u, 0u, VK_FORMAT_R32G32B32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, nx)},
+        {4u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, joint0)},
+        {5u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, weight0)},
+        {6u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, tx)},
+        {7u, 0u, VK_FORMAT_R32G32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, sourceUv1U)},
+        {8u, 0u, VK_FORMAT_R32G32_SFLOAT,
+         offsetof(IRenderBackend::WorldMeshVertex, sourceUv2U)},
+    };
+
+        worldProbeRelightPipeline=createGraphicsPipeline(device, pipelineCache, pipelineLibraries,worldSceneColorRenderPass,texturedPipelineLayout,
+            vertex,fragment,worldBinding,worldAttributes,false,0u,false,false,false);
+    } catch(...) {
+        if(vertex)vkDestroyShaderModule(device,vertex,nullptr);
+        if(fragment)vkDestroyShaderModule(device,fragment,nullptr);
+        throw;
+    }
+    vkDestroyShaderModule(device,vertex,nullptr);vkDestroyShaderModule(device,fragment,nullptr);
+    return true;
 }

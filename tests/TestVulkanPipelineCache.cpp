@@ -17,6 +17,15 @@ int main() try {
     other=device;++other.deviceID;check(decodePipelineCache(file,other).empty(),"Different GPU accepted");
     other=device;++other.vendorID;check(decodePipelineCache(file,other).empty(),"Different vendor accepted");
     other=device;++other.pipelineCacheUUID[0];check(decodePipelineCache(file,other).empty(),"Different cache UUID accepted");
+    {
+        // The real composed-program cache crossed the previous 256 MiB limit,
+        // silently leaving every subsequent launch to repeat its compilation.
+        auto large=data;large.resize(257u*1024u*1024u,23);
+        const auto saved=encodePipelineCache(large,device);
+        const auto loaded=decodePipelineCache(saved,device);
+        check(loaded.size()==large.size()&&std::memcmp(loaded.data(),large.data(),large.size())==0,
+            "Production-sized cache cannot round-trip");
+    }
     header.headerSize=0;std::memcpy(data.data(),&header,sizeof(header));
     check(encodePipelineCache(data,device).empty(),"Invalid native header accepted");
     std::cout<<"PASS pipeline cache payload integrity, version, truncation and device/driver compatibility\n";return 0;

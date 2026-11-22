@@ -22,6 +22,9 @@ void D3D12RenderBackend::drawDebugQuads(const DebugQuad* quads,
                                         int surfaceWidth,
                                         int surfaceHeight) {
 #if defined(_WIN32)
+    flushWorldDrawPackets();
+#endif
+#if defined(_WIN32)
     if (!recording_ || !quads || quadCount == 0 || surfaceWidth <= 0 || surfaceHeight <= 0) return;
     if (!debugPipelineState_ || !debugRootSignature_ || !debugVertexBuffer_ || !commandList_) return;
     if (!debugVertexMappedData_) return;
@@ -69,7 +72,8 @@ void D3D12RenderBackend::drawDebugQuads(const DebugQuad* quads,
     commandList_->RSSetViewports(1, &vp);
     commandList_->RSSetScissorRects(1, &scissor);
     commandList_->SetGraphicsRootSignature(debugRootSignature_.Get());
-    commandList_->SetPipelineState(debugPipelineState_.Get());
+    commandList_->SetPipelineState(worldSceneColorPassActive_ ?
+        debugSceneColorPipelineState_.Get() : debugPipelineState_.Get());
     commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     D3D12_VERTEX_BUFFER_VIEW vbv{};
@@ -94,6 +98,9 @@ void D3D12RenderBackend::drawDebugQuadsCached(const char* cacheKey,
                                               std::size_t quadCount,
                                               int surfaceWidth,
                                               int surfaceHeight) {
+#if defined(_WIN32)
+    flushWorldDrawPackets();
+#endif
 #if defined(_WIN32)
     if (!cacheKey || cacheKey[0] == '\0') {
         drawDebugQuads(quads, quadCount, surfaceWidth, surfaceHeight);
@@ -192,7 +199,8 @@ void D3D12RenderBackend::drawDebugQuadsCached(const char* cacheKey,
     commandList_->RSSetViewports(1, &vp);
     commandList_->RSSetScissorRects(1, &scissor);
     commandList_->SetGraphicsRootSignature(debugRootSignature_.Get());
-    commandList_->SetPipelineState(debugPipelineState_.Get());
+    commandList_->SetPipelineState(worldSceneColorPassActive_ ?
+        debugSceneColorPipelineState_.Get() : debugPipelineState_.Get());
     commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     D3D12_VERTEX_BUFFER_VIEW vbv{};
@@ -216,6 +224,9 @@ void D3D12RenderBackend::drawDebugLines(const DebugLine* lines,
                                         std::size_t lineCount,
                                         int surfaceWidth,
                                         int surfaceHeight) {
+#if defined(_WIN32)
+    flushWorldDrawPackets();
+#endif
 #if defined(_WIN32)
     if (!recording_ || !lines || lineCount == 0 || surfaceWidth <= 0 || surfaceHeight <= 0) return;
     if (!debugPipelineState_ || !debugRootSignature_ || !debugVertexBuffer_ || !commandList_) return;
@@ -263,7 +274,8 @@ void D3D12RenderBackend::drawDebugLines(const DebugLine* lines,
     commandList_->RSSetViewports(1, &vp);
     commandList_->RSSetScissorRects(1, &scissor);
     commandList_->SetGraphicsRootSignature(debugRootSignature_.Get());
-    commandList_->SetPipelineState(debugPipelineState_.Get());
+    commandList_->SetPipelineState(worldSceneColorPassActive_ ?
+        debugSceneColorPipelineState_.Get() : debugPipelineState_.Get());
     commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     D3D12_VERTEX_BUFFER_VIEW vbv{};
@@ -288,6 +300,9 @@ void D3D12RenderBackend::drawDebugLinesCached(const char* cacheKey,
                                               std::size_t lineCount,
                                               int surfaceWidth,
                                               int surfaceHeight) {
+#if defined(_WIN32)
+    flushWorldDrawPackets();
+#endif
 #if defined(_WIN32)
     if (!cacheKey || cacheKey[0] == '\0') {
         drawDebugLines(lines, lineCount, surfaceWidth, surfaceHeight);
@@ -386,7 +401,8 @@ void D3D12RenderBackend::drawDebugLinesCached(const char* cacheKey,
     commandList_->RSSetViewports(1, &vp);
     commandList_->RSSetScissorRects(1, &scissor);
     commandList_->SetGraphicsRootSignature(debugRootSignature_.Get());
-    commandList_->SetPipelineState(debugPipelineState_.Get());
+    commandList_->SetPipelineState(worldSceneColorPassActive_ ?
+        debugSceneColorPipelineState_.Get() : debugPipelineState_.Get());
     commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     D3D12_VERTEX_BUFFER_VIEW vbv{};
@@ -410,6 +426,9 @@ void D3D12RenderBackend::drawDebugTriangles(const DebugTriangle* triangles,
                                             std::size_t triangleCount,
                                             int surfaceWidth,
                                             int surfaceHeight) {
+#if defined(_WIN32)
+    flushWorldDrawPackets();
+#endif
 #if defined(_WIN32)
     if (!recording_ || !triangles || triangleCount == 0 || surfaceWidth <= 0 || surfaceHeight <= 0) return;
     if (!debugPipelineState_ || !debugRootSignature_ || !debugVertexBuffer_ || !commandList_) return;
@@ -459,7 +478,8 @@ void D3D12RenderBackend::drawDebugTriangles(const DebugTriangle* triangles,
     commandList_->RSSetViewports(1, &vp);
     commandList_->RSSetScissorRects(1, &scissor);
     commandList_->SetGraphicsRootSignature(debugRootSignature_.Get());
-    commandList_->SetPipelineState(debugPipelineState_.Get());
+    commandList_->SetPipelineState(worldSceneColorPassActive_ ?
+        debugSceneColorPipelineState_.Get() : debugPipelineState_.Get());
     commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     D3D12_VERTEX_BUFFER_VIEW vbv{};
@@ -483,6 +503,9 @@ void D3D12RenderBackend::drawDebugSprites(const DebugSprite* sprites,
                                           std::size_t spriteCount,
                                           int surfaceWidth,
                                           int surfaceHeight) {
+#if defined(_WIN32)
+    flushWorldDrawPackets();
+#endif
 #if defined(_WIN32)
     if (!recording_ || !sprites || spriteCount == 0 || surfaceWidth <= 0 || surfaceHeight <= 0) return;
     if (!spritePipelineState_ || !spriteRootSignature_ || !spriteVertexBuffer_ || !commandList_ || !srvHeap_) return;

@@ -183,9 +183,62 @@ WorldMaterialConstantTerm parseTerm(const nlohmann::json &value) {
 }
 } // namespace
 
+int WorldMaterialProfile::transparentFamilyIndex(std::uint32_t mode) const noexcept {
+    if (mode > 255) return -1;
+    for (std::size_t i=0;i<transparentFamilies.size();++i)
+        if (transparentFamilies[i].modes[mode]) return static_cast<int>(i);
+    return -1;
+}
+
 void WorldMaterialProfile::validate() const {
+    if(textureMipDrop>2 || (maxAnisotropy!=1&&maxAnisotropy!=4&&maxAnisotropy!=8&&maxAnisotropy!=16))
+        throw std::runtime_error("Invalid material texture quality");
+    if (transparentFamilies.size()>16) throw std::runtime_error("Too many transparent material families");
+    std::bitset<256> ownedModes;
+    std::vector<std::string> familyIds;
+    for (const auto& family:transparentFamilies) {
+        if (family.id.empty() || family.id.size()>64 || family.modes.none() ||
+            (ownedModes&family.modes).any() ||
+            std::find(familyIds.begin(),familyIds.end(),family.id)!=familyIds.end())
+            throw std::runtime_error("Invalid or overlapping transparent material family");
+        // These modes select engine composition/portable passes before a
+        // project evaluation fragment is reached.
+        for (const auto mode : {239u,246u,247u,248u,249u,250u,251u,252u,253u,255u})
+            if (family.modes[mode])
+                throw std::runtime_error("Engine-owned pass cannot be assigned to a transparent family.");
+        ownedModes|=family.modes;familyIds.push_back(family.id);
+        if (family.d3d12.declarations.empty() || family.d3d12.evaluation.empty() ||
+            family.d3d12Vertex.declarations.empty() || family.d3d12Vertex.evaluation.empty())
+            throw std::runtime_error("Transparent family requires complete D3D12 programs");
+        for (const auto& words:family.vulkan)
+            if (words.size()<5 || words.front()!=0x07230203u)
+                throw std::runtime_error("Transparent family requires all three Vulkan programs");
+    }
+
+    if(d3d12PipelineWarmup.size()>256)throw std::runtime_error("Too many material warmup pipelines");
+    for(const auto& request:d3d12PipelineWarmup)
+        if(request.mode>255 || request.variant>4095 || (request.variant&15u)>12)
+            throw std::runtime_error("Invalid material warmup pipeline");
+
+    for (const auto& request : d3d12PipelineWarmup)
+        if (transparentFamilyIndex(request.mode) >= 0 &&
+                ((request.variant & 15u) == 0 || (request.variant & ~31u) != 0))
+            throw std::runtime_error("Transparent family warmup requires a blended color pass.");
+
+    if(vulkanPipelineWarmup.size()>256)throw std::runtime_error("Too many Vulkan material pipelines");
+    std::vector<std::uint32_t> vulkanKeys;
+    for(const auto& request:vulkanPipelineWarmup) {
+        if(request.mode>255 || request.variant>13 || (request.variant>=8 && request.variant<=11))
+            throw std::runtime_error("Invalid Vulkan material pipeline");
+        if (transparentFamilyIndex(request.mode) >= 0 && request.variant < 2)
+            throw std::runtime_error("Transparent family warmup requires a blended color pass.");
+        const auto key=request.mode*32+request.variant;
+        if(std::find(vulkanKeys.begin(),vulkanKeys.end(),key)!=vulkanKeys.end())
+            throw std::runtime_error("Duplicate Vulkan material pipeline");
+        vulkanKeys.push_back(key);
+    }
     if (empty()) {
-        if (!opengl.declarations.empty() || !opengl.evaluation.empty() ||
+        if (!transparentFamilies.empty() || !vulkanPipelineWarmup.empty() || !d3d12PipelineWarmup.empty() || !opengl.declarations.empty() || !opengl.evaluation.empty() ||
             !d3d12.declarations.empty() || !d3d12.evaluation.empty() ||
             !openglVertex.declarations.empty() || !openglVertex.evaluation.empty() ||
             !d3d12Vertex.declarations.empty() || !d3d12Vertex.evaluation.empty() ||
@@ -204,7 +257,7 @@ void WorldMaterialProfile::validate() const {
     }
     for (std::size_t index = 0; index < vulkan.size(); ++index) {
         const auto& words = vulkan[index];
-        if (index == 6 && words.empty()) continue;
+        if (index >= 6 && words.empty()) continue;
         if (words.size() < 5 || words.front() != 0x07230203u) {
             throw std::runtime_error("Material profile must provide all six valid Vulkan shader variants.");
         }
@@ -241,7 +294,8 @@ WorldMaterialProfile loadWorldMaterialProfile(
     const std::filesystem::path &manifest) {
     if (manifest.empty()) return {};
     const auto json = nlohmann::json::parse(readText(resolveFile(projectRoot, manifest)));
-    if (json.at("version").get<int>() != kWorldMaterialProfileVersion) {
+    const auto version=json.at("version").get<int>();
+    if (version != 2 && version != kWorldMaterialProfileVersion) {
         throw std::runtime_error("Material profile shader interface version does not match this engine.");
     }
     WorldMaterialProfile profile;
@@ -257,9 +311,9 @@ WorldMaterialProfile loadWorldMaterialProfile(
     profile.d3d12 = source("d3d12");
     profile.openglVertex = source("opengl_vertex");
     profile.d3d12Vertex = source("d3d12_vertex");
-    constexpr std::array keys{"direct", "direct_dual_source", "indirect", "indirect_dual_source", "direct_vertex", "indirect_vertex", "directional_shadow"};
+    constexpr std::array keys{"direct", "direct_dual_source", "indirect", "indirect_dual_source", "direct_vertex", "indirect_vertex", "directional_shadow", "surface", "motion_vertex"};
     for (std::size_t index = 0; index < keys.size(); ++index) {
-        if (index == 6 && !json.at("vulkan").contains(keys[index])) continue;
+        if (index >= 6 && !json.at("vulkan").contains(keys[index])) continue;
         const auto path = resolveFile(projectRoot, json.at("vulkan").at(keys[index]).get<std::string>());
         const auto bytes = readText(path);
         if (bytes.size() % sizeof(std::uint32_t)) {
@@ -294,9 +348,70 @@ WorldMaterialProfile loadWorldMaterialProfile(
         for (const auto &[modeText, values] : json.at("modes").items()) {
             auto &mode = profile.modes[parseMode(modeText)];
             mode.pbrPacking = values.value("pbr_packing", true);
+            mode.sharedLocalLighting = values.value("shared_local_lighting", false);
+            mode.foliageComposition = values.value("foliage_composition", false);
             mode.openglDebugParameter = values.value("opengl_debug_parameter", true);
             mode.d3d12DebugParameter = values.value("d3d12_debug_parameter", true);
             mode.occlusionMaximum = values.value("occlusion_maximum", 1.0f);
+        }
+    }
+    if(json.contains("d3d12_pipeline_warmup")) {
+        const auto& requests=json.at("d3d12_pipeline_warmup");
+        if(!requests.is_array() || requests.size()>256)throw std::runtime_error("Invalid material warmup plan");
+        for(const auto& request:requests) {
+            if(!request.at("mode").is_number_unsigned() || !request.at("variant").is_number_unsigned())
+                throw std::runtime_error("Warmup mode/variant must be unsigned integers");
+            const auto mode=request.at("mode").get<std::uint64_t>();
+            const auto variant=request.at("variant").get<std::uint64_t>();
+            if(mode>255 || variant>4095)throw std::runtime_error("Material warmup pipeline out of range");
+            profile.d3d12PipelineWarmup.push_back({static_cast<std::uint32_t>(mode),static_cast<std::uint32_t>(variant)});
+        }
+    }
+    if(json.contains("vulkan_pipeline_warmup")) {
+        const auto& requests=json.at("vulkan_pipeline_warmup");
+        if(!requests.is_array() || requests.size()>256)throw std::runtime_error("Invalid Vulkan material plan");
+        for(const auto& request:requests) {
+            if(!request.at("mode").is_number_unsigned() || !request.at("variant").is_number_unsigned())
+                throw std::runtime_error("Vulkan material mode/variant must be unsigned integers");
+            const auto mode=request.at("mode").get<std::uint64_t>();
+            const auto variant=request.at("variant").get<std::uint64_t>();
+            if(mode>255 || variant>13)throw std::runtime_error("Vulkan material pipeline out of range");
+            profile.vulkanPipelineWarmup.push_back({static_cast<std::uint32_t>(mode),static_cast<std::uint32_t>(variant)});
+        }
+    }
+    if (json.contains("transparent_families")) {
+        const auto& families=json.at("transparent_families");
+        if(version<3 || !families.is_array() || families.size()>16)
+            throw std::runtime_error("Invalid transparent family manifest/version");
+        for(const auto& item:families) {
+            WorldMaterialFamily family;
+            family.id=item.at("id").get<std::string>();
+            const auto& modes=item.at("modes");
+            if(!modes.is_array() || modes.empty() || modes.size()>256)
+                throw std::runtime_error("Invalid transparent family modes");
+            for(const auto& value:modes) {
+                if(!value.is_number_unsigned() || value.get<std::uint64_t>()>255)
+                    throw std::runtime_error("Transparent family mode out of range");
+                const auto mode=value.get<std::uint32_t>();
+                if(family.modes[mode]) throw std::runtime_error("Duplicate transparent family mode");
+                family.modes.set(mode);
+            }
+            const auto familySource=[&](const char* name) {
+                const auto& section=item.at(name);
+                return WorldMaterialShaderSource{
+                    readText(resolveFile(projectRoot,section.at("declarations").get<std::string>())),
+                    readText(resolveFile(projectRoot,section.at("evaluation").get<std::string>()))};
+            };
+            family.d3d12=familySource("d3d12");
+            family.d3d12Vertex=familySource("d3d12_vertex");
+            constexpr std::array familyKeys{"direct","direct_dual_source","direct_vertex"};
+            for(std::size_t i=0;i<familyKeys.size();++i) {
+                const auto bytes=readText(resolveFile(projectRoot,item.at("vulkan").at(familyKeys[i]).get<std::string>()));
+                if(bytes.size()%4)throw std::runtime_error("Invalid transparent family SPIR-V byte count");
+                family.vulkan[i].resize(bytes.size()/4);
+                if(!bytes.empty())std::memcpy(family.vulkan[i].data(),bytes.data(),bytes.size());
+            }
+            profile.transparentFamilies.push_back(std::move(family));
         }
     }
     profile.validate();

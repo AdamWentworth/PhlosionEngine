@@ -1,0 +1,48 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_control_flow_attributes : require
+layout(set=0,binding=0)uniform sampler2D depthTexture;
+layout(set=0,binding=1)uniform sampler2D weatherTexture;
+layout(set=0,binding=2)uniform sampler2D noiseTexture;
+layout(set=0,binding=3)uniform sampler2D shadowTexture;
+layout(set=0,binding=4)uniform sampler2D integratedTexture;
+layout(set=0,binding=5)uniform sampler2D lowDepthTexture;
+layout(std430,set=0,binding=6)readonly buffer InputTiles{uint inputTiles[];};
+layout(rgba16f,set=0,binding=7)uniform writeonly image2D outputTexture;
+layout(r32f,set=0,binding=8)uniform writeonly image2D depthOutput;
+layout(std430,set=0,binding=9)buffer OutputTiles{uint outputTiles[];};
+layout(std140,set=0,binding=10)uniform Parameters{vec4 parameters[72];};
+layout(set=0,binding=11)uniform sampler2D fogNearTexture;
+layout(set=0,binding=12)uniform sampler2D fogFarTexture;
+layout(set=0,binding=13)uniform sampler2D fogSkyTexture;
+#define CL_FOG_SKY(uv) textureLod(fogSkyTexture,uv,0.0).rgb
+#define CP(i) parameters[i]
+#define CL_FOG(uv,distant) (distant?textureLod(fogFarTexture,uv,0.0):textureLod(fogNearTexture,uv,0.0))
+#define CL_LOOP [[dont_unroll]]
+#define CL_DEPTH(p) texelFetch(depthTexture,p,0).r
+#define CL_WEATHER(uv) textureLod(weatherTexture,uv,0.0)
+#define CL_NOISE(uv) textureLod(noiseTexture,uv,0.0)
+#define CL_SHADOW(uv) textureLod(shadowTexture,uv,0.0)
+#define CL_INTEGRATED(p) texelFetch(integratedTexture,p,0)
+#define CL_LOW_DEPTH(p) texelFetch(lowDepthTexture,p,0).r
+#define CL_STORE(p,v) imageStore(outputTexture,p,v)
+#define CL_DEPTH_STORE(p,v) imageStore(depthOutput,p,vec4(v))
+#define CL_TILE(i) inputTiles[i]
+#define CL_APPEND() atomicAdd(outputTiles[0],1u)
+#define CL_TILE_STORE(i,v) outputTiles[i]=v
+#define CL_ARGS() {outputTiles[1]=1u;outputTiles[2]=1u;}
+#include "world_clouds.glsl"
+layout(local_size_x=8,local_size_y=8,local_size_z=1)in;
+void main(){
+#if CL_STAGE==0
+cloudShadow(ivec2(gl_GlobalInvocationID.xy));
+#elif CL_STAGE==1
+cloudVisible(ivec2(gl_GlobalInvocationID.xy));
+#elif CL_STAGE==2
+cloudIntegrate(gl_WorkGroupID.x,ivec2(gl_LocalInvocationID.xy));
+#elif CL_STAGE==3
+cloudResolve(ivec2(gl_GlobalInvocationID.xy));
+#else
+cloudSkyModel(ivec2(gl_GlobalInvocationID.xy));
+#endif
+}

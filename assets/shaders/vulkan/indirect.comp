@@ -1,0 +1,25 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_control_flow_attributes : require
+layout(std430,set=0,binding=0)readonly buffer Transport{vec4 transport[];};
+layout(std430,set=0,binding=1)readonly buffer Previous{vec4 previous[];};
+layout(set=0,binding=2)uniform sampler2D environmentTexture;
+layout(set=0,binding=3)uniform sampler2D shadowTexture;
+layout(std430,set=0,binding=4)buffer Output{vec4 result[];};
+layout(std140,set=0,binding=5)uniform Parameters{vec4 parameters[234];};
+layout(set=0,binding=7)uniform sampler2DShadow sunShadowTexture;
+#define GI_SUN_COMPARE(uv,z) textureLod(sunShadowTexture,vec3(uv,z),0.0)
+#define GI_DATA(i) transport[i]
+#define GI_PREVIOUS(i) previous[i]
+#define GI_OUTPUT(i) result[i]
+#define GI_PARAM(i) parameters[i]
+#define GI_ENVIRONMENT(uv) textureLod(environmentTexture,uv,0.0).rgb
+layout(set=0,binding=6)uniform sampler2D cloudShadowTexture;
+#define GI_CLOUD_SHADOW(uv) textureLod(cloudShadowTexture,uv,0.0).r
+#define GI_SHADOW(uv) textureLod(shadowTexture,uv,0.0).r
+#define GI_SHARED shared
+#define GI_LOOP [[dont_unroll]]
+#define GI_BARRIER barrier()
+#include "indirect_compute.glsl"
+layout(local_size_x=64,local_size_y=1,local_size_z=1)in;
+void main(){indirectCompute(gl_WorkGroupID.x,gl_LocalInvocationID.x);}

@@ -99,7 +99,7 @@ replay CMake build, `run_gpu.py <fresh-case>`, then
 `qualify_gpu.py <fresh-case> --control control-current-02`. The case directories
 retain exact commands, shader/compiler/replay hashes and all output hashes.
 The final case is `evidence/lighting-matched/gpu/local-o3-final-04` in
-`D:/Projects/Research/CyberpunkRainResearch`. The independently evaluated public
+`PROJECTS_ROOT/Research/CyberpunkRainResearch`. The independently evaluated public
 goldens can be reproduced there with `synthetic_reference.py`; it reads no capture
 data. Engine logs and a source manifest are under
 `artifacts/lighting-foundation/captured-local-gpu`.

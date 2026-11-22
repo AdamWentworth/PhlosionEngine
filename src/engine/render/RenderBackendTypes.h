@@ -1,4 +1,5 @@
 #pragma once
+#include "engine/render/WorldDeformation.h"
 
 #include <algorithm>
 #include <array>
@@ -91,7 +92,22 @@ struct WorldTextureMipLevel {
     int height = 0;
 };
 
+struct WorldPreparedViewStats {
+    std::uint64_t requests = 0, preparations = 0, inputReuses = 0, tokenReuses = 0, staleTokens = 0;
+};
+
+struct WorldPreparedViewToken {
+    const void* owner = nullptr;
+    std::uint64_t generation = 0;
+    std::uint32_t index = 0;
+    explicit operator bool() const noexcept { return owner != nullptr; }
+};
+
 struct WorldTextureData {
+    // Immutable view snapshot, valid until the native view/pass or frame changes.
+    // Object/material/skin/motion fields below remain live.
+    WorldPreparedViewToken preparedView{};
+
     const char* key = nullptr;
     const char* cacheKey = nullptr;
     const unsigned char* rgba = nullptr;
@@ -102,6 +118,9 @@ struct WorldTextureData {
     int wrapS = 10497;
     int wrapT = 10497;
     std::uint8_t textureSrgb = 1u;
+    // Base texture only: 0 = renderer default, 1 = trilinear clamp, 2 = trilinear repeat.
+    // Explicit modes disable anisotropy and override wrapS/wrapT for this sampler.
+    std::uint8_t linearMipSampling = 0u;
     const char* normalKey = nullptr;
     const char* normalCacheKey = nullptr;
     const unsigned char* normalRgba = nullptr;
@@ -187,7 +206,7 @@ struct WorldTextureData {
     std::uint8_t dualSourceBlendEnabled = 0u;
     std::uint8_t depthTestEnabled = 1u;
     // Reserved unlit numeric materials, independent of project profiles:
-    // 247/248: local-haze view integration and depth-aware HDR composition.
+    // 246/247/248: local-haze edge fallback, view integration and HDR reconstruction.
     // 249: sampled 3D density; sourceUv1.xy/sourceUv2.x = ellipsoid position,
     // sourceUv2.y = seed, uv.x = integration thickness, materialTimeSec = phase.
     // 250/251: intensity / separate red-intensity and alpha; 252/253: byte TEV
@@ -219,7 +238,10 @@ struct WorldTextureData {
     float cameraTargetX = 0.0f;
     float cameraTargetY = -1.0f;
     float cameraTargetZ = 0.0f;
+    // One-based index into the bound immutable layered set; zero is ordinary PBR.
+    std::uint32_t layeredMaterialIndex = 0u;
     float materialTimeSec = 0.0f;
+    // Bit 12 suppresses detailed contact AO; leaf mode 238 supplies foliage sampling.
     float materialFlags = 0.0f;
     float materialAtlasWidth = 0.0f;
     float materialAtlasHeight = 0.0f;
@@ -248,6 +270,7 @@ struct WorldTextureData {
     std::uint8_t gpuSkinningMode = 0u;
     std::uint32_t skinMatrixCount = 0u;
     const float* skinMatrices = nullptr;
+    engine::render::WorldDeformation deformation;
     engine::render::WorldEnvironmentLighting environment;
     std::uint8_t directionalShadowCaster = 1u;
     std::uint8_t directionalShadowReceiver = 1u;
@@ -267,6 +290,7 @@ struct WorldMeshInstance {
     std::uint8_t gpuSkinningMode = 0u;
     std::uint32_t skinMatrixCount = 0u;
     const float* skinMatrices = nullptr;
+    engine::render::WorldDeformation deformation;
 };
 
 template <typename Tag>
@@ -503,7 +527,10 @@ struct WorldSceneMaterial {
     float emissiveFactorG = 0.0f;
     float emissiveFactorB = 0.0f;
     std::uint8_t characterInkingEnabled = 0u;
+    // One-based index into the bound immutable layered set; zero is ordinary PBR.
+    std::uint32_t layeredMaterialIndex = 0u;
     float materialTimeSec = 0.0f;
+    // Bit 12 suppresses detailed contact AO; leaf mode 238 supplies foliage sampling.
     float materialFlags = 0.0f;
     float materialAtlasWidth = 0.0f;
     float materialAtlasHeight = 0.0f;

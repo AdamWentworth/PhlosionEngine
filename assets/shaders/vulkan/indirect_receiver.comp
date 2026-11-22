@@ -1,0 +1,25 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_control_flow_attributes : require
+layout(std140,set=0,binding=12)uniform Parameters{vec4 rows[269];};
+layout(set=0,binding=0)uniform sampler2D depthTexture;
+layout(set=0,binding=1)uniform sampler2D albedoTexture;
+layout(set=0,binding=2)uniform sampler2D normalTexture;
+layout(std430,set=0,binding=13)readonly buffer Transport{vec4 transport[];};
+layout(std430,set=0,binding=14)readonly buffer Radiance{vec4 radiance[];};
+layout(rgba16f,set=0,binding=15)uniform writeonly image2D indirectImage;
+#define CP(i) rows[i]
+#define ENV_SUN CP(11)
+#define ENV_BOUNCE(i) CP(264+i)
+#define WORLD_GI_NEAR_ONLY
+#define WORLD_GI_LOOP [[dont_unroll]]
+#define WORLD_GI_DATA(i) transport[i]
+#define WORLD_GI_RESULT(i) radiance[i]
+#define DEPTH_LOAD(p) texelFetch(depthTexture,p,0).r
+#define ALBEDO_LOAD(p) texelFetch(albedoTexture,p,0)
+#define NORMAL_LOAD(p) texelFetch(normalTexture,p,0)
+#define STORE_INDIRECT(p,v) imageStore(indirectImage,p,v)
+#include "world_indirect.glsl"
+#include "indirect_receiver_entry.glsl"
+layout(local_size_x=8,local_size_y=8,local_size_z=1)in;
+void main(){indirectReceiver(ivec2(gl_GlobalInvocationID.xy));}

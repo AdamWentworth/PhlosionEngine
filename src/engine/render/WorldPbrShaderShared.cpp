@@ -1,7 +1,9 @@
+#include "WorldProbeRelightSource.h"
 #include "engine/render/WorldPbrShaderShared.h"
 
 #include "WorldAtmosphereSource.h"
 #include "WorldLightingSource.h"
+#include "WorldLayeredSource.h"
 #include "WorldPlanarSource.h"
 #include "WorldShadowSource.h"
 #include "WorldVolumeSource.h"
@@ -477,7 +479,7 @@ float3 evalDirectPbr(float3 n,
                      float3 albedo,
                      float3 F0,
                      float roughness,
-                     float metallic) {
+                     float metallic,float3 diffuseFactor,float3 specularFactor) {
   float NdotL = max(dot(n, l), 0.0f);
   float NdotV = max(dot(n, v), 0.0f);
   if (NdotL <= 0.0f || NdotV <= 0.0f) return float3(0.0f, 0.0f, 0.0f);
@@ -492,7 +494,10 @@ float3 evalDirectPbr(float3 n,
 
   float3 kS = F;
   float3 kD = (float3(1.0f, 1.0f, 1.0f) - kS) * (1.0f - metallic);
-  return (kD * albedo / 3.14159265f + spec) * radiance * NdotL;
+  return (kD * albedo / 3.14159265f * diffuseFactor + spec * specularFactor) * radiance * NdotL;
+}
+float3 evalDirectPbr(float3 n,float3 v,float3 l,float3 radiance,float3 albedo,float3 F0,float roughness,float metallic) {
+    return evalDirectPbr(n,v,l,radiance,albedo,F0,roughness,metallic,float3(1,1,1),1.0);
 }
     )HLSL";
 }
@@ -525,12 +530,22 @@ std::string injectSharedWorldPbr(std::string_view source, ShaderLanguage languag
     if (hlslLiterals) {
         replaceAll(atmosphere, "float environmentDirectionalVisibility = 1.0;", "static float environmentDirectionalVisibility = 1.0f;");
         replaceAll(atmosphere, "float environmentWetMaterialApplied = 0.0;", "static float environmentWetMaterialApplied = 0.0f;");
+        replaceAll(atmosphere, "float worldWetReactive=", "static float worldWetReactive=");
+        replaceAll(atmosphere, "uint worldWetCategory=", "static uint worldWetCategory=");
+        replaceAll(atmosphere, "float worldWetDepth=", "static float worldWetDepth=");
+        replaceAll(atmosphere, "vec2 worldWetScreen=", "static vec2 worldWetScreen=");
+        replaceAll(atmosphere, "vec3 worldWetDryColor=", "static vec3 worldWetDryColor=");
+        replaceAll(atmosphere, "bool worldWetEvaluated=", "static bool worldWetEvaluated=");
+        replaceAll(atmosphere, "uvec4", "uint4");replaceAll(atmosphere, "ivec2", "int2");
         replaceAll(atmosphere, "vec4", "float4");
         replaceAll(atmosphere, "vec3", "float3");
         replaceAll(atmosphere, "vec2", "float2");
         replaceAll(atmosphere, "mix(", "lerp(");
+        replaceAll(atmosphere, "fract(", "frac(");
         replaceAll(atmosphere, "dFdx(", "ddx(");
         replaceAll(atmosphere, "dFdy(", "ddy(");
+        replaceAll(atmosphere, "atan(", "atan2(");
+        replaceAll(atmosphere, "inversesqrt(", "rsqrt(");
         replaceAll(atmosphere, "for (int index", "[loop] for (int index");
     }
     replaceAll(out, "__PHLOSION_ENVIRONMENT_SHADER__", atmosphere);
@@ -544,6 +559,15 @@ std::string injectSharedWorldPbr(std::string_view source, ShaderLanguage languag
     replaceAll(out, "__PHLOSION_WORLD_PLANAR_SHADER__", planar);
     std::string lighting(worldLightingSource);
     if (hlslLiterals) {
+        replaceAll(lighting, "fract(", "frac(");
+        replaceAll(lighting, "float worldFoliageDepthOffset=", "static float worldFoliageDepthOffset=");
+        replaceAll(lighting, "float worldFoliageAbsoluteDepth=", "static float worldFoliageAbsoluteDepth=");
+        replaceAll(lighting, "vec3 worldFoliageDepthProjection=", "static vec3 worldFoliageDepthProjection=");
+        lighting.insert(0, "#define PROBE_KERNEL_ARRAY(name,count) static const float4 name[count] = {\n#define PROBE_KERNEL_END };\n#define WORLD_GI_LOOP [loop]\n#define PHLOSION_LOCAL_LIGHT_LOOP [loop]\n#define LOCAL_LIGHT_STORAGE static\n");
+        replaceAll(lighting, "WorldSurfaceBuffer worldSurfaceOutput;", "static WorldSurfaceBuffer worldSurfaceOutput;");
+        replaceAll(lighting, "bool worldSurfaceValid = false;", "static bool worldSurfaceValid = false;");
+        replaceAll(lighting, "uvec3", "uint3");replaceAll(lighting, "uvec2", "uint2");
+        replaceAll(lighting, "ivec2", "int2");
         replaceAll(lighting, "vec4", "float4");
         replaceAll(lighting, "vec3", "float3");
         replaceAll(lighting, "vec2", "float2");
@@ -560,6 +584,14 @@ std::string injectSharedWorldPbr(std::string_view source, ShaderLanguage languag
         lighting.insert(0, "#define PHLOSION_EARLY_LOCAL_SHADOW 0\n");
     }
     replaceAll(out, "__PHLOSION_WORLD_LIGHTING_SHADER__", lighting);
+    if(hlslLiterals) {
+        std::string layered(worldLayeredSource);
+        for(const auto& replacement : {std::pair{"uvec2","uint2"}, {"vec4","float4"}, {"vec3","float3"}, {"vec2","float2"},
+            {"mix(","lerp("},{"fract(","frac("},{"inversesqrt(","rsqrt("},{"uintBitsToFloat(","asfloat("},
+            {"dFdx(","ddx("},{"dFdy(","ddy("}})
+            replaceAll(layered,replacement.first,replacement.second);
+        replaceAll(out,"__PHLOSION_WORLD_LAYERED_SHADER__",layered);
+    }
     std::string shadow(worldShadowSource);
     if (hlslLiterals) {
         replaceAll(shadow, "vec4", "float4");
@@ -579,6 +611,22 @@ std::string injectSharedWorldPbr(std::string_view source, ShaderLanguage languag
         replaceAll(volume, "return float4(0.0);", "return float4(0.0,0.0,0.0,0.0);");
     }
     replaceAll(out, "__PHLOSION_WORLD_VOLUME_SHADER__", volume);
+
+    std::string probe(worldProbeRelightSource);
+    if(hlslLiterals) {
+        replaceAll(probe,"uvec2","uint2");
+        replaceAll(probe,"ivec2","int2");replaceAll(probe,"vec4","float4");
+        replaceAll(probe,"vec3","float3");replaceAll(probe,"vec2","float2");
+        replaceAll(probe,"mix(","lerp(");
+        probe.insert(0,
+            "#define PROBE_DATA(p) uint2(gClusteredDiffuse.Load(int3(p,0)).rg)\n"
+            "#define PROBE_DEPTH(p) gWorldContactHistory.Load(int3(p,0)).r\n"
+            "#define PROBE_MATERIAL(p) gWorldContactAux.Load(int3(p,0))\n"
+            "#define PROBE_ALBEDO(p) gClusteredDiffuse.Load(int3(p,0))\n"
+            "#define PROBE_EMISSION(p) gClusteredSpecular.Load(int3(p,0))\n"
+            "#define PROBE_WEATHER(p) gClusteredDepth.Load(int3(p,0))\n");
+    }
+    replaceAll(out,"__PHLOSION_PROBE_RELIGHT_SHADER__",probe);
     return out;
 }
 

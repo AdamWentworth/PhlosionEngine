@@ -298,6 +298,12 @@ bool AudioMixer::render(std::size_t frames,
     return true;
 }
 
+bool AudioMixer::isVoiceActive(AudioVoiceId id) const {
+    checkOwner();
+    return std::any_of(voices_.begin(), voices_.end(),
+        [id](const Voice& voice) { return voice.id == id && !voice.finished; });
+}
+
 std::size_t AudioMixer::activeVoices() const {
     checkOwner();
     return voices_.size();

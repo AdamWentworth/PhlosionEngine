@@ -1,3 +1,4 @@
+#include "engine/render/WorldPlanarCapture.h"
 #include "engine/render/D3D12RenderBackend.h"
 #include "engine/render/d3d12/D3D12RenderBackendInternal.h"
 #include "engine/core/Environment.h"
@@ -45,6 +46,9 @@ void D3D12RenderBackend::drawWorldIndexedMeshCached(const char* geometryKey,
                                                     const float* viewProjectionMatrix4x4,
                                                     int surfaceWidth,
                                                     int surfaceHeight) {
+#if defined(_WIN32)
+    flushWorldDrawPackets();
+#endif
 #if defined(_WIN32)
     if (!geometryKey || geometryKey[0] == '\0') {
         drawWorldIndexedMesh(
@@ -134,6 +138,7 @@ D3D12RenderBackend::CachedWorldMesh* D3D12RenderBackend::ensureCachedWorldMesh(
     std::size_t vertexCount,
     const std::uint32_t* indices,
     std::size_t indexCount) {
+    engine::render::WorldResourceScopeState::AssetResources assets(worldScopes_);
     engine::render::WorldResourceScopeState::AllocationAttempt attempt(worldScopes_);
     if (!worldScopes_.admitted()) return nullptr;
     if (!geometryKey || geometryKey[0] == '\0' || !vertices || !indices || vertexCount == 0 || indexCount < 3u) {
@@ -357,6 +362,9 @@ void D3D12RenderBackend::drawWorldIndexedMeshCachedInternal(const CachedWorldMes
                                                             const float* viewProjectionMatrix4x4,
                                                             int surfaceWidth,
                                                             int surfaceHeight) {
+#if defined(_WIN32)
+    flushWorldDrawPackets();
+#endif
     if (worldPlanarReflection_[4][3]<0 && !worldShadowActive_) {
         viewProjectionMatrix4x4=worldPlanarReflectionView_.viewProjection.data();
         surfaceWidth=worldPlanarReflectionView_.width; surfaceHeight=worldPlanarReflectionView_.heightPixels;
@@ -391,6 +399,12 @@ void D3D12RenderBackend::drawWorldIndexedMeshCachedInternal(const CachedWorldMes
     vp.MinDepth = 0.0f;
     vp.MaxDepth = 1.0f;
     D3D12_RECT scissor{0, 0, surfaceWidth, surfaceHeight};
+    if(!worldShadowActive_ && worldPlanarReflection_[4][3]<0) {
+        const auto bounds=worldHazeActive_
+            ? engine::render::worldPlanarHazeScissor(worldPlanarScissor_,worldPlanarReflectionView_,surfaceWidth,surfaceHeight)
+            : worldPlanarScissor_;
+        scissor={bounds[0],bounds[1],bounds[2],bounds[3]};
+    }
 
     commandList_->RSSetViewports(1, &vp);
     commandList_->RSSetScissorRects(1, &scissor);
@@ -398,12 +412,14 @@ void D3D12RenderBackend::drawWorldIndexedMeshCachedInternal(const CachedWorldMes
     ID3D12DescriptorHeap* heaps[] = {srvHeap_.Get()};
     commandList_->SetDescriptorHeaps(1, heaps);
     commandList_->SetGraphicsRootSignature(worldRootSignature_.Get());
+    if(worldSurfaceActive_)bindWorldSurfaceMotion();
     bindWorldDiffuseProbes();
     static constexpr float kIdentity[16] = {
         1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
         0.0f, 0.0f, 1.0f, 0.0f,
         0.0f, 0.0f, 0.0f, 1.0f};
+    const auto& preparedView = resolvePreparedWorldView(nullptr);
     const std::size_t vsConstantsWriteOffset =
         alignUp(static_cast<std::size_t>(worldVsConstantFrameOffset_), 256u);
     const std::size_t vsConstantsFrameEnd =
@@ -421,6 +437,7 @@ void D3D12RenderBackend::drawWorldIndexedMeshCachedInternal(const CachedWorldMes
         worldVsConstantMappedData_ + vsConstantsWriteOffset,
         vsConstants,
         sizeof(vsConstants));
+    commandList_->SetGraphicsRootConstantBufferView(24, preparedView.address);
     commandList_->SetGraphicsRootConstantBufferView(
         0,
         worldVsConstantBufferGpuAddress_ + static_cast<std::uint64_t>(vsConstantsWriteOffset));
@@ -461,6 +478,6 @@ void D3D12RenderBackend::drawWorldIndexedMeshCachedInternal(const CachedWorldMes
     commandList_->DrawIndexedInstanced(static_cast<UINT>(mesh.indexCount), 1, 0, 0, 0);
     ++frameDrawCalls_;
     frameTriangles_ += static_cast<std::uint64_t>(mesh.indexCount / 3u);
-    worldVsConstantFrameOffset_ = static_cast<UINT>(vsConstantsWriteOffset + kWorldViewConstantStride);
+    worldVsConstantFrameOffset_ = std::max(worldVsConstantFrameOffset_,static_cast<UINT>(vsConstantsWriteOffset + kWorldViewConstantStride));
 }
 #endif

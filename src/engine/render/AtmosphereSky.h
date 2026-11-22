@@ -2,12 +2,13 @@
 
 #include "engine/render/IRenderBackend.h"
 #include "engine/render/IWorldResourceScope.h"
+#include "engine/render/IWorldClouds.h"
 #include <array>
 #include <vector>
 
 namespace engine::render {
 
-// Reusable ground-level atmosphere and layered clouds. Data is built before activation;
+// Reusable analytic atmosphere and volumetric cloud inputs. Data is built before activation;
 // GPU data belongs to the caller's world scope, using existing portable draws.
 class AtmosphereSky {
 public:
@@ -16,6 +17,9 @@ public:
         float viewElevationRadians, float relativeAzimuthRadians);
     static std::array<float, 2> referenceCloudDensity(float u, float v);
     void prewarm(IRenderBackend& renderer, WorldResourceScopeId scope) const;
+    WorldCloudView cloudView(WorldResourceScopeId,const WorldEnvironmentLighting&,const WorldTemporalView&,unsigned quality) const;
+    void prepareClouds(IRenderBackend&,const WorldCloudView&) const;
+    void resolveClouds(IRenderBackend&,const WorldCloudView&) const;
     void draw(IRenderBackend& renderer, WorldResourceScopeId scope,
         const WorldEnvironmentLighting& environment,
         const std::array<float, 3>& cameraPosition, const float* viewProjection,
@@ -23,6 +27,7 @@ public:
 private:
     IRenderBackend::WorldTextureData texture() const;
     std::vector<unsigned char> atlas_;
+    WorldCloudAssets cloudAssets_;
     std::array<IRenderBackend::WorldMeshVertex, 8> vertices_{};
     std::array<std::uint32_t, 36> indices_{};
 };

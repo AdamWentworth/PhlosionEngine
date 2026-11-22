@@ -24,6 +24,7 @@
 #include "engine/platform/Window.h"
 #include "engine/render/Camera3D.h"
 #include "engine/render/D3D12RenderBackend.h"
+#include "engine/platform/SdlPreparationProgress.h"
 #include "engine/render/IRenderBackend.h"
 #include "engine/render/OpenGLRenderBackend.h"
 #include "engine/render/VulkanRenderBackend.h"
@@ -553,10 +554,11 @@ struct EditorGraphics {
 EditorGraphics createEditorGraphics(
     const std::vector<std::string>& candidates,
     bool visible,
-    bool vsyncEnabled) {
+    bool vsyncEnabled,
+    const engine::render::WorldMaterialProfile& initialProfile = {}) {
     using engine::editor::EditorRendererPreference;
     const auto create =
-        [visible, vsyncEnabled](
+        [visible, vsyncEnabled, &initialProfile](
             EditorRendererPreference preference) {
             EditorGraphics graphics;
             if (preference ==
@@ -575,6 +577,7 @@ EditorGraphics createEditorGraphics(
                 graphics.window->getDrawableSize(
                     width,
                     height);
+                engine::render::PreparationProgressScope progress(engine::platform::preparationWindowProgress(graphics.window->getSDLWindow()));
                 graphics.renderer =
                     std::make_unique<
                         D3D12RenderBackend>(
@@ -582,7 +585,7 @@ EditorGraphics createEditorGraphics(
                             getSDLWindow(),
                         std::max(1, width),
                         std::max(1, height),
-                        vsyncEnabled);
+                        vsyncEnabled, std::string{}, initialProfile);
                 graphics.activePreference =
                     EditorRendererPreference::D3D12;
                 return graphics;
@@ -606,6 +609,7 @@ EditorGraphics createEditorGraphics(
                 graphics.window->getDrawableSize(
                     width,
                     height);
+                engine::render::PreparationProgressScope progress(engine::platform::preparationWindowProgress(graphics.window->getSDLWindow()));
                 graphics.renderer =
                     std::make_unique<
                         VulkanRenderBackend>(
@@ -613,7 +617,7 @@ EditorGraphics createEditorGraphics(
                             getSDLWindow(),
                         std::max(1, width),
                         std::max(1, height),
-                        vsyncEnabled);
+                        vsyncEnabled, std::string{}, initialProfile);
                 graphics.activePreference =
                     EditorRendererPreference::Vulkan;
                 return graphics;
@@ -647,7 +651,8 @@ EditorGraphics createEditorGraphics(
             if (!failures.empty()) std::cerr << "[Phlosion Editor][Renderer] " << failures
                 << "; using enrolled renderer " << candidate << '\n';
             return graphics;
-        } catch (const std::exception& error) {
+        } catch (const engine::render::PreparationCancelled&) { throw; }
+        catch (const std::exception& error) {
             if (!failures.empty()) failures += "; ";
             failures += candidate + ": " + error.what();
         }
@@ -3702,8 +3707,28 @@ int main(int argc, char** argv) {
         }
         const auto candidates = engine::render::rendererCandidates(policy,
             engine::editor::editorRendererPreferenceName(rendererPreference));
-        EditorGraphics graphics = createEditorGraphics(candidates, !arguments.hidden, !arguments.hidden);
+        if(!arguments.project.empty() && !engine::env::get("PHLOSION_PREPARED_SHADER_DIR")) {
+            const auto shaderRoot=normalizeDescriptorPath(arguments.project).parent_path()/".phlosion"/"shaders";
+            if(SDL_setenv("PHLOSION_PREPARED_SHADER_DIR",shaderRoot.string().c_str(),1)!=0)
+                throw std::runtime_error("Cannot select project shader package");
+        }
+        engine::render::WorldMaterialProfile initialProfile;
+        if (!arguments.project.empty()) {
+            try {
+                const auto descriptorPath=normalizeDescriptorPath(arguments.project);
+                engine::editor::ProjectDescriptor descriptor;
+                std::string error;
+                if(engine::editor::loadProjectDescriptor(descriptorPath,descriptor,&error))
+                    initialProfile=engine::render::loadWorldMaterialProfile(
+                        descriptorPath.parent_path(),descriptor.worldMaterialProfile);
+            } catch(const std::exception& error) {
+                // The ordinary project-load UI reports invalid descriptors and retains recovery.
+                std::cerr<<"[PhlosionEditor] Initial material preparation: "<<error.what()<<'\n';
+            }
+        }
+        EditorGraphics graphics = createEditorGraphics(candidates, !arguments.hidden, !arguments.hidden, initialProfile);
         Window& window = *graphics.window;
+        engine::render::PreparationProgressScope progress(engine::platform::preparationWindowProgress(window.getSDLWindow()));
         IRenderBackend& renderer =
             *graphics.renderer;
         WindowPlacement windowPlacement;
@@ -3928,6 +3953,9 @@ int main(int argc, char** argv) {
                 static_cast<std::size_t>(arguments.frameLimit));
         }
 
+        // Plugin exceptions can own vtables/destructors in the project DLL.
+        // Handle and destroy them before unloading that DLL during teardown.
+        try {
         while (running) {
             const auto now = Clock::now();
             const auto frameStart = now;
@@ -4535,6 +4563,7 @@ int main(int argc, char** argv) {
 
             const double simulationMs = elapsedMilliseconds(simulationStart);
             bool projectFrameRendered = false;
+            if(project)project->runtime->prepareFrame(renderer);
             renderer.beginFrame(
                 0.025f,
                 0.031f,
@@ -5824,6 +5853,13 @@ int main(int argc, char** argv) {
             saveWindowPlacement(
                 stateDirectory,
                 windowPlacement);
+        }
+        } catch (const std::exception& exception) {
+            std::cerr << "[Phlosion Editor] " << exception.what() << '\n';
+            result = 1;
+        } catch (...) {
+            std::cerr << "[Phlosion Editor] Unknown project error\n";
+            result = 1;
         }
         standaloneBuild.reset();
         gameplayReload.reset();

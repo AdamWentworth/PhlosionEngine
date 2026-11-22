@@ -1,0 +1,3 @@
+#pragma once
+inline constexpr const char* worldDisplaySource=R"DISPLAY(@PHLOSION_DISPLAY_SOURCE@)DISPLAY";
+inline constexpr const char* worldDisplayAcesSource=R"DISPLAY(@PHLOSION_DISPLAY_ACES_SOURCE@)DISPLAY";

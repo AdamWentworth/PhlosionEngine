@@ -1,6 +1,94 @@
+#include "world_contact.glsl"
+#include "world_screen_reflection.glsl"
+#include "world_indirect.glsl"
+#include "world_local_reflection.glsl"
+
+#include "world_surface.glsl"
+#include "world_clustered_consumer.glsl"
+
+// Prepared ordinary screen/probe results only; no planar or compatibility
+// ray marcher is required by specialized forward material consumers.
+vec3 worldPreparedReflectionRadiance(vec3 fallback,vec3 position,vec3 normal,vec3 view,float roughness) {
+    vec3 radiance=worldPreparedLocalReflectionRadiance(fallback,position,normal,view,roughness);
+    vec3 resolved;
+    if(worldPreparedScreenReflectionRadiance(radiance,position,roughness,resolved))return resolved;
+    return radiance;
+}
+
+vec3 worldReflectionRadiance(vec3 fallback,vec3 position,vec3 normal,vec3 view,float roughness) {
+    vec3 planar=worldPlanarCoordinates(position,normal,view,roughness);
+    // A fully weighted planar source replaces both expensive fallback traces.
+    // Partial coverage retains their original evaluation and blend order.
+    if(planar.z>=1.0)return max(worldPlanarFiltered(planar.xy,roughness),vec3(0.0,0.0,0.0));
+    vec3 radiance=worldLocalReflectionRadiance(fallback,position,normal,view,roughness);
+    radiance=worldScreenReflectionRadiance(radiance,position,normal,view,roughness);
+    if(planar.z<=0.0)return radiance;
+    return mix(radiance,max(worldPlanarFiltered(planar.xy,roughness),vec3(0.0,0.0,0.0)),planar.z);
+}
+
+float environmentMaterialRoughness(float authored) {
+    return clamp(authored, ENV_SUN.w > .5 ? .04 : .16, 1.0);
+}
+float environmentSpecularScale(float previewScale) {
+    // Scene captures contain linear radiance. Preserve its units through the
+    // BRDF; the neutral preview's artistic scale belongs to that profile.
+    return ENV_SUN.w > .5 ? 1.0 : previewScale;
+}
+
 // LTC edge integral adapted from Heitz, Dupuy, Hill and Neubelt (SIGGRAPH 2016).
 // Attribution and redistribution terms: third_party/ltc/LICENSE.
+vec2 environmentReflectionDfg(float normalDotView, float roughness) {
+    // The existing GGX LTC table stores hemispherical magnitude (A+B) and
+    // Fresnel moment B, also suitable for split-sum scene reflections.
+    vec2 uv=(vec2(clamp(roughness,.04,1.0),sqrt(1.0-clamp(normalDotView,0.0,1.0)))*63.0+.5)/64.0;
+    vec2 moments=ENV_RECT_LUT(vec2(.5+uv.x*.5,uv.y)).xy;
+    return vec2(moments.x-moments.y,moments.y);
+}
+// Legacy backends retain neutral response until their parameter path is enrolled.
+#ifndef ENV_REFLECTION_RESPONSE
+#define ENV_REFLECTION_RESPONSE vec4(1.0,1.0,0.0,0.0)
+#define ENV_REFLECTION_RESPONSE_PARAMS vec4(0.0,0.0,0.0,0.0)
+#endif
+vec3 environmentReflectionResponse(vec3 normal, vec3 view, vec3 f0, float roughness,
+                                   vec3 albedo, float visibility, vec3 neutral) {
+    if (ENV_SUN.w < .5 || ENV_REFLECTION_RESPONSE_PARAMS.x <= 0.0) return neutral;
+    vec2 dfg=environmentReflectionDfg(abs(dot(normal,view)),roughness);
+    float weight=clamp(ENV_REFLECTION_RESPONSE_PARAMS.x,0.0,1.0);
+    float q=weight*clamp(visibility,0.0,1.0);
+    vec4 controls=ENV_REFLECTION_RESPONSE;
+    float a=1.0+(controls.x-1.0)*q;
+    float b=1.0+(controls.y-1.0+controls.w)*q;
+    float f90=mix(1.0,clamp(50.0*(albedo.r+albedo.g+albedo.b),0.0,1.0),
+                  weight*ENV_REFLECTION_RESPONSE_PARAMS.y);
+    float grazing=b*dfg.y*f90+controls.z*q;
+    return clamp(a*dfg.x*f0+vec3(grazing,grazing,grazing),0.0,1.0);
+}
+// Outdoor reflection sources share one response, after radiance blending.
+// Inspection lighting retains its established neutral-environment response.
+void environmentIndirectScattering(vec3 normal, vec3 view, vec3 f0, float roughness,
+                                    inout vec3 singleScattering, inout vec3 multiScattering) {
+    if (ENV_SUN.w < .5) return;
+    // World surfaces are two-sided; use the visible hemisphere just as the
+    // planar receiver and local direct BRDF do, including reversed floor meshes.
+    vec2 dfg=environmentReflectionDfg(abs(dot(normal,view)),roughness);
+    singleScattering=f0*dfg.x+dfg.y;
+    float missingEnergy=max(1.0-dfg.x-dfg.y,0.0);
+    vec3 averageFresnel=f0+(vec3(1.0,1.0,1.0)-f0)*.047619;
+    multiScattering=singleScattering*averageFresnel*missingEnergy/
+        max(vec3(1.0,1.0,1.0)-missingEnergy*averageFresnel,vec3(.00001,.00001,.00001));
+}
+vec3 environmentDiffuseOcclusion(float visibility, vec3 albedo) {
+    float ao=clamp(visibility,0.0,1.0);
+    if (ENV_SUN.w < .5) return vec3(ao,ao,ao);
+    // Jimenez et al., Practical Realtime Strategies for Accurate Indirect
+    // Occlusion (2016), Eq. 10. Approximate near-field energy, not a new bake.
+    vec3 a=2.0404*albedo-vec3(.3324,.3324,.3324);
+    vec3 b=vec3(.6417,.6417,.6417)-4.7951*albedo;
+    vec3 c=2.7552*albedo+vec3(.6903,.6903,.6903);
+    return clamp(max(vec3(ao,ao,ao),((a*ao+b)*ao+c)*ao),0.0,1.0);
+}
 #include "world_finite_light.glsl"
+#include "world_foliage.glsl"
 #ifndef PHLOSION_EARLY_LOCAL_SHADOW
 #define PHLOSION_EARLY_LOCAL_SHADOW 1
 #endif
@@ -49,6 +137,7 @@ vec3 environmentLocalHaze(vec3 position,vec3 camera) {
     for (int index=0;index<16;++index) {
         vec4 source=ENV_RECT(index*4);
         vec3 emitted=ENV_RECT(index*4+3).rgb;
+        if(((uint(ENV_RECT(index*4+3).w)>>8u)&16u)==0u || ((uint(ENV_RECT(index*4+3).w)&255u)&(uint(ENV_POINT(1).w)>>16u))==0u)continue;
         if (source.w<=0.0 || max(emitted.r,max(emitted.g,emitted.b))<=0.0) continue;
         vec3 toSource=source.xyz-camera;
         float along=dot(toSource,ray);
@@ -93,6 +182,9 @@ vec3 environmentLocalHaze(vec3 position,vec3 camera) {
 }
 
 #ifdef HAZE_DIMENSIONS
+#ifndef HAZE_PRECISE
+#define HAZE_PRECISE
+#endif
 vec3 localHazeEndpoint(vec2 uv,vec3 camera) {
     vec2 pixel=clamp(floor(HAZE_COORD(uv)*HAZE_DIMENSIONS.xy),vec2(0.0,0.0),HAZE_DIMENSIONS.xy-1.0);
     float depth=HAZE_DEPTH(pixel);
@@ -100,13 +192,17 @@ vec3 localHazeEndpoint(vec2 uv,vec3 camera) {
     vec3 position=homogeneous.xyz/max(abs(homogeneous.w),0.000001)*sign(homogeneous.w);
     return depth>=0.999999 ? camera+rectUnit(position-camera)*60000.0 : position;
 }
+vec4 worldFogComposition(vec2 uv,vec3 camera) {
+    vec4 fog=worldFogAt(localHazeEndpoint(uv,camera));
+    return vec4(fog.rgb,1.0-fog.a);
+}
 vec4 worldLocalHazePass(vec2 uv,vec3 camera,float mode) {
     vec3 endpoint=localHazeEndpoint(uv,camera);
     float distanceMetres=min(length(endpoint-camera),60000.0);
     if (mode==247.0) return vec4(environmentLocalHaze(endpoint,camera),distanceMetres);
     vec2 grid=HAZE_COORD(uv)*HAZE_DIMENSIONS.zw-.5;
     vec2 cell=floor(grid),fraction=grid-cell;
-    vec3 color=vec3(0.0,0.0,0.0);float weightSum=0.0;
+    vec3 color=vec3(0.0,0.0,0.0);HAZE_PRECISE float weightSum=0.0;
     for(int tap=0;tap<4;++tap) {
         vec2 offset=vec2(float(tap&1),float((tap>>1)&1));
         vec2 pixel=clamp(cell+offset,vec2(0.0,0.0),HAZE_DIMENSIONS.zw-1.0);
@@ -116,16 +212,21 @@ vec4 worldLocalHazePass(vec2 uv,vec3 camera,float mode) {
         float weight=bilinear.x*bilinear.y*(1.0-smoothstep(tolerance,tolerance*2.0,abs(sampleValue.a-distanceMetres)));
         color+=sampleValue.rgb*weight;weightSum+=weight;
     }
-    // Thin foreground silhouettes can be absent from every low-res tap. Resolve
-    // those pixels analytically instead of leaking distant light across them.
-    HAZE_BRANCH if(weightSum>.01) return vec4(color/weightSum,1.0);
+    // The two specializations share an exact, complementary depth predicate.
+    // Ordinary reconstruction carries no full ray integration; thin silhouettes
+    // retain the analytic fallback in their separate draw.
+    if(mode==248.0) {
+        if(weightSum<=.01) discard;
+        return vec4(color/weightSum,1.0);
+    }
+    if(weightSum>.01) discard;
     return vec4(environmentLocalHaze(endpoint,camera),1.0);
 }
 #endif
 
 // Static one-bounce irradiance, relit from live sources. No direct emitter term.
 vec3 environmentDiffuseProbeIrradiance(vec3 position, vec3 normal) {
-    if (ENV_SUN.w < 0.5 || ENV_BOUNCE(0).w < 0.5) return vec3(0.0,0.0,0.0);
+    if (ENV_SUN.w < 0.5 || ENV_BOUNCE(0).w < 0.5 || ENV_BOUNCE(0).w > 1.5) return vec3(0.0,0.0,0.0);
     vec3 origin=ENV_BOUNCE(0).xyz, spacing=ENV_BOUNCE(1).xyz, counts=ENV_BOUNCE(2).xyz;
     vec3 coord=(position-origin)/spacing;
     vec3 bounded=clamp(coord,vec3(0.0,0.0,0.0),counts-1.0);
@@ -168,91 +269,7 @@ vec3 environmentDiffuseProbeIrradiance(vec3 position, vec3 normal) {
     return irradiance*(fade/max(weightSum,0.05));
 }
 
-vec3 rectUnit(vec3 v) { return v / sqrt(max(dot(v,v), 1e-20)); }
-float rectEdge(vec3 a, vec3 b) {
-    float x = clamp(dot(a,b), -1.0, 1.0), y = abs(x);
-    float v = (0.8543985 + (0.4965155 + 0.0145206*y)*y) /
-              (3.4175940 + (4.1616724 + y)*y);
-    return cross(a,b).z * (x > 0.0 ? v : 0.5 / sqrt(max(1.0-x*x,1e-7))-v);
-}
-vec3 rectTransform(vec3 q, vec3 n, vec3 t, vec3 b, vec4 transform) {
-    vec3 local=vec3(dot(q,t),dot(q,b),dot(q,n));
-    return vec3(transform.x*local.x+transform.z*local.z,local.y,
-                transform.y*local.x+transform.w*local.z);
-}
-float rectClippedEdge(vec3 a, vec3 b, inout vec3 enter, inout vec3 leave) {
-    if (a.z<=0.0 && b.z<=0.0) return 0.0;
-    if ((a.z>0.0)!=(b.z>0.0)) {
-        vec3 hit=rectUnit(a+(b-a)*(a.z/(a.z-b.z)));
-        if(a.z>0.0) {leave=hit;return rectEdge(rectUnit(a),hit);}
-        enter=hit;return rectEdge(hit,rectUnit(b));
-    }
-    return rectEdge(rectUnit(a),rectUnit(b));
-}
-// Exact horizon clipping without dynamically indexed local arrays. Most world
-// receivers see the entire emitter, so their four-edge path is straight-line.
-float rectIntegral(vec3 delta, vec3 u, vec3 v, vec3 n, vec3 t, vec4 transform) {
-    vec3 b=cross(n,t);
-    vec3 p0=rectTransform(delta-u-v,n,t,b,transform);
-    vec3 p1=rectTransform(delta+u-v,n,t,b,transform);
-    vec3 p2=rectTransform(delta+u+v,n,t,b,transform);
-    vec3 p3=rectTransform(delta-u+v,n,t,b,transform);
-    if(min(min(p0.z,p1.z),min(p2.z,p3.z))>0.0) {
-        p0=rectUnit(p0);p1=rectUnit(p1);p2=rectUnit(p2);p3=rectUnit(p3);
-        return abs(rectEdge(p0,p1)+rectEdge(p1,p2)+rectEdge(p2,p3)+rectEdge(p3,p0));
-    }
-    if(max(max(p0.z,p1.z),max(p2.z,p3.z))<=0.0) return 0.0;
-    vec3 enter=vec3(0.0,0.0,0.0),leave=vec3(0.0,0.0,0.0);
-    float sum=rectClippedEdge(p0,p1,enter,leave);
-    sum+=rectClippedEdge(p1,p2,enter,leave);
-    sum+=rectClippedEdge(p2,p3,enter,leave);
-    sum+=rectClippedEdge(p3,p0,enter,leave);
-    return abs(sum+rectEdge(leave,enter));
-}
-bool environmentRectSample(int index, vec3 position, out vec3 delta,
-                           out vec3 u, out vec3 v, out vec3 radiance) {
-    vec4 source=ENV_RECT(index*4);
-    u=ENV_RECT(index*4+1).xyz; v=ENV_RECT(index*4+2).xyz;
-    radiance=ENV_RECT(index*4+3).rgb; delta=source.xyz-position;
-    if (ENV_SUN.w<0.5 || source.w<=0.0 || max(radiance.r,max(radiance.g,radiance.b))<=0.0)
-        return false;
-    if (dot(cross(u,v),delta)>=-1e-6) return false;
-    float d2=dot(delta,delta), r2=source.w*source.w;
-    if (d2>=r2) return false;
-    float cutoff=max(1.0-d2*d2/(r2*r2),0.0);
-    radiance*=cutoff*cutoff;
-    return true;
-}
-vec3 rectTangent(vec3 normal, vec3 view) {
-    vec3 tangent=view-normal*dot(normal,view);
-    if (dot(tangent,tangent)<1e-6)
-        tangent=cross(abs(normal.y)<0.9?vec3(0.0,1.0,0.0):vec3(1.0,0.0,0.0),normal);
-    return rectUnit(tangent);
-}
-FiniteLightResponse environmentFiniteRectangle(int index,vec3 position,vec3 normal,vec3 view,
-        vec3 albedo,vec3 f0,float roughness,float metallic) {
-    vec4 source=ENV_RECT(index*4);
-    return finiteLightRectangleResponse(source.xyz-position,ENV_RECT(index*4+1).xyz,
-        ENV_RECT(index*4+2).xyz,source.w,ENV_RECT(index*4+3).rgb,normal,view,albedo,f0,roughness,metallic);
-}
-
-// Optional world-space lights, shared by ordinary and composed materials.
-bool environmentPointSample(int index, vec3 position, out vec3 light, out vec3 radiance) {
-    light = vec3(0.0, 0.0, 0.0);
-    radiance = vec3(0.0, 0.0, 0.0);
-    vec4 source = ENV_POINT(index * 2);
-    vec3 intensity = ENV_POINT(index * 2 + 1).rgb;
-    if (ENV_SUN.w < 0.5 || source.w <= 0.0 ||
-        max(intensity.r, max(intensity.g, intensity.b)) <= 0.0) return false;
-    vec3 delta = source.xyz - position;
-    float distanceSquared = dot(delta, delta);
-    float rangeSquared = source.w * source.w;
-    if (distanceSquared >= rangeSquared) return false;
-    light = delta / sqrt(max(distanceSquared, 1e-8));
-    float cutoff = max(1.0 - distanceSquared * distanceSquared / (rangeSquared * rangeSquared), 0.0);
-    radiance = intensity * cutoff * cutoff / max(distanceSquared, 0.25);
-    return true;
-}
+#include "world_local_direct.glsl"
 
 // Layered/toon source bodies retain their authored specular model. Add local
 // diffuse energy without introducing a generic GGX outer coat or changing emission.
@@ -262,11 +279,12 @@ vec3 environmentLocalDiffuse(vec3 position, vec3 normal, vec3 view, vec3 albedo)
     if (dot(normal, view) < 0.0) normal = -normal;
     for (int index = 0; index < 4; ++index) {
         vec3 light, radiance;
-        if (environmentPointSample(index, position, light, radiance))
-            result += albedo * radiance * max(dot(normal, light), 0.0) / 3.14159265;
+        if ((localLightFlags(ENV_POINT(index*2+1).w)&1u)!=0u && environmentPointSample(index, position, light, radiance))
+            result += albedo * radiance * environmentLocalShadowVisibility(16+index,position,normal) * max(dot(normal, light), 0.0) / 3.14159265;
     }
     vec3 tangent=rectTangent(normal,view);
     for (int index=0;index<16;++index) {
+        if((localLightFlags(ENV_RECT(index*4+3).w)&1u)==0u)continue;
         vec3 delta,u,v,radiance;
         if (ENV_RECT(index*4+1).w>.5) {
             float visibility=environmentLocalShadowVisibility(index,position,normal);
@@ -291,64 +309,84 @@ vec3 environmentLocalDiffuse(vec3 position, vec3 normal, vec3 view, vec3 albedo)
 }
 
 vec3 environmentLocalPbr(vec3 position, vec3 normal, vec3 view,
+                         vec3 albedo, vec3 f0, float roughness, float metallic, float occlusion,vec3 diffuseFactor,float specularFactor) {
+    if (ENV_SUN.w<.5) return vec3(0.0,0.0,0.0);
+    if (dot(normal,view)<0.0) normal=-normal;
+    if (dot(normal,view)<=0.0) return vec3(0.0,0.0,0.0);
+    vec3 direct=environmentPreparedLocalDirectPbrWeighted(position,normal,view,albedo,f0,roughness,metallic,diffuseFactor,specularFactor);
+    return direct+
+        (vec3(1.0,1.0,1.0)-f0)*(1.0-metallic)*albedo*
+        environmentDiffuseProbeIrradiance(position,normal)*environmentDiffuseOcclusion(occlusion,albedo)/3.14159265;
+}
+vec3 environmentLocalPbr(vec3 position,vec3 normal,vec3 view,
+        vec3 albedo,vec3 f0,float roughness,float metallic,float occlusion) {
+    return environmentLocalPbr(position,normal,view,albedo,f0,roughness,metallic,occlusion,vec3(1.0,1.0,1.0),1.0);
+}
+vec3 environmentLocalPbr(vec3 position, vec3 normal, vec3 view,
                          vec3 albedo, vec3 f0, float roughness, float metallic) {
-    vec3 result = vec3(0.0, 0.0, 0.0);
-    if (ENV_SUN.w < 0.5) return result;
-    // These draws are two-sided, including source meshes with differing winding.
-    // Resolve the local BRDF in the visible hemisphere without changing the
-    // established directional/inspection normal interpretation.
-    if (dot(normal, view) < 0.0) normal = -normal;
-    float nv = max(dot(normal, view), 0.0);
-    if (nv <= 0.0) return result;
-    for (int index = 0; index < 4; ++index) {
-        vec3 light, radiance;
-        if (!environmentPointSample(index, position, light, radiance)) continue;
-        float nl = max(dot(normal, light), 0.0);
-        vec3 halfway = view + light;
-        halfway /= sqrt(max(dot(halfway, halfway), 1e-8));
-        float nh = max(dot(normal, halfway), 0.0);
-        float vh = clamp(dot(view, halfway), 0.0, 1.0);
-        float alpha = roughness * roughness;
-        float alphaSquared = alpha * alpha;
-        float denominator = nh * nh * (alphaSquared - 1.0) + 1.0;
-        float distribution = alphaSquared / max(3.14159265 * denominator * denominator, 1e-5);
-        float k = (roughness + 1.0) * (roughness + 1.0) * 0.125;
-        float geometry = nv / max(nv * (1.0-k) + k, 1e-5) *
-                         nl / max(nl * (1.0-k) + k, 1e-5);
-        vec3 fresnel = f0 + (vec3(1.0, 1.0, 1.0)-f0) * pow(1.0-vh, 5.0);
-        vec3 specular = distribution * geometry * fresnel / max(4.0*nv*nl, 1e-4);
-        vec3 diffuse = (vec3(1.0, 1.0, 1.0)-fresnel) * (1.0-metallic) * albedo / 3.14159265;
-        result += (diffuse + specular) * radiance * nl;
-    }
-    vec3 tangent=rectTangent(normal,view);
-    vec2 lutUv=(vec2(clamp(roughness,0.0,1.0),sqrt(1.0-clamp(nv,0.0,1.0)))*63.0+0.5)/64.0;
-    vec4 ltc=ENV_RECT_LUT(vec2(lutUv.x*0.5,lutUv.y));
-    vec2 amplitude=ENV_RECT_LUT(vec2(0.5+lutUv.x*0.5,lutUv.y)).xy;
-    for (int index=0;index<16;++index) {
-        vec3 delta,u,v,radiance;
-        if (ENV_RECT(index*4+1).w>.5) {
-            float visibility=environmentLocalShadowVisibility(index,position,normal);
-            if (visibility>0.0) {
-                FiniteLightResponse response=environmentFiniteRectangle(index,position,normal,view,
-                    albedo,f0,roughness,metallic);
-                result+=(response.diffuse+response.specular)*visibility;
-            }
-            continue;
-        }
-        if (!environmentRectSample(index,position,delta,u,v,radiance)) continue;
-#if PHLOSION_EARLY_LOCAL_SHADOW
-        float visibility=environmentLocalShadowVisibility(index,position,normal);
-        if (visibility<=0.0) continue;
+    return environmentLocalPbr(position,normal,view,albedo,f0,roughness,metallic,1.0);
+}
+
+
+#ifndef CLUSTER_FORWARD_FALLBACK
+#define CLUSTER_FORWARD_FALLBACK true
 #endif
-        float diffuse=rectIntegral(delta,u,v,normal,tangent,vec4(1.0,0.0,0.0,1.0));
-        float specular=rectIntegral(delta,u,v,normal,tangent,ltc);
-        vec3 fresnel=f0*amplitude.x+(vec3(1.0,1.0,1.0)-f0)*amplitude.y;
-#if PHLOSION_EARLY_LOCAL_SHADOW
-        result+=radiance*((vec3(1.0,1.0,1.0)-f0)*(1.0-metallic)*albedo*diffuse+fresnel*specular)*visibility;
-#else
-        result+=radiance*((vec3(1.0,1.0,1.0)-f0)*(1.0-metallic)*albedo*diffuse+fresnel*specular)*environmentLocalShadowVisibility(index,position,normal);
-#endif
+// Direct-only reuse also serves custom primary shading with prepared GI.
+vec3 environmentStandardLocalDirectPbr(vec3 position,vec3 normal,vec3 view,
+        vec3 albedo,vec3 f0,float roughness,float metallic,vec3 diffuseFactor,float specularFactor) {
+    if (ENV_SUN.w<.5) return vec3(0.0,0.0,0.0);
+    if (dot(normal,view)<0.0) normal=-normal;
+    if (dot(normal,view)<=0.0) return vec3(0.0,0.0,0.0);
+    vec3 direct;
+    if (!worldClusteredDirectWeighted(position,diffuseFactor,specularFactor,direct) && CLUSTER_FORWARD_FALLBACK)
+        direct=environmentPreparedLocalDirectPbrWeighted(position,normal,view,albedo,f0,roughness,metallic,diffuseFactor,specularFactor);
+    return direct;
+}
+vec3 environmentStandardLocalPbr(vec3 position,vec3 normal,vec3 view,
+        vec3 albedo,vec3 f0,float roughness,float metallic,float occlusion,vec3 diffuseFactor,float specularFactor) {
+    if (ENV_SUN.w<.5) return vec3(0.0,0.0,0.0);
+    if (dot(normal,view)<0.0) normal=-normal;
+    if (dot(normal,view)<=0.0) return vec3(0.0,0.0,0.0);
+    return environmentStandardLocalDirectPbr(position,normal,view,albedo,f0,roughness,metallic,diffuseFactor,specularFactor)+
+        (vec3(1.0,1.0,1.0)-f0)*(1.0-metallic)*albedo*
+        environmentDiffuseProbeIrradiance(position,normal)*environmentDiffuseOcclusion(occlusion,albedo)/3.14159265;
+}
+vec3 environmentStandardLocalPbr(vec3 position,vec3 normal,vec3 view,
+        vec3 albedo,vec3 f0,float roughness,float metallic,float occlusion) {
+    return environmentStandardLocalPbr(position,normal,view,albedo,f0,roughness,metallic,occlusion,vec3(1.0,1.0,1.0),1.0);
+}
+
+// Evaluated leaf response shared by primary composition and other forward views.
+vec3 worldLightFoliageSurface(vec3 albedo,vec3 n,vec3 view,float transmission,
+        float roughness,vec3 position,vec3 camera,float reflectionWeight) {
+    FiniteLightResponse direct=worldFoliageDirectional(n,view,environmentLightDirection(),
+        environmentMoonIsPrimary()?ENV_CELESTIAL.y:ENV_CELESTIAL.x,albedo,roughness,clamp(transmission,0.0,1.0));
+    vec4 contact=worldContactVisibility(position,n,camera);
+    float visibility=worldContactDiffuseVisibility(contact,n,view);
+    vec4 contactResponse=worldContactResponse(visibility,worldContactSpecularVisibility(contact,n,view,roughness),transmission);
+    // Legacy diagnostic views retain their old ambient treatment.
+    float diffuseVisibility=worldContactPrepared()?contactResponse.x:1.0;
+    vec3 directContact=environmentDiffuseOcclusion(contactResponse.z,albedo);
+    vec3 ambient=worldIndirectEnabled()?worldIndirectAmbient(position,n):ENV_AMBIENT.rgb*(0.65+0.35*max(n.y,0.0));
+    vec3 color=albedo*ambient*environmentDiffuseOcclusion(diffuseVisibility,albedo);
+    color+=(direct.diffuse*directContact+direct.specular*contactResponse.w*environmentGlobalSpecularTint())*environmentLightRadiance();
+    if(CLUSTER_FORWARD_FALLBACK)
+        color+=environmentStandardLocalPbr(position,n,view,albedo,vec3(0.04,0.04,0.04),roughness,0.0,diffuseVisibility,directContact,contactResponse.w);
+    else
+        color+=environmentStandardLocalDirectPbr(position,n,view,albedo,vec3(0.04,0.04,0.04),roughness,0.0,directContact,contactResponse.w);
+    if(ENV_SUN.w>0.5) {
+        // Reflect the prepared screen/probe radiance with the evaluated leaf
+        // normal and roughness. Keep leaf transmission out of the grazing lobe.
+        vec4 coefficients=mix(vec4(1.0,1.0,0.0,0.0),ENV_REFLECTION_RESPONSE,
+            clamp(reflectionWeight*visibility,0.0,1.0));
+        vec2 dfg=environmentReflectionDfg(abs(dot(n,view)),roughness);
+        float grazing=clamp(50.0*(albedo.r+albedo.g+albedo.b),0.0,1.0);
+        grazing*=clamp(1.0-clamp(transmission,0.0,1.0)*(10.0-coefficients.y),0.0,1.0);
+        float responseScale=clamp(0.04*dfg.x*coefficients.x+
+            grazing*dfg.y*(coefficients.y+coefficients.w)+coefficients.z,0.0,1.0);
+        vec3 response=vec3(responseScale,responseScale,responseScale);
+        vec3 reflected=worldPreparedReflectionRadiance(ENV_AMBIENT.rgb*0.5,position,n,view,roughness);
+        color+=reflected*response*contactResponse.y;
     }
-    return result+(vec3(1.0,1.0,1.0)-f0)*(1.0-metallic)*albedo*
-        environmentDiffuseProbeIrradiance(position,normal)/3.14159265;
+    return color;
 }

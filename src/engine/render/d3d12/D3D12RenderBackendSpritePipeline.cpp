@@ -1,3 +1,4 @@
+#include "engine/render/d3d12/D3D12PipelinePreparation.h"
 #include "engine/render/D3D12RenderBackend.h"
 #include "engine/render/NeutralPmrem.h"
 #include "engine/render/d3d12/D3D12RenderBackendInternal.h"
@@ -25,6 +26,9 @@ void D3D12RenderBackend::createSpritePipeline() {
     srvDescriptorSize_ = device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     nextSrvDescriptorIndex_ = 0;
     spriteTextures_.clear();
+    preparedWorldGeometry_.clear();preparedWorldMaterials_.clear();
+    retainedWorldMaterialBindings_.clear();
+    releaseWorldRainMaps();
     worldTextures_.clear();
     worldDepthSnapshotDescriptor_ = 0xffffffffu;
     worldMaterialDescriptorBlocks_.clear();
@@ -146,7 +150,7 @@ void D3D12RenderBackend::createSpritePipeline() {
         !serializedRs) {
         throw std::runtime_error("D3D12SerializeRootSignature failed for sprite pipeline.");
     }
-    if (FAILED(device_->CreateRootSignature(0,
+    if (FAILED(engine::render::prepareRootSignature(device_.Get(), 0,
                                             serializedRs->GetBufferPointer(),
                                             serializedRs->GetBufferSize(),
                                             IID_PPV_ARGS(spriteRootSignature_.ReleaseAndGetAddressOf()))) ||
@@ -209,7 +213,7 @@ void D3D12RenderBackend::createSpritePipeline() {
     pso.NumRenderTargets = 1;
     pso.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
     pso.SampleDesc.Count = 1;
-    if (FAILED(device_->CreateGraphicsPipelineState(&pso,
+    if (FAILED(engine::render::prepareGraphicsPipeline(device_.Get(), &pso,
                                                     IID_PPV_ARGS(spritePipelineState_.ReleaseAndGetAddressOf()))) ||
         !spritePipelineState_) {
         throw std::runtime_error("CreateGraphicsPipelineState failed for D3D12 sprite pipeline.");
